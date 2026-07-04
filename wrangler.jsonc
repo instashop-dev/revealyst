@@ -1,41 +1,55 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  // Custom entrypoint wrapping the OpenNext handler to add the poller's
-  // scheduled + queue handlers (see src/worker.ts).
-  "main": "src/worker.ts",
-  "name": "revealyst",
-  "compatibility_date": "2026-06-01",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  "assets": {
-    "directory": ".open-next/assets",
-    "binding": "ASSETS"
-  },
-  // Poller architecture: Cron Trigger enqueues one message per connection;
-  // the queue consumer polls and writes. W0-B runs the no-op heartbeat.
-  "triggers": {
-    "crons": ["*/5 * * * *"]
-  },
-  "queues": {
-    "producers": [
-      {
-        "binding": "POLL_QUEUE",
-        "queue": "revealyst-poll"
-      }
-    ],
-    "consumers": [
-      {
-        "queue": "revealyst-poll",
-        "max_batch_size": 10,
-        "max_batch_timeout": 5
-      }
-    ]
-  },
-  "services": [
-    // Self-reference service binding required by the OpenNext cache
-    // interception path; the service name must match "name" above.
-    {
-      "binding": "WORKER_SELF_REFERENCE",
-      "service": "revealyst"
-    }
-  ]
+	"$schema": "node_modules/wrangler/config-schema.json",
+	// Custom entrypoint wrapping the OpenNext handler to add the poller's
+	// scheduled + queue handlers (see src/worker.ts).
+	"main": "src/worker.ts",
+	"name": "revealyst",
+	"compatibility_date": "2026-06-01",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	// Poller architecture: Cron Trigger enqueues one message per connection;
+	// the queue consumer polls and writes. W0-B runs the no-op heartbeat.
+	"triggers": {
+		"crons": [
+			"*/5 * * * *"
+		]
+	},
+	"queues": {
+		"producers": [
+			{
+				"binding": "POLL_QUEUE",
+				"queue": "revealyst-poll"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "revealyst-poll",
+				"max_batch_size": 10,
+				"max_batch_timeout": 5
+			}
+		]
+	},
+	"services": [
+		// Self-reference service binding required by the OpenNext cache
+		// interception path; the service name must match "name" above.
+		{
+			"binding": "WORKER_SELF_REFERENCE",
+			"service": "revealyst"
+		}
+	],
+	"hyperdrive": [
+		{
+			"binding": "HYPERDRIVE",
+			"id": "1f3ab3aa39ac4df793b5f8454fade3a2",
+			// Used only by `wrangler dev`; the zero-credential local loop
+			// (npm run dev:db) — never real Neon creds in this committed file.
+			"localConnectionString": "postgres://postgres:postgres@127.0.0.1:5432/postgres"
+		}
+	]
 }
