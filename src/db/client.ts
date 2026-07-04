@@ -25,11 +25,19 @@ export function createDb(env: DbEnv): Db {
       "No database configured: set the HYPERDRIVE binding or the DATABASE_URL secret",
     );
   }
+  // workerd's TLS doesn't implement rejectUnauthorized, which postgres.js
+  // sets for string ssl modes (sslmode=require → ERR_OPTION_NOT_IMPLEMENTED).
+  // An ssl *object* is passed through untouched, so default cert
+  // verification applies. Only for direct TLS URLs — Hyperdrive and the
+  // local dev db connect without client TLS.
+  const wantsTls =
+    !env.HYPERDRIVE && /[?&]sslmode=(require|prefer|allow)/.test(connectionString);
   const client = postgres(connectionString, {
     max: 1,
     prepare: false,
     connect_timeout: 10,
     idle_timeout: 20,
+    ...(wantsTls ? { ssl: {} } : {}),
   });
   return drizzle(client, { schema });
 }
