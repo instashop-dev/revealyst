@@ -6,4 +6,9 @@
 interface CloudflareEnv {
   DATABASE_URL?: string;
   HYPERDRIVE?: Hyperdrive;
+  // Auth secrets (wrangler secret / .dev.vars)
+  BETTER_AUTH_SECRET?: string;
+  BETTER_AUTH_URL?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
 }

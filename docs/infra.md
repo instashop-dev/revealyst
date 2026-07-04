@@ -45,3 +45,20 @@ Until step 3, the Worker falls back to `DATABASE_URL` (Worker secret via
 `npx wrangler secret put DATABASE_URL`, or `.dev.vars` locally) — see
 `src/db/client.ts`. Remove the fallback once Hyperdrive is bound (tracked as
 a W0-C hardening note: credentials contract).
+
+## 4. Auth secrets (unblocks: production login)
+1. `npx wrangler secret put BETTER_AUTH_SECRET` — 32+ char random string
+   (`openssl rand -base64 32`).
+2. `npx wrangler secret put BETTER_AUTH_URL` — the deployed origin
+   (e.g. `https://revealyst.<account>.workers.dev`, later the real domain).
+3. GitHub OAuth (social login): register an OAuth app at
+   github.com/settings/developers — callback URL
+   `<origin>/api/auth/callback/github` — then
+   `npx wrangler secret put GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`.
+   Email+password works without this; the GitHub button errors until set.
+   (This OAuth app is for *login* — separate from the Copilot-metrics
+   GitHub App in docs/approvals.md.)
+
+## 5. Queues (unblocks: production poller; needs Workers Paid)
+`npx wrangler queues create revealyst-poll` before the first deploy —
+the wrangler.jsonc producer/consumer config references it.

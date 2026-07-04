@@ -1,3 +1,12 @@
 # Copy to .dev.vars (gitignored). Used by `wrangler dev` / OpenNext preview.
 # Neon pooled connection string — fallback until the HYPERDRIVE binding exists.
+# (For the zero-credential loop use npm run dev:db and the URL it prints.)
 DATABASE_URL=postgres://user:password@host.neon.tech/dbname?sslmode=require
+
+# Better Auth (required): 32+ char random secret, and the app's origin.
+BETTER_AUTH_SECRET=generate-a-32-plus-character-random-secret
+BETTER_AUTH_URL=http://localhost:8787
+
+# GitHub OAuth (optional locally; founder registers the OAuth app).
+# GITHUB_CLIENT_ID=
+# GITHUB_CLIENT_SECRET=

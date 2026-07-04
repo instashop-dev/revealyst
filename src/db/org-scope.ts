@@ -1,6 +1,25 @@
 import { and, eq, type SQL } from "drizzle-orm";
 import type { Db } from "./client";
-import { pollHeartbeats } from "./schema";
+import { orgMembers, orgs, pollHeartbeats } from "./schema";
+
+/**
+ * Resolves a user's org membership — the one query that runs *before* an
+ * org scope exists (it's how the scope is established). Lives here so the
+ * tenancy seam stays in a single reviewed module.
+ */
+export async function membershipForUser(db: Db, userId: string) {
+  const [membership] = await db
+    .select({
+      orgId: orgMembers.orgId,
+      orgName: orgs.name,
+      role: orgMembers.role,
+    })
+    .from(orgMembers)
+    .innerJoin(orgs, eq(orgMembers.orgId, orgs.id))
+    .where(eq(orgMembers.userId, userId))
+    .limit(1);
+  return membership;
+}
 
 /**
  * Org-scoped repository layer — the tenancy rule's enforcement point.
