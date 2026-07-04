@@ -68,6 +68,16 @@ for (const back of [35, 95, 185, 400]) {
   if (r.status !== 200) break;
 }
 
+section("NLV-A13: /claude_code param style — single-day starting_at vs start_date/end_date range");
+{
+  const singleDay = await api(`/v1/organizations/usage_report/claude_code?starting_at=${isoDay(daysAgo(3))}&limit=5`);
+  finding("A13", "starting_at (single day)", { status: singleDay.status, rows: singleDay.body?.data?.length ?? 0 });
+  const range = await api(`/v1/organizations/usage_report/claude_code?start_date=${isoDay(daysAgo(9))}&end_date=${isoDay(daysAgo(2))}&limit=5`);
+  finding("A13", "start_date/end_date (7-day range)", { status: range.status, rows: range.body?.data?.length ?? 0, err: range.status !== 200 ? shape(range.body) : undefined });
+  const distinctDates = [...new Set((range.body?.data ?? []).map((r) => r.date))];
+  finding("A13", "distinct dates in range response (>1 = range variant live → 1-call backfill)", distinctDates.length);
+}
+
 section("NLV-A7: cost_type values in cost report (session_usage semantics)");
 {
   const start = daysAgo(30).toISOString();
