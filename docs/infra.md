@@ -1,11 +1,15 @@
 # Infrastructure setup — founder actions (W0-B)
 
-**Status (2026-07-05): production is live at https://revealyst.thapi.workers.dev.**
-Done: Cloudflare secrets (§1) ✅ · Neon + migrations 0000–0002 (§2) ✅ · auth
-secrets `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL` + `DATABASE_URL` as repo secrets,
-synced to the Worker by the Deploy workflow (§4.1–2) ✅ · `revealyst-poll` queue
-(§5) ✅ — verified: authenticated page in production and scheduled heartbeat rows
-landing in Neon. Open: Hyperdrive (§3) and the GitHub *login* OAuth app (§4.3).
+**Status (2026-07-05): production is live at https://revealyst.thapi.workers.dev
+— all infra items complete.** Done: Cloudflare secrets (§1) ✅ · Neon +
+migrations 0000–0002 (§2) ✅ · Hyperdrive `revealyst-neon` bound (§3) ✅ · auth
+secrets `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL` + `DATABASE_URL` (§4.1–2) and
+GitHub *login* OAuth `GH_OAUTH_CLIENT_ID`/`GH_OAUTH_CLIENT_SECRET` (§4.3) as repo
+secrets, synced to the Worker by the Deploy workflow ✅ · `revealyst-poll` queue
+(§5) ✅ — verified: authenticated page + scheduled heartbeat rows landing in Neon,
+and the production GitHub sign-in returns a valid authorize URL. Remaining W0-C
+hardening (not an infra-setup item): remove the `DATABASE_URL` Worker-runtime
+fallback + TLS workaround in `src/db/client.ts` now that Hyperdrive is bound.
 
 ## 1. Cloudflare (unblocks: preview deploys, production deploy)
 1. Create/log into the Cloudflare account; note the **Account ID**. ✅
@@ -37,7 +41,8 @@ Data vanishes on exit — dev convenience only, never a Neon substitute.
 4. Run migrations: `DATABASE_URL=<pooled-url> npx drizzle-kit migrate`.
    Migrations always run from local/CI, never from the Worker.
 
-## 3. Hyperdrive (unblocks: pooled DB access from the Worker; do after 1+2)
+## 3. Hyperdrive (unblocks: pooled DB access from the Worker; do after 1+2) ✅
+Bound as `revealyst-neon` (id `1f3ab3aa39ac4df793b5f8454fade3a2`), PR #13.
 1. `npx wrangler hyperdrive create revealyst-neon --connection-string="<neon-direct-url>"`
 2. Add to `wrangler.jsonc`:
    ```jsonc
@@ -63,8 +68,12 @@ a W0-C hardening note: credentials contract).
    (e.g. `https://revealyst.<account>.workers.dev`, later the real domain).
 3. GitHub OAuth (social login): register an OAuth app at
    github.com/settings/developers — callback URL
-   `<origin>/api/auth/callback/github` — then
-   `npx wrangler secret put GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`.
+   `<origin>/api/auth/callback/github` — then `npx wrangler secret put
+   GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`. ✅ Done via repo secrets
+   `GH_OAUTH_CLIENT_ID` / `GH_OAUTH_CLIENT_SECRET`, which the Deploy workflow
+   syncs to the Worker's `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`
+   (`.github/workflows/deploy.yml`). Prod origin
+   `https://revealyst.thapi.workers.dev`.
    Email+password works without this; the GitHub button errors until set.
    (This OAuth app is for *login* — separate from the Copilot-metrics
    GitHub App in docs/approvals.md.)
