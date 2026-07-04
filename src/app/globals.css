@@ -19,3 +19,32 @@ main {
   opacity: 0.6;
   font-size: 0.875rem;
 }
+
+.auth-form {
+  display: grid;
+  gap: 0.5rem;
+  max-width: 20rem;
+  margin: 1rem auto;
+}
+
+.auth-form input,
+.auth-form button {
+  padding: 0.5rem 0.75rem;
+  font: inherit;
+}
+
+.error {
+  color: #c0392b;
+  font-size: 0.875rem;
+}
+
+.link {
+  background: none;
+  border: none;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  opacity: 0.8;
+  display: block;
+  margin: 0.25rem auto;
+}
