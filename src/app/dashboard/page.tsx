@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createDb } from "@/db/client";
-import { membershipForUser } from "@/db/org-scope";
+import { ensureOrgOfOne } from "@/db/org-scope";
 import { getAuth } from "@/lib/auth";
 
 // Authenticated pages can't prerender: session + Cloudflare env exist only
@@ -19,7 +19,9 @@ export default async function DashboardPage() {
   }
 
   const db = createDb(getCloudflareContext().env);
-  const membership = await membershipForUser(db, session.user.id);
+  // Self-heals a user whose signup-time org bootstrap failed (the auth
+  // `after` hook runs post-commit and can't be rolled back into the signup).
+  const membership = await ensureOrgOfOne(db, session.user);
 
   return (
     <main>

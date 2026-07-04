@@ -2,6 +2,7 @@ import {
   boolean,
   index,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uuid,
@@ -10,7 +11,8 @@ import { orgs } from "./schema";
 
 // Better Auth core tables (shape per its Drizzle generator; singular names).
 // Auth-owned tables — application queries still go through the org-scoped
-// layer; these are only touched by Better Auth and the signup hook.
+// layer; these are written only by Better Auth and the org-bootstrap path,
+// and read outside that only via src/db/org-scope.ts (membershipForUser).
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -116,5 +118,10 @@ export const orgMembers = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [index("org_members_user_id_idx").on(table.userId)],
+  (table) => [
+    // Composite PK: a person joins an org once; makes membership writes
+    // idempotent under signup-hook retries.
+    primaryKey({ columns: [table.orgId, table.userId] }),
+    index("org_members_user_id_idx").on(table.userId),
+  ],
 );

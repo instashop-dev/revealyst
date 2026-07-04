@@ -2,8 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createDb, type Db } from "../db/client";
-import { orgMembers } from "../db/auth-schema";
-import { orgs } from "../db/schema";
+import { ensureOrgOfOne } from "../db/org-scope";
 
 type AuthEnv = {
   BETTER_AUTH_SECRET?: string;
@@ -40,16 +39,11 @@ export function createAuth(db: Db, env: AuthEnv) {
         create: {
           // Personal mode = an org of one, identical machinery to Team:
           // every signup gets an org and an admin membership immediately.
+          // `after` hooks run post-commit (a failure here can't roll back
+          // the user), so bootstrap is idempotent and re-run on demand by
+          // any session-bearing page that finds no membership.
           after: async (newUser) => {
-            const [org] = await db
-              .insert(orgs)
-              .values({ name: newUser.name || newUser.email })
-              .returning();
-            await db.insert(orgMembers).values({
-              orgId: org.id,
-              userId: newUser.id,
-              role: "admin",
-            });
+            await ensureOrgOfOne(db, newUser);
           },
         },
       },

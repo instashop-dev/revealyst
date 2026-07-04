@@ -17,7 +17,43 @@ export async function membershipForUser(db: Db, userId: string) {
     .from(orgMembers)
     .innerJoin(orgs, eq(orgMembers.orgId, orgs.id))
     .where(eq(orgMembers.userId, userId))
+    .orderBy(orgMembers.createdAt)
     .limit(1);
+  return membership;
+}
+
+/**
+ * Creates a user's org of one + admin membership if they have none, and
+ * returns their membership. Transactional (no org without membership) and
+ * idempotent (re-running returns the existing membership) — Better Auth's
+ * `after` hooks run post-commit, so a hook failure must be recoverable on
+ * the next request rather than leaving the user permanently org-less.
+ * Concurrent first requests can still race to create two orgs; the
+ * earliest-created membership wins deterministically via the orderBy above.
+ * W0-C's frozen contract should close that race properly.
+ */
+export async function ensureOrgOfOne(
+  db: Db,
+  user: { id: string; name?: string | null; email: string },
+) {
+  const existing = await membershipForUser(db, user.id);
+  if (existing) {
+    return existing;
+  }
+  await db.transaction(async (tx) => {
+    const [org] = await tx
+      .insert(orgs)
+      .values({ name: user.name || user.email })
+      .returning();
+    await tx
+      .insert(orgMembers)
+      .values({ orgId: org.id, userId: user.id, role: "admin" })
+      .onConflictDoNothing();
+  });
+  const membership = await membershipForUser(db, user.id);
+  if (!membership) {
+    throw new Error(`org bootstrap failed for user ${user.id}`);
+  }
   return membership;
 }
 
