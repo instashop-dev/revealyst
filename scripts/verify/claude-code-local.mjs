@@ -20,7 +20,12 @@ for (const root of roots) {
   if (!existsSync(projects)) continue;
 
   const dirs = readdirSync(projects).slice(0, 50);
-  console.log(`[L1] project-dir encoding samples (POSIX cwd encoding check): ${JSON.stringify(dirs.slice(0, 5))}`);
+  // Privacy: never print dir names — they encode absolute paths. Report only
+  // the structural pattern needed to verify the POSIX cwd-encoding scheme.
+  const encodingPattern = dirs.slice(0, 5).map(
+    (d) => `len=${d.length} leadingDash=${d.startsWith("-")} dashCount=${(d.match(/-/g) ?? []).length}`,
+  );
+  console.log(`[L1] project dirs: ${dirs.length}; encoding pattern (names redacted): ${JSON.stringify(encodingPattern)}`);
 
   const typeCounts = {};
   const versions = new Set();
