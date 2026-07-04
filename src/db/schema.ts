@@ -32,3 +32,7 @@ export const pollHeartbeats = pgTable("poll_heartbeats", {
     .notNull()
     .default(sql`now()`),
 });
+
+// Auth tables last: auth-schema imports orgs from this module, so the
+// re-export must come after orgs is initialized (circular-import order).
+export * from "./auth-schema";
