@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": ".open-next/worker.js",
+  "name": "revealyst",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    // Self-reference service binding required by the OpenNext cache
+    // interception path; the service name must match "name" above.
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "revealyst"
+    }
+  ]
+}
