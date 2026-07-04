@@ -5,11 +5,18 @@ Postgres (PGlite); connecting real infrastructure requires accounts and
 credentials only the founder holds. Each item below unblocks the noted piece.
 
 ## 1. Cloudflare (unblocks: preview deploys, production deploy)
-1. Create/log into the Cloudflare account; note the **Account ID**.
-2. Create an API token with the **Edit Cloudflare Workers** template.
-3. Add GitHub repo secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
+1. Create/log into the Cloudflare account; note the **Account ID**. ✅
+2. Create an API token with the **Edit Cloudflare Workers** template. ✅
+3. Add GitHub repo secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`. ✅
    CI's preview-deploy job activates automatically once these exist.
-4. First production deploy: `npm run deploy` locally (or a later CD step).
+4. **Production deploy — run the `Deploy` workflow** (Actions tab →
+   Deploy → Run workflow, or `gh workflow run deploy.yml`). It runs
+   migrations (if `DATABASE_URL` repo secret is set), creates the
+   `revealyst-poll` queue (needs Workers Paid), deploys, and syncs Worker
+   secrets from these optional repo secrets: `DATABASE_URL`,
+   `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GH_OAUTH_CLIENT_ID`,
+   `GH_OAUTH_CLIENT_SECRET`. Add those before (or re-run after) so the
+   deployed Worker can reach the database and issue sessions.
 
 ## 0. No-credential local loop (works today)
 `npm run dev:db` starts an in-memory Postgres (PGlite behind a wire-protocol
