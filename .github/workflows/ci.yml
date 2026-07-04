@@ -19,10 +19,12 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm test
+      # Build first: cloudflare-env.d.ts references the built worker module,
+      # so typecheck needs .open-next to exist.
       - name: Build Workers bundle
         run: npx opennextjs-cloudflare build
+      - run: npm run typecheck
+      - run: npm test
 
   preview-deploy:
     # Uploads a new Worker version (not deployed to the live route) and
