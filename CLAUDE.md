@@ -15,6 +15,13 @@ contracts. Every session auto-loads this file — it is the interface between ag
 - Polling via **Cron Triggers → Queues** (one queue message per connection).
 - Single database, `org_id` on every row. **Personal mode = an org of one** —
   identical machinery to Team.
+- **Production (live since W0-B):** https://revealyst.thapi.workers.dev — deploy via
+  the manual `Deploy` GitHub workflow (migrations → queue → deploy → Worker-secret
+  sync from repo secrets); CI uploads a preview version per PR. Founder infra steps
+  + local no-credential dev loop (`npm run dev:db`): `docs/infra.md`.
+- Windows dev machine: OpenNext builds use webpack, not Turbopack (adapter's chunk
+  patching breaks on Win — see `open-next.config.ts`); DB/auth clients are created
+  per request, never cached at module scope (Workers cancel cross-request I/O).
 
 ## Operating model — rules 1–7 (from the execution plan)
 1. **Contracts before fan-out.** No W1+ workstream starts until W0-C is frozen.

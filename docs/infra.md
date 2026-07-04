@@ -1,8 +1,11 @@
 # Infrastructure setup — founder actions (W0-B)
 
-The walking skeleton's code paths are complete and tested against in-memory
-Postgres (PGlite); connecting real infrastructure requires accounts and
-credentials only the founder holds. Each item below unblocks the noted piece.
+**Status (2026-07-05): production is live at https://revealyst.thapi.workers.dev.**
+Done: Cloudflare secrets (§1) ✅ · Neon + migrations 0000–0002 (§2) ✅ · auth
+secrets `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL` + `DATABASE_URL` as repo secrets,
+synced to the Worker by the Deploy workflow (§4.1–2) ✅ · `revealyst-poll` queue
+(§5) ✅ — verified: authenticated page in production and scheduled heartbeat rows
+landing in Neon. Open: Hyperdrive (§3) and the GitHub *login* OAuth app (§4.3).
 
 ## 1. Cloudflare (unblocks: preview deploys, production deploy)
 1. Create/log into the Cloudflare account; note the **Account ID**. ✅
