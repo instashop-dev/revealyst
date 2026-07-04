@@ -14,14 +14,33 @@ function readWranglerConfig() {
     main: string;
     compatibility_flags: string[];
     services: { binding: string; service: string }[];
+    triggers: { crons: string[] };
+    queues: {
+      producers: { binding: string; queue: string }[];
+      consumers: { queue: string }[];
+    };
   };
 }
 
 describe("wrangler.jsonc", () => {
   const config = readWranglerConfig();
 
-  it("points at the OpenNext worker entrypoint", () => {
-    expect(config.main).toBe(".open-next/worker.js");
+  it("points at the custom worker entrypoint", () => {
+    expect(config.main).toBe("src/worker.ts");
+  });
+
+  it("has a cron trigger for the poller", () => {
+    expect(config.triggers.crons.length).toBeGreaterThan(0);
+  });
+
+  it("produces to and consumes from the same poll queue", () => {
+    const producer = config.queues.producers.find(
+      (p) => p.binding === "POLL_QUEUE",
+    );
+    expect(producer).toBeDefined();
+    expect(
+      config.queues.consumers.some((c) => c.queue === producer?.queue),
+    ).toBe(true);
   });
 
   it("keeps nodejs_compat enabled", () => {

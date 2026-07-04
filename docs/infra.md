@@ -11,6 +11,13 @@ credentials only the founder holds. Each item below unblocks the noted piece.
    CI's preview-deploy job activates automatically once these exist.
 4. First production deploy: `npm run deploy` locally (or a later CD step).
 
+## 0. No-credential local loop (works today)
+`npm run dev:db` starts an in-memory Postgres (PGlite behind a wire-protocol
+socket) with migrations applied; point `.dev.vars` `DATABASE_URL` at
+`postgres://postgres:postgres@127.0.0.1:5432/postgres` and `wrangler dev
+--test-scheduled` exercises the full cron → queue → heartbeat path locally.
+Data vanishes on exit — dev convenience only, never a Neon substitute.
+
 ## 2. Neon Postgres (unblocks: real database)
 1. Create a Neon project (region close to the Cloudflare Workers region you
    expect to serve from; EU per the positioning).
