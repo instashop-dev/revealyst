@@ -1,0 +1,3 @@
+# Copy to .dev.vars (gitignored). Used by `wrangler dev` / OpenNext preview.
+# Neon pooled connection string — fallback until the HYPERDRIVE binding exists.
+DATABASE_URL=postgres://user:password@host.neon.tech/dbname?sslmode=require

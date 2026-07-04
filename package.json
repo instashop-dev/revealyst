@@ -15,14 +15,18 @@
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.20.1",
+    "drizzle-orm": "^0.45.2",
     "next": "16.2.10",
+    "postgres": "^3.4.9",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
     "@types/node": "^26.1.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9",
     "wrangler": "^4.107.0"
@@ -31,6 +35,7 @@
     "esbuild@0.25.4": true,
     "esbuild@0.28.1": true,
     "sharp@0.34.5": true,
-    "workerd@1.20260701.1": true
+    "workerd@1.20260701.1": true,
+    "esbuild@0.18.20": true
   }
 }
