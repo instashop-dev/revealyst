@@ -1,0 +1,10 @@
+# Gitignored files every worktree/background session needs to be runnable.
+# Background sessions auto-create worktrees; this file copies these into each so
+# the session runs without manual setup. Add real paths as the skeleton lands (W0-B).
+# One glob per line; comments allowed.
+
+.env
+.env.local
+.dev.vars          # Cloudflare Workers local secrets (wrangler)
+.wrangler/         # local Workers/Queues state, if used
+certs/             # local TLS certs, if any

@@ -1,9 +1,11 @@
 # Revealyst — Business & Technical Feasibility Study
 
-**Version:** 1.1 · **Date:** July 3, 2026
-**Subject:** Revealyst — AI Workforce Intelligence Platform (per `Revealyst_Product_Spec_V1.docx`)
-**Operating constraint:** Solo founder, bootstrapped (funded by revenue from other SaaS products)
-**Changelog:** v1.1 — added Section 7 (adoption + capability-led pivot assessment); revised recommended V1 shape, module table, and modifications accordingly.
+**Version:** 1.2 · **Date:** July 4, 2026
+**Subject:** Revealyst — AI Workforce Intelligence Platform (per `Revealyst_Product_Spec_V1.docx`; superseded positioning now in [Revealyst_Product_Spec_V2.md](Revealyst_Product_Spec_V2.md))
+**Operating constraint:** Solo founder, bootstrapped (funded by revenue from other SaaS products). **Build is now executed by parallel AI coding agents** orchestrated by the founder; sell and support remain solo (see Section 8).
+**Changelog:**
+- v1.2 — added Section 8 reconciling this study with the V2.3 spec and execution plan: parallel-AI-agent build (re-reads the effort/timeline verdict), removal of the pre-build validation gate (Section 6), and Paddle Merchant-of-Record billing (Section 2.4/2.5). Effort estimates below are retained as the *solo-human baseline* and annotated where the agent model changes them.
+- v1.1 — added Section 7 (adoption + capability-led pivot assessment); revised recommended V1 shape, module table, and modifications accordingly.
 
 ---
 
@@ -19,6 +21,8 @@
 | Capability pillar | Individual prompt-quality scoring | Legally hazardous in the EU (AI Act high-risk classification, works councils, GDPR DPIA) and technically the hardest module |
 
 **Recommended reshape (revised in v1.1):** Launch as a **cross-vendor AI adoption + fluency dashboard for engineering-led SMEs** — with spend kept as the onboarding hook and score denominator, not as a headline module — built on the four integrations where per-user APIs actually exist for SME-tier customers (OpenAI, Anthropic/Claude Code, GitHub Copilot, Cursor). PLG with a free tier. TypeScript monolith on managed infrastructure. Capability ships in V1 as a privacy-safe **AI Fluency Score** built from API-exposed behavioral signals (no prompt content); deep prompt-quality analysis stays deferred. Custom Index Builder moves to V1.5, and the industry benchmark network to when there's a customer base to power it. A descoped V1 of this shape is a realistic **3–4 month solo build**. See Section 7 for the full pivot rationale.
+
+> **v1.2 update:** the "not feasible for a solo founder" verdict above was premised on *human* build time (18–30 person-months). With V1 now built by **parallel AI coding agents** (Section 8), the build-effort constraint largely dissolves and the verdict on that dimension moves from *conditionally feasible* toward *feasible*. The binding constraints shift rather than vanish — to agent-code correctness (integration/tenancy/security testing), solo maintenance-and-support load, and un-parallelizable external-approval clocks. The descoping recommendations still stand, but now for **maintenance-and-support discipline**, not build capacity.
 
 ---
 
@@ -82,6 +86,7 @@ The richest per-user telemetry sits behind **enterprise plan gates**, while the 
 - **$499/mo flat with no free tier** is above SME willingness at 25–50 employees ($6K/yr flat) and only maps to norms (~$5/employee/mo) above ~100 employees. Expect strong pressure toward a free/low tier.
 - The $1,999 Growth tier is defensible against Jellyfish/DX per-seat pricing at 250–500 employees — but that's a later-stage tier, not a launch tier.
 - **Solo-founder constraint:** a sales-led motion (demos, security questionnaires, procurement) does not scale for one person. Self-serve PLG — free tier, connect an API key in minutes, upgrade in-app — is the only viable motion.
+- **Billing via a Merchant of Record (v1.2):** the V2.3 spec settles this on **Paddle as MoR**. For a solo founder selling self-serve into the EU, this removes per-country VAT registration and remittance — a real operational-feasibility win, not just a convenience. Scope note: MoR covers the *transaction* (tax, invoicing, chargebacks); it does **not** touch the product's own data-processing/AI-Act obligations in 2.5.
 
 ### 2.5 Privacy & regulatory exposure (business-critical)
 
@@ -160,9 +165,12 @@ That is 3 languages, 4 datastores, and a streaming platform — a platform-team 
 
 ## 6. Recommended Next Steps
 
-1. Validate the reshaped wedge with 10–15 CTO/VP Eng conversations: "Would you connect your Copilot/Cursor/OpenAI/Anthropic admin keys to see one cross-vendor spend + adoption dashboard? What would you pay?"
-2. Rewrite the product spec (V2) incorporating the modifications above.
-3. Prototype the two hardest connectors first (OpenAI attribution, Anthropic OAuth-user gap) to de-risk the normalization schema before building UI.
+*Status (v1.2): step 2 is done ([Spec V2.3](Revealyst_Product_Spec_V2.md)); step 1's pre-build validation gate has been **deliberately dropped** — see Section 8.2. Remaining steps re-framed for the agent-execution model.*
+
+1. ~~Validate the reshaped wedge with 10–15 CTO/VP Eng conversations~~ **— superseded.** The team has chosen to build without a pre-build validation gate and read the wedge from live post-launch signals (activation, share-card virality, Personal→Team conversion) instead. This is a speed-for-certainty trade the study flags as a real, accepted risk (Section 8.2).
+2. ~~Rewrite the product spec (V2)~~ **— done** ([Spec V2.3](Revealyst_Product_Spec_V2.md)); execution detail in [the execution plan](Revealyst_Execution_Plan.md).
+3. Prototype the two hardest connectors first (OpenAI attribution, Anthropic OAuth-user gap) to de-risk the normalization schema before building UI — retained, and now the substance of the plan's Wave 0 vendor fact-finding and Wave 1 foundation.
+4. **(New) Fire the un-parallelizable clocks immediately** — GitHub App / OAuth review at project start; Paddle MoR onboarding the moment a live site exists; legal ToS/DPA pass in parallel. In an agent-built project these external reviews, not code, are the critical path (Section 8.1).
 
 ---
 
@@ -204,6 +212,32 @@ Section 3.2 originally deferred capability because the spec's version (prompt-qu
 - **Pricing:** adoption/capability value scales with headcount → per-tracked-user pricing (free ≤10 users → ~$3–5/user/mo) is more natural than flat tiers.
 - **Benchmarks become load-bearing:** a fluency score is meaningless without comparison. V1 ships with thresholds seeded from published data (Copilot acceptance-rate norms, Worklytics/Section adoption benchmarks); customer-network benchmarks remain V3.
 - **Risk shift:** privacy risk rises slightly — scoring people is nearer the EU AI Act line even without content capture, so the team-level default is now load-bearing, not nice-to-have. Vendor-commoditization risk falls materially. Build effort is roughly unchanged (~3–4 months solo) since the fluency score reuses the same connector data.
+
+---
+
+## 8. Reconciliation with V2.3 Spec & Execution Plan (v1.2 addendum)
+
+Three post-spec decisions change assumptions this study was built on. This section states how each moves the feasibility picture — honestly, including where it *raises* risk.
+
+### 8.1 Execution model: parallel AI coding agents
+The original verdict ("not feasible for a solo founder" → feasible only after descoping to a 3–4-month solo build) treated **human build time** as the scarce resource. That resource is now largely relieved: V1 is built by parallel AI agents against frozen contracts (see the execution plan's Wave 0 → Wave 3 structure).
+
+**What improves:** the 18–30-person-month concern (Sections 1, 3.2) no longer gates launch. Multiple connectors, the scoring engine, and both dashboards can be built concurrently rather than serially.
+
+**What the constraint becomes** — the feasibility question shifts from *"can one person build this in time?"* to three new questions, each with a mitigation already in the plan:
+- **Agent-code correctness at the seams.** Parallel agents each pass their own tests but leak defects at integration points, and a single missing `org_id` filter is a cross-tenant leak. Mitigation: enforced tenant isolation (RLS/mandatory-scoping) and encrypted-credential storage are *frozen W0 contracts*, and a standing integration/E2E harness owns the seams.
+- **Solo maintenance and support.** Agents build V1; a human maintains and supports it forever. This is *why the descoping and scope-tripwires in Section 5 still bind* — not for build capacity, but so one person can keep it alive. This is the single most important carry-over from the original verdict.
+- **External-approval clocks.** With build fast, the true critical path is the review clocks that cannot be parallelized (GitHub App, Paddle MoR, legal). See 8.1's reflection in Next-Steps #4.
+
+**Net:** on the build dimension the verdict strengthens; the overall verdict stays *conditionally feasible*, but the condition is now maintenance/support discipline and agent-output quality assurance, not engineering throughput.
+
+### 8.2 No pre-build validation gate
+This study's #1 recommended next step was 10–15 CTO validation conversations before heavy build. The team has chosen to **skip that gate** and validate from live self-serve signals post-launch.
+
+This is a genuine risk increase, stated plainly: the fluency-wedge thesis (Sections 2, 7) — that a cross-vendor fluency score is a paid-for need, not just a nice dashboard — is now tested only *after* the product is public. The rationale that makes this defensible: (a) agent execution makes the build itself cheap, so "build to learn" is far less costly than when it implied 18–30 person-months; (b) the PLG motion (free Personal mode, ≤10-user free Team band) is itself a validation instrument that returns real behavioral signal, which is stronger evidence than interview intent; (c) the connectors and normalized metrics model are useful under any positioning outcome, so the foundational build is not wasted if the wedge needs re-aiming. The residual exposure — building the *scoring/positioning* layer on an untested thesis — is real and accepted, and is why the plan keeps score definitions cheap-to-change versioned data.
+
+### 8.3 Paddle as Merchant of Record
+Section 2.5 flagged EU regulatory exposure as business-critical. Paddle-as-MoR (spec §11–§12) removes one concrete slice of the solo-operational burden — VAT/sales-tax registration, collection, and remittance across jurisdictions — which is a feasibility positive for a bootstrapped solo seller. It is deliberately **narrow**: MoR handles the sale and its taxes; the AI-Act/works-council/GDPR-DPIA obligations in 2.5 are product-data-processing concerns Paddle does not address and that the spec's privacy-by-default architecture (§7) still has to carry.
 
 ---
 

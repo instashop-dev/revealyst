@@ -1,0 +1,19 @@
+# Machine-local Claude Code runtime state
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Secrets / local env (see .worktreeinclude — copied into worktrees, never committed)
+.env
+.env.*
+.dev.vars
+certs/
+
+# Node / Next.js / Cloudflare (arrives with the W0-B skeleton)
+node_modules/
+.next/
+.open-next/
+.wrangler/
+dist/
+build/
+*.log

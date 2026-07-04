@@ -1,10 +1,12 @@
 # Revealyst — Product Specification (V2)
 
-**Version:** 2.2 · **Date:** July 3, 2026
+**Version:** 2.3 · **Date:** July 4, 2026
 **Supersedes:** Revealyst Product Specification V1 (`Revealyst_Product_Spec_V1.docx`)
 **Basis:** Revised per the Business & Technical Feasibility Study v1.1 ([docs/Revealyst_Feasibility_Study.md](Revealyst_Feasibility_Study.md)) and subsequent analysis of single-vendor analytics, shared-account attribution, cross-functional expansion, and individual (Personal-mode) usage.
-**Operating constraint:** Solo founder, bootstrapped. Every scope decision is filtered through "can one person build, sell, and support this?"
+**Execution model:** V1 is built by **parallel AI coding agents** orchestrated by the founder (see [docs/Revealyst_Execution_Plan.md](Revealyst_Execution_Plan.md)), and ships **without a pre-build customer-validation gate** — the positioning and pricing in this spec are taken as the working thesis.
+**Operating constraint:** Solo founder, bootstrapped. Build capacity is amplified by AI agents, but *sell and support remain solo* — so every scope decision is still filtered through "can one person sell and support this, and keep it maintained?" The scope tripwires (fewest connectors, no browser extension/proxy, no second funnel) exist because a solo maintainer, not an agent fleet, carries V1 forever.
 **Changelog:**
+- v2.3 — set the execution model to parallel AI agents and removed the pre-build customer-validation gate (header, §15); named **Paddle as the payment processor and Merchant of Record** for global tax/VAT handling (§11, §12).
 - v2.2 — resolved six review comments with mid-2026 research: rejected browser-extension and prompt-content ingestion for Team on positioning/legal/maintenance grounds and rehomed both in Personal mode (§7, §10, §6a.5); excluded Chinese-vendor tools (no admin APIs) (§10); held Team pricing at $3–5 with a time-boxed founder option (§11); made score definitions versioned data so the V1.5 Index Builder is UI-only (§8, §12); consolidated the stack to Cloudflare-first + managed Postgres (§12).
 - v2.1 — added Personal mode (§6a) as the PLG entry point; reframed pricing as Personal → Team → Enterprise; updated change-table, market, integrations, and roadmap.
 
@@ -225,6 +227,8 @@ V1 replaces the unmeasurable ALR (Business Value / AI Spend) with a measurable p
 
 Value scales with headcount, so **per-tracked-user** pricing fits better than flat tiers. Personal is the free individual on-ramp; Team's ≤10-user free band lets a small team form organically before paying. Self-serve signup and in-app upgrade throughout — no sales-led motion required below Enterprise.
 
+**Billing runs on Paddle as Merchant of Record (§12).** Paddle is the seller of record and handles global sales-tax/VAT collection and remittance, so a solo founder selling into the EU avoids per-country tax registration — a natural fit with the EU-safe positioning (§7). Team is modelled as a quantity-based subscription metered on tracked-user count; the time-boxed founder rate (~$2/user) is a Paddle discount, never a separate low list price.
+
 **Hold the Team list price at $3–5; do not launch a permanent $1–3 rate.** At $3–5 Revealyst is already the cheapest option in the category by 3–10× (WakaTime $8.25/user; Jellyfish $35–50/dev; Worklytics ~$2.5K/mo floor; Larridin $50K+/yr) — a $1–3 list unlocks no buyer segment that $3–5 excludes, while sub-$5 signals low value and the revenue math bites a solo founder (100 teams at the bottom of the band ≈ $5K MRR against 100 customers' support load). COGS is cents per tracked user, so this is a positioning choice, not a margin one, and adoption friction here is trust + connector setup, not price — the free Personal and ≤10-user bands are the real adoption levers. If cheap-to-start pressure is real, use **time-boxed, publicly sunset-dated founder / design-partner pricing (~$2/user)** rather than a low list price — repricing upward from a low anchor is well-documented pain. Expansion should come from **feature depth** (team benchmarks, coaching, custom indexes) and headcount growth, **not** from raising the per-user rate.
 
 ---
@@ -235,6 +239,7 @@ Value scales with headcount, so **per-tracked-user** pricing fits better than fl
 - **Hosting: Cloudflare-first.** Workers via the OpenNext Cloudflare adapter (1.0 GA, Feb 2026 — Node runtime, production-ready) host the monolith; **Cron Triggers + Queues** run the connector pollers (Queues allow minutes of wall-time, enough for polls/backfills); **Cloudflare Containers** (GA Apr 2026) are the escape hatch for anything long-running. No Kubernetes, no self-managed compute estate.
 - **Data:** **managed PostgreSQL** reached through Cloudflare **Hyperdrive** connection pooling (included in Workers Paid). Start on **Neon** (post-Databricks: no monthly floor, generous free tier) — because all access goes through Hyperdrive, swapping to **AWS RDS** later (e.g., to spend AWS credits or for an AWS data-residency story) is a connection-string change, not a migration. Note: Cloudflare has no native Postgres (D1 is SQLite — wrong tool here). Add TimescaleDB/ClickHouse only when a real customer's volume demands it.
 - **Vendor surface (intentionally small):** Cloudflare (compute, jobs, pooling) + managed Postgres, with **AWS reserved for RDS / S3 / SES** if and when needed. This satisfies an "AWS + Cloudflare only" consolidation goal while keeping the app off the weaker AWS app-hosting options (App Runner in maintenance mode; Amplify's Next.js DX is poor).
+- **Payments:** **Paddle Billing as Merchant of Record** — overlay checkout + webhooks drive entitlement state in Postgres; Paddle owns global tax/VAT (§11). The only reason to add a second processor later is a capability Paddle lacks, not cost.
 - **Scores are versioned data evaluated by a generic engine** (see §8), not bespoke per-score code — so the V1.5 Custom Index Builder is UI over an existing engine.
 - **No** separate Python ML service in V1 (there is no ML in V1; scores are deterministic formulas).
 
@@ -267,7 +272,9 @@ Value scales with headcount, so **per-tracked-user** pricing fits better than fl
 - Time-to-first-insight under 10 minutes from signup (connect a key → see consolidated spend + adoption).
 - A CTO can answer "who's using AI, how well, and are we getting our money's worth" without a call.
 - The Fluency Score is credible enough that a team lead acts on a coaching recommendation.
-- 10–15 validating CTO conversations completed before heavy build (per the feasibility study's recommended next step).
+- Self-serve conversion works end to end: Personal signup → live score → Team upgrade through Paddle checkout, with no founder in the loop.
+
+*Note: V1 ships without the pre-build CTO-validation gate that earlier drafts (and the feasibility study) recommended. Validation is instead read from live self-serve signals — activation, share-card virality, and Personal→Team conversion — after launch. This trades pre-build certainty for speed, accepting the risk that the fluency-wedge thesis is only tested once the product is public.*
 
 ---
 
