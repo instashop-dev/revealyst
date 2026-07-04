@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Build Workers bundle
+        run: npx opennextjs-cloudflare build
+
+  preview-deploy:
+    # Uploads a new Worker version (not deployed to the live route) and
+    # surfaces its preview URL. Skips gracefully until the founder adds the
+    # Cloudflare secrets — forks and pre-credential PRs still get CI green.
+    if: github.event_name == 'pull_request'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check Cloudflare credentials
+        id: creds
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN not set — skipping preview deploy"
+          fi
+      - if: steps.creds.outputs.available == 'true'
+        run: npm ci
+      - if: steps.creds.outputs.available == 'true'
+        run: npx opennextjs-cloudflare build
+      - name: Upload preview version
+        if: steps.creds.outputs.available == 'true'
+        id: upload
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler versions upload --message "PR #${{ github.event.pull_request.number }}" | tee upload.log
+          url=$(grep -oE 'https://[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev' upload.log | head -1 || true)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      - name: Comment preview URL
+        if: steps.creds.outputs.available == 'true' && steps.upload.outputs.url != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --body "🔍 Preview version: ${{ steps.upload.outputs.url }}" \
+            --edit-last --create-if-none
