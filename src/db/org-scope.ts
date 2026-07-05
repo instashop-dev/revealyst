@@ -5,10 +5,13 @@ import {
 } from "../lib/pseudonym";
 import type { Db } from "./client";
 import {
+  connections,
+  identities,
   orgMembers,
   orgs,
   people,
   pollHeartbeats,
+  subjects,
   teamMembers,
   teams,
 } from "./schema";
@@ -107,6 +110,22 @@ export type CreatePersonInput = {
   displayName?: string | null;
   email?: string | null;
   authUserId?: string | null;
+};
+
+export type CreateConnectionInput = {
+  vendor: string;
+  displayName: string;
+  authKind: (typeof connections.authKind.enumValues)[number];
+  config?: Record<string, unknown>;
+};
+
+/** What Connector.discover() emits — upserted on (connection, kind, external_id). */
+export type SubjectDescriptor = {
+  kind: (typeof subjects.kind.enumValues)[number];
+  externalId: string;
+  email?: string | null;
+  displayName?: string | null;
+  meta?: Record<string, unknown>;
 };
 
 export function forOrg(db: Db, orgId: string) {
@@ -228,6 +247,168 @@ export function forOrg(db: Db, orgId: string) {
           )
           .where(
             and(eq(teamMembers.orgId, orgId), eq(teamMembers.teamId, teamId)),
+          );
+      },
+    },
+
+    connections: {
+      async create(input: CreateConnectionInput) {
+        const [row] = await db
+          .insert(connections)
+          .values({
+            orgId,
+            vendor: input.vendor,
+            displayName: input.displayName,
+            authKind: input.authKind,
+            config: input.config ?? {},
+          })
+          .returning();
+        return row;
+      },
+
+      async list() {
+        return db
+          .select()
+          .from(connections)
+          .where(eq(connections.orgId, orgId))
+          .orderBy(connections.createdAt);
+      },
+
+      async get(id: string) {
+        const [row] = await db
+          .select()
+          .from(connections)
+          .where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
+        return row;
+      },
+
+      async setStatus(
+        id: string,
+        status: (typeof connections.status.enumValues)[number],
+        lastError?: string | null,
+      ) {
+        const [row] = await db
+          .update(connections)
+          .set({ status, lastError: lastError ?? null })
+          .where(and(eq(connections.orgId, orgId), eq(connections.id, id)))
+          .returning();
+        return row;
+      },
+    },
+
+    subjects: {
+      /**
+       * Idempotent discover() sink: upserts on (connection, kind,
+       * external_id), refreshing mutable fields and last_seen_at. The
+       * composite (org_id, connection_id) FK rejects a connection belonging
+       * to another org, so this cannot write subjects across tenants.
+       */
+      async upsertMany(connectionId: string, descriptors: SubjectDescriptor[]) {
+        const rows = [];
+        for (const d of descriptors) {
+          const [row] = await db
+            .insert(subjects)
+            .values({
+              orgId,
+              connectionId,
+              kind: d.kind,
+              externalId: d.externalId,
+              email: d.email?.toLowerCase() ?? null,
+              displayName: d.displayName ?? null,
+              meta: d.meta ?? {},
+            })
+            .onConflictDoUpdate({
+              target: [subjects.connectionId, subjects.kind, subjects.externalId],
+              set: {
+                email: d.email?.toLowerCase() ?? null,
+                displayName: d.displayName ?? null,
+                meta: d.meta ?? {},
+                lastSeenAt: new Date(),
+              },
+            })
+            .returning();
+          rows.push(row);
+        }
+        return rows;
+      },
+
+      async list(filter?: { connectionId?: string }) {
+        const where = filter?.connectionId
+          ? and(
+              eq(subjects.orgId, orgId),
+              eq(subjects.connectionId, filter.connectionId),
+            )
+          : eq(subjects.orgId, orgId);
+        return db
+          .select()
+          .from(subjects)
+          .where(where)
+          .orderBy(subjects.firstSeenAt);
+      },
+
+      async get(id: string) {
+        const [row] = await db
+          .select()
+          .from(subjects)
+          .where(and(eq(subjects.orgId, orgId), eq(subjects.id, id)));
+        return row;
+      },
+    },
+
+    identities: {
+      /**
+       * Resolves a subject to a person. Many-to-many: a shared account is
+       * one subject with N identity rows (§6.2). Cross-org links are
+       * rejected by the composite FKs on both sides.
+       */
+      async link(
+        subjectId: string,
+        personId: string,
+        method: (typeof identities.method.enumValues)[number],
+        createdByUserId?: string,
+      ) {
+        await db
+          .insert(identities)
+          .values({
+            orgId,
+            subjectId,
+            personId,
+            method,
+            createdByUserId: createdByUserId ?? null,
+          })
+          .onConflictDoNothing();
+      },
+
+      async unlink(subjectId: string, personId: string) {
+        await db
+          .delete(identities)
+          .where(
+            and(
+              eq(identities.orgId, orgId),
+              eq(identities.subjectId, subjectId),
+              eq(identities.personId, personId),
+            ),
+          );
+      },
+
+      async forSubject(subjectId: string) {
+        return db
+          .select()
+          .from(identities)
+          .where(
+            and(
+              eq(identities.orgId, orgId),
+              eq(identities.subjectId, subjectId),
+            ),
+          );
+      },
+
+      async forPerson(personId: string) {
+        return db
+          .select()
+          .from(identities)
+          .where(
+            and(eq(identities.orgId, orgId), eq(identities.personId, personId)),
           );
       },
     },
