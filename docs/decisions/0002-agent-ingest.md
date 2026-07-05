@@ -40,11 +40,33 @@ way for the ingest path to stamp a connection's sync state. All three are
    the AAD binding (`orgId:connectionId:device_token`) already makes a
    cross-org token replay fail decryption.
 
-3. **One additive method on the frozen `forOrg` surface:**
-   `connections.markSynced(id)` — sets `status='active'`, stamps
-   `last_polled_at`/`last_success_at`, clears `last_error` (org-guarded
-   update, same pattern as `setStatus`). Needed so ingest can surface
-   "last synced" without raw table access.
+3. **Two additive methods on the frozen `forOrg` surface:**
+   - `connections.markSynced(id)` — sets `status='active'`, stamps
+     `last_polled_at`/`last_success_at`, clears `last_error` (org-guarded
+     update, same pattern as `setStatus`). Needed so ingest can surface
+     "last synced" without raw table access.
+   - `metrics.deleteWindowForConnection(connectionId, from, to)` — deletes
+     the connection's records (and its subjects' signals) inside the day
+     window, so a re-push is **authoritative for its window**: stale
+     natural keys (e.g. a model dim that disappeared from a corrected
+     batch) cannot survive a restatement. Ingest runs
+     delete-then-upsert inside one transaction.
+
+4. **Ingest hardening semantics** (adversarial pre-review findings):
+   - Cheap token auth runs **before** body validation — no
+     unauthenticated zod-parse of 100k-row payloads; the route also caps
+     `Content-Length` at 10 MB (413).
+   - A **paused** connection rejects ingest with 403 after auth and is
+     never re-activated by a push — pausing is the operator's revocation
+     gesture (rotation remains the hard revocation).
+   - The credential-verify callback **throws** on mismatch so
+     `last_used_at` only ever records a genuine match, never a forged
+     probe.
+   - Every record/signal day must fall inside the declared window (else
+     it would escape the authoritative restatement), and `person`
+     attribution is rejected for non-person subjects (invariant b) —
+     beyond that, attribution honesty is deliberately the summarizer's
+     job, like every connector's `normalize()`.
 
 4. **One new entry in the `check-org-scope.mjs` createDb allowlist:**
    `src/lib/api-context.ts` — a single request-context helper
@@ -53,7 +75,8 @@ way for the ingest path to stamp a connection's sync state. All three are
 
 ## Contracts affected
 - `src/contracts/api.ts` — additive routes + request/response schemas only.
-- `src/db/org-scope.ts` — additive `connections.markSynced`.
+- `src/db/org-scope.ts` — additive `connections.markSynced` +
+  `metrics.deleteWindowForConnection`.
 - No changes to schema, migrations, credentials row format, metric catalog,
   attribution ladder, tracked_user, or any existing route/shape.
 
@@ -70,5 +93,7 @@ way for the ingest path to stamp a connection's sync state. All three are
   against these zod schemas so drift fails CI.
 - Re-issuing a token invalidates the previous one (credential upsert per
   connection+kind) — documented CLI behavior.
-- Ingest is idempotent end-to-end: re-pushing the same window overwrites via
-  the frozen `metric_records` natural upsert key.
+- Ingest is idempotent end-to-end: a re-push **replaces the window** for
+  that connection (transactional delete-then-upsert on the frozen
+  `metric_records` natural key) — restating a window with fewer keys
+  removes the stale ones instead of over-counting.

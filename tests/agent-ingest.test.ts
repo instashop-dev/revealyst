@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -90,8 +91,12 @@ let orgB: string;
 let connA: string; // claude_code_local + device_token, secret stored
 let connKeyed: string; // api_key connection — must never accept agent ingest
 let connExpired: string; // device_token with an expired credential
+let connPaused: string; // device_token, valid secret, operator-paused
+let connProbe: string; // device_token used only for last_used_at probes
 let secretA: string;
 let tokenA: string;
+let secretPaused: string;
+let secretProbe: string;
 
 beforeAll(async () => {
   const pgliteDb = drizzle(new PGlite(), { schema });
@@ -152,6 +157,37 @@ beforeAll(async () => {
     connKeyed,
     "api_key",
     "sk-ant-not-a-device-token",
+    ENV,
+  );
+
+  connPaused = (
+    await scopedA.connections.create({
+      vendor: "claude_code_local",
+      displayName: "Paused Agent",
+      authKind: "device_token",
+    })
+  ).id;
+  secretPaused = generateAgentSecret();
+  await scopedA.connections.storeCredential(
+    connPaused,
+    "device_token",
+    secretPaused,
+    ENV,
+  );
+  await scopedA.connections.setStatus(connPaused, "paused");
+
+  connProbe = (
+    await scopedA.connections.create({
+      vendor: "claude_code_local",
+      displayName: "Probe Agent",
+      authKind: "device_token",
+    })
+  ).id;
+  secretProbe = generateAgentSecret();
+  await scopedA.connections.storeCredential(
+    connProbe,
+    "device_token",
+    secretProbe,
     ENV,
   );
 });
@@ -244,6 +280,52 @@ describe("agent ingest — happy path", () => {
     expect(sessions[0].value).toBe(7);
   });
 
+  it("a re-push is authoritative for its window: stale keys are removed", async () => {
+    // Push a batch containing a model dim that will "disappear" after a
+    // summarizer fix — the adversarial-review finding: upsert-only ingest
+    // would double-count model_mix forever.
+    const withStale = makeBatch();
+    withStale.records.push({
+      subject: DEV_SUBJECT,
+      metricKey: "model_tokens",
+      day: "2026-07-01",
+      dim: "model=claude-mislabeled-4",
+      value: 999,
+      attribution: "person",
+    });
+    expect((await ingestAgentBatch(db, ENV, tokenA, withStale)).ok).toBe(true);
+    const scoped = forOrg(db, orgA);
+    expect(
+      await scoped.metrics.records({
+        metricKey: "model_tokens",
+        from: "2026-07-01",
+        to: "2026-07-02",
+        dim: "model=claude-mislabeled-4",
+      }),
+    ).toHaveLength(1);
+
+    // Corrected re-push of the SAME window without that dim.
+    expect((await ingestAgentBatch(db, ENV, tokenA, makeBatch())).ok).toBe(
+      true,
+    );
+    expect(
+      await scoped.metrics.records({
+        metricKey: "model_tokens",
+        from: "2026-07-01",
+        to: "2026-07-02",
+        dim: "model=claude-mislabeled-4",
+      }),
+    ).toHaveLength(0); // stale key gone
+    expect(
+      await scoped.metrics.records({
+        metricKey: "model_tokens",
+        from: "2026-07-01",
+        to: "2026-07-02",
+        dim: "model=claude-fable-5",
+      }),
+    ).toHaveLength(1); // restated key present
+  });
+
   it("never lands anything visible to another org", async () => {
     const sessionsB = await forOrg(db, orgB).metrics.records({
       metricKey: "sessions",
@@ -329,5 +411,94 @@ describe("agent ingest — body validation (400 before any write)", () => {
     batch.signals[0].hours = [1, 2, 3];
     const outcome = await ingestAgentBatch(db, ENV, tokenA, batch);
     expect(outcome).toMatchObject({ ok: false, status: 400 });
+  });
+
+  it("rejects record/signal days outside the declared window", async () => {
+    const batch = makeBatch();
+    batch.records[0].day = "2026-06-15"; // before window.start
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, batch);
+    expect(outcome).toMatchObject({ ok: false, status: 400 });
+    if (!outcome.ok) {
+      expect(outcome.body.error).toMatch(/outside declared window/);
+    }
+  });
+
+  it("rejects person attribution on a non-person subject", async () => {
+    const batch = makeBatch({
+      subjects: [
+        {
+          kind: "account",
+          externalId: "device:abc123",
+          email: null,
+          displayName: null,
+        },
+      ],
+      records: [
+        {
+          subject: { kind: "account", externalId: "device:abc123" },
+          metricKey: "sessions",
+          day: "2026-07-01",
+          dim: "",
+          value: 1,
+          attribution: "person", // fabricating a person from a device
+        },
+      ],
+      signals: [],
+    });
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, batch);
+    expect(outcome).toMatchObject({ ok: false, status: 400 });
+    if (!outcome.ok) {
+      expect(outcome.body.error).toMatch(/never fabricate people/);
+    }
+  });
+});
+
+describe("agent ingest — operator controls", () => {
+  it("a paused connection rejects ingest (403) and stays paused", async () => {
+    const token = composeAgentToken(orgA, connPaused, secretPaused);
+    const outcome = await ingestAgentBatch(db, ENV, token, makeBatch());
+    expect(outcome).toMatchObject({
+      ok: false,
+      status: 403,
+      body: { error: "connection paused" },
+    });
+
+    const scoped = forOrg(db, orgA);
+    const conn = await scoped.connections.get(connPaused);
+    expect(conn.status).toBe("paused"); // NOT silently re-activated
+    expect(await scoped.subjects.list({ connectionId: connPaused })).toHaveLength(0);
+  });
+
+  it("a forged-secret probe never stamps last_used_at", async () => {
+    const forged = composeAgentToken(orgA, connProbe, generateAgentSecret());
+    const outcome = await ingestAgentBatch(db, ENV, forged, makeBatch());
+    expect(outcome).toMatchObject({ ok: false, status: 401 });
+
+    const [credRow] = await db
+      .select()
+      .from(schema.connectionCredentials)
+      .where(
+        and(
+          eq(schema.connectionCredentials.connectionId, connProbe),
+          eq(schema.connectionCredentials.kind, "device_token"),
+        ),
+      );
+    expect(credRow.lastUsedAt).toBeNull(); // probe ≠ legitimate device use
+
+    // …while a genuine push does stamp it.
+    const genuine = composeAgentToken(orgA, connProbe, secretProbe);
+    expect((await ingestAgentBatch(db, ENV, genuine, makeBatch())).ok).toBe(
+      true,
+    );
+    const [after] = await db
+      .select()
+      .from(schema.connectionCredentials)
+      .where(
+        and(
+          eq(schema.connectionCredentials.connectionId, connProbe),
+          eq(schema.connectionCredentials.kind, "device_token"),
+        ),
+      );
+    expect(after.lastUsedAt).not.toBeNull();
   });
 });

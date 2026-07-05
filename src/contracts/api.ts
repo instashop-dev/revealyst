@@ -208,8 +208,11 @@ export const apiRoutes = {
     response: z.object({ token: z.string() }),
   },
   /** ADR 0002. Bearer-authenticated by the device token itself (format
-   * rva1.<orgId>.<connectionId>.<secret>) — no session. Idempotent: re-pushing
-   * a window overwrites via the frozen metric_records natural upsert key. */
+   * rva1.<orgId>.<connectionId>.<secret>) — no session. A push is
+   * authoritative for its window: the server transactionally replaces the
+   * connection's records/signals inside the window (delete-then-upsert on
+   * the frozen natural key), so re-pushes restate without over-counting.
+   * Every record/signal day must fall inside `window`. */
   agentIngest: {
     method: "POST",
     path: "/api/agent/ingest",
