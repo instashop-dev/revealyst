@@ -38,20 +38,31 @@ contracts. Every session auto-loads this file — it is the interface between ag
    recorded-payload fixtures, the tenant-isolation test, and the cross-workstream E2E.
 7. **Scope tripwires** — stop any agent building one (see below).
 
-## Frozen contracts — do not touch without an ADR
-These are **frozen at the W0-C freeze ceremony**. Any change requires an ADR in
-`docs/decisions/` — **stop and ask before touching them.** (Exact paths are filled in
-by the freeze ceremony; listed here by artifact until then.)
-- Typed interfaces: `Connector = { auth, discover, poll, normalize → metric_records }`,
-  `ScoreDefinition`, `ScoreResult`, internal API-route contracts.
-- Schema migrations **including sub-daily signals** (active-hours histogram +
-  peak-concurrency per subject/day) — needed for W2-K shared-account heuristics.
-- **`tracked_user`** definition (billing primitive): an identity-resolved person with
-  ≥1 metric_record in the period; unresolved key/account subjects surfaced, **not billed**.
-- Encrypted-credential column shape + KMS/envelope wiring.
-- Enforced tenant isolation: RLS **or** a mandatory-org-scoping repository layer.
-- Metric catalog (Level 1) as a seeded reference table, not an enum.
-- `docs/connector-facts.md` — per-vendor endpoints/auth/granularity/attribution.
+## Frozen contracts — do not touch without an ADR (tag `contracts-v1`)
+Frozen at the W0-C freeze ceremony. Any change requires an ADR in `docs/decisions/`
+— **stop and ask before touching them.** CI blocks PRs that change a frozen path
+without a `docs/decisions/` change in the same PR.
+- **`src/contracts/**`** — typed interfaces: `Connector` (pure `normalize`, honesty
+  gaps), `ScoreDefinition`/`ScoreResult` + zod shapes, `CANONICAL_METRICS`,
+  attribution ladder + `lowestAttribution`, API-route contracts (`api.ts`), and
+  **`tracked_user`** (`tracked-user.ts`): an identity-resolved person with ≥1
+  metric_record in the period; unresolved key/account subjects surfaced, **not
+  billed**; shared accounts count resolved identities only.
+- **`src/db/schema.ts`** + **`drizzle/**`** — schema & migrations, incl. sub-daily
+  signals (`subject_day_signals`: 24-slot histogram + peak concurrency per
+  subject/day, for W2-K), the `metric_records` natural upsert key, the metric
+  catalog as a seeded reference table (mig 0007, not an enum), score presets
+  (mig 0009), and the encrypted-credential column shape (`connection_credentials`:
+  base64 envelope fields only — no plaintext credential column anywhere).
+- **`src/db/org-scope.ts` public API** — the tenancy contract: `forOrg` is the only
+  application query surface (ADR `docs/decisions/0001-tenant-isolation.md`;
+  enforced by composite tenant FKs, `scripts/check-org-scope.mjs` in CI, and the
+  `tests/tenant-isolation.test.ts` sweep incl. its completeness tripwire).
+- **`src/lib/credentials.ts` row format** — AES-256-GCM envelope, versioned
+  Worker-secret KEK, AAD = `orgId:connectionId:kind`; rotation = DEK rewrap only.
+- **`docs/connector-facts.md`** — per-vendor endpoints/auth/granularity/attribution.
+- **`fixtures/**` shapes** — downstream builds against these (rule 2); adding
+  coverage is fine, changing existing shapes is an ADR.
 
 ## Tripwires — never build in V1 (rule 7, verbatim)
 No formula DSL · no browser extension/proxy · no prompt-content ingestion in Team mode ·

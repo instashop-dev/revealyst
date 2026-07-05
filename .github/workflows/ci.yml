@@ -32,6 +32,36 @@ jobs:
       # tests/tenant-isolation) — the failing-on-drift hook W1-S inherits.
       - run: npm test
 
+  frozen-contracts:
+    # Rule 1: post-freeze changes to frozen contracts require an ADR. This
+    # blocks any PR that touches a frozen path without a docs/decisions/
+    # change in the same PR. Active from the contracts-v1 freeze onward.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require an ADR for frozen-contract changes
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          base=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
+          changed=$(git diff --name-only "$base" HEAD)
+          # fixtures/: ADDING files is fine (new coverage); modifying or
+          # deleting existing shapes is a contract change.
+          modified=$(git diff --name-only --diff-filter=MDR "$base" HEAD)
+          frozen=$(printf '%s\n' "$changed" | grep -E '^(src/contracts/|src/db/schema\.ts$|src/db/org-scope\.ts$|src/lib/credentials\.ts$|drizzle/|docs/connector-facts\.md$)' || true)
+          frozen_fixtures=$(printf '%s\n' "$modified" | grep -E '^fixtures/' || true)
+          all_frozen=$(printf '%s\n%s\n' "$frozen" "$frozen_fixtures" | grep -v '^$' || true)
+          if [ -n "$all_frozen" ]; then
+            if ! printf '%s\n' "$changed" | grep -q '^docs/decisions/'; then
+              echo "::error::Frozen contract paths changed without an ADR in docs/decisions/ (CLAUDE.md rule 1):"
+              printf '%s\n' "$all_frozen"
+              exit 1
+            fi
+          fi
+          echo "frozen-contracts guard: ok"
+
   preview-deploy:
     # Uploads a new Worker version (not deployed to the live route) and
     # surfaces its preview URL. Skips gracefully until the founder adds the
