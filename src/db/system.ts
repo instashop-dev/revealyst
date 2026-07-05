@@ -1,10 +1,23 @@
 import { inArray, lt, sql } from "drizzle-orm";
 import type { Db } from "./client";
-import { rawPayloads } from "./schema";
+import { orgs, rawPayloads } from "./schema";
 
 // System-level maintenance jobs. These run across orgs by design (raw
 // access is allowed only inside src/db/**) and are invoked from the queue
 // consumer — never from request handlers.
+
+/** Idempotently ensures the system org exists (safe under concurrent
+ * consumers). Lives here so schema imports stay inside src/db/**. */
+export async function ensureSystemOrg(
+  db: Db,
+  id: string,
+  name: string,
+): Promise<void> {
+  await db
+    .insert(orgs)
+    .values({ id, name, kind: "system" })
+    .onConflictDoNothing({ target: orgs.id });
+}
 
 /**
  * Ages out expired raw payloads in bounded batches (Workers 30s CPU

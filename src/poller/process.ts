@@ -1,7 +1,9 @@
 import type { Db } from "../db/client";
 import { forOrg } from "../db/org-scope";
-import { orgs } from "../db/schema";
-import { purgeExpiredRawPayloads } from "../db/system";
+import {
+  ensureSystemOrg as ensureSystemOrgRow,
+  purgeExpiredRawPayloads,
+} from "../db/system";
 import {
   SYSTEM_ORG_ID,
   SYSTEM_ORG_NAME,
@@ -10,10 +12,7 @@ import {
 
 /** Idempotently ensures the system org exists (safe under concurrent consumers). */
 export async function ensureSystemOrg(db: Db) {
-  await db
-    .insert(orgs)
-    .values({ id: SYSTEM_ORG_ID, name: SYSTEM_ORG_NAME, kind: "system" })
-    .onConflictDoNothing({ target: orgs.id });
+  await ensureSystemOrgRow(db, SYSTEM_ORG_ID, SYSTEM_ORG_NAME);
 }
 
 /**
