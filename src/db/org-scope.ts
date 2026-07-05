@@ -357,6 +357,26 @@ export function forOrg(db: Db, orgId: string) {
       },
 
       /**
+       * Stamps a successful ingest/poll (ADR 0002, additive): activates the
+       * connection, sets last_polled_at/last_success_at, clears last_error.
+       * Org-guarded like setStatus — returns undefined for a foreign org.
+       */
+      async markSynced(id: string) {
+        const now = new Date();
+        const [row] = await db
+          .update(connections)
+          .set({
+            status: "active",
+            lastPolledAt: now,
+            lastSuccessAt: now,
+            lastError: null,
+          })
+          .where(and(eq(connections.orgId, orgId), eq(connections.id, id)))
+          .returning();
+        return row;
+      },
+
+      /**
        * Encrypts and stores a credential (upsert per connection+kind).
        * Write-only from the caller's perspective: plaintext goes in, only
        * envelope fields are persisted, nothing is returned.

@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { ATTRIBUTION_LEVELS } from "./attribution";
-import { METRIC_KEYS, type MetricKey } from "./metrics";
+import {
+  METRIC_KEYS,
+  metricRecordInputSchema,
+  subjectDaySignalInputSchema,
+  type MetricKey,
+} from "./metrics";
 import { PERIOD_GRAINS, SCORE_SUBJECT_LEVELS } from "./scores";
 
 // Frozen W0-C internal API-route contracts — the shapes W1-G's shell and
@@ -75,6 +80,53 @@ export const scoreResultSchema = z.object({
   components: z.record(z.string(), z.unknown()),
 });
 
+// --- Revealyst Agent ingest (W1-E, ADR 0002 — additive) -------------------
+// The CLI summarizes Claude Code logs LOCALLY and pushes only these shapes.
+// Privacy enforced by shape: the request schema admits metric rows, subject
+// descriptors, and honesty gaps — no field can carry log lines, prompt
+// content, file paths, or tool output.
+
+export const subjectDescriptorSchema = z.object({
+  kind: z.enum([
+    "person",
+    "api_key",
+    "service_account",
+    "workspace",
+    "project",
+    "account",
+  ]),
+  externalId: z.string().min(1).max(320),
+  email: z.string().max(320).nullable().default(null),
+  displayName: z.string().max(200).nullable().default(null),
+});
+
+export const honestyGapSchema = z.object({
+  kind: z.enum([
+    "oauth_actors_missing",
+    "telemetry_only_users_in_totals",
+    "shared_key_not_person_level",
+    "service_accounts_unresolved",
+    "sub_daily_unavailable",
+    "other",
+  ]),
+  detail: z.string().max(500).optional(),
+});
+
+export const agentIngestRequestSchema = z.object({
+  /** CLI package version, informational (e.g. "0.1.0"). */
+  agentVersion: z.string().min(1).max(64),
+  /** Version of the local summarizer's semantics; the server composes
+   * source_connector as `claude-code-local@<summarizerVersion>`. */
+  summarizerVersion: z.number().int().min(1),
+  window: z.object({ start: day, end: day }),
+  /** Every record/signal must reference one of these by (kind, externalId). */
+  subjects: z.array(subjectDescriptorSchema).min(1).max(1_000),
+  records: z.array(metricRecordInputSchema).max(100_000),
+  signals: z.array(subjectDaySignalInputSchema).max(10_000),
+  gaps: z.array(honestyGapSchema).max(100),
+});
+export type AgentIngestRequest = z.infer<typeof agentIngestRequestSchema>;
+
 /** One frozen route contract: path + method + request/response schemas. */
 export type RouteContract = {
   method: "GET" | "POST" | "PUT" | "DELETE";
@@ -143,6 +195,31 @@ export const apiRoutes = {
       expiresAt: z.string().datetime().nullable().default(null),
     }),
     response: ok,
+  },
+  /** ADR 0002. Issues (or rotates) the connection's device token and
+   * returns it ONCE — the narrow, deliberate exception to credential
+   * write-only-ness: issuance-time display is the only way device pairing
+   * can work. The stored credential remains read-never after this response;
+   * re-issuing overwrites the previous secret. */
+  connectionAgentTokenCreate: {
+    method: "POST",
+    path: "/api/connections/:id/agent-token",
+    request: null,
+    response: z.object({ token: z.string() }),
+  },
+  /** ADR 0002. Bearer-authenticated by the device token itself (format
+   * rva1.<orgId>.<connectionId>.<secret>) — no session. Idempotent: re-pushing
+   * a window overwrites via the frozen metric_records natural upsert key. */
+  agentIngest: {
+    method: "POST",
+    path: "/api/agent/ingest",
+    request: agentIngestRequestSchema,
+    response: z.object({
+      ok: z.literal(true),
+      subjects: z.number().int(),
+      records: z.number().int(),
+      signals: z.number().int(),
+    }),
   },
   connectionsPoll: {
     method: "POST",
