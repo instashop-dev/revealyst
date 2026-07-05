@@ -14,12 +14,15 @@ export default {
   fetch: openNextHandler.fetch,
 
   // Cron Trigger → one queue message per connection. W0-B has no
-  // connections yet, so it enqueues the single no-op heartbeat poll.
+  // connections yet, so it enqueues the single no-op heartbeat poll, plus
+  // the raw-landing-zone purge (bounded batches; cheap when nothing has
+  // expired, so every tick is fine until W1-D refines scheduling).
   async scheduled(controller, env) {
     await env.POLL_QUEUE.send({
       kind: "noop-poll",
       orgId: SYSTEM_ORG_ID,
     } satisfies PollMessage);
+    await env.POLL_QUEUE.send({ kind: "purge-raw" } satisfies PollMessage);
   },
 
   async queue(batch, env) {

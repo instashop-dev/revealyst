@@ -1,4 +1,4 @@
-import { and, eq, type SQL } from "drizzle-orm";
+import { and, eq, gte, lte, type SQL } from "drizzle-orm";
 import {
   currentKekVersion,
   decryptCredential,
@@ -15,10 +15,13 @@ import {
   connectionCredentials,
   connections,
   identities,
+  metricRecords,
   orgMembers,
   orgs,
   people,
   pollHeartbeats,
+  rawPayloads,
+  subjectDaySignals,
   subjects,
   teamMembers,
   teams,
@@ -134,6 +137,36 @@ export type SubjectDescriptor = {
   email?: string | null;
   displayName?: string | null;
   meta?: Record<string, unknown>;
+};
+
+/** What Connector.normalize() emits — upserted on the metric_records PK. */
+export type MetricRecordUpsert = {
+  subjectId: string;
+  metricKey: string;
+  day: string; // YYYY-MM-DD, UTC calendar day
+  dim?: string;
+  connectionId: string;
+  value: number;
+  attribution: (typeof metricRecords.attribution.enumValues)[number];
+  sourceConnector: string;
+  rawPayloadId?: string | null;
+};
+
+export type SubjectDaySignalUpsert = {
+  subjectId: string;
+  day: string;
+  hours?: number[] | null;
+  peakConcurrency?: number | null;
+  sourceGranularity: (typeof subjectDaySignals.sourceGranularity.enumValues)[number];
+};
+
+export type RawPayloadInsert = {
+  connectionId: string;
+  vendor: string;
+  kind: string;
+  windowStart?: Date | null;
+  windowEnd?: Date | null;
+  payload: unknown;
 };
 
 export function forOrg(db: Db, orgId: string) {
@@ -578,6 +611,145 @@ export function forOrg(db: Db, orgId: string) {
           .where(
             and(eq(identities.orgId, orgId), eq(identities.personId, personId)),
           );
+      },
+    },
+
+    metrics: {
+      /**
+       * The frozen ingestion contract: idempotent upsert on the natural PK
+       * (org, subject, metric, day, dim). Every vendor restates recent
+       * days, so re-polls always overwrite. org_id is part of the PK, so a
+       * cross-org conflict is a different key by construction — no extra
+       * update-path guard needed (unlike subjects/credentials, whose
+       * conflict keys omit org_id); the insert path is composite-FK-bound.
+       */
+      async upsertRecords(records: MetricRecordUpsert[]) {
+        for (const r of records) {
+          await db
+            .insert(metricRecords)
+            .values({
+              orgId,
+              subjectId: r.subjectId,
+              metricKey: r.metricKey,
+              day: r.day,
+              dim: r.dim ?? "",
+              connectionId: r.connectionId,
+              value: r.value,
+              attribution: r.attribution,
+              sourceConnector: r.sourceConnector,
+              rawPayloadId: r.rawPayloadId ?? null,
+            })
+            .onConflictDoUpdate({
+              target: [
+                metricRecords.orgId,
+                metricRecords.subjectId,
+                metricRecords.metricKey,
+                metricRecords.day,
+                metricRecords.dim,
+              ],
+              set: {
+                value: r.value,
+                attribution: r.attribution,
+                connectionId: r.connectionId,
+                sourceConnector: r.sourceConnector,
+                rawPayloadId: r.rawPayloadId ?? null,
+                updatedAt: new Date(),
+              },
+            });
+        }
+      },
+
+      async upsertSignals(signals: SubjectDaySignalUpsert[]) {
+        for (const s of signals) {
+          await db
+            .insert(subjectDaySignals)
+            .values({
+              orgId,
+              subjectId: s.subjectId,
+              day: s.day,
+              hours: s.hours ?? null,
+              peakConcurrency: s.peakConcurrency ?? null,
+              sourceGranularity: s.sourceGranularity,
+            })
+            .onConflictDoUpdate({
+              target: [
+                subjectDaySignals.orgId,
+                subjectDaySignals.subjectId,
+                subjectDaySignals.day,
+              ],
+              set: {
+                hours: s.hours ?? null,
+                peakConcurrency: s.peakConcurrency ?? null,
+                sourceGranularity: s.sourceGranularity,
+                updatedAt: new Date(),
+              },
+            });
+        }
+      },
+
+      async records(filter: {
+        metricKey: string;
+        from: string;
+        to: string;
+        dim?: string;
+      }) {
+        const conditions = [
+          eq(metricRecords.orgId, orgId),
+          eq(metricRecords.metricKey, filter.metricKey),
+          gte(metricRecords.day, filter.from),
+          lte(metricRecords.day, filter.to),
+        ];
+        if (filter.dim !== undefined) {
+          conditions.push(eq(metricRecords.dim, filter.dim));
+        }
+        return db
+          .select()
+          .from(metricRecords)
+          .where(and(...conditions))
+          .orderBy(metricRecords.day);
+      },
+
+      async signals(filter: { subjectId: string; from: string; to: string }) {
+        return db
+          .select()
+          .from(subjectDaySignals)
+          .where(
+            and(
+              eq(subjectDaySignals.orgId, orgId),
+              eq(subjectDaySignals.subjectId, filter.subjectId),
+              gte(subjectDaySignals.day, filter.from),
+              lte(subjectDaySignals.day, filter.to),
+            ),
+          )
+          .orderBy(subjectDaySignals.day);
+      },
+    },
+
+    raw: {
+      /** Lands a fetched vendor payload; returns the row (its id becomes
+       * metric_records.raw_payload_id). */
+      async insert(input: RawPayloadInsert) {
+        const [row] = await db
+          .insert(rawPayloads)
+          .values({
+            orgId,
+            connectionId: input.connectionId,
+            vendor: input.vendor,
+            kind: input.kind,
+            windowStart: input.windowStart ?? null,
+            windowEnd: input.windowEnd ?? null,
+            payload: input.payload,
+          })
+          .returning();
+        return row;
+      },
+
+      async get(id: string) {
+        const [row] = await db
+          .select()
+          .from(rawPayloads)
+          .where(and(eq(rawPayloads.orgId, orgId), eq(rawPayloads.id, id)));
+        return row;
       },
     },
 

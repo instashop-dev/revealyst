@@ -1,6 +1,7 @@
 import type { Db } from "../db/client";
 import { forOrg } from "../db/org-scope";
 import { orgs } from "../db/schema";
+import { purgeExpiredRawPayloads } from "../db/system";
 import {
   SYSTEM_ORG_ID,
   SYSTEM_ORG_NAME,
@@ -20,13 +21,21 @@ export async function ensureSystemOrg(db: Db) {
  * the org-scoped layer — proving Cron → Queue → consumer → Postgres without
  * touching any vendor API.
  */
-export async function processPollMessage(db: Db, message: PollMessage) {
+export async function processPollMessage(
+  db: Db,
+  message: PollMessage,
+): Promise<void> {
   switch (message.kind) {
     case "noop-poll": {
       if (message.orgId === SYSTEM_ORG_ID) {
         await ensureSystemOrg(db);
       }
-      return forOrg(db, message.orgId).heartbeats.record();
+      await forOrg(db, message.orgId).heartbeats.record();
+      return;
+    }
+    case "purge-raw": {
+      await purgeExpiredRawPayloads(db);
+      return;
     }
   }
 }
