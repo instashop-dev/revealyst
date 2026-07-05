@@ -24,12 +24,13 @@ import { RetryableConnectorError } from "../src/poller/run";
 
 // PR 2 of the W1-D chain: the Anthropic Console connector. normalize() is
 // exercised purely against the provisional recorded-shape fixtures
-// (fixtures/vendor-payloads/anthropic_console/ — W1-S replaces them with
-// scrubbed live recordings, rule 2); poll() against a stubbed vendor.
+// (fixtures/connectors/anthropic_console/ — W1-S lands scrubbed live
+// recordings separately under fixtures/vendor-payloads/, rule 2); poll()
+// against a stubbed vendor.
 
 const fixture = (name: string) =>
   JSON.parse(
-    readFileSync(`fixtures/vendor-payloads/anthropic_console/${name}`, "utf8"),
+    readFileSync(`fixtures/connectors/anthropic_console/${name}`, "utf8"),
   );
 const usagePage = fixture("usage-messages-1h.json");
 const costPage = fixture("cost-report-1d.json");
