@@ -25,6 +25,7 @@ const SCHEMA_ZONE = ["src/db/"];
 const CREATE_DB_ALLOWLIST = new Set([
   "src/worker.ts",
   "src/lib/auth.ts",
+  "src/lib/api-context.ts", // the API-route context seam (ADR 0002)
   "src/app/dashboard/page.tsx",
   "src/db/client.ts", // its own definition
 ]);

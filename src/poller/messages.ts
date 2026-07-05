@@ -36,6 +36,16 @@ export type PollMessage =
       cursorStart: string;
       /** Days per chunk — chosen at dispatch from the vendor's call budget. */
       chunkDays: number;
+    }
+  | {
+      // W1-F: recompute all active score definitions for one org. Sent
+      // nightly (one message per org, anchored at yesterday UTC) and
+      // on-demand after a backfill lands; idempotent on the frozen
+      // score_results upsert key either way.
+      kind: "score-recompute";
+      orgId: string;
+      /** UTC calendar day anchoring the periods (YYYY-MM-DD). */
+      day: string;
     };
 
 export type ConnectorPollMessage = Extract<
