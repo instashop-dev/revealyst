@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import type { Db } from "./client";
 import { orgMembers } from "./auth-schema";
 import { orgs } from "./schema";
@@ -8,11 +8,11 @@ import { orgs } from "./schema";
  * (kind, visibility mode) alongside the membership role — the exact
  * shape the frozen `/api/me` contract serves.
  *
- * Companion to `membershipForUser` in org-scope.ts: it runs *before* an
- * org scope exists and uses the same earliest-membership ordering, so
- * both always resolve the same org for the same user. Lives in its own
- * file because org-scope.ts is frozen (contracts-v1); folding this into
- * `forOrg` is earmarked for the W1-G invite-flow ADR.
+ * Org-resolution rule (ADR 0004): the MOST RECENT membership wins, so
+ * accepting an invite lands the user in the inviting org on next load.
+ * The frozen `membershipForUser` (org-scope.ts) keeps earliest-first —
+ * it is only the bootstrap existence check inside ensureOrgOfOne. An
+ * org switcher supersedes this rule when it ships.
  */
 export async function orgContextForUser(db: Db, userId: string) {
   const [row] = await db
@@ -26,7 +26,7 @@ export async function orgContextForUser(db: Db, userId: string) {
     .from(orgMembers)
     .innerJoin(orgs, eq(orgMembers.orgId, orgs.id))
     .where(eq(orgMembers.userId, userId))
-    .orderBy(orgMembers.createdAt)
+    .orderBy(desc(orgMembers.createdAt))
     .limit(1);
   if (!row) {
     return undefined;

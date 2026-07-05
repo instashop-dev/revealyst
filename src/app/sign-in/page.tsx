@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { AlertCircle } from "lucide-react";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,23 @@ import { Spinner } from "@/components/ui/spinner";
 import { authClient } from "@/lib/auth-client";
 
 export default function SignInPage() {
+  return (
+    <Suspense>
+      <SignInForm />
+    </Suspense>
+  );
+}
+
+function SignInForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Post-auth destination (e.g. an invite link round-trip). Same-origin
+  // paths only — anything else falls back to the dashboard.
+  const rawNext = searchParams.get("next");
+  const next =
+    rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
+      ? rawNext
+      : "/dashboard";
   const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -40,7 +56,7 @@ export default function SignInPage() {
     if (result.error) {
       setError(result.error.message ?? "Something went wrong");
     } else {
-      router.push("/dashboard");
+      router.push(next);
     }
   }
 
@@ -116,7 +132,9 @@ export default function SignInPage() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => authClient.signIn.social({ provider: "github" })}
+            onClick={() =>
+              authClient.signIn.social({ provider: "github", callbackURL: next })
+            }
           >
             Sign in with GitHub
           </Button>
