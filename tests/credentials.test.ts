@@ -1,5 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
-import { getTableColumns, getTableName } from "drizzle-orm";
+import { eq, getTableColumns, getTableName } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
@@ -8,6 +8,7 @@ import type { Db } from "../src/db/client";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
 import {
+  currentKekVersion,
   decryptCredential,
   encryptCredential,
   rewrapCredential,
@@ -123,6 +124,28 @@ describe("KEK rotation", () => {
       /no KEK available for version v1/,
     );
   });
+
+  it("rejects a KEK pair that reuses a version label (bytes-rotated, label-reused)", async () => {
+    // The operator mistake this guards: rotating key bytes but keeping the
+    // 'v1' label. Selection is version-string-only, so without the guard
+    // the wrong bytes would be tried with no fallback and new rows would
+    // poison the version→key mapping.
+    const ambiguous: CredentialEnv = {
+      CREDENTIAL_KEK_CURRENT: testKek("v1", 9),
+      CREDENTIAL_KEK_PREVIOUS: testKek("v1", 1),
+    };
+    const row = await encryptCredential(ENV_V1, BINDING, "secret");
+    await expect(
+      decryptCredential(ambiguous, BINDING, row),
+    ).rejects.toThrow(/reuses CREDENTIAL_KEK_CURRENT's version label/);
+    await expect(
+      encryptCredential(ambiguous, BINDING, "new-secret"),
+    ).rejects.toThrow(/reuses CREDENTIAL_KEK_CURRENT's version label/);
+  });
+
+  it("exposes the current version label for rotation sweeps", () => {
+    expect(currentKekVersion(ENV_V2_WITH_PREV)).toBe("v2");
+  });
 });
 
 describe("KEK configuration errors", () => {
@@ -223,6 +246,40 @@ describe("repository boundary (PGlite)", () => {
     ).rejects.toThrow(/no api_key credential stored/);
   });
 
+  it("refuses an expired credential", async () => {
+    const scoped = forOrg(db, orgA);
+    await scoped.connections.storeCredential(
+      connA,
+      "device_token",
+      "expired-token",
+      ENV_V1,
+      new Date("2025-01-01T00:00:00Z"),
+    );
+    await expect(
+      scoped.connections.withCredential(
+        connA,
+        "device_token",
+        ENV_V1,
+        async (p) => p,
+      ),
+    ).rejects.toThrow(/expired at 2025-01-01/);
+  });
+
+  it("does not stamp last_used_at when fn fails", async () => {
+    const scoped = forOrg(db, orgA);
+    await scoped.connections.storeCredential(connA, "pat", "pat-token", ENV_V1);
+    await expect(
+      scoped.connections.withCredential(connA, "pat", ENV_V1, async () => {
+        throw new Error("vendor rejected the key");
+      }),
+    ).rejects.toThrow(/vendor rejected/);
+    const [row] = await db
+      .select()
+      .from(schema.connectionCredentials)
+      .where(eq(schema.connectionCredentials.kind, "pat"));
+    expect(row.lastUsedAt).toBeNull();
+  });
+
   it("cross-org storeCredential is rejected (cannot overwrite another org's row)", async () => {
     await expect(
       forOrg(db, orgB).connections.storeCredential(
@@ -241,6 +298,25 @@ describe("repository boundary (PGlite)", () => {
       async (p) => p,
     );
     expect(seen).toBe("v2-key");
+  });
+
+  it("rewrapCredentials sweeps stale rows to the current KEK", async () => {
+    const scoped = forOrg(db, orgA);
+    // Rows so far were stored under v1. Sweep to v2 during the window.
+    const rewrapped = await scoped.connections.rewrapCredentials(
+      ENV_V2_WITH_PREV,
+    );
+    expect(rewrapped).toBeGreaterThanOrEqual(1);
+    // After the sweep, the previous KEK can be dropped entirely.
+    const seen = await scoped.connections.withCredential(
+      connA,
+      "api_key",
+      ENV_V2_ONLY,
+      async (p) => p,
+    );
+    expect(seen).toBe("v2-key");
+    // Idempotent: a second sweep finds nothing stale.
+    expect(await scoped.connections.rewrapCredentials(ENV_V2_ONLY)).toBe(0);
   });
 });
 

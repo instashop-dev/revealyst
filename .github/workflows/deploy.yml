@@ -67,4 +67,11 @@ jobs:
           put GITHUB_CLIENT_ID "$GH_OAUTH_CLIENT_ID"
           put GITHUB_CLIENT_SECRET "$GH_OAUTH_CLIENT_SECRET"
           put CREDENTIAL_KEK_CURRENT "$CREDENTIAL_KEK_CURRENT"
-          put CREDENTIAL_KEK_PREVIOUS "$CREDENTIAL_KEK_PREVIOUS"
+          # PREVIOUS exists only during a rotation window: when the repo
+          # secret is removed, delete it from the Worker too — otherwise the
+          # retired KEK could decrypt not-yet-rewrapped rows forever.
+          if [ -n "$CREDENTIAL_KEK_PREVIOUS" ]; then
+            put CREDENTIAL_KEK_PREVIOUS "$CREDENTIAL_KEK_PREVIOUS"
+          else
+            printf 'y\n' | npx wrangler secret delete CREDENTIAL_KEK_PREVIOUS || echo "CREDENTIAL_KEK_PREVIOUS not present on Worker (nothing to delete)"
+          fi

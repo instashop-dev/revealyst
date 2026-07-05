@@ -1,7 +1,9 @@
 import { and, eq, type SQL } from "drizzle-orm";
 import {
+  currentKekVersion,
   decryptCredential,
   encryptCredential,
+  rewrapCredential,
   type CredentialEnv,
 } from "../lib/credentials";
 import {
@@ -382,16 +384,70 @@ export function forOrg(db: Db, orgId: string) {
             `no ${kind} credential stored for connection ${connectionId}`,
           );
         }
+        if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) {
+          throw new Error(
+            `${kind} credential for connection ${connectionId} expired at ${row.expiresAt.toISOString()}`,
+          );
+        }
         const plaintext = await decryptCredential(
           env,
           { orgId, connectionId, kind },
           row,
         );
+        // Stamp last_used_at only after fn succeeds — a vendor rejection
+        // must not read as "credential last worked at T".
+        const result = await fn(plaintext);
         await db
           .update(connectionCredentials)
           .set({ lastUsedAt: new Date() })
-          .where(eq(connectionCredentials.id, row.id));
-        return fn(plaintext);
+          .where(
+            and(
+              eq(connectionCredentials.id, row.id),
+              eq(connectionCredentials.orgId, orgId),
+            ),
+          );
+        return result;
+      },
+
+      /**
+       * KEK-rotation sweep: rewraps every credential row in this org still
+       * wrapped under a non-current KEK (DEK rewrap only — data ciphertext
+       * untouched). Returns the number of rows rewrapped. Run per org from
+       * the rotation job while CREDENTIAL_KEK_PREVIOUS is still configured.
+       */
+      async rewrapCredentials(env: CredentialEnv) {
+        const target = currentKekVersion(env);
+        const rows = await db
+          .select()
+          .from(connectionCredentials)
+          .where(eq(connectionCredentials.orgId, orgId));
+        let rewrapped = 0;
+        for (const row of rows) {
+          if (row.kekVersion === target) {
+            continue;
+          }
+          const updated = await rewrapCredential(
+            env,
+            { orgId, connectionId: row.connectionId, kind: row.kind },
+            row,
+          );
+          await db
+            .update(connectionCredentials)
+            .set({
+              wrappedDekB64: updated.wrappedDekB64,
+              dekIvB64: updated.dekIvB64,
+              kekVersion: updated.kekVersion,
+              rotatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(connectionCredentials.id, row.id),
+                eq(connectionCredentials.orgId, orgId),
+              ),
+            );
+          rewrapped++;
+        }
+        return rewrapped;
       },
     },
 
@@ -399,10 +455,21 @@ export function forOrg(db: Db, orgId: string) {
       /**
        * Idempotent discover() sink: upserts on (connection, kind,
        * external_id), refreshing mutable fields and last_seen_at. The
-       * composite (org_id, connection_id) FK rejects a connection belonging
-       * to another org, so this cannot write subjects across tenants.
+       * composite (org_id, connection_id) FK rejects cross-org INSERTs, but
+       * the ON CONFLICT update path never re-checks the FK — hence the
+       * ownership pre-check and the org-guarded setWhere below (same
+       * pattern as storeCredential).
        */
       async upsertMany(connectionId: string, descriptors: SubjectDescriptor[]) {
+        const [owned] = await db
+          .select({ id: connections.id })
+          .from(connections)
+          .where(
+            and(eq(connections.orgId, orgId), eq(connections.id, connectionId)),
+          );
+        if (!owned) {
+          throw new Error(`connection ${connectionId} not found in org`);
+        }
         const rows = [];
         for (const d of descriptors) {
           const [row] = await db
@@ -424,6 +491,8 @@ export function forOrg(db: Db, orgId: string) {
                 meta: d.meta ?? {},
                 lastSeenAt: new Date(),
               },
+              // Belt-and-braces on top of the ownership check above.
+              setWhere: eq(subjects.orgId, orgId),
             })
             .returning();
           rows.push(row);
