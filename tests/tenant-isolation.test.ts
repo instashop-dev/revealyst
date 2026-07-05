@@ -70,6 +70,8 @@ const SCOPED_READS: Array<{
   { name: "scores.results", tables: ["score_results"], run: (s) => s.scores.results({}) },
   { name: "billing.trackedUsers", tables: ["metric_records", "identities"], run: (s) => s.billing.trackedUsers(PERIOD) },
   { name: "heartbeats.list", tables: ["poll_heartbeats"], run: (s) => s.heartbeats.list() },
+  { name: "connectorRuns.list", tables: ["connector_runs"], run: (s) => s.connectorRuns.list() },
+  { name: "connectorRuns.latest(B)", tables: ["connector_runs"], run: (s, c) => s.connectorRuns.latest(c.B.connections.anthropic) },
   // Credentials are read-only via withCredential, which throws for foreign
   // rows — asserted in its own test; listed here for completeness only.
   { name: "connections.withCredential", tables: ["connection_credentials"], run: async () => [] },
@@ -113,6 +115,18 @@ beforeAll(async () => {
       payload: { org: orgId },
     });
     await scoped.heartbeats.record(`beat-${orgId}`);
+    const run = await scoped.connectorRuns.start({
+      connectionId: loaded.connections.anthropic,
+      kind: "poll",
+      windowStart: PERIOD.start,
+      windowEnd: PERIOD.end,
+    });
+    await scoped.connectorRuns.finish(run.id, {
+      subjectsSeen: 1,
+      recordsUpserted: 1,
+      signalsUpserted: 0,
+      gaps: [],
+    });
   }
   const [bDef] = await db
     .insert(schema.scoreDefinitions)

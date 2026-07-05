@@ -6,10 +6,15 @@
 import openNextHandlerModule from "../.open-next/worker.js";
 
 const openNextHandler = openNextHandlerModule as ExportedHandler<CloudflareEnv>;
+// Side effect: populates the connector registry (one line per vendor).
+import "./connectors";
 import { createDb } from "./db/client";
+import type { CredentialEnv } from "./lib/credentials";
 import { listOrgIds } from "./db/system";
+import { dispatchDueConnectorWork } from "./poller/dispatch";
 import { SYSTEM_ORG_ID, type PollMessage } from "./poller/messages";
 import { processPollMessage } from "./poller/process";
+import { retryDelaySeconds, RetryableConnectorError } from "./poller/run";
 import { previousDay } from "./scoring";
 
 // Matches the second entry in wrangler.jsonc "triggers".crons — the nightly
@@ -19,10 +24,10 @@ const NIGHTLY_SCORE_CRON = "0 2 * * *";
 export default {
   fetch: openNextHandler.fetch,
 
-  // Cron Trigger → one queue message per connection. W0-B has no
-  // connections yet, so it enqueues the single no-op heartbeat poll, plus
-  // the raw-landing-zone purge (bounded batches; cheap when nothing has
-  // expired, so every tick is fine until W1-D refines scheduling).
+  // Cron Trigger (every 5 min): heartbeat + raw purge (W0-B/C), then W1-D
+  // connector dispatch — one queue message per due connection (regular
+  // polls when the vendor interval elapsed; the chunked backfill
+  // chain-start once per new connection).
   async scheduled(controller, env) {
     if (controller.cron === NIGHTLY_SCORE_CRON) {
       // Nightly score recompute: one queue message per org, anchored at
@@ -43,13 +48,45 @@ export default {
       orgId: SYSTEM_ORG_ID,
     } satisfies PollMessage);
     await env.POLL_QUEUE.send({ kind: "purge-raw" } satisfies PollMessage);
+    const db = createDb(env);
+    await dispatchDueConnectorWork(db, {
+      send: async (message) => {
+        await env.POLL_QUEUE.send(message);
+      },
+    });
   },
 
   async queue(batch, env) {
     const db = createDb(env);
     for (const message of batch.messages) {
-      await processPollMessage(db, message.body);
-      message.ack();
+      try {
+        await processPollMessage(db, message.body, {
+          credentialEnv: env as unknown as CredentialEnv,
+          send: async (m, opts) => {
+            await env.POLL_QUEUE.send(
+              m,
+              opts?.delaySeconds ? { delaySeconds: opts.delaySeconds } : undefined,
+            );
+          },
+          attempt: message.attempts,
+        });
+        message.ack();
+      } catch (error) {
+        // Permanent connector failures are recorded on the run/connection
+        // inside the handler and never reach here; what does is retryable:
+        // vendor 429/5xx (with its own delay) or an unexpected crash
+        // (default queue backoff). max_retries in wrangler.jsonc bounds it.
+        if (error instanceof RetryableConnectorError) {
+          message.retry({
+            delaySeconds: Math.max(
+              error.delaySeconds,
+              retryDelaySeconds(message.attempts),
+            ),
+          });
+        } else {
+          message.retry();
+        }
+      }
     }
   },
 } satisfies ExportedHandler<CloudflareEnv, PollMessage>;

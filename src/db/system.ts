@@ -1,6 +1,12 @@
-import { inArray, lt, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, lt, sql } from "drizzle-orm";
 import type { Db } from "./client";
-import { orgs, rawPayloads } from "./schema";
+import {
+  connectionCredentials,
+  connections,
+  connectorRuns,
+  orgs,
+  rawPayloads,
+} from "./schema";
 
 // System-level maintenance jobs. These run across orgs by design (raw
 // access is allowed only inside src/db/**) and are invoked from the queue
@@ -25,6 +31,60 @@ export async function ensureSystemOrg(
 export async function listOrgIds(db: Db): Promise<string[]> {
   const rows = await db.select({ id: orgs.id }).from(orgs);
   return rows.map((r) => r.id);
+}
+
+/**
+ * Candidates for connector work across all orgs — the Cron dispatcher's
+ * one cross-org read (system-level by design; per-org writes then go
+ * through forOrg). A connection qualifies once it is pending/active AND
+ * has at least one stored credential (nothing to poll with otherwise).
+ * Dueness policy (per-vendor intervals, backfill windows) stays in
+ * src/poller/dispatch.ts — this module only reports state.
+ */
+export type ConnectorWorkCandidate = {
+  orgId: string;
+  connectionId: string;
+  vendor: string;
+  lastPolledAt: Date | null;
+  /** True once any backfill run row exists (started counts — resume is
+   * driven by the queue cursor chain, not by re-dispatch). */
+  backfillStarted: boolean;
+};
+
+export async function listConnectorWorkCandidates(
+  db: Db,
+): Promise<ConnectorWorkCandidate[]> {
+  const rows = await db
+    .select({
+      orgId: connections.orgId,
+      connectionId: connections.id,
+      vendor: connections.vendor,
+      lastPolledAt: connections.lastPolledAt,
+    })
+    .from(connections)
+    .where(
+      and(
+        inArray(connections.status, ["pending", "active"]),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(connectionCredentials)
+            .where(eq(connectionCredentials.connectionId, connections.id)),
+        ),
+      ),
+    );
+  if (rows.length === 0) {
+    return [];
+  }
+  const backfilled = await db
+    .selectDistinct({ connectionId: connectorRuns.connectionId })
+    .from(connectorRuns)
+    .where(eq(connectorRuns.kind, "backfill"));
+  const started = new Set(backfilled.map((r) => r.connectionId));
+  return rows.map((r) => ({
+    ...r,
+    backfillStarted: started.has(r.connectionId),
+  }));
 }
 
 /**
