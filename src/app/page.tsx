@@ -17,7 +17,7 @@ export default function Home() {
           AI tools.
         </p>
       </div>
-      <Button size="lg" render={<Link href="/sign-in" />}>
+      <Button size="lg" nativeButton={false} render={<Link href="/sign-in" />}>
         Sign in
         <ArrowRight data-icon="inline-end" />
       </Button>
