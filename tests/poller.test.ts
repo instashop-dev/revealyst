@@ -17,10 +17,11 @@ beforeAll(async () => {
 
 describe("no-op poll message", () => {
   it("creates the system org on first run and writes a heartbeat", async () => {
-    const row = await processPollMessage(db, {
+    await processPollMessage(db, {
       kind: "noop-poll",
       orgId: SYSTEM_ORG_ID,
     });
+    const [row] = await db.select().from(schema.pollHeartbeats);
     expect(row?.orgId).toBe(SYSTEM_ORG_ID);
     expect(row?.source).toBe("noop-poller");
   });
