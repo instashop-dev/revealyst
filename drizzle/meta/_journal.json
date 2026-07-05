@@ -57,6 +57,20 @@
       "when": 1783223965661,
       "tag": "0007_seed-metric-catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783224445888,
+      "tag": "0008_scores",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783224460963,
+      "tag": "0009_seed-score-presets",
+      "breakpoints": true
     }
   ]
 }
