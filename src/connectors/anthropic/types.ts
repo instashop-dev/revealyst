@@ -1,7 +1,8 @@
 // Raw payload shapes for the Anthropic Console admin surface, per
 // docs/connector-facts.md §3 (retrieved 2026-07-04). These type RECORDED
-// payloads — fixtures under fixtures/vendor-payloads/anthropic_console/
-// mirror them until W1-S lands real recordings (rule 2).
+// payloads — provisional fixtures under fixtures/connectors/anthropic_console/
+// mirror them until W1-S lands real recordings under
+// fixtures/vendor-payloads/ (rule 2).
 
 /** Paged envelope every Console admin endpoint returns. */
 export type AnthropicPage<T> = {
