@@ -25,7 +25,7 @@ const SCHEMA_ZONE = ["src/db/"];
 const CREATE_DB_ALLOWLIST = new Set([
   "src/worker.ts",
   "src/lib/auth.ts",
-  "src/app/dashboard/page.tsx",
+  "src/lib/api-context.ts", // shared request entrypoint for pages + API routes
   "src/db/client.ts", // its own definition
 ]);
 

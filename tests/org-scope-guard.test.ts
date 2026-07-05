@@ -43,6 +43,7 @@ describe("check-org-scope guard", () => {
       { path: "src/db/org-scope.ts", content: `import { people } from "./schema";` },
       { path: "src/worker.ts", content: `const db = createDb(env);` },
       { path: "src/lib/auth.ts", content: `createDb(env)` },
+      { path: "src/lib/api-context.ts", content: `createDb(env)` },
     ]);
     expect(violations).toHaveLength(0);
   });
