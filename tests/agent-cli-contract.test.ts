@@ -121,7 +121,7 @@ describe("CLI batch lands end-to-end", () => {
       to: "2026-07-31",
     });
     expect(sessions).toHaveLength(2); // two active days
-    expect(sessions[0].value).toBe(2); // main + sidechain on day 1
+    expect(sessions[0].value).toBe(1); // §5: sidechain ≠ session (its tokens still count)
     expect(sessions[0].attribution).toBe("person");
     expect(sessions[0].sourceConnector).toBe("claude-code-local@1");
 
@@ -133,7 +133,7 @@ describe("CLI batch lands end-to-end", () => {
       to: "2026-07-31",
     });
     expect(signals).toHaveLength(2);
-    expect(signals[0].hours?.[9]).toBe(7);
-    expect(signals[0].peakConcurrency).toBe(2);
+    expect(signals[0].hours?.[9]).toBe(6); // deduped events at 09:xx
+    expect(signals[0].peakConcurrency).toBe(2); // real overlap: sidechain within main
   });
 });

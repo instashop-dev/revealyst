@@ -1,9 +1,15 @@
 // Lenient structural parser for Claude Code session JSONL
 // (docs/connector-facts.md §5). THE PRIVACY LINE LIVES HERE: a ParsedEvent
-// carries only allowlisted structural fields — type, ids, timestamps,
-// model, usage NUMBERS, and block-type presence. No field of a ParsedEvent
-// can hold prompt text, completion text, tool output, titles, or file
-// paths, so nothing downstream (summarize → push) can leak them.
+// carries only allowlisted structural fields — type, ids, timestamps, the
+// model id, usage NUMBERS, and block-type presence. Denylisted fields
+// (content, tool output, titles, paths, branches) are never read at all.
+// The one free-text field the §5 allowlist permits, `message.model`, IS
+// transmitted (as a metric `dim`), but it's vendor free text, so
+// sanitizeModel bounds it — charset-clamped to [A-Za-z0-9._:-] and capped
+// at 64 chars — so it cannot carry spaces, punctuation, newlines, a URL,
+// JSON, or a large payload. We can't prove a string is a "real" model
+// without a brittle hardcoded list, so this is a BOUND, not a semantic
+// filter; the server dim guard is the second bound.
 //
 // Lenient by design (format drift is the #1 risk): unparseable lines and
 // unknown record types are counted and skipped, never fatal.
@@ -58,6 +64,21 @@ function asNumber(v: unknown): number {
 
 function asString(v: unknown): string | null {
   return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+/** Model ids look like "claude-fable-5" / "claude-haiku-4-5-20251001". We
+ * transmit the model (it's §5-allowlisted) but it is still vendor free
+ * text, so clamp it to a safe charset and length before it can become a
+ * metric `dim` ("model=<id>") or a gap detail — a hostile/corrupted log
+ * must not be able to smuggle content through it. Disallowed characters
+ * are dropped; an empty or overlong result collapses to a marker. */
+export function sanitizeModel(raw: unknown): string | null {
+  const s = asString(raw);
+  if (s === null) {
+    return null;
+  }
+  const cleaned = s.replace(/[^A-Za-z0-9._:-]/g, "").slice(0, 64);
+  return cleaned.length > 0 ? cleaned : "unknown";
 }
 
 /** True when a user record is a tool-result carrier, not a human prompt:
@@ -132,7 +153,7 @@ export function parseSessionContent(content: string): ParseResult {
           asString(message?.id) ??
           asString(record.uuid) ??
           `${sessionId}:${timestampMs}`,
-        model: asString(message?.model),
+        model: sanitizeModel(message?.model),
         usage: usageRaw
           ? {
               input: asNumber(usageRaw.input_tokens),

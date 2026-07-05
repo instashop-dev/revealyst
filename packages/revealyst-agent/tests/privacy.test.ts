@@ -128,6 +128,52 @@ describe("privacy: nothing content-shaped leaves the machine", () => {
     }
   });
 
+  it("bounds a hostile model field so it can't smuggle structured/large content", () => {
+    // The adversarial-review vector: message.model is §5-allowlisted (we DO
+    // transmit the model id), but it is vendor free text. We can't
+    // semantically prove a string is a "real" model without a brittle
+    // hardcoded list, so the guarantee is BOUNDING, not letter-stripping:
+    // the model is charset-clamped (no spaces/punctuation/newlines/control)
+    // and length-capped, so a planted log cannot carry a multi-word payload,
+    // a URL, JSON, or anything beyond ≤64 [A-Za-z0-9._:-] chars. The server
+    // dim guard is the second bound (≤128, no whitespace/control).
+    const longWord = "x".repeat(500);
+    const hostile = JSON.stringify({
+      type: "assistant",
+      sessionId: "s1",
+      timestamp: "2026-07-10T10:00:00.000Z",
+      requestId: "r1",
+      message: {
+        id: "m1",
+        model: `rotate AWS key\nAKIA https://evil.test/?d=${longWord}`,
+        usage: { input_tokens: 10, output_tokens: 5 },
+      },
+    });
+    const built = buildIngestRequest({
+      sessionContents: [hostile],
+      window: { start: "2026-07-01", end: "2026-07-31" },
+      identity: {
+        descriptor: {
+          kind: "person",
+          externalId: "dev@example.com",
+          email: "dev@example.com",
+          displayName: null,
+        },
+        attribution: "person",
+      },
+      agentVersion: "0.1.0",
+    });
+    // Assert on the dims (the model's landing spot) — the payload's own gap
+    // details are static English and legitimately contain spaces.
+    for (const record of built.records) {
+      expect(record.dim).toMatch(/^$|^model=[A-Za-z0-9._:-]{1,64}$/);
+      expect(record.dim).not.toContain(" ");
+      expect(record.dim).not.toContain("\n");
+      expect(record.dim).not.toContain("//");
+      expect(record.dim).not.toContain(longWord); // length-capped
+    }
+  });
+
   it("string values are confined to enums, days, model dims, and the identity", () => {
     // Beyond keys, check VALUES: the only free-ish strings allowed are the
     // subject identity fields, gap details, and the agent version.

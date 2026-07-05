@@ -2,6 +2,13 @@
 // signals out. No I/O, no clock (the window comes from the caller), no
 // content — deterministic over the same events, mirroring the frozen
 // Connector.normalize() purity rule.
+//
+// Two correctness rules from docs/connector-facts.md §5 are load-bearing:
+//   • Dedup usage by requestId, **last-wins** ("keep final entry") — the
+//     final streamed line restates cumulative usage; first-wins undercounts.
+//   • Sessions = distinct sessionId with isSidechain:false ("human
+//     sessions"); subagent usage is still summed, but a sidechain is not a
+//     session. Streamed duplicate lines are not extra activity either.
 
 import { estimateCents, ratesForModel } from "./prices";
 import type { ParsedEvent, UsageNumbers } from "./parse";
@@ -35,15 +42,38 @@ function utcHour(timestampMs: number): number {
   return new Date(timestampMs).getUTCHours();
 }
 
+/** Peak simultaneous sessions: the max number of inclusive [min,max] event
+ * intervals overlapping at any instant (which always occurs at some
+ * interval's start). Real temporal overlap — not an hourly bucket count —
+ * so "peak concurrency" means what it says. */
+function peakConcurrency(intervals: Array<{ min: number; max: number }>): number {
+  let peak = 0;
+  for (const a of intervals) {
+    let count = 0;
+    for (const b of intervals) {
+      if (b.min <= a.min && a.min <= b.max) {
+        count++;
+      }
+    }
+    if (count > peak) {
+      peak = count;
+    }
+  }
+  return peak;
+}
+
 type DayAgg = {
   usage: UsageNumbers;
   spendCents: number;
   prompts: number;
-  sessions: Set<string>;
+  /** Human sessions only (isSidechain:false) — the §5 sessions metric. */
+  humanSessions: Set<string>;
+  /** Every session's active interval this day (incl. sidechains) — feeds
+   * true concurrency. */
+  sessionIntervals: Map<string, { min: number; max: number }>;
   modelRequests: Map<string, number>;
   modelTokens: Map<string, number>;
   hours: number[];
-  hourSessions: Array<Set<string>>;
 };
 
 function emptyDay(): DayAgg {
@@ -51,11 +81,11 @@ function emptyDay(): DayAgg {
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     spendCents: 0,
     prompts: 0,
-    sessions: new Set(),
+    humanSessions: new Set(),
+    sessionIntervals: new Map(),
     modelRequests: new Map(),
     modelTokens: new Map(),
     hours: Array.from({ length: 24 }, () => 0),
-    hourSessions: Array.from({ length: 24 }, () => new Set<string>()),
   };
 }
 
@@ -63,11 +93,26 @@ export function summarize(
   events: ParsedEvent[],
   opts: SummarizeOptions,
 ): Summary {
+  // Pass 1 — collapse streamed assistant lines to ONE event per request,
+  // last-wins (the final line carries cumulative usage). Non-assistant
+  // events pass through unchanged. This dedup happens BEFORE any
+  // aggregation, so histograms and session presence never double-count a
+  // streamed turn.
+  const assistantByKey = new Map<string, ParsedEvent>();
+  const otherEvents: ParsedEvent[] = [];
+  for (const event of events) {
+    if (event.kind === "assistant") {
+      assistantByKey.set(event.dedupKey, event); // last-wins
+    } else {
+      otherEvents.push(event);
+    }
+  }
+  const dedupedEvents = [...otherEvents, ...assistantByKey.values()];
+
   const days = new Map<string, DayAgg>();
-  const seenAssistant = new Set<string>();
   const unknownModels = new Set<string>();
 
-  for (const event of events) {
+  for (const event of dedupedEvents) {
     const day = utcDay(event.timestampMs);
     if (day < opts.window.start || day > opts.window.end) {
       continue;
@@ -78,42 +123,42 @@ export function summarize(
       days.set(day, agg);
     }
 
-    // Every event marks activity: session presence + hour histogram.
-    agg.sessions.add(event.sessionId);
-    const hour = utcHour(event.timestampMs);
-    agg.hours[hour]++;
-    agg.hourSessions[hour].add(event.sessionId);
+    agg.hours[utcHour(event.timestampMs)]++;
+    if (!event.isSidechain) {
+      agg.humanSessions.add(event.sessionId);
+    }
+    const interval = agg.sessionIntervals.get(event.sessionId);
+    if (interval) {
+      interval.min = Math.min(interval.min, event.timestampMs);
+      interval.max = Math.max(interval.max, event.timestampMs);
+    } else {
+      agg.sessionIntervals.set(event.sessionId, {
+        min: event.timestampMs,
+        max: event.timestampMs,
+      });
+    }
 
     if (event.kind === "prompt") {
       agg.prompts++;
-    } else if (event.kind === "assistant") {
-      // Streaming writes several JSONL lines per request sharing a
-      // requestId, each restating the same usage — count once.
-      if (seenAssistant.has(event.dedupKey)) {
-        continue;
-      }
-      seenAssistant.add(event.dedupKey);
+    } else if (event.kind === "assistant" && event.usage) {
+      agg.usage.input += event.usage.input;
+      agg.usage.output += event.usage.output;
+      agg.usage.cacheRead += event.usage.cacheRead;
+      agg.usage.cacheWrite += event.usage.cacheWrite;
 
-      if (event.usage) {
-        agg.usage.input += event.usage.input;
-        agg.usage.output += event.usage.output;
-        agg.usage.cacheRead += event.usage.cacheRead;
-        agg.usage.cacheWrite += event.usage.cacheWrite;
-
-        const model = event.model ?? "unknown";
-        const { rates, known } = ratesForModel(model);
-        if (!known) {
-          unknownModels.add(model);
-        }
-        agg.spendCents += estimateCents(rates, event.usage);
-        agg.modelRequests.set(model, (agg.modelRequests.get(model) ?? 0) + 1);
-        agg.modelTokens.set(
-          model,
-          (agg.modelTokens.get(model) ?? 0) +
-            event.usage.input +
-            event.usage.output,
-        );
+      const model = event.model ?? "unknown";
+      const { rates, known } = ratesForModel(model);
+      if (!known) {
+        unknownModels.add(model);
       }
+      agg.spendCents += estimateCents(rates, event.usage);
+      agg.modelRequests.set(model, (agg.modelRequests.get(model) ?? 0) + 1);
+      agg.modelTokens.set(
+        model,
+        (agg.modelTokens.get(model) ?? 0) +
+          event.usage.input +
+          event.usage.output,
+      );
     }
   }
 
@@ -125,7 +170,7 @@ export function summarize(
     const agg = days.get(day)!;
     const flat: Array<[MetricRecordInput["metricKey"], number]> = [
       ["active_day", 1],
-      ["sessions", agg.sessions.size],
+      ["sessions", agg.humanSessions.size],
       ["prompts", agg.prompts],
       ["tokens_input", agg.usage.input],
       ["tokens_output", agg.usage.output],
@@ -158,7 +203,7 @@ export function summarize(
       subject: opts.subject,
       day,
       hours: agg.hours,
-      peakConcurrency: Math.max(...agg.hourSessions.map((s) => s.size)),
+      peakConcurrency: peakConcurrency([...agg.sessionIntervals.values()]),
       sourceGranularity: "event",
     });
   }

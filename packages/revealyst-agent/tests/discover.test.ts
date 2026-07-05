@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { claudeConfigDirs, listSessionFiles } from "../src/discover";
 
@@ -11,49 +11,60 @@ const scratch = mkdtempSync(join(tmpdir(), "rva-discover-"));
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 
 describe("claudeConfigDirs", () => {
-  it("defaults to <home>/.claude", () => {
-    expect(claudeConfigDirs({}, "C:\\Users\\dev")).toEqual([
-      join("C:\\Users\\dev", ".claude"),
+  it("defaults to both ~/.claude and ~/.config/claude (§5 ccusage parity)", () => {
+    expect(claudeConfigDirs({}, "/home/dev")).toEqual([
+      join("/home/dev", ".claude"),
+      join("/home/dev", ".config", "claude"),
     ]);
   });
 
-  it("honors CLAUDE_CONFIG_DIR, including multi-path values", () => {
-    // Colon-free paths: CI runs this on Linux too, where the delimiter is
-    // ":" and a Windows drive letter would split. Real Windows overrides
-    // use ";" so drive letters are safe there.
+  it("adds CLAUDE_CONFIG_DIR paths (COMMA-separated), keeping the defaults", () => {
     const dirA = join(scratch, "override-a");
     const dirB = join(scratch, "override-b");
-    expect(claudeConfigDirs({ CLAUDE_CONFIG_DIR: dirA }, "/home/dev")).toEqual([
+    // §5: the override is additive and comma-delimited (NOT the OS path
+    // delimiter, which would shred a Windows "C:\…" path on POSIX).
+    expect(
+      claudeConfigDirs({ CLAUDE_CONFIG_DIR: `${dirA},${dirB}` }, "/home/dev"),
+    ).toEqual([
+      join("/home/dev", ".claude"),
+      join("/home/dev", ".config", "claude"),
       dirA,
+      dirB,
     ]);
-    const multi = [dirA, dirB].join(delimiter);
-    expect(claudeConfigDirs({ CLAUDE_CONFIG_DIR: multi }, "/home/dev")).toEqual(
-      [dirA, dirB],
-    );
   });
 
-  it("falls back to the default when the override is blank", () => {
+  it("ignores a blank override and de-duplicates", () => {
     expect(claudeConfigDirs({ CLAUDE_CONFIG_DIR: "  " }, "/home/dev")).toEqual([
       join("/home/dev", ".claude"),
+      join("/home/dev", ".config", "claude"),
     ]);
+    // An override naming a default path must not duplicate it.
+    const dflt = join("/home/dev", ".claude");
+    expect(
+      claudeConfigDirs({ CLAUDE_CONFIG_DIR: dflt }, "/home/dev"),
+    ).toEqual([dflt, join("/home/dev", ".config", "claude")]);
   });
 });
 
 describe("listSessionFiles", () => {
-  it("finds .jsonl session files across project dirs, skipping noise", () => {
+  it("finds session files recursively, including nested subagent transcripts", () => {
     const configDir = join(scratch, "config");
     const projA = join(configDir, "projects", "C--Users-dev-repo-a");
     const projB = join(configDir, "projects", "C--Users-dev-repo-b");
-    mkdirSync(projA, { recursive: true });
+    // The real layout found on the founder's machine: sidechains live at
+    // projects/<proj>/<sessionId>/subagents/*.jsonl — a flat scan missed
+    // 97 of 129 real files (all sidechain usage). Never regress this.
+    const subagents = join(projA, "4d0e7731-uuid", "subagents");
+    mkdirSync(subagents, { recursive: true });
     mkdirSync(projB, { recursive: true });
     writeFileSync(join(projA, "session-1.jsonl"), '{"type":"user"}\n');
     writeFileSync(join(projA, "notes.txt"), "not a session");
+    writeFileSync(join(subagents, "agent-1.jsonl"), '{"type":"assistant"}\n');
     writeFileSync(join(projB, "session-2.jsonl"), '{"type":"assistant"}\n');
-    // A stray file directly under projects/ must not crash the walk.
-    writeFileSync(join(configDir, "projects", "stray.jsonl"), "");
 
     const refs = listSessionFiles([configDir]);
     expect(refs.map((r) => r.path)).toEqual([
+      join(subagents, "agent-1.jsonl"),
       join(projA, "session-1.jsonl"),
       join(projB, "session-2.jsonl"),
     ]);

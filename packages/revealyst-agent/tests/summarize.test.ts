@@ -45,8 +45,10 @@ function value(
 describe("summarize", () => {
   const summary = summarize(allEvents(), OPTS);
 
-  it("computes known-truth token sums (dedup by requestId, sidechain included)", () => {
-    // Day 1: main 1200+400 (streamed dup counted ONCE) + sidechain 2000.
+  it("dedups streamed usage last-wins (§5): the partial line is discarded", () => {
+    // req-main-1 has two streamed lines: partial input 100, final input
+    // 1200. Last-wins keeps 1200; a first-wins bug would yield 2500 total.
+    // Day 1 input: main 1200 (final) + 400 (req-main-2) + sidechain 2000.
     expect(value(summary.records, "tokens_input", "2026-07-01")).toBe(3600);
     expect(value(summary.records, "tokens_output", "2026-07-01")).toBe(900);
     expect(value(summary.records, "tokens_cache_read", "2026-07-01")).toBe(5100);
@@ -56,8 +58,10 @@ describe("summarize", () => {
     expect(value(summary.records, "tokens_output", "2026-07-02")).toBe(50);
   });
 
-  it("counts sessions, prompts, and active days", () => {
-    expect(value(summary.records, "sessions", "2026-07-01")).toBe(2); // main + sidechain
+  it("counts sessions as human sessions only (§5: sidechain ≠ session)", () => {
+    // Day 1 has a main session + a sidechain; only the main counts as a
+    // session, though the sidechain's tokens ARE summed above.
+    expect(value(summary.records, "sessions", "2026-07-01")).toBe(1);
     expect(value(summary.records, "sessions", "2026-07-02")).toBe(1);
     expect(value(summary.records, "prompts", "2026-07-01")).toBe(1); // tool-result ≠ prompt
     expect(value(summary.records, "prompts", "2026-07-02")).toBe(1);
@@ -108,16 +112,27 @@ describe("summarize", () => {
     expect(value(summary.records, "tokens_input", "2026-06-25")).toBeUndefined();
   });
 
-  it("builds hour histograms and peak concurrency from event timestamps", () => {
+  it("builds hour histograms from DEDUPED events (streamed dup not double-counted)", () => {
     const day1 = summary.signals.find((s) => s.day === "2026-07-01")!;
-    expect(day1.hours?.[9]).toBe(7); // 5 main + 2 sidechain events at 09:xx UTC
-    expect(day1.hours?.[10]).toBe(1);
-    expect(day1.hours?.reduce((a, b) => a + b, 0)).toBe(8);
-    expect(day1.peakConcurrency).toBe(2); // main + sidechain overlap at 09:xx
+    // hr9 deduped: prompt, 1 assistant (req-main-1 collapsed), tool-result
+    // activity, attachment, sidechain user, sidechain assistant = 6.
+    expect(day1.hours?.[9]).toBe(6);
+    expect(day1.hours?.[10]).toBe(1); // req-main-2 assistant
+    expect(day1.hours?.reduce((a, b) => a + b, 0)).toBe(7);
     expect(day1.sourceGranularity).toBe("event");
 
     const day2 = summary.signals.find((s) => s.day === "2026-07-02")!;
     expect(day2.hours?.[8]).toBe(2);
+  });
+
+  it("reports peak concurrency as REAL interval overlap, not hourly buckets", () => {
+    // Day 1: sidechain [09:20,09:21] runs inside main [09:12,10:30] → 2
+    // sessions truly overlap.
+    const day1 = summary.signals.find((s) => s.day === "2026-07-01")!;
+    expect(day1.peakConcurrency).toBe(2);
+    // Day 2: a single session, no overlap — concurrency 1, not "2 because
+    // two events share an hour".
+    const day2 = summary.signals.find((s) => s.day === "2026-07-02")!;
     expect(day2.peakConcurrency).toBe(1);
   });
 
