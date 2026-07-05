@@ -22,7 +22,7 @@ import { RetryableConnectorError } from "../src/poller/run";
 // modes ride on (W2-J adds org-admin onboarding, not new data rules).
 
 const fixture = (name: string) =>
-  JSON.parse(readFileSync(`fixtures/vendor-payloads/openai/${name}`, "utf8"));
+  JSON.parse(readFileSync(`fixtures/connectors/openai/${name}`, "utf8"));
 const usagePage = fixture("usage-completions-1h.json");
 const costsPage = fixture("costs-1d.json");
 
