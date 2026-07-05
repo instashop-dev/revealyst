@@ -2,7 +2,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.{ts,tsx}"],
+    include: [
+      "src/**/*.test.{ts,tsx}",
+      "tests/**/*.test.{ts,tsx}",
+      "packages/*/tests/**/*.test.ts",
+    ],
     // PGlite (WASM Postgres) cold-starts slowly, especially with several
     // test files initializing instances concurrently.
     hookTimeout: 60_000,
