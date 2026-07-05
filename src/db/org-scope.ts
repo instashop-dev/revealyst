@@ -399,10 +399,21 @@ export function forOrg(db: Db, orgId: string) {
       /**
        * Idempotent discover() sink: upserts on (connection, kind,
        * external_id), refreshing mutable fields and last_seen_at. The
-       * composite (org_id, connection_id) FK rejects a connection belonging
-       * to another org, so this cannot write subjects across tenants.
+       * composite (org_id, connection_id) FK rejects cross-org INSERTs, but
+       * the ON CONFLICT update path never re-checks the FK — hence the
+       * ownership pre-check and the org-guarded setWhere below (same
+       * pattern as storeCredential).
        */
       async upsertMany(connectionId: string, descriptors: SubjectDescriptor[]) {
+        const [owned] = await db
+          .select({ id: connections.id })
+          .from(connections)
+          .where(
+            and(eq(connections.orgId, orgId), eq(connections.id, connectionId)),
+          );
+        if (!owned) {
+          throw new Error(`connection ${connectionId} not found in org`);
+        }
         const rows = [];
         for (const d of descriptors) {
           const [row] = await db
@@ -424,6 +435,8 @@ export function forOrg(db: Db, orgId: string) {
                 meta: d.meta ?? {},
                 lastSeenAt: new Date(),
               },
+              // Belt-and-braces on top of the ownership check above.
+              setWhere: eq(subjects.orgId, orgId),
             })
             .returning();
           rows.push(row);
