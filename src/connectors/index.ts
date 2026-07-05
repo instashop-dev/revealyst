@@ -3,5 +3,7 @@
 // import line per vendor as W1-D/W2-J land them.
 import { registerConnector } from "./registry";
 import { anthropicConsoleEntry } from "./anthropic";
+import { openAiEntry } from "./openai";
 
 registerConnector(anthropicConsoleEntry);
+registerConnector(openAiEntry);
