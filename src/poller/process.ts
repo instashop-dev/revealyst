@@ -4,6 +4,7 @@ import {
   ensureSystemOrg as ensureSystemOrgRow,
   purgeExpiredRawPayloads,
 } from "../db/system";
+import { periodFor, recomputeOrg } from "../scoring";
 import {
   SYSTEM_ORG_ID,
   SYSTEM_ORG_NAME,
@@ -34,6 +35,17 @@ export async function processPollMessage(
     }
     case "purge-raw": {
       await purgeExpiredRawPayloads(db);
+      return;
+    }
+    case "score-recompute": {
+      // Month covers the dashboard grain; rolling_28d gives the trailing
+      // window. Both upsert on the frozen key, so re-delivery is harmless.
+      await recomputeOrg(db, message.orgId, {
+        period: periodFor("month", message.day),
+      });
+      await recomputeOrg(db, message.orgId, {
+        period: periodFor("rolling_28d", message.day),
+      });
       return;
     }
   }
