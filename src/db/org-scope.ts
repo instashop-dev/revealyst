@@ -1,4 +1,8 @@
-import { and, eq, gte, lte, type SQL } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, or, type SQL } from "drizzle-orm";
+import {
+  countTrackedUsers,
+  type BillingPeriod,
+} from "../contracts/tracked-user";
 import {
   currentKekVersion,
   decryptCredential,
@@ -21,6 +25,8 @@ import {
   people,
   pollHeartbeats,
   rawPayloads,
+  scoreDefinitions,
+  scoreResults,
   subjectDaySignals,
   subjects,
   teamMembers,
@@ -167,6 +173,20 @@ export type RawPayloadInsert = {
   windowStart?: Date | null;
   windowEnd?: Date | null;
   payload: unknown;
+};
+
+/** What the W1-F engine emits — upserted on the score_results unique key. */
+export type ScoreResultUpsert = {
+  definitionId: string;
+  subjectLevel: (typeof scoreResults.subjectLevel.enumValues)[number];
+  personId?: string | null;
+  teamId?: string | null;
+  periodStart: string;
+  periodEnd: string;
+  periodGrain: (typeof scoreResults.periodGrain.enumValues)[number];
+  value: number;
+  attribution: (typeof scoreResults.attribution.enumValues)[number];
+  components: unknown;
 };
 
 export function forOrg(db: Db, orgId: string) {
@@ -750,6 +770,130 @@ export function forOrg(db: Db, orgId: string) {
           .from(rawPayloads)
           .where(and(eq(rawPayloads.orgId, orgId), eq(rawPayloads.id, id)));
         return row;
+      },
+    },
+
+    scores: {
+      /** Definitions visible to this org: global presets (org_id NULL —
+       * the documented reference-data exception) ∪ this org's own rows. */
+      async definitions() {
+        return db
+          .select()
+          .from(scoreDefinitions)
+          .where(
+            or(
+              isNull(scoreDefinitions.orgId),
+              eq(scoreDefinitions.orgId, orgId),
+            ),
+          )
+          .orderBy(scoreDefinitions.slug, scoreDefinitions.version);
+      },
+
+      /**
+       * Recompute upsert (nightly + on-demand post-backfill): the
+       * NULLS NOT DISTINCT unique key makes re-runs overwrite, and org_id
+       * inside the key keeps the conflict path tenant-safe. `attribution`
+       * must already be the LOWEST of the inputs — the engine's frozen
+       * propagation rule.
+       */
+      async upsertResults(rows: ScoreResultUpsert[]) {
+        for (const r of rows) {
+          await db
+            .insert(scoreResults)
+            .values({
+              orgId,
+              definitionId: r.definitionId,
+              subjectLevel: r.subjectLevel,
+              personId: r.personId ?? null,
+              teamId: r.teamId ?? null,
+              periodStart: r.periodStart,
+              periodEnd: r.periodEnd,
+              periodGrain: r.periodGrain,
+              value: r.value,
+              attribution: r.attribution,
+              components: r.components,
+            })
+            .onConflictDoUpdate({
+              target: [
+                scoreResults.orgId,
+                scoreResults.definitionId,
+                scoreResults.subjectLevel,
+                scoreResults.personId,
+                scoreResults.teamId,
+                scoreResults.periodStart,
+                scoreResults.periodEnd,
+              ],
+              set: {
+                periodGrain: r.periodGrain,
+                value: r.value,
+                attribution: r.attribution,
+                components: r.components,
+                computedAt: new Date(),
+              },
+            });
+        }
+      },
+
+      async results(filter: {
+        definitionId?: string;
+        subjectLevel?: (typeof scoreResults.subjectLevel.enumValues)[number];
+        from?: string;
+        to?: string;
+      }) {
+        const conditions = [eq(scoreResults.orgId, orgId)];
+        if (filter.definitionId) {
+          conditions.push(eq(scoreResults.definitionId, filter.definitionId));
+        }
+        if (filter.subjectLevel) {
+          conditions.push(eq(scoreResults.subjectLevel, filter.subjectLevel));
+        }
+        if (filter.from) {
+          conditions.push(gte(scoreResults.periodStart, filter.from));
+        }
+        if (filter.to) {
+          conditions.push(lte(scoreResults.periodEnd, filter.to));
+        }
+        return db
+          .select()
+          .from(scoreResults)
+          .where(and(...conditions))
+          .orderBy(scoreResults.periodStart);
+      },
+    },
+
+    billing: {
+      /**
+       * The tracked_user billing primitive (frozen; see
+       * src/contracts/tracked-user.ts for the definition). Semantics live
+       * in the pure countTrackedUsers — this method only supplies the
+       * org-scoped inputs, so DB and pure paths cannot diverge.
+       */
+      async trackedUsers(period: BillingPeriod) {
+        const activeSubjectDays = await db
+          .selectDistinct({
+            subjectId: metricRecords.subjectId,
+            day: metricRecords.day,
+          })
+          .from(metricRecords)
+          .where(
+            and(
+              eq(metricRecords.orgId, orgId),
+              gte(metricRecords.day, period.start),
+              lte(metricRecords.day, period.end),
+            ),
+          );
+        const identityRows = await db
+          .select({
+            subjectId: identities.subjectId,
+            personId: identities.personId,
+          })
+          .from(identities)
+          .where(eq(identities.orgId, orgId));
+        return countTrackedUsers({
+          identities: identityRows,
+          activeSubjectDays,
+          period,
+        });
       },
     },
 
