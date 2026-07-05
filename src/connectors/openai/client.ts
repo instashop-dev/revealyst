@@ -116,6 +116,13 @@ export async function fetchOrgUsers(
       fetchFn,
     );
     users.push(...page.data);
+    if (page.has_more && !page.last_id) {
+      // A silent break here would truncate the member list and quietly
+      // degrade person attribution — fail loudly instead (review finding).
+      throw new Error(
+        "openai: /organization/users returned has_more without last_id",
+      );
+    }
     after = page.has_more ? page.last_id : null;
     if (after) {
       await sleep(CALL_SPACING_MS);

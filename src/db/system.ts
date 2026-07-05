@@ -36,8 +36,12 @@ export async function listOrgIds(db: Db): Promise<string[]> {
 /**
  * Candidates for connector work across all orgs — the Cron dispatcher's
  * one cross-org read (system-level by design; per-org writes then go
- * through forOrg). A connection qualifies once it is pending/active AND
- * has at least one stored credential (nothing to poll with otherwise).
+ * through forOrg). A connection qualifies once it has a stored credential
+ * (nothing to poll with otherwise) and is not paused. Errored connections
+ * STAY candidates (ADR 0003): that is the self-heal path — the next
+ * successful poll re-activates them via markPolled, so a transient vendor
+ * or DB failure never permanently halts ingestion. A wrong credential
+ * costs one visibly-failed run per interval until the user fixes it.
  * Dueness policy (per-vendor intervals, backfill windows) stays in
  * src/poller/dispatch.ts — this module only reports state.
  */
@@ -64,7 +68,7 @@ export async function listConnectorWorkCandidates(
     .from(connections)
     .where(
       and(
-        inArray(connections.status, ["pending", "active"]),
+        inArray(connections.status, ["pending", "active", "error"]),
         exists(
           db
             .select({ one: sql`1` })

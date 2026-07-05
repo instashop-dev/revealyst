@@ -191,23 +191,17 @@ function normalizeClaudeCode(records: ClaudeCodeRecord[]): NormalizedBatch {
     acc.add(subject, attribution, "edit_actions_accepted", day, "", accepted);
     acc.add(subject, attribution, "edit_actions_rejected", day, "", rejected);
 
+    // Token metrics are deliberately NOT emitted from this surface (ADR
+    // 0003 / review finding): the same underlying API usage already lands
+    // as tokens_*/model_tokens from usage_report/messages under the
+    // api_key_id / acct: subjects, and once W2-K links a person to both
+    // their usage subject and their claude_code actor, emitting tokens
+    // here too would double-count the person's rollup — fabricating
+    // numbers (invariant b). The usage report is the single canonical
+    // token source for this vendor (claude_code's model_breakdown feeds
+    // only the estimated-spend metric below; see also NLV-A11).
     let estimatedCents = 0;
     for (const mb of record.model_breakdown) {
-      acc.add(subject, attribution, "tokens_input", day, "", mb.tokens.input);
-      acc.add(subject, attribution, "tokens_output", day, "", mb.tokens.output);
-      acc.add(subject, attribution, "tokens_cache_read", day, "", mb.tokens.cache_read);
-      acc.add(subject, attribution, "tokens_cache_write", day, "", mb.tokens.cache_creation);
-      acc.add(
-        subject,
-        attribution,
-        "model_tokens",
-        day,
-        `model=${mb.model}`,
-        mb.tokens.input +
-          mb.tokens.output +
-          mb.tokens.cache_read +
-          mb.tokens.cache_creation,
-      );
       estimatedCents += mb.estimated_cost.amount; // number cents (estimate)
     }
     // Estimated per-actor spend goes to the ESTIMATED metric — the

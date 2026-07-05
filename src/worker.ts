@@ -76,7 +76,13 @@ export default {
         // Permanent connector failures are recorded on the run/connection
         // inside the handler and never reach here; what does is retryable:
         // vendor 429/5xx (with its own delay) or an unexpected crash
-        // (default queue backoff). max_retries in wrangler.jsonc bounds it.
+        // (default queue backoff). The consumer's max_retries (set
+        // explicitly in wrangler.jsonc) bounds redelivery; always log —
+        // a message dropped after its last retry must not vanish silently.
+        console.error(
+          `[queue] ${message.body.kind} attempt ${message.attempts} failed:`,
+          error,
+        );
         if (error instanceof RetryableConnectorError) {
           message.retry({
             delaySeconds: Math.max(
