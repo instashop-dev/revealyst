@@ -25,6 +25,14 @@ export async function ensureSystemOrg(
     .onConflictDoNothing({ target: orgs.id });
 }
 
+/** Enumerates org ids for cross-org fan-out (one queue message per org —
+ * e.g. the nightly score recompute). Enumeration is the only cross-org read;
+ * all per-org work goes back through forOrg. */
+export async function listOrgIds(db: Db): Promise<string[]> {
+  const rows = await db.select({ id: orgs.id }).from(orgs);
+  return rows.map((r) => r.id);
+}
+
 /**
  * Candidates for connector work across all orgs — the Cron dispatcher's
  * one cross-org read (system-level by design; per-org writes then go

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lte, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, or, type SQL } from "drizzle-orm";
 import {
   countTrackedUsers,
   type BillingPeriod,
@@ -384,6 +384,26 @@ export function forOrg(db: Db, orgId: string) {
                   lastError: outcome.error,
                 },
           )
+          .where(and(eq(connections.orgId, orgId), eq(connections.id, id)))
+          .returning();
+        return row;
+      },
+
+      /**
+       * Stamps a successful ingest/poll (ADR 0002, additive): activates the
+       * connection, sets last_polled_at/last_success_at, clears last_error.
+       * Org-guarded like setStatus — returns undefined for a foreign org.
+       */
+      async markSynced(id: string) {
+        const now = new Date();
+        const [row] = await db
+          .update(connections)
+          .set({
+            status: "active",
+            lastPolledAt: now,
+            lastSuccessAt: now,
+            lastError: null,
+          })
           .where(and(eq(connections.orgId, orgId), eq(connections.id, id)))
           .returning();
         return row;
@@ -801,6 +821,52 @@ export function forOrg(db: Db, orgId: string) {
                 updatedAt: new Date(),
               },
             });
+        }
+      },
+
+      /**
+       * Makes a re-push authoritative for its window (ADR 0002, additive):
+       * deletes this connection's records — and its subjects' signals —
+       * inside the inclusive day window, so stale natural keys (e.g. a
+       * model dim that disappeared from a corrected batch) cannot survive
+       * a restatement. Other connections' rows are untouched.
+       */
+      async deleteWindowForConnection(
+        connectionId: string,
+        from: string,
+        to: string,
+      ) {
+        await db
+          .delete(metricRecords)
+          .where(
+            and(
+              eq(metricRecords.orgId, orgId),
+              eq(metricRecords.connectionId, connectionId),
+              gte(metricRecords.day, from),
+              lte(metricRecords.day, to),
+            ),
+          );
+        const subjectRows = await db
+          .select({ id: subjects.id })
+          .from(subjects)
+          .where(
+            and(
+              eq(subjects.orgId, orgId),
+              eq(subjects.connectionId, connectionId),
+            ),
+          );
+        const subjectIds = subjectRows.map((s) => s.id);
+        if (subjectIds.length > 0) {
+          await db
+            .delete(subjectDaySignals)
+            .where(
+              and(
+                eq(subjectDaySignals.orgId, orgId),
+                inArray(subjectDaySignals.subjectId, subjectIds),
+                gte(subjectDaySignals.day, from),
+                lte(subjectDaySignals.day, to),
+              ),
+            );
         }
       },
 

@@ -10,10 +10,16 @@ const openNextHandler = openNextHandlerModule as ExportedHandler<CloudflareEnv>;
 import "./connectors";
 import { createDb } from "./db/client";
 import type { CredentialEnv } from "./lib/credentials";
+import { listOrgIds } from "./db/system";
 import { dispatchDueConnectorWork } from "./poller/dispatch";
 import { SYSTEM_ORG_ID, type PollMessage } from "./poller/messages";
 import { processPollMessage } from "./poller/process";
 import { retryDelaySeconds, RetryableConnectorError } from "./poller/run";
+import { previousDay } from "./scoring";
+
+// Matches the second entry in wrangler.jsonc "triggers".crons — the nightly
+// score recompute (W1-F). The */5 tick keeps the W0-B heartbeat + purge.
+const NIGHTLY_SCORE_CRON = "0 2 * * *";
 
 export default {
   fetch: openNextHandler.fetch,
@@ -23,6 +29,20 @@ export default {
   // polls when the vendor interval elapsed; the chunked backfill
   // chain-start once per new connection).
   async scheduled(controller, env) {
+    if (controller.cron === NIGHTLY_SCORE_CRON) {
+      // Nightly score recompute: one queue message per org, anchored at
+      // yesterday UTC (the last fully-ingested day).
+      const db = createDb(env);
+      const day = previousDay(new Date().toISOString().slice(0, 10));
+      for (const orgId of await listOrgIds(db)) {
+        await env.POLL_QUEUE.send({
+          kind: "score-recompute",
+          orgId,
+          day,
+        } satisfies PollMessage);
+      }
+      return;
+    }
     await env.POLL_QUEUE.send({
       kind: "noop-poll",
       orgId: SYSTEM_ORG_ID,

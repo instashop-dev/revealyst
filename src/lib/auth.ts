@@ -4,7 +4,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createDb, type Db } from "../db/client";
 import { ensureOrgOfOne } from "../db/org-scope";
 
-type AuthEnv = {
+export type AuthEnv = {
   BETTER_AUTH_SECRET?: string;
   BETTER_AUTH_URL?: string;
   GITHUB_CLIENT_ID?: string;
