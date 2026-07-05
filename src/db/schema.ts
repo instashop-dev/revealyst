@@ -596,6 +596,54 @@ export const pollHeartbeats = pgTable("poll_heartbeats", {
     .default(sql`now()`),
 });
 
+// One row per connector poll / backfill-chunk attempt (ADR 0002, W1-D).
+// The "last synced 2h ago" source of truth and the backfill audit trail:
+// resume state is derived from these rows + the queue-message cursor, so no
+// separate cursor table exists. `gaps` carries the run's HonestyGap[] —
+// degraded attribution is surfaced, never papered over (invariant b).
+export const connectorRuns = pgTable(
+  "connector_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    kind: text("kind", { enum: ["poll", "backfill"] }).notNull(),
+    status: text("status", { enum: ["running", "success", "error"] })
+      .notNull()
+      .default("running"),
+    // The UTC day window this run covered (chunk window for backfill).
+    windowStart: date("window_start", { mode: "string" }),
+    windowEnd: date("window_end", { mode: "string" }),
+    // Queue delivery attempt that produced this row (retries append rows —
+    // the log is per attempt, never overwritten).
+    attempt: integer("attempt").notNull().default(1),
+    subjectsSeen: integer("subjects_seen"),
+    recordsUpserted: integer("records_upserted"),
+    signalsUpserted: integer("signals_upserted"),
+    gaps: jsonb("gaps").notNull().default([]),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [
+    // Anchor for composite tenant FKs, per D1a — kept even without child
+    // tables today so the shape matches every other org-scoped table.
+    unique("connector_runs_org_id_id_uq").on(t.orgId, t.id),
+    foreignKey({
+      name: "connector_runs_org_connection_fk",
+      columns: [t.orgId, t.connectionId],
+      foreignColumns: [connections.orgId, connections.id],
+    }).onDelete("cascade"),
+    index("connector_runs_org_conn_started_idx").on(
+      t.orgId,
+      t.connectionId,
+      t.startedAt,
+    ),
+  ],
+);
+
 // Auth tables last: auth-schema imports orgs from this module, so the
 // re-export must come after orgs is initialized (circular-import order).
 export * from "./auth-schema";

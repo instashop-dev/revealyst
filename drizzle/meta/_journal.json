@@ -71,6 +71,13 @@
       "when": 1783224460963,
       "tag": "0009_seed-score-presets",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783239610742,
+      "tag": "0010_connector-runs",
+      "breakpoints": true
     }
   ]
 }
