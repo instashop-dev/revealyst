@@ -40,20 +40,24 @@ describe("claudeConfigDirs", () => {
 });
 
 describe("listSessionFiles", () => {
-  it("finds .jsonl session files across project dirs, skipping noise", () => {
+  it("finds session files recursively, including nested subagent transcripts", () => {
     const configDir = join(scratch, "config");
     const projA = join(configDir, "projects", "C--Users-dev-repo-a");
     const projB = join(configDir, "projects", "C--Users-dev-repo-b");
-    mkdirSync(projA, { recursive: true });
+    // The real layout found on the founder's machine: sidechains live at
+    // projects/<proj>/<sessionId>/subagents/*.jsonl — a flat scan missed
+    // 97 of 129 real files (all sidechain usage). Never regress this.
+    const subagents = join(projA, "4d0e7731-uuid", "subagents");
+    mkdirSync(subagents, { recursive: true });
     mkdirSync(projB, { recursive: true });
     writeFileSync(join(projA, "session-1.jsonl"), '{"type":"user"}\n');
     writeFileSync(join(projA, "notes.txt"), "not a session");
+    writeFileSync(join(subagents, "agent-1.jsonl"), '{"type":"assistant"}\n');
     writeFileSync(join(projB, "session-2.jsonl"), '{"type":"assistant"}\n');
-    // A stray file directly under projects/ must not crash the walk.
-    writeFileSync(join(configDir, "projects", "stray.jsonl"), "");
 
     const refs = listSessionFiles([configDir]);
     expect(refs.map((r) => r.path)).toEqual([
+      join(subagents, "agent-1.jsonl"),
       join(projA, "session-1.jsonl"),
       join(projB, "session-2.jsonl"),
     ]);

@@ -29,43 +29,43 @@ export function claudeConfigDirs(
   return [join(homeDir, ".claude")];
 }
 
-/** All session .jsonl files under <dir>/projects/<encoded-cwd>/ for each
+/** Real layouts nest: sessions at projects/<proj>/*.jsonl, but subagent
+ * sidechains at projects/<proj>/<sessionId>/subagents/*.jsonl (verified on
+ * the founder's machine, where a flat scan missed 97 of 129 files — i.e.
+ * ALL sidechain usage). Bounded depth guards against symlink cycles. */
+const MAX_SCAN_DEPTH = 6;
+
+/** All session .jsonl files under <dir>/projects/**, recursively, for each
  * config dir. Missing dirs are skipped silently — an empty machine is not
  * an error. */
 export function listSessionFiles(configDirs: string[]): SessionFileRef[] {
   const refs: SessionFileRef[] = [];
-  for (const dir of configDirs) {
-    const projectsDir = join(dir, "projects");
-    let projectEntries: string[];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > MAX_SCAN_DEPTH) {
+      return;
+    }
+    let entries: string[];
     try {
-      projectEntries = readdirSync(projectsDir);
+      entries = readdirSync(dir);
     } catch {
-      continue;
+      return;
     }
-    for (const project of projectEntries) {
-      const projectPath = join(projectsDir, project);
-      let files: string[];
+    for (const entry of entries) {
+      const path = join(dir, entry);
       try {
-        if (!statSync(projectPath).isDirectory()) {
-          continue;
-        }
-        files = readdirSync(projectPath);
-      } catch {
-        continue;
-      }
-      for (const file of files) {
-        if (!file.endsWith(".jsonl")) {
-          continue;
-        }
-        const path = join(projectPath, file);
-        try {
-          const stat = statSync(path);
+        const stat = statSync(path);
+        if (stat.isDirectory()) {
+          walk(path, depth + 1);
+        } else if (entry.endsWith(".jsonl")) {
           refs.push({ path, sizeBytes: stat.size, mtimeMs: stat.mtimeMs });
-        } catch {
-          // Deleted between readdir and stat — skip.
         }
+      } catch {
+        // Deleted between readdir and stat — skip.
       }
     }
+  };
+  for (const dir of configDirs) {
+    walk(join(dir, "projects"), 0);
   }
   return refs.sort((a, b) => a.path.localeCompare(b.path));
 }

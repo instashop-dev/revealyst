@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "description": "Revealyst Agent — reads Claude Code session logs, summarizes them locally to metric records (never raw prompt content), pushes via device token.",
-  "type": "module",
+  "bin": {
+    "revealyst-agent": "dist/cli.js"
+  },
+  "files": ["dist"],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit"
   }
 }
