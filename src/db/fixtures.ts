@@ -3,6 +3,18 @@ import { ATTRIBUTION_LEVELS } from "../contracts/attribution";
 import { METRIC_KEYS, type MetricKey } from "../contracts/metrics";
 import type { Db } from "./client";
 import { forOrg } from "./org-scope";
+import { orgs } from "./schema";
+
+/** Creates an org for fixture/dev seeding — a pre-scope operation (like
+ * ensureOrgOfOne), kept here so schema imports stay inside src/db/**. */
+export async function createFixtureOrg(
+  db: Db,
+  name: string,
+  kind: "personal" | "team",
+) {
+  const [org] = await db.insert(orgs).values({ name, kind }).returning();
+  return org;
+}
 
 // Fixture graphs (rule 2: fixtures over coupling). Entities reference each
 // other by local `key` strings — real ids are DB-generated at load time —

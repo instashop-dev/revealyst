@@ -24,6 +24,12 @@ jobs:
       - name: Build Workers bundle
         run: npx opennextjs-cloudflare build
       - run: npm run typecheck
+      # Tenancy guard (D1b): raw table access outside src/db/** fails CI —
+      # the mechanical form of CLAUDE.md's review-blocker rule.
+      - name: Org-scope guard
+        run: node scripts/check-org-scope.mjs
+      # Contract + isolation tests run inside the suite (tests/contracts,
+      # tests/tenant-isolation) — the failing-on-drift hook W1-S inherits.
       - run: npm test
 
   preview-deploy:
