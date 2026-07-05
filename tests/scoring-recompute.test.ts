@@ -112,9 +112,13 @@ describe("golden fixture parity (exit-gate oracle)", () => {
     }
   });
 
-  it("emits no result for subjects with zero signal (never fabricate)", async () => {
-    // A person-level definition over the same fixture: eve has an identity
-    // but her subject has no metric rows, so she gets NO row — not a 0.
+  it("never fabricates person-level rows: zero-signal and shared-only people get nothing", async () => {
+    // A person-level definition over the same fixture. Two honesty rules:
+    // eve has an identity but her subject has no metric rows → NO row, not
+    // a 0; carol and dave are linked ONLY via the shared account, whose
+    // rows must never be redistributed into per-person scores (§6.1) → no
+    // rows either. bob scores from copilot-bob only (his exclusive
+    // subject); shared-console days do not leak into his personal score.
     const [personDef] = await db
       .insert(schema.scoreDefinitions)
       .values({
@@ -141,20 +145,60 @@ describe("golden fixture parity (exit-gate oracle)", () => {
       definitionId: personDef.id,
     });
 
-    // alice (8 days), bob (6: copilot ∪ shared), carol + dave (1 via shared).
-    expect(results).toHaveLength(4);
-    expect(results.map((r) => r.personId)).not.toContain(A.people.eve);
+    expect(results).toHaveLength(2); // alice + bob only
+    const scored = new Set(results.map((r) => r.personId));
+    expect(scored).not.toContain(A.people.eve); // zero signal
+    expect(scored).not.toContain(A.people.carol); // shared-only
+    expect(scored).not.toContain(A.people.dave); // shared-only
 
     const alice = results.find((r) => r.personId === A.people.alice)!;
     expect(alice.components).toMatchObject({
       days: { raw: 8, normalized: 40, weight: 1, contribution: 40 },
     });
     expect(alice.value).toBe(40);
-    expect(alice.attribution).toBe("person"); // only her own person-level rows
+    expect(alice.attribution).toBe("person");
 
-    const carol = results.find((r) => r.personId === A.people.carol)!;
-    expect(carol.components).toMatchObject({ days: { raw: 1 } });
-    expect(carol.attribution).toBe("account"); // shared-console only
+    const bob = results.find((r) => r.personId === A.people.bob)!;
+    // copilot-bob {03,04,05,06,09,10} = 6 days; shared-console's 06-04 is
+    // already in that set but must be excluded on principle, not luck —
+    // its 'account' attribution would otherwise taint bob's row.
+    expect(bob.components).toMatchObject({ days: { raw: 6 } });
+    expect(bob.attribution).toBe("person");
+  });
+
+  it("skips a malformed definition without killing the org's recompute", async () => {
+    const [badDef] = await db
+      .insert(schema.scoreDefinitions)
+      .values({
+        orgId: orgA,
+        slug: "bad-weights",
+        version: 1,
+        name: "Broken",
+        subjectLevel: "org",
+        components: [
+          // Weights sum to 0.9 — fails the frozen contract.
+          {
+            key: "only",
+            weight: 0.9,
+            normalization: { min: 0, max: 10 },
+            metric: "prompts",
+            aggregation: "sum",
+          },
+        ],
+        status: "active",
+      })
+      .returning();
+
+    const summary = await recomputeOrg(db, orgA, { period: JUNE });
+    expect(summary.definitionsSkipped).toBe(1);
+    expect(summary.definitionsEvaluated).toBeGreaterThan(0); // presets still ran
+    expect(
+      await forOrg(db, orgA).scores.results({ definitionId: badDef.id }),
+    ).toHaveLength(0);
+
+    await db
+      .delete(schema.scoreDefinitions)
+      .where(eq(schema.scoreDefinitions.id, badDef.id));
   });
 });
 
@@ -215,6 +259,11 @@ describe("recompute paths", () => {
     const [v2Result] = await scoped.scores.results({ definitionId: v2.id });
     expect(v1Result.value).toBe(52.64); // 2632/5000 — history retained
     expect(v2Result.value).toBe(26.32); // 2632/10000 — new version's row
+
+    // Org-level rows hit the NULLS NOT DISTINCT branch of the upsert key —
+    // a second recompute must update in place, not duplicate.
+    await recomputeOrg(db, orgA, { period: JUNE });
+    expect(await scoped.scores.results({ definitionId: v2.id })).toHaveLength(1);
   });
 
   it("computes scores via the queue message (nightly / on-demand path)", async () => {
@@ -233,13 +282,56 @@ describe("recompute paths", () => {
     );
     expect(monthly).toBeDefined();
     expect(monthly!.value).toBe(47.5); // same fixture, same oracle
-    // The nightly message also computes the trailing 28-day window.
+    // The nightly message also computes the trailing 28-day window; all
+    // fixture activity (06-02..06-12) falls inside it, so the same oracle
+    // value applies.
     const rolling = (await scoped.scores.results({ definitionId: adoptionId })).find(
       (r) => r.periodGrain === "rolling_28d",
     );
     expect(rolling).toBeDefined();
     expect(rolling!.periodStart).toBe("2026-05-19");
     expect(rolling!.periodEnd).toBe("2026-06-15");
+    expect(rolling!.value).toBe(47.5);
+    expect(rolling!.attribution).toBe("account");
+  });
+
+  it("skips the rolling write when its bounds equal the month (Feb grain collision)", async () => {
+    // Feb 2026 (non-leap): rolling_28d anchored at 02-28 spans 02-01..02-28
+    // — the exact month bounds. The frozen upsert key carries no grain, so
+    // writing both would flip February's grain label to rolling_28d on the
+    // second upsert. Seed one February record so the collision has a row
+    // to corrupt, then assert the month label survives.
+    expect(periodFor("rolling_28d", "2026-02-28")).toEqual({
+      ...periodFor("month", "2026-02-28"),
+      periodGrain: "rolling_28d",
+    });
+
+    const scoped = forOrg(db, orgB);
+    await scoped.metrics.upsertRecords([
+      {
+        subjectId: B.subjects["alice-console"],
+        metricKey: "active_day",
+        day: "2026-02-10",
+        dim: "",
+        connectionId: B.connections.anthropic,
+        value: 1,
+        attribution: "person",
+        sourceConnector: "fixture@1",
+      },
+    ]);
+    await processPollMessage(db, {
+      kind: "score-recompute",
+      orgId: orgB,
+      day: "2026-02-28",
+    });
+
+    const adoptionId = await definitionId(orgB, "adoption", 1);
+    const feb = (await scoped.scores.results({ definitionId: adoptionId })).filter(
+      (r) => r.periodStart === "2026-02-01",
+    );
+    expect(feb).toHaveLength(1);
+    expect(feb[0].periodEnd).toBe("2026-02-28");
+    expect(feb[0].periodGrain).toBe("month"); // the label the fix protects
   });
 });
 

@@ -145,7 +145,10 @@ export function evaluateDefinition(
   }
 
   return {
-    value: round4(value),
+    // The contract tolerates weight sums in 0.99..1.01, so Σ contributions
+    // can nose past 100 by up to ~1; clamp so the persisted value honors
+    // the 0..100 promise (the breakdown still shows raw contributions).
+    value: round4(Math.min(Math.max(value, 0), 100)),
     components: breakdown,
     attribution: lowestAttribution(consumed),
   };

@@ -56,12 +56,20 @@ export async function processPollMessage(
     case "score-recompute": {
       // Month covers the dashboard grain; rolling_28d gives the trailing
       // window. Both upsert on the frozen key, so re-delivery is harmless.
-      await recomputeOrg(db, message.orgId, {
-        period: periodFor("month", message.day),
-      });
-      await recomputeOrg(db, message.orgId, {
-        period: periodFor("rolling_28d", message.day),
-      });
+      // That key is (org, definition, subject, period bounds) WITHOUT the
+      // grain — one result per subject+bounds by design — so when the two
+      // periods coincide (Feb 28 anchor in a non-leap year: Feb 1..28 is
+      // both the month and the trailing 28 days) only the month write runs;
+      // writing both would flip February's grain label to rolling_28d.
+      const month = periodFor("month", message.day);
+      const rolling = periodFor("rolling_28d", message.day);
+      await recomputeOrg(db, message.orgId, { period: month });
+      if (
+        rolling.periodStart !== month.periodStart ||
+        rolling.periodEnd !== month.periodEnd
+      ) {
+        await recomputeOrg(db, message.orgId, { period: rolling });
+      }
       return;
     }
   }

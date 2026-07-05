@@ -31,15 +31,16 @@ export default {
   async scheduled(controller, env) {
     if (controller.cron === NIGHTLY_SCORE_CRON) {
       // Nightly score recompute: one queue message per org, anchored at
-      // yesterday UTC (the last fully-ingested day).
+      // yesterday UTC (the last fully-ingested day). Batched sends — the
+      // fan-out must not serialize thousands of orgs one send at a time.
       const db = createDb(env);
       const day = previousDay(new Date().toISOString().slice(0, 10));
-      for (const orgId of await listOrgIds(db)) {
-        await env.POLL_QUEUE.send({
-          kind: "score-recompute",
-          orgId,
-          day,
-        } satisfies PollMessage);
+      const messages = (await listOrgIds(db)).map((orgId) => ({
+        body: { kind: "score-recompute", orgId, day } satisfies PollMessage,
+      }));
+      // Queues sendBatch caps at 100 messages per call.
+      for (let i = 0; i < messages.length; i += 100) {
+        await env.POLL_QUEUE.sendBatch(messages.slice(i, i + 100));
       }
       return;
     }

@@ -74,6 +74,12 @@ describe("fixtures validate against the frozen contracts", () => {
   });
 
   it("score oracle is internally consistent (contribution arithmetic)", () => {
+    // W1-F persistence contract: raw/normalized/contribution/value are each
+    // independently rounded to 4 decimals (matching numeric(10,4)), with
+    // derived figures computed from UNROUNDED predecessors — so stored
+    // contribution can differ from stored normalized × weight by up to
+    // 5e-5 of last-decimal rounding. 3-digit closeness still catches any
+    // real arithmetic error while tolerating that rounding.
     for (const result of scoreOracle.results) {
       const components = Object.values(result.expected.components) as Array<{
         normalized: number;
@@ -82,10 +88,10 @@ describe("fixtures validate against the frozen contracts", () => {
       }>;
       let total = 0;
       for (const c of components) {
-        expect(c.contribution).toBeCloseTo(c.normalized * c.weight, 6);
+        expect(c.contribution).toBeCloseTo(c.normalized * c.weight, 3);
         total += c.contribution;
       }
-      expect(result.expected.value).toBeCloseTo(total, 6);
+      expect(result.expected.value).toBeCloseTo(total, 3);
     }
   });
 
