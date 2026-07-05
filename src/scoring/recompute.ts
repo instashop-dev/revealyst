@@ -32,17 +32,30 @@ type MetricRows = Map<string, EngineRow[]>;
 
 async function loadActiveDefinitions(
   scoped: ScopedRepo,
-): Promise<ParsedDefinition[]> {
+): Promise<{ definitions: ParsedDefinition[]; skipped: number }> {
   const rows = await scoped.scores.definitions();
-  return rows
-    .filter((d) => d.status === "active")
-    .map((d) => ({
+  const definitions: ParsedDefinition[] = [];
+  let skipped = 0;
+  for (const d of rows) {
+    if (d.status !== "active") continue;
+    // One malformed org-authored definition must not take down the org's
+    // whole nightly recompute (presets included) — skip it loudly and
+    // keep scoring the rest.
+    const parsed = scoreComponentsSchema.safeParse(d.components);
+    if (!parsed.success) {
+      skipped += 1;
+      console.warn(
+        `scoring: skipping definition ${d.slug}@v${d.version} (${d.id}) — components fail the frozen contract: ${parsed.error.message}`,
+      );
+      continue;
+    }
+    definitions.push({
       id: d.id,
       subjectLevel: d.subjectLevel,
-      // Throw on drift: a definition row that fails the frozen contract is
-      // a data bug to surface, not to score around.
-      components: scoreComponentsSchema.parse(d.components),
-    }));
+      components: parsed.data,
+    });
+  }
+  return { definitions, skipped };
 }
 
 async function loadRowsByMetric(
@@ -60,6 +73,15 @@ async function loadRowsByMetric(
       from: period.periodStart,
       to: period.periodEnd,
     });
+    // The repo orders by day only; same-day order is unspecified and float
+    // addition is not associative — sort on the full natural key so equal
+    // inputs aggregate in one canonical order (byte-identical results).
+    rows.sort(
+      (a, b) =>
+        a.subjectId.localeCompare(b.subjectId) ||
+        a.day.localeCompare(b.day) ||
+        a.dim.localeCompare(b.dim),
+    );
     const bySubject: MetricRows = new Map();
     for (const row of rows) {
       const engineRow: EngineRow = {
@@ -108,25 +130,48 @@ function rowsForSubjects(
   return result;
 }
 
-/** person id → the subjects their identities resolve to. Only
- * identity-resolved people are scored at person/team level — key/account
- * subjects with no identity link never become per-person numbers (§6.1). */
-async function loadPersonSubjects(
-  scoped: ScopedRepo,
-): Promise<Map<string, Set<string>>> {
+/** Identity resolution for scoring, split by how a subject may be used:
+ * - `teamSubjects(person)`: every subject the person is linked to — team
+ *   aggregates include shared subjects (the frozen oracle's semantics; a
+ *   team-level union is not a per-person number).
+ * - `exclusiveSubjects(person)`: only subjects linked to exactly ONE
+ *   person. A shared account's rows must never be credited to each linked
+ *   person's individual score — that would mint N copies of one number
+ *   from account-level data (§6.1: surfaced, not redistributed).
+ * Key/account subjects with no identity link appear at org level only. */
+async function loadPersonSubjects(scoped: ScopedRepo): Promise<{
+  linked: Map<string, Set<string>>;
+  exclusive: Map<string, Set<string>>;
+}> {
   const people = await scoped.people.list();
-  const bySubjectOwner = new Map<string, Set<string>>();
+  const linked = new Map<string, Set<string>>();
+  const ownersBySubject = new Map<string, number>();
   for (const person of people) {
     const links = await scoped.identities.forPerson(person.id);
-    if (links.length > 0) {
-      bySubjectOwner.set(person.id, new Set(links.map((l) => l.subjectId)));
+    if (links.length === 0) continue;
+    linked.set(person.id, new Set(links.map((l) => l.subjectId)));
+    for (const link of links) {
+      ownersBySubject.set(
+        link.subjectId,
+        (ownersBySubject.get(link.subjectId) ?? 0) + 1,
+      );
     }
   }
-  return bySubjectOwner;
+  const exclusive = new Map<string, Set<string>>();
+  for (const [personId, subjects] of linked) {
+    const own = new Set(
+      [...subjects].filter((s) => ownersBySubject.get(s) === 1),
+    );
+    if (own.size > 0) {
+      exclusive.set(personId, own);
+    }
+  }
+  return { linked, exclusive };
 }
 
 export type RecomputeSummary = {
   definitionsEvaluated: number;
+  definitionsSkipped: number;
   resultsWritten: number;
 };
 
@@ -142,13 +187,17 @@ export async function recomputeOrg(
 ): Promise<RecomputeSummary> {
   const { period } = options;
   const scoped = forOrg(db, orgId);
-  const definitions = await loadActiveDefinitions(scoped);
+  const { definitions, skipped } = await loadActiveDefinitions(scoped);
   if (definitions.length === 0) {
-    return { definitionsEvaluated: 0, resultsWritten: 0 };
+    return {
+      definitionsEvaluated: 0,
+      definitionsSkipped: skipped,
+      resultsWritten: 0,
+    };
   }
 
   const byMetric = await loadRowsByMetric(scoped, definitions, period);
-  const personSubjects = await loadPersonSubjects(scoped);
+  const { linked, exclusive } = await loadPersonSubjects(scoped);
   const upserts: ScoreResultUpsert[] = [];
 
   const needsTeams = definitions.some((d) => d.subjectLevel === "team");
@@ -157,7 +206,7 @@ export async function recomputeOrg(
     for (const team of await scoped.teams.list()) {
       const subjects = new Set<string>();
       for (const member of await scoped.teams.members(team.id)) {
-        for (const subjectId of personSubjects.get(member.personId) ?? []) {
+        for (const subjectId of linked.get(member.personId) ?? []) {
           subjects.add(subjectId);
         }
       }
@@ -175,7 +224,8 @@ export async function recomputeOrg(
     } as const;
 
     if (definition.subjectLevel === "person") {
-      for (const [personId, subjectIds] of personSubjects) {
+      // Exclusive subjects only: shared accounts never mint per-person rows.
+      for (const [personId, subjectIds] of exclusive) {
         const result = evaluateDefinition(
           definition.components,
           rowsForSubjects(definition, byMetric, subjectIds),
@@ -213,6 +263,7 @@ export async function recomputeOrg(
   }
   return {
     definitionsEvaluated: definitions.length,
+    definitionsSkipped: skipped,
     resultsWritten: upserts.length,
   };
 }

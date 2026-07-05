@@ -18,6 +18,43 @@
         "attribution": "account"
       },
       "_derivation": "Team core = alice + bob. Linked subjects: alice-console (identity alice), copilot-bob (identity bob), shared-console (identity bob among its 3). active_day days union: alice-console {06-02..05, 06-09..12} ∪ copilot-bob {06-03..06, 06-09, 06-10} ∪ shared-console {06-04} = {02,03,04,05,06,09,10,11,12} = 9 → (9-0)/(20-0)*100 = 45. feature_used distinct dims: {feature=chat_panel, feature=mcp, feature=completions} = 3 → 3/6*100 = 50. value = 22.5 + 25 = 47.5. attribution = lowest over inputs: shared-console rows are 'account' → 'account'."
+    },
+    {
+      "definitionSlug": "fluency",
+      "definitionVersion": 1,
+      "subjectLevel": "team",
+      "teamKey": "core",
+      "periodStart": "2026-06-01",
+      "periodEnd": "2026-06-30",
+      "periodGrain": "month",
+      "expected": {
+        "components": {
+          "breadth": { "raw": 3, "normalized": 37.5, "weight": 0.33, "contribution": 12.375 },
+          "depth": { "raw": 9, "normalized": 45, "weight": 0.33, "contribution": 14.85 },
+          "effectiveness": { "raw": 0.3167, "normalized": 63.3333, "weight": 0.34, "contribution": 21.5333 }
+        },
+        "value": 48.7583,
+        "attribution": "account"
+      },
+      "_derivation": "Same subject set as adoption. breadth: 3 distinct feature dims → 3/8*100 = 37.5, ×0.33 = 12.375. depth: 9 active days → 9/20*100 = 45, ×0.33 = 14.85. effectiveness: suggestions_accepted 38 / suggestions_offered 120 = 0.316667 (stored raw round4 = 0.3167); normalized from unrounded raw: 0.316667/0.5*100 = 63.33333 → round4 63.3333; ×0.34 = 21.533322 → round4 21.5333. value = 12.375 + 14.85 + 21.5333 = 48.7583. attribution: active_day inputs include shared-console 'account' rows → 'account'. Rounding contract: raw/normalized/contribution/value each independently round4 (half away from zero); normalized and contribution derive from UNROUNDED predecessors."
+    },
+    {
+      "definitionSlug": "efficiency",
+      "definitionVersion": 1,
+      "subjectLevel": "team",
+      "teamKey": "core",
+      "periodStart": "2026-06-01",
+      "periodEnd": "2026-06-30",
+      "periodGrain": "month",
+      "expected": {
+        "components": {
+          "output_per_spend": { "raw": 0.0159, "normalized": 7.9431, "weight": 0.5, "contribution": 3.9716 },
+          "engagement_per_spend": { "raw": 0.0038, "normalized": 37.6254, "weight": 0.5, "contribution": 18.8127 }
+        },
+        "value": 22.7843,
+        "attribution": "account"
+      },
+      "_derivation": "Team spend_cents = alice-console 412 + shared-console 1980 = 2392 (svc-key 240 excluded: no identity link). output_per_spend: 38/2392 = 0.0158863 (raw round4 0.0159); 0.0158863/0.2*100 = 7.94314 → 7.9431; ×0.5 = 3.971572 → 3.9716. engagement_per_spend: 9 active days / 2392 = 0.0037625 (raw round4 0.0038); 0.0037625/0.01*100 = 37.62542 → 37.6254; ×0.5 = 18.812709 → 18.8127. value = 3.9716 + 18.8127 = 22.7843. attribution: spend includes shared-console 'account' rows → 'account'."
     }
   ]
 }
