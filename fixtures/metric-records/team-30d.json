@@ -1,0 +1,74 @@
+{
+  "connections": [
+    { "key": "anthropic", "vendor": "anthropic_console", "displayName": "Anthropic Console", "authKind": "admin_key" },
+    { "key": "copilot", "vendor": "github_copilot", "displayName": "GitHub Copilot", "authKind": "github_app" }
+  ],
+  "people": [
+    { "key": "alice", "pseudonym": "brisk-otter", "displayName": null, "email": "alice@fixture.example" },
+    { "key": "bob", "pseudonym": "quiet-heron", "displayName": null, "email": "bob@fixture.example" },
+    { "key": "carol", "pseudonym": "gilded-lynx", "displayName": null, "email": "carol@fixture.example" },
+    { "key": "dave", "pseudonym": "mellow-stork", "displayName": null, "email": "dave@fixture.example" },
+    { "key": "eve", "pseudonym": "placid-wren", "displayName": null, "email": "eve@fixture.example" }
+  ],
+  "teams": [
+    { "key": "core", "name": "Core Engineering", "members": ["alice", "bob"] }
+  ],
+  "subjects": [
+    { "key": "alice-console", "connection": "anthropic", "kind": "person", "externalId": "alice@fixture.example", "email": "alice@fixture.example" },
+    { "key": "shared-console", "connection": "anthropic", "kind": "account", "externalId": "shared-team-login" },
+    { "key": "svc-key", "connection": "anthropic", "kind": "service_account", "externalId": "svc-ci-runner" },
+    { "key": "eve-console", "connection": "anthropic", "kind": "person", "externalId": "eve@fixture.example", "email": "eve@fixture.example" },
+    { "key": "copilot-bob", "connection": "copilot", "kind": "person", "externalId": "88123", "displayName": "bob-gh" }
+  ],
+  "identities": [
+    { "subject": "alice-console", "person": "alice", "method": "email_match" },
+    { "subject": "shared-console", "person": "bob", "method": "manual" },
+    { "subject": "shared-console", "person": "carol", "method": "manual" },
+    { "subject": "shared-console", "person": "dave", "method": "manual" },
+    { "subject": "eve-console", "person": "eve", "method": "email_match" },
+    { "subject": "copilot-bob", "person": "bob", "method": "vendor_asserted" }
+  ],
+  "records": [
+    { "subject": "alice-console", "metricKey": "active_day", "day": "2026-06-02", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "active_day", "day": "2026-06-03", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "active_day", "day": "2026-06-04", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "active_day", "day": "2026-06-05", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "active_day", "day": "2026-06-09", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "active_day", "day": "2026-06-10", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "active_day", "day": "2026-06-11", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "active_day", "day": "2026-06-12", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "tokens_input", "day": "2026-06-03", "value": 182000, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "tokens_output", "day": "2026-06-03", "value": 21500, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "spend_cents", "day": "2026-06-03", "value": 412, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "model_requests", "day": "2026-06-03", "dim": "model=claude-opus-4", "value": 40, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "model_requests", "day": "2026-06-03", "dim": "model=claude-haiku-4-5", "value": 210, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "feature_used", "day": "2026-06-03", "dim": "feature=chat_panel", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "feature_used", "day": "2026-06-09", "dim": "feature=mcp", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "edit_actions_accepted", "day": "2026-06-03", "value": 34, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "alice-console", "metricKey": "edit_actions_rejected", "day": "2026-06-03", "value": 6, "attribution": "person", "sourceConnector": "fixture@1" },
+
+    { "subject": "shared-console", "metricKey": "active_day", "day": "2026-06-04", "value": 1, "attribution": "account", "sourceConnector": "fixture@1" },
+    { "subject": "shared-console", "metricKey": "tokens_input", "day": "2026-06-04", "value": 903000, "attribution": "account", "sourceConnector": "fixture@1" },
+    { "subject": "shared-console", "metricKey": "spend_cents", "day": "2026-06-04", "value": 1980, "attribution": "account", "sourceConnector": "fixture@1" },
+
+    { "subject": "svc-key", "metricKey": "spend_cents", "day": "2026-06-06", "value": 240, "attribution": "key_project", "sourceConnector": "fixture@1" },
+    { "subject": "svc-key", "metricKey": "tokens_input", "day": "2026-06-06", "value": 120000, "attribution": "key_project", "sourceConnector": "fixture@1" },
+
+    { "subject": "copilot-bob", "metricKey": "active_day", "day": "2026-06-03", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "copilot-bob", "metricKey": "active_day", "day": "2026-06-04", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "copilot-bob", "metricKey": "active_day", "day": "2026-06-05", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "copilot-bob", "metricKey": "active_day", "day": "2026-06-06", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "copilot-bob", "metricKey": "active_day", "day": "2026-06-09", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "copilot-bob", "metricKey": "active_day", "day": "2026-06-10", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "copilot-bob", "metricKey": "suggestions_offered", "day": "2026-06-03", "value": 120, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "copilot-bob", "metricKey": "suggestions_accepted", "day": "2026-06-03", "value": 38, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "copilot-bob", "metricKey": "lines_added", "day": "2026-06-03", "value": 220, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "copilot-bob", "metricKey": "feature_used", "day": "2026-06-03", "dim": "feature=completions", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "copilot-bob", "metricKey": "spend_cents_estimated", "day": "2026-06-03", "value": 130, "attribution": "person", "sourceConnector": "fixture@1" }
+  ],
+  "signals": [
+    { "subject": "alice-console", "day": "2026-06-03", "hours": [0,0,0,0,0,0,0,0,0,4,6,5,2,0,3,4,5,2,0,0,0,0,0,0], "peakConcurrency": 1, "sourceGranularity": "1h" },
+    { "subject": "shared-console", "day": "2026-06-04", "hours": [3,2,4,3,2,3,4,5,6,5,4,5,6,5,4,5,6,5,4,3,4,3,2,3], "peakConcurrency": 3, "sourceGranularity": "event" },
+    { "subject": "copilot-bob", "day": "2026-06-03", "hours": null, "peakConcurrency": null, "sourceGranularity": "none" }
+  ]
+}

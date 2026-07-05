@@ -1,0 +1,23 @@
+{
+  "_comment": "Hand-computed acceptance oracle for the W1-F engine over fixtures/metric-records/team-30d.json. Team-level aggregation assumption (to be confirmed by W1-F's plan; changing it updates this oracle in the same PR): a team's input set is the union of metric_records of all subjects identity-linked to its members; 'active_days' = count of DISTINCT days with any active_day row in that set; 'distinct_dims' = count of distinct dim values in that set; normalized = clamp((raw - min) / (max - min)) * 100; contribution = normalized * weight; value = sum of contributions; attribution = lowest across the input set.",
+  "results": [
+    {
+      "definitionSlug": "adoption",
+      "definitionVersion": 1,
+      "subjectLevel": "team",
+      "teamKey": "core",
+      "periodStart": "2026-06-01",
+      "periodEnd": "2026-06-30",
+      "periodGrain": "month",
+      "expected": {
+        "components": {
+          "active_days": { "raw": 9, "normalized": 45, "weight": 0.5, "contribution": 22.5 },
+          "tool_coverage": { "raw": 3, "normalized": 50, "weight": 0.5, "contribution": 25 }
+        },
+        "value": 47.5,
+        "attribution": "account"
+      },
+      "_derivation": "Team core = alice + bob. Linked subjects: alice-console (identity alice), copilot-bob (identity bob), shared-console (identity bob among its 3). active_day days union: alice-console {06-02..05, 06-09..12} ∪ copilot-bob {06-03..06, 06-09, 06-10} ∪ shared-console {06-04} = {02,03,04,05,06,09,10,11,12} = 9 → (9-0)/(20-0)*100 = 45. feature_used distinct dims: {feature=chat_panel, feature=mcp, feature=completions} = 3 → 3/6*100 = 50. value = 22.5 + 25 = 47.5. attribution = lowest over inputs: shared-console rows are 'account' → 'account'."
+    }
+  ]
+}

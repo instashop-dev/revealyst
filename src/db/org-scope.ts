@@ -1,5 +1,9 @@
 import { and, eq, gte, isNull, lte, or, type SQL } from "drizzle-orm";
 import {
+  countTrackedUsers,
+  type BillingPeriod,
+} from "../contracts/tracked-user";
+import {
   currentKekVersion,
   decryptCredential,
   encryptCredential,
@@ -854,6 +858,42 @@ export function forOrg(db: Db, orgId: string) {
           .from(scoreResults)
           .where(and(...conditions))
           .orderBy(scoreResults.periodStart);
+      },
+    },
+
+    billing: {
+      /**
+       * The tracked_user billing primitive (frozen; see
+       * src/contracts/tracked-user.ts for the definition). Semantics live
+       * in the pure countTrackedUsers — this method only supplies the
+       * org-scoped inputs, so DB and pure paths cannot diverge.
+       */
+      async trackedUsers(period: BillingPeriod) {
+        const activeSubjectDays = await db
+          .selectDistinct({
+            subjectId: metricRecords.subjectId,
+            day: metricRecords.day,
+          })
+          .from(metricRecords)
+          .where(
+            and(
+              eq(metricRecords.orgId, orgId),
+              gte(metricRecords.day, period.start),
+              lte(metricRecords.day, period.end),
+            ),
+          );
+        const identityRows = await db
+          .select({
+            subjectId: identities.subjectId,
+            personId: identities.personId,
+          })
+          .from(identities)
+          .where(eq(identities.orgId, orgId));
+        return countTrackedUsers({
+          identities: identityRows,
+          activeSubjectDays,
+          period,
+        });
       },
     },
 
