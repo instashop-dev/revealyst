@@ -192,6 +192,50 @@ export const connections = pgTable(
   ],
 );
 
+// Encrypted vendor credentials — the highest-value secrets in the system
+// (W0-C frozen column shape). All key material is envelope-encrypted via
+// src/lib/credentials.ts: AES-256-GCM ciphertext under a per-row DEK,
+// DEK wrapped by the versioned Worker-secret KEK, AAD-bound to
+// (org, connection, kind). NO plaintext credential column exists anywhere
+// in this schema — a test asserts it.
+export const connectionCredentials = pgTable(
+  "connection_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    kind: text("kind", {
+      enum: [
+        "api_key",
+        "github_app_private_key",
+        "github_app_installation",
+        "pat",
+        "device_token",
+      ],
+    }).notNull(),
+    ciphertextB64: text("ciphertext_b64").notNull(),
+    ivB64: text("iv_b64").notNull(),
+    wrappedDekB64: text("wrapped_dek_b64").notNull(),
+    dekIvB64: text("dek_iv_b64").notNull(),
+    kekVersion: text("kek_version").notNull(),
+    // OpenAI admin keys can carry an expiry.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    rotatedAt: timestamp("rotated_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  },
+  (t) => [
+    foreignKey({
+      name: "connection_credentials_org_connection_fk",
+      columns: [t.orgId, t.connectionId],
+      foreignColumns: [connections.orgId, connections.id],
+    }).onDelete("cascade"),
+    unique("connection_credentials_conn_kind_uq").on(t.connectionId, t.kind),
+  ],
+);
+
 // Vendor-visible actors (attribution-ladder rungs): the thing a
 // metric_record is about. One row per (connection, kind, external_id) —
 // that triple is the discover() upsert key. `external_id` is whatever the
