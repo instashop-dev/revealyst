@@ -1,0 +1,62 @@
+{
+  "data": [
+    {
+      "date": "2026-06-11",
+      "actor": { "type": "api_actor", "api_key_name": "ci-runner-key" },
+      "organization_id": "org_01ZZZ",
+      "customer_type": "api",
+      "subscription_type": null,
+      "terminal_type": "vscode",
+      "core_metrics": {
+        "num_sessions": 4,
+        "lines_of_code": { "added": 310, "removed": 120 },
+        "commits_by_claude_code": 3,
+        "pull_requests_by_claude_code": 1
+      },
+      "tool_actions": {
+        "edit_tool": { "accepted": 25, "rejected": 5 },
+        "multi_edit_tool": { "accepted": 4, "rejected": 1 },
+        "write_tool": { "accepted": 6, "rejected": 0 },
+        "notebook_edit_tool": { "accepted": 0, "rejected": 0 }
+      },
+      "model_breakdown": [
+        {
+          "model": "claude-opus-4",
+          "tokens": { "input": 90000, "output": 30000, "cache_read": 400000, "cache_creation": 20000 },
+          "estimated_cost": { "amount": 650, "currency": "USD" }
+        },
+        {
+          "model": "claude-haiku-4-5",
+          "tokens": { "input": 12000, "output": 5000, "cache_read": 0, "cache_creation": 0 },
+          "estimated_cost": { "amount": 12, "currency": "USD" }
+        }
+      ]
+    },
+    {
+      "date": "2026-06-11",
+      "actor": { "type": "user_actor", "email_address": "Alice@Example.com" },
+      "organization_id": "org_01ZZZ",
+      "customer_type": "subscription",
+      "subscription_type": "team",
+      "terminal_type": "iTerm.app",
+      "core_metrics": {
+        "num_sessions": 2,
+        "lines_of_code": { "added": 80, "removed": 15 },
+        "commits_by_claude_code": 1,
+        "pull_requests_by_claude_code": 0
+      },
+      "tool_actions": {
+        "edit_tool": { "accepted": 10, "rejected": 2 }
+      },
+      "model_breakdown": [
+        {
+          "model": "claude-sonnet-5",
+          "tokens": { "input": 20000, "output": 9000, "cache_read": 50000, "cache_creation": 3000 },
+          "estimated_cost": { "amount": 95, "currency": "USD" }
+        }
+      ]
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}

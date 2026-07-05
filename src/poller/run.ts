@@ -197,6 +197,18 @@ async function executeRun(
     const records: Array<MetricRecordInput & { rawPayloadId: string }> = [];
     const signals: SubjectDaySignalInput[] = [];
     const gaps: HonestyGap[] = [];
+    // Descriptors as the connector emitted them (zod strips extras like
+    // email off the parsed copies, but a subject born from normalize —
+    // e.g. an email-keyed claude_code actor — must keep them for W2-K).
+    const referenced = new Map<string, SubjectDescriptor>();
+    const remember = (subject: unknown) => {
+      const d = subject as SubjectDescriptor;
+      const key = `${d.kind}:${d.externalId}`;
+      const existing = referenced.get(key);
+      if (!existing || (!existing.email && d.email)) {
+        referenced.set(key, d);
+      }
+    };
     for (const envelope of fetched.envelopes) {
       const rawRow = await scoped.raw.insert({
         connectionId: connection.id,
@@ -217,28 +229,25 @@ async function executeRun(
         rawPayloadId: rawRow.id,
       });
       for (const r of batch.records) {
+        remember(r.subject);
         records.push({
           ...metricRecordInputSchema.parse(r),
           rawPayloadId: rawRow.id,
         });
       }
       for (const s of batch.signals) {
+        remember(s.subject);
         signals.push(subjectDaySignalInputSchema.parse(s));
       }
       gaps.push(...batch.gaps);
     }
 
-    const missing = new Map<string, SubjectDescriptor>();
-    for (const { subject } of [...records, ...signals]) {
-      const key = `${subject.kind}:${subject.externalId}`;
-      if (!byKey.has(key) && !missing.has(key)) {
-        missing.set(key, subject);
-      }
-    }
-    if (missing.size > 0) {
-      for (const row of await scoped.subjects.upsertMany(connection.id, [
-        ...missing.values(),
-      ])) {
+    const missing = [...referenced].filter(([key]) => !byKey.has(key));
+    if (missing.length > 0) {
+      for (const row of await scoped.subjects.upsertMany(
+        connection.id,
+        missing.map(([, d]) => d),
+      )) {
         byKey.set(subjectKey(row), row.id);
       }
     }

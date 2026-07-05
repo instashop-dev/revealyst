@@ -1,0 +1,42 @@
+{
+  "data": [
+    {
+      "starting_at": "2026-06-11T00:00:00Z",
+      "ending_at": "2026-06-12T00:00:00Z",
+      "results": [
+        {
+          "amount": "1234.56",
+          "currency": "USD",
+          "description": "Claude Opus 4 usage",
+          "cost_type": "tokens",
+          "workspace_id": null,
+          "model": "claude-opus-4"
+        },
+        {
+          "amount": "78.90",
+          "currency": "USD",
+          "description": "Web search",
+          "cost_type": "web_search",
+          "workspace_id": null,
+          "model": null
+        }
+      ]
+    },
+    {
+      "starting_at": "2026-06-12T00:00:00Z",
+      "ending_at": "2026-06-13T00:00:00Z",
+      "results": [
+        {
+          "amount": "410.00",
+          "currency": "USD",
+          "description": "Claude Sonnet 5 usage",
+          "cost_type": "tokens",
+          "workspace_id": null,
+          "model": "claude-sonnet-5"
+        }
+      ]
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}

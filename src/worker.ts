@@ -6,6 +6,8 @@
 import openNextHandlerModule from "../.open-next/worker.js";
 
 const openNextHandler = openNextHandlerModule as ExportedHandler<CloudflareEnv>;
+// Side effect: populates the connector registry (one line per vendor).
+import "./connectors";
 import { createDb } from "./db/client";
 import type { CredentialEnv } from "./lib/credentials";
 import { dispatchDueConnectorWork } from "./poller/dispatch";
