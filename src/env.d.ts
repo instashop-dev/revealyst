@@ -11,4 +11,9 @@ interface CloudflareEnv {
   BETTER_AUTH_URL?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
+  // Credential-envelope KEKs (wrangler secret / .dev.vars). Format
+  // `v<N>:<base64 32 bytes>`; PREVIOUS exists only during a rotation
+  // window (src/lib/credentials.ts).
+  CREDENTIAL_KEK_CURRENT?: string;
+  CREDENTIAL_KEK_PREVIOUS?: string;
 }

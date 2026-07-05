@@ -51,6 +51,8 @@ jobs:
           BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
           GH_OAUTH_CLIENT_ID: ${{ secrets.GH_OAUTH_CLIENT_ID }}
           GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
+          CREDENTIAL_KEK_CURRENT: ${{ secrets.CREDENTIAL_KEK_CURRENT }}
+          CREDENTIAL_KEK_PREVIOUS: ${{ secrets.CREDENTIAL_KEK_PREVIOUS }}
         run: |
           put() {
             if [ -n "$2" ]; then
@@ -64,3 +66,5 @@ jobs:
           put BETTER_AUTH_URL "$BETTER_AUTH_URL"
           put GITHUB_CLIENT_ID "$GH_OAUTH_CLIENT_ID"
           put GITHUB_CLIENT_SECRET "$GH_OAUTH_CLIENT_SECRET"
+          put CREDENTIAL_KEK_CURRENT "$CREDENTIAL_KEK_CURRENT"
+          put CREDENTIAL_KEK_PREVIOUS "$CREDENTIAL_KEK_PREVIOUS"

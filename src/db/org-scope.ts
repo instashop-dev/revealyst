@@ -1,10 +1,16 @@
 import { and, eq, type SQL } from "drizzle-orm";
 import {
+  decryptCredential,
+  encryptCredential,
+  type CredentialEnv,
+} from "../lib/credentials";
+import {
   generatePseudonym,
   generateSuffixedPseudonym,
 } from "../lib/pseudonym";
 import type { Db } from "./client";
 import {
+  connectionCredentials,
   connections,
   identities,
   orgMembers,
@@ -293,6 +299,99 @@ export function forOrg(db: Db, orgId: string) {
           .where(and(eq(connections.orgId, orgId), eq(connections.id, id)))
           .returning();
         return row;
+      },
+
+      /**
+       * Encrypts and stores a credential (upsert per connection+kind).
+       * Write-only from the caller's perspective: plaintext goes in, only
+       * envelope fields are persisted, nothing is returned.
+       */
+      async storeCredential(
+        connectionId: string,
+        kind: (typeof connectionCredentials.kind.enumValues)[number],
+        plaintext: string,
+        env: CredentialEnv,
+        expiresAt?: Date | null,
+      ) {
+        // Ownership check before the upsert: without it, a conflicting
+        // (connection_id, kind) row would let another org's scope
+        // overwrite this row's ciphertext (the insert path is FK-guarded,
+        // the update path is not).
+        const [owned] = await db
+          .select({ id: connections.id })
+          .from(connections)
+          .where(
+            and(eq(connections.orgId, orgId), eq(connections.id, connectionId)),
+          );
+        if (!owned) {
+          throw new Error(`connection ${connectionId} not found in org`);
+        }
+        const encrypted = await encryptCredential(
+          env,
+          { orgId, connectionId, kind },
+          plaintext,
+        );
+        await db
+          .insert(connectionCredentials)
+          .values({
+            orgId,
+            connectionId,
+            kind,
+            ...encrypted,
+            expiresAt: expiresAt ?? null,
+          })
+          .onConflictDoUpdate({
+            target: [
+              connectionCredentials.connectionId,
+              connectionCredentials.kind,
+            ],
+            set: {
+              ...encrypted,
+              expiresAt: expiresAt ?? null,
+              rotatedAt: new Date(),
+            },
+            // Belt-and-braces on top of the ownership check above.
+            setWhere: eq(connectionCredentials.orgId, orgId),
+          });
+      },
+
+      /**
+       * Decrypts a credential for the duration of `fn` only — the poller /
+       * validate-on-save path. Plaintext never lands on an API response or
+       * a returned object; it exists inside the callback scope and is
+       * dropped when it resolves.
+       */
+      async withCredential<T>(
+        connectionId: string,
+        kind: (typeof connectionCredentials.kind.enumValues)[number],
+        env: CredentialEnv,
+        fn: (plaintext: string) => Promise<T>,
+      ): Promise<T> {
+        const [row] = await db
+          .select()
+          .from(connectionCredentials)
+          .where(
+            and(
+              eq(connectionCredentials.orgId, orgId),
+              eq(connectionCredentials.connectionId, connectionId),
+              eq(connectionCredentials.kind, kind),
+            ),
+          );
+        if (!row) {
+          throw new Error(
+            `no ${kind} credential stored for connection ${connectionId}`,
+          );
+        }
+        const plaintext = await decryptCredential(
+          env,
+          { orgId, connectionId, kind },
+          row,
+        );
+        await db
+          .update(connectionCredentials)
+          .set({ lastUsedAt: new Date() })
+          .where(eq(connectionCredentials.id, row.id));
+        return fn(plaintext);
       },
     },
 
