@@ -22,6 +22,12 @@ contracts. Every session auto-loads this file — it is the interface between ag
 - Windows dev machine: OpenNext builds use webpack, not Turbopack (adapter's chunk
   patching breaks on Win — see `open-next.config.ts`); DB/auth clients are created
   per request, never cached at module scope (Workers cancel cross-request I/O).
+- **Design system (W1-G):** Tailwind v4 + shadcn/ui `base-nova` — **Base UI**
+  primitives, not Radix: custom triggers use `render={...}` (and
+  `nativeButton={false}` when rendering an `<a>`/`Link`). Shared components in
+  `src/components` (`EmptyState`, `SyncStatusBadge`, `PageHeader`, sidebar shell);
+  pages/API get session + `forOrg` scope ONLY via `src/lib/api-context.ts`
+  (`appContext`/`requireAppContext`) — never call `createDb` in a page/route.
 
 ## Operating model — rules 1–7 (from the execution plan)
 1. **Contracts before fan-out.** No W1+ workstream starts until W0-C is frozen.
