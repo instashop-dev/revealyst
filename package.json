@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:db": "node scripts/dev-db.mjs",
+    "agent": "tsx packages/revealyst-agent/src/cli.ts",
     "dev:seed": "tsx scripts/seed-fixtures.ts",
     "build": "next build",
     "start": "next start",
