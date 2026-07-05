@@ -2,6 +2,8 @@ import { isNotNull, sql } from "drizzle-orm";
 import {
   foreignKey,
   index,
+  jsonb,
+  pgEnum,
   pgTable,
   primaryKey,
   text,
@@ -11,6 +13,17 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth-schema";
+
+// Closed, frozen enum (attribution ladder rungs a vendor-visible actor can
+// occupy). Growing this set post-freeze requires an ADR.
+export const subjectKindEnum = pgEnum("subject_kind", [
+  "person",
+  "api_key",
+  "service_account",
+  "workspace",
+  "project",
+  "account",
+]);
 
 // W0-C core schema. Every application table carries org_id; child tables
 // reference their parent via composite (org_id, parent_id) FKs so a
@@ -126,6 +139,136 @@ export const teamMembers = pgTable(
       foreignColumns: [people.orgId, people.id],
     }).onDelete("cascade"),
     index("team_members_org_person_idx").on(t.orgId, t.personId),
+  ],
+);
+
+// A configured vendor integration. Multiple connections per vendor per org
+// are allowed (several GitHub orgs, several Revealyst Agent devices).
+// `config` holds NON-secret settings only — credentials live exclusively in
+// connection_credentials (encrypted; lands in the next migration).
+export const connections = pgTable(
+  "connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id),
+    // VendorId union (frozen in src/contracts): github_copilot | cursor |
+    // anthropic_console | anthropic_claude_enterprise | openai |
+    // claude_code_local. Text, not a pg enum — new vendors are expected.
+    vendor: text("vendor").notNull(),
+    displayName: text("display_name").notNull(),
+    status: text("status", {
+      enum: ["pending", "active", "paused", "error"],
+    })
+      .notNull()
+      .default("pending"),
+    authKind: text("auth_kind", {
+      enum: [
+        "api_key",
+        "admin_key",
+        "analytics_key",
+        "github_app",
+        "pat",
+        "device_token",
+      ],
+    }).notNull(),
+    config: jsonb("config").notNull().default({}),
+    lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    // Anchor for composite tenant FKs from child tables (D1a).
+    unique("connections_org_id_id_uq").on(t.orgId, t.id),
+    index("connections_org_vendor_idx").on(t.orgId, t.vendor),
+  ],
+);
+
+// Vendor-visible actors (attribution-ladder rungs): the thing a
+// metric_record is about. One row per (connection, kind, external_id) —
+// that triple is the discover() upsert key. `external_id` is whatever the
+// vendor exposes (Copilot user_id, Cursor userId, Anthropic Console
+// email/api_key_name — documented: no stable UUID there, OpenAI key-owner
+// user_id). `meta` carries vendor extras (login, workspace name) — never
+// content.
+export const subjects = pgTable(
+  "subjects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    kind: subjectKindEnum("kind").notNull(),
+    externalId: text("external_id").notNull(),
+    // Lowercased when the vendor exposes it — W2-K identity matching.
+    email: text("email"),
+    displayName: text("display_name"),
+    meta: jsonb("meta").notNull().default({}),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("subjects_org_id_id_uq").on(t.orgId, t.id),
+    foreignKey({
+      name: "subjects_org_connection_fk",
+      columns: [t.orgId, t.connectionId],
+      foreignColumns: [connections.orgId, connections.id],
+    }).onDelete("cascade"),
+    unique("subjects_conn_kind_external_uq").on(
+      t.connectionId,
+      t.kind,
+      t.externalId,
+    ),
+    index("subjects_org_email_idx").on(t.orgId, t.email),
+  ],
+);
+
+// Subject ↔ person resolution, many-to-many by design: a shared account is
+// ONE subject with N identity rows (§6.2 — the flag is derived metadata,
+// never a data correction), and one person can own subjects across several
+// connections. Composite tenant FKs on both sides make a cross-org link
+// unrepresentable.
+export const identities = pgTable(
+  "identities",
+  {
+    orgId: uuid("org_id").notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    personId: uuid("person_id").notNull(),
+    method: text("method", {
+      enum: ["email_match", "manual", "vendor_asserted"],
+    }).notNull(),
+    // Audit: which dashboard user made a manual mapping.
+    createdByUserId: text("created_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.subjectId, t.personId] }),
+    foreignKey({
+      name: "identities_org_subject_fk",
+      columns: [t.orgId, t.subjectId],
+      foreignColumns: [subjects.orgId, subjects.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "identities_org_person_fk",
+      columns: [t.orgId, t.personId],
+      foreignColumns: [people.orgId, people.id],
+    }).onDelete("cascade"),
+    index("identities_org_person_idx").on(t.orgId, t.personId),
   ],
 );
 
