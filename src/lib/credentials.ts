@@ -130,21 +130,48 @@ async function aesGcmDecrypt(
   return new Uint8Array(plaintext);
 }
 
-/** Selects the KEK matching a stored row's version: current first, then
- * previous (rotation window). */
-function kekForVersion(env: CredentialEnv, version: string) {
-  const current = parseKek(env.CREDENTIAL_KEK_CURRENT, "CREDENTIAL_KEK_CURRENT");
-  if (current.version === version) {
-    return current;
-  }
+/**
+ * Parses and validates the configured KEK pair. A shared version label
+ * between CURRENT and PREVIOUS would make the version→key mapping
+ * ambiguous (rows tagged with that label could be wrapped under either
+ * key, and the wrong bytes would be tried with no fallback), so it is
+ * rejected loudly at every entry point.
+ */
+function loadKeks(env: CredentialEnv) {
+  const current = parseKek(
+    env.CREDENTIAL_KEK_CURRENT,
+    "CREDENTIAL_KEK_CURRENT",
+  );
+  let previous;
   if (env.CREDENTIAL_KEK_PREVIOUS) {
-    const previous = parseKek(
+    previous = parseKek(
       env.CREDENTIAL_KEK_PREVIOUS,
       "CREDENTIAL_KEK_PREVIOUS",
     );
-    if (previous.version === version) {
-      return previous;
+    if (previous.version === current.version) {
+      throw new Error(
+        "CREDENTIAL_KEK_PREVIOUS reuses CREDENTIAL_KEK_CURRENT's version label — a rotation must mint a new version",
+      );
     }
+  }
+  return { current, previous };
+}
+
+/** The version label new encryptions carry (rotation sweeps compare stored
+ * rows against this). */
+export function currentKekVersion(env: CredentialEnv): string {
+  return loadKeks(env).current.version;
+}
+
+/** Selects the KEK matching a stored row's version: current first, then
+ * previous (rotation window). */
+function kekForVersion(env: CredentialEnv, version: string) {
+  const { current, previous } = loadKeks(env);
+  if (current.version === version) {
+    return current;
+  }
+  if (previous?.version === version) {
+    return previous;
   }
   throw new Error(
     `no KEK available for version ${version} — was the previous key dropped before rewrapping?`,
@@ -156,7 +183,7 @@ export async function encryptCredential(
   binding: CredentialBinding,
   plaintext: string,
 ): Promise<EncryptedCredential> {
-  const kek = parseKek(env.CREDENTIAL_KEK_CURRENT, "CREDENTIAL_KEK_CURRENT");
+  const kek = loadKeks(env).current;
   const aad = aadFor(binding);
 
   const dekBytes = crypto.getRandomValues(new Uint8Array(32));
@@ -217,10 +244,7 @@ export async function rewrapCredential(
   binding: CredentialBinding,
   row: EncryptedCredential,
 ): Promise<EncryptedCredential> {
-  const current = parseKek(
-    env.CREDENTIAL_KEK_CURRENT,
-    "CREDENTIAL_KEK_CURRENT",
-  );
+  const current = loadKeks(env).current;
   const old = kekForVersion(env, row.kekVersion);
   const aad = aadFor(binding);
 
