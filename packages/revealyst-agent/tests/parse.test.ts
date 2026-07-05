@@ -44,17 +44,10 @@ describe("parseSessionContent", () => {
     );
     expect(streamed).toHaveLength(2); // split turn shares the requestId
     // Parse keeps BOTH streamed lines verbatim (last-wins dedup is the
-    // summarizer's job): the first is a partial, the last carries the
-    // cumulative totals.
-    if (streamed[0].kind === "assistant" && streamed[1].kind === "assistant") {
+    // summarizer's job, exercised in summarize.test.ts).
+    if (streamed[0].kind === "assistant") {
       expect(streamed[0].model).toBe("claude-fable-5");
       expect(streamed[0].usage).toEqual({
-        input: 100,
-        output: 50,
-        cacheRead: 0,
-        cacheWrite: 0,
-      });
-      expect(streamed[1].usage).toEqual({
         input: 1200,
         output: 300,
         cacheRead: 5000,
