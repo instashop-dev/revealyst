@@ -21,7 +21,16 @@ for (const file of migrations) {
   console.log(`applied ${file}`);
 }
 
-const server = new PGLiteSocketServer({ db, port: 5432, host: "127.0.0.1" });
+// maxConnections defaults to 1 and the net server RESETS the overflow, so
+// any overlapping request pair (per-request clients idle-linger 20s) dies
+// with ECONNRESET. Queries serialize through the shared query queue anyway;
+// allow a normal dev-request burst.
+const server = new PGLiteSocketServer({
+  db,
+  port: 5432,
+  host: "127.0.0.1",
+  maxConnections: 16,
+});
 await server.start();
 console.log(
   "dev db listening on postgres://postgres:postgres@127.0.0.1:5432/postgres",

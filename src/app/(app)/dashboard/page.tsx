@@ -97,7 +97,12 @@ export default async function DashboardPage() {
               ))
             )}
             <div>
-              <Button variant="outline" size="sm" render={<Link href="/connections" />}>
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href="/connections" />}
+              >
                 <Cable data-icon="inline-start" />
                 {connections.length === 0 ? "View connections" : "Manage connections"}
               </Button>
