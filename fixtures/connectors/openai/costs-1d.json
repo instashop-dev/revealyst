@@ -1,0 +1,37 @@
+{
+  "object": "page",
+  "data": [
+    {
+      "start_time": 1781136000,
+      "end_time": 1781222400,
+      "results": [
+        {
+          "object": "organization.costs.result",
+          "amount": { "value": 12.3456, "currency": "usd" },
+          "line_item": "gpt-5, input",
+          "project_id": "proj_alpha"
+        },
+        {
+          "object": "organization.costs.result",
+          "amount": { "value": 0.5, "currency": "usd" },
+          "line_item": "web search",
+          "project_id": "proj_alpha"
+        }
+      ]
+    },
+    {
+      "start_time": 1781222400,
+      "end_time": 1781308800,
+      "results": [
+        {
+          "object": "organization.costs.result",
+          "amount": { "value": 4.2, "currency": "usd" },
+          "line_item": "gpt-5, output",
+          "project_id": "proj_alpha"
+        }
+      ]
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}

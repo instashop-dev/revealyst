@@ -1,0 +1,100 @@
+{
+  "object": "page",
+  "data": [
+    {
+      "start_time": 1781168400,
+      "end_time": 1781172000,
+      "results": [
+        {
+          "object": "organization.usage.completions.result",
+          "input_tokens": 15000,
+          "output_tokens": 6000,
+          "input_cached_tokens": 4000,
+          "input_audio_tokens": 0,
+          "output_audio_tokens": 0,
+          "num_model_requests": 42,
+          "project_id": "proj_alpha",
+          "user_id": "user-alpha",
+          "api_key_id": "key_01",
+          "model": "gpt-5",
+          "batch": false,
+          "service_tier": "default"
+        },
+        {
+          "object": "organization.usage.completions.result",
+          "input_tokens": 8000,
+          "output_tokens": 3000,
+          "input_cached_tokens": 0,
+          "input_audio_tokens": 0,
+          "output_audio_tokens": 0,
+          "num_model_requests": 12,
+          "project_id": "proj_alpha",
+          "user_id": null,
+          "api_key_id": "key_svc",
+          "model": "gpt-5-mini",
+          "batch": false,
+          "service_tier": "default"
+        }
+      ]
+    },
+    {
+      "start_time": 1781186400,
+      "end_time": 1781190000,
+      "results": [
+        {
+          "object": "organization.usage.completions.result",
+          "input_tokens": 5000,
+          "output_tokens": 2000,
+          "input_cached_tokens": 1000,
+          "input_audio_tokens": 0,
+          "output_audio_tokens": 0,
+          "num_model_requests": 10,
+          "project_id": "proj_alpha",
+          "user_id": "user-alpha",
+          "api_key_id": "key_01",
+          "model": "gpt-5",
+          "batch": false,
+          "service_tier": "default"
+        },
+        {
+          "object": "organization.usage.completions.result",
+          "input_tokens": 50000,
+          "output_tokens": 20000,
+          "input_cached_tokens": 0,
+          "input_audio_tokens": 0,
+          "output_audio_tokens": 0,
+          "num_model_requests": 100,
+          "project_id": "proj_alpha",
+          "user_id": "user-alpha",
+          "api_key_id": "key_01",
+          "model": "gpt-5",
+          "batch": true,
+          "service_tier": "default"
+        }
+      ]
+    },
+    {
+      "start_time": 1781222400,
+      "end_time": 1781226000,
+      "results": [
+        {
+          "object": "organization.usage.completions.result",
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "input_cached_tokens": 0,
+          "input_audio_tokens": 0,
+          "output_audio_tokens": 0,
+          "num_model_requests": 0,
+          "project_id": "proj_alpha",
+          "user_id": null,
+          "api_key_id": "key_svc",
+          "model": "gpt-5-mini",
+          "batch": false,
+          "service_tier": "default"
+        }
+      ]
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}
