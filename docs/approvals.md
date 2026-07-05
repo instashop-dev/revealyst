@@ -8,7 +8,7 @@ chaser routine (per the harness-setup doc) to poll status until each clears.
 
 | Filing | Where | When | Lead time | Status |
 |---|---|---|---|---|
-| GitHub App registration | github.com/settings/apps (or org) | **Now** (no site needed) | Instant to create; install-approval per customer org | ☐ not filed |
+| GitHub App registration | github.com/settings/apps (or org) | **Now** (no site needed) | Instant to create; install-approval per customer org | ✅ filed |
 | GitHub Marketplace listing (optional, deferrable) | Marketplace review | When the W2 site is live (needs public URLs) | Days–weeks (human review) | ☐ deferred |
 | Anthropic / OpenAI / Cursor | — | — | **None needed** — customer-created admin keys | ✅ n/a |
 | Paddle MoR onboarding | paddle.com | The instant W2 has a live site | Days–weeks (KYC) | ☐ waiting on W2 |
@@ -59,6 +59,29 @@ widens the review surface for every org-level install.
 2. Note the App ID / client ID into deployment secrets.
 3. Add the install flow to W2-J's Copilot connector plan (org admin installs the app → installation token → reports API).
 4. When the W2 site is live: update homepage/callback URLs, then (optionally) submit the Marketplace listing — that is the only step with a human GitHub review queue.
+
+### Filed — App identifiers (2026-07-05)
+
+| Field | Value |
+|---|---|
+| App ID | `4215573` |
+| Client ID | `Iv23li7wFumkZwiRogYu` |
+
+Client secret and private key generated at creation time and added to GitHub
+repo secrets (not committed here). Distinct from the *login* OAuth app's
+`GH_OAUTH_CLIENT_ID`/`GH_OAUTH_CLIENT_SECRET` (see `docs/infra.md`) — this app
+is scoped only to the Copilot metrics connector (rule 7: one GitHub App, no
+broader scope). Repo secret naming for W2-J to consume:
+
+| Value | Repo secret name |
+|---|---|
+| App ID | `GH_COPILOT_APP_ID` |
+| Client ID | `GH_COPILOT_APP_CLIENT_ID` |
+| Client secret | `GH_COPILOT_APP_CLIENT_SECRET` |
+| Private key (PEM) | `GH_COPILOT_APP_PRIVATE_KEY` |
+
+Not yet wired into `deploy.yml` or any Worker binding — that happens when the
+W2-J Copilot connector is built and actually consumes these.
 
 ---
 
