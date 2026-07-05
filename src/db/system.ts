@@ -19,6 +19,14 @@ export async function ensureSystemOrg(
     .onConflictDoNothing({ target: orgs.id });
 }
 
+/** Enumerates org ids for cross-org fan-out (one queue message per org —
+ * e.g. the nightly score recompute). Enumeration is the only cross-org read;
+ * all per-org work goes back through forOrg. */
+export async function listOrgIds(db: Db): Promise<string[]> {
+  const rows = await db.select({ id: orgs.id }).from(orgs);
+  return rows.map((r) => r.id);
+}
+
 /**
  * Ages out expired raw payloads in bounded batches (Workers 30s CPU
  * budget). metric_records.raw_payload_id is ON DELETE SET NULL, so aged
