@@ -2,10 +2,11 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { createDb } from "@/db/client";
+import { createDb, type Db } from "@/db/client";
 import { orgContextForUser } from "@/db/org-context";
 import { ensureOrgOfOne, forOrg } from "@/db/org-scope";
 import { createAuth, type AuthEnv } from "@/lib/auth";
+import type { CredentialEnv } from "@/lib/credentials";
 
 /**
  * Request-scoped context for authenticated pages and API routes: one db
@@ -53,4 +54,15 @@ export async function requireAppContext(): Promise<AppContext> {
     redirect("/sign-in");
   }
   return ctx;
+}
+
+/**
+ * Request-scoped context for API route handlers — the single allowlisted
+ * createDb seam for routes (ADR 0002; scripts/check-org-scope.mjs), so
+ * individual route files never touch the client factory. Deliberately NOT
+ * cached at module scope: Workers cancel cross-request I/O.
+ */
+export function getApiContext(): { db: Db; env: CredentialEnv } {
+  const { env } = getCloudflareContext();
+  return { db: createDb(env), env: env as CredentialEnv };
 }

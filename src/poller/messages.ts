@@ -11,6 +11,16 @@ export type PollMessage =
       // Ages out expired raw_payloads rows in bounded batches (system-level
       // job — runs across orgs inside src/db/system.ts).
       kind: "purge-raw";
+    }
+  | {
+      // W1-F: recompute all active score definitions for one org. Sent
+      // nightly (one message per org, anchored at yesterday UTC) and
+      // on-demand after a backfill lands; idempotent on the frozen
+      // score_results upsert key either way.
+      kind: "score-recompute";
+      orgId: string;
+      /** UTC calendar day anchoring the periods (YYYY-MM-DD). */
+      day: string;
     };
 
 // Fixed system org the skeleton heartbeat runs under until real orgs exist

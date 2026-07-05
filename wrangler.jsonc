@@ -17,7 +17,10 @@
 	// the queue consumer polls and writes. W0-B runs the no-op heartbeat.
 	"triggers": {
 		"crons": [
-			"*/5 * * * *"
+			"*/5 * * * *",
+			// Nightly score recompute (W1-F): src/worker.ts branches on
+			// controller.cron and enqueues one score-recompute per org.
+			"0 2 * * *"
 		]
 	},
 	"queues": {

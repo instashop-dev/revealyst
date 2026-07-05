@@ -7,8 +7,14 @@ import openNextHandlerModule from "../.open-next/worker.js";
 
 const openNextHandler = openNextHandlerModule as ExportedHandler<CloudflareEnv>;
 import { createDb } from "./db/client";
+import { listOrgIds } from "./db/system";
 import { SYSTEM_ORG_ID, type PollMessage } from "./poller/messages";
 import { processPollMessage } from "./poller/process";
+import { previousDay } from "./scoring";
+
+// Matches the second entry in wrangler.jsonc "triggers".crons — the nightly
+// score recompute (W1-F). The */5 tick keeps the W0-B heartbeat + purge.
+const NIGHTLY_SCORE_CRON = "0 2 * * *";
 
 export default {
   fetch: openNextHandler.fetch,
@@ -18,6 +24,20 @@ export default {
   // the raw-landing-zone purge (bounded batches; cheap when nothing has
   // expired, so every tick is fine until W1-D refines scheduling).
   async scheduled(controller, env) {
+    if (controller.cron === NIGHTLY_SCORE_CRON) {
+      // Nightly score recompute: one queue message per org, anchored at
+      // yesterday UTC (the last fully-ingested day).
+      const db = createDb(env);
+      const day = previousDay(new Date().toISOString().slice(0, 10));
+      for (const orgId of await listOrgIds(db)) {
+        await env.POLL_QUEUE.send({
+          kind: "score-recompute",
+          orgId,
+          day,
+        } satisfies PollMessage);
+      }
+      return;
+    }
     await env.POLL_QUEUE.send({
       kind: "noop-poll",
       orgId: SYSTEM_ORG_ID,
