@@ -3,8 +3,8 @@
 **Status: provisional (W1-D).** Hand-assembled to the *documented* shapes in
 `docs/connector-facts.md` §4 (field inventory retrieved 2026-07-04) so the
 connector's pure `normalize()` has a deterministic seam. NOT yet recorded from
-a live org — W1-S replaces them with scrubbed recordings via
-`scripts/verify/openai.mjs` (rule 2).
+a live org — W1-S lands scrubbed real recordings separately under
+`fixtures/vendor-payloads/` (rule 2; recorder: `scripts/record/`).
 
 One connector, two credential modes: these fixtures serve BOTH the
 personal-key mode (W1-D) and the org-admin mode (W2-J) — same shapes, same
