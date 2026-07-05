@@ -1,0 +1,35 @@
+{
+  "connections": [
+    { "key": "anthropic", "vendor": "anthropic_console", "displayName": "My Anthropic", "authKind": "api_key" },
+    { "key": "agent", "vendor": "claude_code_local", "displayName": "Revealyst Agent (laptop)", "authKind": "device_token" }
+  ],
+  "people": [
+    { "key": "solo", "pseudonym": "solar-tern", "displayName": "Solo Founder", "email": "solo@fixture.example" }
+  ],
+  "teams": [],
+  "subjects": [
+    { "key": "solo-console", "connection": "anthropic", "kind": "person", "externalId": "solo@fixture.example", "email": "solo@fixture.example" },
+    { "key": "solo-agent", "connection": "agent", "kind": "person", "externalId": "machine-7f3a", "displayName": "laptop" }
+  ],
+  "identities": [
+    { "subject": "solo-console", "person": "solo", "method": "email_match" },
+    { "subject": "solo-agent", "person": "solo", "method": "vendor_asserted" }
+  ],
+  "records": [
+    { "subject": "solo-console", "metricKey": "active_day", "day": "2026-06-16", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "solo-console", "metricKey": "active_day", "day": "2026-06-17", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "solo-console", "metricKey": "active_day", "day": "2026-06-18", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "solo-console", "metricKey": "spend_cents", "day": "2026-06-17", "value": 385, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "solo-console", "metricKey": "tokens_input", "day": "2026-06-17", "value": 250000, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "solo-console", "metricKey": "tokens_output", "day": "2026-06-17", "value": 31000, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "solo-agent", "metricKey": "sessions", "day": "2026-06-17", "value": 4, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "solo-agent", "metricKey": "prompts", "day": "2026-06-17", "value": 57, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "solo-agent", "metricKey": "spend_cents_estimated", "day": "2026-06-17", "value": 410, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "solo-agent", "metricKey": "commits", "day": "2026-06-17", "value": 6, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "solo-agent", "metricKey": "feature_used", "day": "2026-06-17", "dim": "feature=subagents", "value": 1, "attribution": "person", "sourceConnector": "fixture@1" }
+  ],
+  "signals": [
+    { "subject": "solo-agent", "day": "2026-06-17", "hours": [0,0,0,0,0,0,0,0,0,0,2,4,3,1,2,5,4,3,2,1,0,0,0,0], "peakConcurrency": 2, "sourceGranularity": "event" },
+    { "subject": "solo-console", "day": "2026-06-17", "hours": [0,0,0,0,0,0,0,0,0,0,1,3,2,1,1,4,3,2,1,0,0,0,0,0], "peakConcurrency": 1, "sourceGranularity": "1h" }
+  ]
+}
