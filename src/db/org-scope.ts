@@ -1,10 +1,18 @@
 import { and, eq, type SQL } from "drizzle-orm";
 import {
+  currentKekVersion,
+  decryptCredential,
+  encryptCredential,
+  rewrapCredential,
+  type CredentialEnv,
+} from "../lib/credentials";
+import {
   generatePseudonym,
   generateSuffixedPseudonym,
 } from "../lib/pseudonym";
 import type { Db } from "./client";
 import {
+  connectionCredentials,
   connections,
   identities,
   orgMembers,
@@ -294,16 +302,174 @@ export function forOrg(db: Db, orgId: string) {
           .returning();
         return row;
       },
+
+      /**
+       * Encrypts and stores a credential (upsert per connection+kind).
+       * Write-only from the caller's perspective: plaintext goes in, only
+       * envelope fields are persisted, nothing is returned.
+       */
+      async storeCredential(
+        connectionId: string,
+        kind: (typeof connectionCredentials.kind.enumValues)[number],
+        plaintext: string,
+        env: CredentialEnv,
+        expiresAt?: Date | null,
+      ) {
+        // Ownership check before the upsert: without it, a conflicting
+        // (connection_id, kind) row would let another org's scope
+        // overwrite this row's ciphertext (the insert path is FK-guarded,
+        // the update path is not).
+        const [owned] = await db
+          .select({ id: connections.id })
+          .from(connections)
+          .where(
+            and(eq(connections.orgId, orgId), eq(connections.id, connectionId)),
+          );
+        if (!owned) {
+          throw new Error(`connection ${connectionId} not found in org`);
+        }
+        const encrypted = await encryptCredential(
+          env,
+          { orgId, connectionId, kind },
+          plaintext,
+        );
+        await db
+          .insert(connectionCredentials)
+          .values({
+            orgId,
+            connectionId,
+            kind,
+            ...encrypted,
+            expiresAt: expiresAt ?? null,
+          })
+          .onConflictDoUpdate({
+            target: [
+              connectionCredentials.connectionId,
+              connectionCredentials.kind,
+            ],
+            set: {
+              ...encrypted,
+              expiresAt: expiresAt ?? null,
+              rotatedAt: new Date(),
+            },
+            // Belt-and-braces on top of the ownership check above.
+            setWhere: eq(connectionCredentials.orgId, orgId),
+          });
+      },
+
+      /**
+       * Decrypts a credential for the duration of `fn` only — the poller /
+       * validate-on-save path. Plaintext never lands on an API response or
+       * a returned object; it exists inside the callback scope and is
+       * dropped when it resolves.
+       */
+      async withCredential<T>(
+        connectionId: string,
+        kind: (typeof connectionCredentials.kind.enumValues)[number],
+        env: CredentialEnv,
+        fn: (plaintext: string) => Promise<T>,
+      ): Promise<T> {
+        const [row] = await db
+          .select()
+          .from(connectionCredentials)
+          .where(
+            and(
+              eq(connectionCredentials.orgId, orgId),
+              eq(connectionCredentials.connectionId, connectionId),
+              eq(connectionCredentials.kind, kind),
+            ),
+          );
+        if (!row) {
+          throw new Error(
+            `no ${kind} credential stored for connection ${connectionId}`,
+          );
+        }
+        if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) {
+          throw new Error(
+            `${kind} credential for connection ${connectionId} expired at ${row.expiresAt.toISOString()}`,
+          );
+        }
+        const plaintext = await decryptCredential(
+          env,
+          { orgId, connectionId, kind },
+          row,
+        );
+        // Stamp last_used_at only after fn succeeds — a vendor rejection
+        // must not read as "credential last worked at T".
+        const result = await fn(plaintext);
+        await db
+          .update(connectionCredentials)
+          .set({ lastUsedAt: new Date() })
+          .where(
+            and(
+              eq(connectionCredentials.id, row.id),
+              eq(connectionCredentials.orgId, orgId),
+            ),
+          );
+        return result;
+      },
+
+      /**
+       * KEK-rotation sweep: rewraps every credential row in this org still
+       * wrapped under a non-current KEK (DEK rewrap only — data ciphertext
+       * untouched). Returns the number of rows rewrapped. Run per org from
+       * the rotation job while CREDENTIAL_KEK_PREVIOUS is still configured.
+       */
+      async rewrapCredentials(env: CredentialEnv) {
+        const target = currentKekVersion(env);
+        const rows = await db
+          .select()
+          .from(connectionCredentials)
+          .where(eq(connectionCredentials.orgId, orgId));
+        let rewrapped = 0;
+        for (const row of rows) {
+          if (row.kekVersion === target) {
+            continue;
+          }
+          const updated = await rewrapCredential(
+            env,
+            { orgId, connectionId: row.connectionId, kind: row.kind },
+            row,
+          );
+          await db
+            .update(connectionCredentials)
+            .set({
+              wrappedDekB64: updated.wrappedDekB64,
+              dekIvB64: updated.dekIvB64,
+              kekVersion: updated.kekVersion,
+              rotatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(connectionCredentials.id, row.id),
+                eq(connectionCredentials.orgId, orgId),
+              ),
+            );
+          rewrapped++;
+        }
+        return rewrapped;
+      },
     },
 
     subjects: {
       /**
        * Idempotent discover() sink: upserts on (connection, kind,
        * external_id), refreshing mutable fields and last_seen_at. The
-       * composite (org_id, connection_id) FK rejects a connection belonging
-       * to another org, so this cannot write subjects across tenants.
+       * composite (org_id, connection_id) FK rejects cross-org INSERTs, but
+       * the ON CONFLICT update path never re-checks the FK — hence the
+       * ownership pre-check and the org-guarded setWhere below (same
+       * pattern as storeCredential).
        */
       async upsertMany(connectionId: string, descriptors: SubjectDescriptor[]) {
+        const [owned] = await db
+          .select({ id: connections.id })
+          .from(connections)
+          .where(
+            and(eq(connections.orgId, orgId), eq(connections.id, connectionId)),
+          );
+        if (!owned) {
+          throw new Error(`connection ${connectionId} not found in org`);
+        }
         const rows = [];
         for (const d of descriptors) {
           const [row] = await db
@@ -325,6 +491,8 @@ export function forOrg(db: Db, orgId: string) {
                 meta: d.meta ?? {},
                 lastSeenAt: new Date(),
               },
+              // Belt-and-braces on top of the ownership check above.
+              setWhere: eq(subjects.orgId, orgId),
             })
             .returning();
           rows.push(row);

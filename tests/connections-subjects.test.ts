@@ -110,14 +110,27 @@ describe("subjects (discover upsert)", () => {
     expect(new Set(created.map((s) => s.id)).size).toBe(2);
   });
 
-  it("rejects a cross-org connection id at the DB level", async () => {
-    // Org A's scope naming org B's connection: (org_a, conn_b) has no
-    // anchor in connections(org_id, id) — composite FK rejects it.
+  it("rejects a cross-org connection id (insert and update paths)", async () => {
+    // Insert path: the ownership pre-check refuses org B's connection.
     await expect(
       forOrg(db, orgA).subjects.upsertMany(connB, [
         { kind: "person", externalId: "smuggled" },
       ]),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/not found in org/);
+
+    // Update path: a conflicting (connection, kind, external_id) triple
+    // reached from the wrong org must not rewrite the row (the ON CONFLICT
+    // path never re-checks the composite FK — the pre-check + setWhere do).
+    const [victim] = await forOrg(db, orgB).subjects.upsertMany(connB, [
+      { kind: "person", externalId: "poison-target", email: "real@b.example" },
+    ]);
+    await expect(
+      forOrg(db, orgA).subjects.upsertMany(connB, [
+        { kind: "person", externalId: "poison-target", email: "evil@a.example" },
+      ]),
+    ).rejects.toThrow(/not found in org/);
+    const after = await forOrg(db, orgB).subjects.get(victim.id);
+    expect(after.email).toBe("real@b.example");
   });
 
   it("list/get never cross orgs", async () => {
