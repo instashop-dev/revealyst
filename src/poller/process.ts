@@ -11,7 +11,7 @@ import {
 export async function ensureSystemOrg(db: Db) {
   await db
     .insert(orgs)
-    .values({ id: SYSTEM_ORG_ID, name: SYSTEM_ORG_NAME })
+    .values({ id: SYSTEM_ORG_ID, name: SYSTEM_ORG_NAME, kind: "system" })
     .onConflictDoNothing({ target: orgs.id });
 }
 
