@@ -187,6 +187,45 @@ export async function readDashboard(
   };
 }
 
+/** Which tools are connected and which of their features are in use — the
+ * "tool coverage" panel. Features are the distinct `feature_used` dims seen in
+ * the window; connections carry sync status so a stale/errored tool is honest. */
+export type ToolCoverage = {
+  connections: {
+    id: string;
+    vendor: string;
+    displayName: string;
+    status: string;
+  }[];
+  features: string[];
+};
+
+export async function readToolCoverage(
+  scope: OrgScope,
+  window: { from: string; to: string },
+): Promise<ToolCoverage> {
+  const [connections, featureRows] = await Promise.all([
+    scope.connections.list(),
+    scope.metrics.records({
+      metricKey: "feature_used",
+      from: window.from,
+      to: window.to,
+    }),
+  ]);
+  const features = [...new Set(featureRows.map((row) => row.dim))]
+    .filter((dim) => dim.length > 0)
+    .sort();
+  return {
+    connections: connections.map((c) => ({
+      id: c.id,
+      vendor: c.vendor,
+      displayName: c.displayName,
+      status: c.status,
+    })),
+    features,
+  };
+}
+
 /**
  * The latest TEAM-level score per definition slug — what the three org-level
  * cards render. "Latest" = highest periodEnd, tie-broken by definition version,

@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { Cable, Gauge } from "lucide-react";
+import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
 import { ScoreCard } from "@/components/dashboard/score-card";
+import { ScoreTrend } from "@/components/dashboard/score-trend";
+import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
@@ -16,7 +19,13 @@ import {
 } from "@/components/ui/card";
 import { requireAppContext } from "@/lib/api-context";
 import { resolveBenchmarkSource } from "@/lib/benchmarks";
-import { latestTeamScoresBySlug, readDashboard } from "@/lib/dashboard-read";
+import {
+  latestTeamScoresBySlug,
+  readDashboard,
+  readToolCoverage,
+} from "@/lib/dashboard-read";
+import { readActivityHeatmap } from "@/lib/dashboard-signals";
+import { readScoreTrends } from "@/lib/dashboard-trends";
 import { vendorLabel } from "@/lib/vendor-labels";
 
 export const dynamic = "force-dynamic";
@@ -48,9 +57,13 @@ function formatSpend(cents: number): string {
 
 export default async function DashboardPage() {
   const ctx = await requireAppContext();
-  const [connections, summary] = await Promise.all([
+  const readWindow = dashboardWindow();
+  const [connections, summary, heatmap, coverage, trends] = await Promise.all([
     ctx.scope.connections.list(),
-    readDashboard(ctx.scope, ctx.org.visibilityMode, dashboardWindow()),
+    readDashboard(ctx.scope, ctx.org.visibilityMode, readWindow),
+    readActivityHeatmap(ctx.scope, readWindow),
+    readToolCoverage(ctx.scope, readWindow),
+    readScoreTrends(ctx.scope, readWindow),
   ]);
 
   const latest = latestTeamScoresBySlug(summary.scores);
@@ -160,25 +173,34 @@ export default async function DashboardPage() {
       </div>
 
       {hasScores ? (
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
-          <ScoreCard
-            title="Adoption"
-            description="Breadth and consistency of AI use."
-            score={adoption}
-          />
-          <ScoreCard
-            title="Fluency"
-            description="Breadth · depth · effectiveness."
-            score={fluency}
-          />
-          <ScoreCard
-            title="Efficiency"
-            description="Value signals per unit of spend."
-            score={efficiency}
-            footer={spendFooter}
-          />
-          <BenchmarkPanel benchmarks={benchmarks} />
-        </div>
+        <>
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+            <ScoreCard
+              title="Adoption"
+              description="Breadth and consistency of AI use."
+              score={adoption}
+            />
+            <ScoreCard
+              title="Fluency"
+              description="Breadth · depth · effectiveness."
+              score={fluency}
+            />
+            <ScoreCard
+              title="Efficiency"
+              description="Value signals per unit of spend."
+              score={efficiency}
+              footer={spendFooter}
+            />
+            <BenchmarkPanel benchmarks={benchmarks} />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ActivityHeatmap heatmap={heatmap} />
+            <div className="grid gap-4">
+              <ToolCoveragePanel coverage={coverage} />
+              <ScoreTrend trends={trends} />
+            </div>
+          </div>
+        </>
       ) : (
         <EmptyState
           icon={Gauge}
