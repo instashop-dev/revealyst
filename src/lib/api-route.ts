@@ -32,6 +32,23 @@ export async function handleApi(
   }
 }
 
+/**
+ * Query-string parse per a frozen request schema; malformed input is a 400.
+ * Call inside the `handleApi` callback so the ApiError maps to a status
+ * rather than escaping as a 500.
+ */
+export function parseQuery<Schema extends z.ZodType>(
+  schema: Schema,
+  req: Request,
+): z.infer<Schema> {
+  const { searchParams } = new URL(req.url);
+  const result = schema.safeParse(Object.fromEntries(searchParams));
+  if (!result.success) {
+    throw new ApiError(400, "invalid query parameters");
+  }
+  return result.data;
+}
+
 /** Body parse per the frozen request schema; malformed input is a 400. */
 export async function parseBody<Schema extends z.ZodType>(
   schema: Schema,

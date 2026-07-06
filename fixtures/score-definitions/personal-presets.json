@@ -1,0 +1,39 @@
+{
+  "_comment": "PLACEHOLDER person-level score definitions for W2-H dev/self-view rendering. Org-scoped (loaded into the fixture personal org only via loadScoreDefinitions in src/db/fixtures.ts), NOT global — the seeded presets (drizzle/0009) are team-level, and a personal org has no teams. Real calibrated person-level definitions are W2-I's deliverable and replace these at the W2 integration gate. Components mirror the team presets at person subject level.",
+  "definitions": [
+    {
+      "slug": "adoption",
+      "version": 1,
+      "name": "AI Adoption Score",
+      "subjectLevel": "person",
+      "status": "active",
+      "components": [
+        { "key": "active_days", "metric": "active_day", "aggregation": "active_days", "weight": 0.5, "normalization": { "min": 0, "max": 20 } },
+        { "key": "tool_coverage", "metric": "feature_used", "aggregation": "distinct_dims", "weight": 0.5, "normalization": { "min": 0, "max": 6 } }
+      ]
+    },
+    {
+      "slug": "fluency",
+      "version": 1,
+      "name": "AI Fluency Score",
+      "subjectLevel": "person",
+      "status": "active",
+      "components": [
+        { "key": "breadth", "metric": "feature_used", "aggregation": "distinct_dims", "weight": 0.33, "normalization": { "min": 0, "max": 8 } },
+        { "key": "depth", "metric": "active_day", "aggregation": "active_days", "weight": 0.33, "normalization": { "min": 0, "max": 20 } },
+        { "key": "effectiveness", "ratio": { "numerator": { "metric": "suggestions_accepted", "aggregation": "sum" }, "denominator": { "metric": "suggestions_offered", "aggregation": "sum" } }, "weight": 0.34, "normalization": { "min": 0, "max": 0.5 } }
+      ]
+    },
+    {
+      "slug": "efficiency",
+      "version": 1,
+      "name": "AI Efficiency Score",
+      "subjectLevel": "person",
+      "status": "active",
+      "components": [
+        { "key": "output_per_spend", "ratio": { "numerator": { "metric": "suggestions_accepted", "aggregation": "sum" }, "denominator": { "metric": "spend_cents", "aggregation": "sum" } }, "weight": 0.5, "normalization": { "min": 0, "max": 0.2 } },
+        { "key": "engagement_per_spend", "ratio": { "numerator": { "metric": "active_day", "aggregation": "active_days" }, "denominator": { "metric": "spend_cents", "aggregation": "sum" } }, "weight": 0.5, "normalization": { "min": 0, "max": 0.01 } }
+      ]
+    }
+  ]
+}

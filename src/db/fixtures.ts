@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { ATTRIBUTION_LEVELS } from "../contracts/attribution";
 import { METRIC_KEYS, type MetricKey } from "../contracts/metrics";
+import { scoreDefinitionSchema } from "../contracts/scores";
 import type { Db } from "./client";
 import { forOrg } from "./org-scope";
-import { orgs } from "./schema";
+import { orgs, scoreDefinitions } from "./schema";
 
 /** Creates an org for fixture/dev seeding — a pre-scope operation (like
  * ensureOrgOfOne), kept here so schema imports stay inside src/db/**. */
@@ -203,4 +204,37 @@ function resolve(map: Record<string, string>, key: string): string {
     throw new Error(`fixture references unknown key '${key}'`);
   }
   return id;
+}
+
+// PLACEHOLDER person-level score definitions for W2-H dev/self-view (rule 2):
+// the global presets (drizzle/0009) are team-level, so a personal org — which
+// has no teams — needs a person-level definition to render "My AI Fluency".
+// These are ORG-SCOPED (loaded into the fixture org only), NEVER global — real
+// calibrated person-level definitions are W2-I's deliverable and replace these
+// at the W2 integration gate. Kept in db/** (the schema zone) so org-scope.ts's
+// frozen public API stays untouched.
+export const scoreDefinitionsFixtureSchema = z.object({
+  definitions: z.array(scoreDefinitionSchema),
+});
+
+/** Inserts org-scoped score definitions into an org through a raw insert
+ * (dev/test seeding only — the same seam createFixtureOrg uses). */
+export async function loadScoreDefinitions(
+  db: Db,
+  orgId: string,
+  raw: unknown,
+): Promise<number> {
+  const { definitions } = scoreDefinitionsFixtureSchema.parse(raw);
+  for (const def of definitions) {
+    await db.insert(scoreDefinitions).values({
+      orgId,
+      slug: def.slug,
+      version: def.version,
+      name: def.name,
+      subjectLevel: def.subjectLevel,
+      components: def.components,
+      status: def.status,
+    });
+  }
+  return definitions.length;
 }
