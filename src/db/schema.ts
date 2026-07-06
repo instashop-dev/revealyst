@@ -621,6 +621,54 @@ export const scoreResults = pgTable(
   ],
 );
 
+// Published third-party benchmark figures (W2-I) — e.g. Copilot acceptance
+// norms, Worklytics/Section adoption benchmarks — so score panels can show
+// "you vs. published industry data". Global reference data like
+// metric_catalog: no org_id, visible to every org. `status` starts 'draft'
+// on seed and only becomes 'verified' once the founder confirms the primary
+// source; panels must filter to 'verified' — never surface a draft figure as
+// authoritative. `valueUnit` prevents conflating a raw published percentage
+// with our normalized 0-100 score scale.
+export const benchmarks = pgTable(
+  "benchmarks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scoreSlug: text("score_slug").notNull(), // 'adoption' | 'fluency' | 'efficiency' (+ future slugs; not an enum, mirrors metric_catalog)
+    componentKey: text("component_key"), // null = benchmark is for the whole score
+    segment: text("segment").notNull().default("overall"), // e.g. 'overall' | 'smb' | 'enterprise'
+    metricLabel: text("metric_label").notNull(),
+    value: numeric("value", { precision: 10, scale: 4, mode: "number" }),
+    valueUnit: text("value_unit", {
+      enum: ["normalized_0_100", "percent", "raw"],
+    })
+      .notNull()
+      .default("normalized_0_100"),
+    rangeLow: numeric("range_low", { precision: 10, scale: 4, mode: "number" }),
+    rangeHigh: numeric("range_high", {
+      precision: 10,
+      scale: 4,
+      mode: "number",
+    }),
+    sourceName: text("source_name").notNull(),
+    sourceUrl: text("source_url"),
+    publishedDate: date("published_date", { mode: "string" }),
+    notes: text("notes"),
+    status: text("status", { enum: ["draft", "verified", "retired"] })
+      .notNull()
+      .default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("benchmarks_slug_component_segment_idx").on(
+      t.scoreSlug,
+      t.componentKey,
+      t.segment,
+    ),
+  ],
+);
+
 // One row per successful no-op poll job — proves Cron Trigger → Queue →
 // consumer → Postgres end-to-end (the W0 exit-gate heartbeat).
 export const pollHeartbeats = pgTable("poll_heartbeats", {
