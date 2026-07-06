@@ -1,10 +1,12 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { TriangleAlert, UsersRound } from "lucide-react";
+import { BookOpen, TriangleAlert, UsersRound } from "lucide-react";
 import { ReconcileSubjectDialog } from "@/components/reconcile-subject-dialog";
 import { UnlinkIdentityButton } from "@/components/unlink-identity-button";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -91,6 +93,16 @@ export default async function ReconcilePage() {
               — adoption is likely undercounted. Issue per-user access to see the
               real picture.
             </CardDescription>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2 w-fit"
+              nativeButton={false}
+              render={<Link href="/playbook" />}
+            >
+              <BookOpen data-icon="inline-start" />
+              Read the visibility playbook
+            </Button>
           </CardHeader>
           <CardContent>
             <div className="rounded-xl border">
