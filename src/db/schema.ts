@@ -634,7 +634,7 @@ export const pollHeartbeats = pgTable("poll_heartbeats", {
     .default(sql`now()`),
 });
 
-// One row per connector poll / backfill-chunk attempt (ADR 0002, W1-D).
+// One row per connector poll / backfill-chunk attempt (ADR 0005, W1-D).
 // The "last synced 2h ago" source of truth and the backfill audit trail:
 // resume state is derived from these rows + the queue-message cursor, so no
 // separate cursor table exists. `gaps` carries the run's HonestyGap[] —
