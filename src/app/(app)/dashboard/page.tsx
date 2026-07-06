@@ -4,6 +4,8 @@ import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
 import { ScoreCard } from "@/components/dashboard/score-card";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
+import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
+import { SharedAccountFlags } from "@/components/dashboard/shared-account-flags";
 import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -26,6 +28,8 @@ import {
 } from "@/lib/dashboard-read";
 import { readActivityHeatmap } from "@/lib/dashboard-signals";
 import { readScoreTrends } from "@/lib/dashboard-trends";
+import { resolveSegmentSource } from "@/lib/segments";
+import { resolveSharedAccountSource } from "@/lib/shared-account";
 import { vendorLabel } from "@/lib/vendor-labels";
 
 export const dynamic = "force-dynamic";
@@ -58,13 +62,16 @@ function formatSpend(cents: number): string {
 export default async function DashboardPage() {
   const ctx = await requireAppContext();
   const readWindow = dashboardWindow();
-  const [connections, summary, heatmap, coverage, trends] = await Promise.all([
-    ctx.scope.connections.list(),
-    readDashboard(ctx.scope, ctx.org.visibilityMode, readWindow),
-    readActivityHeatmap(ctx.scope, readWindow),
-    readToolCoverage(ctx.scope, readWindow),
-    readScoreTrends(ctx.scope, readWindow),
-  ]);
+  const [connections, summary, heatmap, coverage, trends, segments, sharedAccounts] =
+    await Promise.all([
+      ctx.scope.connections.list(),
+      readDashboard(ctx.scope, ctx.org.visibilityMode, readWindow),
+      readActivityHeatmap(ctx.scope, readWindow),
+      readToolCoverage(ctx.scope, readWindow),
+      readScoreTrends(ctx.scope, readWindow),
+      resolveSegmentSource().forOrg(ctx.scope, ctx.org.visibilityMode, readWindow),
+      resolveSharedAccountSource().flags(ctx.scope),
+    ]);
 
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
@@ -199,6 +206,10 @@ export default async function DashboardPage() {
               <ToolCoveragePanel coverage={coverage} />
               <ScoreTrend trends={trends} />
             </div>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SegmentBreakdown distribution={segments} />
+            <SharedAccountFlags flags={sharedAccounts} />
           </div>
         </>
       ) : (
