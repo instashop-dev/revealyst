@@ -7,6 +7,7 @@
     "dev:db": "node scripts/dev-db.mjs",
     "agent": "tsx packages/revealyst-agent/src/cli.ts",
     "dev:seed": "tsx scripts/seed-fixtures.ts",
+    "calibrate:scores": "tsx scripts/calibrate-scores.ts",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
