@@ -1,4 +1,4 @@
-# 0002 — connector_runs table + org-scope connectorRuns namespace (additive)
+# 0005 — connector_runs table + org-scope connectorRuns namespace (additive)
 
 - **Status:** Accepted
 - **Date:** 2026-07-05

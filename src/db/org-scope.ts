@@ -358,7 +358,7 @@ export function forOrg(db: Db, orgId: string) {
       },
 
       /**
-       * Stamps poll bookkeeping after a run (ADR 0002). Success reactivates
+       * Stamps poll bookkeeping after a run (ADR 0005). Success reactivates
        * an errored connection (transient vendor outages self-heal); a
        * PERMANENT failure lands status "error" + the message the UI shows.
        * Retryable failures never call this — the queue retries silently.
