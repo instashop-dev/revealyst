@@ -1,0 +1,96 @@
+{
+  "usageEvents": [
+    {
+      "timestamp": "1781168400000",
+      "userEmail": "alice@example.com",
+      "serviceAccountId": null,
+      "serviceAccountName": null,
+      "model": "claude-sonnet-5",
+      "kind": "composer",
+      "maxMode": false,
+      "isHeadless": false,
+      "isTokenBasedCall": true,
+      "isChargeable": true,
+      "requestsCosts": 1,
+      "tokenUsage": {
+        "inputTokens": 1000,
+        "outputTokens": 500,
+        "cacheWriteTokens": 50,
+        "cacheReadTokens": 200,
+        "totalCents": 12.5,
+        "discountPercentOff": 0
+      },
+      "chargedCents": 12.5,
+      "cursorTokenFee": 0
+    },
+    {
+      "timestamp": "1781168420000",
+      "userEmail": "alice@example.com",
+      "serviceAccountId": null,
+      "serviceAccountName": null,
+      "model": "claude-sonnet-5",
+      "kind": "composer",
+      "maxMode": false,
+      "isHeadless": false,
+      "isTokenBasedCall": true,
+      "isChargeable": true,
+      "requestsCosts": 1,
+      "tokenUsage": {
+        "inputTokens": 800,
+        "outputTokens": 400,
+        "cacheWriteTokens": 0,
+        "cacheReadTokens": 100,
+        "totalCents": 9,
+        "discountPercentOff": 0
+      },
+      "chargedCents": 9,
+      "cursorTokenFee": 0
+    },
+    {
+      "timestamp": "1781188200000",
+      "userEmail": "alice@example.com",
+      "serviceAccountId": null,
+      "serviceAccountName": null,
+      "model": "gpt-5",
+      "kind": "chat",
+      "maxMode": false,
+      "isHeadless": false,
+      "isTokenBasedCall": true,
+      "isChargeable": true,
+      "requestsCosts": 1,
+      "tokenUsage": {
+        "inputTokens": 2000,
+        "outputTokens": 1000,
+        "cacheWriteTokens": 100,
+        "cacheReadTokens": 0,
+        "totalCents": 20,
+        "discountPercentOff": 0
+      },
+      "chargedCents": 20,
+      "cursorTokenFee": 0
+    },
+    {
+      "timestamp": "1781175600000",
+      "userEmail": null,
+      "serviceAccountId": "svc-ci-1",
+      "serviceAccountName": "CI Bot",
+      "model": "claude-sonnet-5",
+      "kind": "agent",
+      "maxMode": true,
+      "isHeadless": true,
+      "isTokenBasedCall": true,
+      "isChargeable": true,
+      "requestsCosts": 1,
+      "tokenUsage": {
+        "inputTokens": 5000,
+        "outputTokens": 2000,
+        "cacheWriteTokens": 0,
+        "cacheReadTokens": 0,
+        "totalCents": 30,
+        "discountPercentOff": 0
+      },
+      "chargedCents": 30,
+      "cursorTokenFee": 0
+    }
+  ]
+}
