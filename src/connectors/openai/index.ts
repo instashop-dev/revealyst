@@ -13,6 +13,8 @@ import {
   fetchCompletionsUsage,
   fetchCosts,
   fetchOrgUsers,
+  fetchProjectApiKeys,
+  fetchProjects,
   type FetchFn,
 } from "./client";
 import { normalizeOpenAi } from "./normalize";
@@ -51,17 +53,56 @@ export const openAiConnector: Connector<OpenAiRaw> = {
   },
 
   async discover(ctx) {
-    const users = await fetchOrgUsers(ctx.credential, fetchFrom(ctx));
+    const fetchFn = fetchFrom(ctx);
+    const users = await fetchOrgUsers(ctx.credential, fetchFn);
     // externalId joins usage `user_id` (key owners); email feeds W2-K.
-    return users.map(
-      (u): SubjectDescriptor => ({
-        kind: "person",
-        externalId: `user:${u.id}`,
-        email: u.email,
-        displayName: u.name,
-        meta: { role: u.role },
-      }),
-    );
+    const subjects: SubjectDescriptor[] = users.map((u) => ({
+      kind: "person",
+      externalId: `user:${u.id}`,
+      email: u.email,
+      displayName: u.name,
+      meta: { role: u.role },
+    }));
+
+    // Org-admin mode (W2-J, Team): also enumerate projects and their API
+    // keys, so an admin sees exactly what's covered and which keys resolve
+    // to a person (owner.type "user" → usage attributes to that user_id)
+    // vs stay key-level (service accounts — the shared_key_not_person_level
+    // case). These are coverage/identity-map subjects: a key's usage still
+    // lands on the person subject when user-owned, so no double count. The
+    // key `externalId` is the raw key id — the same value normalize() keys
+    // api_key subjects by (usage `api_key_id`), so they merge. Personal
+    // mode (org of one) skips all this — its one user + own key already
+    // discovered above, and the extra calls buy nothing.
+    if (ctx.connection.config.mode === "org_admin") {
+      const projects = await fetchProjects(ctx.credential, fetchFn);
+      for (const p of projects) {
+        subjects.push({
+          kind: "project",
+          externalId: `project:${p.id}`,
+          displayName: p.name,
+          meta: { status: p.status ?? null },
+        });
+        await callSpacing(CALL_SPACING_MS);
+        const keys = await fetchProjectApiKeys(ctx.credential, p.id, fetchFn);
+        for (const k of keys) {
+          subjects.push({
+            kind: "api_key",
+            externalId: k.id,
+            displayName: k.name,
+            // The key→person map W2-K resolves identity with. A
+            // service-account owner has no person → stays unresolved.
+            meta: {
+              projectId: p.id,
+              ownerType: k.owner.type,
+              ownerUserId: k.owner.user?.id ?? null,
+            },
+          });
+        }
+        await callSpacing(CALL_SPACING_MS);
+      }
+    }
+    return subjects;
   },
 
   async poll(ctx, window: DateWindow) {

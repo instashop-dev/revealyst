@@ -66,6 +66,38 @@ export type OrgUsersList = {
   last_id?: string | null;
 };
 
+/** /v1/organization/projects — org-admin coverage discovery (W2-J). */
+export type OrgProjectsList = {
+  object: "list";
+  data: Array<{
+    object: "organization.project";
+    id: string;
+    name: string;
+    status?: string;
+  }>;
+  has_more: boolean;
+  last_id?: string | null;
+};
+
+/** /v1/organization/projects/{id}/api_keys — which keys resolve to a person
+ * (owner.type "user") vs stay key-level ("service_account"). The key `id`
+ * is the same value usage groups by as `api_key_id`. */
+export type ProjectApiKeysList = {
+  object: "list";
+  data: Array<{
+    object: "organization.project.api_key";
+    id: string;
+    name: string | null;
+    owner: {
+      type: "user" | "service_account";
+      user?: { id: string } | null;
+      service_account?: { id: string } | null;
+    };
+  }>;
+  has_more: boolean;
+  last_id?: string | null;
+};
+
 /** Discriminated raw union the connector's envelopes carry. */
 export type OpenAiRaw =
   | { surface: "usage_completions"; page: OpenAiPage<CompletionsBucket> }

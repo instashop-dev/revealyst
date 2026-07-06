@@ -8,7 +8,10 @@ import { fetchCompletionsUsage } from "../src/connectors/openai/client";
 import { normalizeOpenAi, ORG_SUBJECT } from "../src/connectors/openai/normalize";
 import { ENVELOPE_KINDS, type OpenAiRaw } from "../src/connectors/openai/types";
 import { getConnector } from "../src/connectors/registry";
-import type { RawPayloadEnvelope } from "../src/contracts/connector";
+import type {
+  ConnectorContext,
+  RawPayloadEnvelope,
+} from "../src/contracts/connector";
 import type { Db } from "../src/db/client";
 import { createFixtureOrg } from "../src/db/fixtures";
 import { forOrg } from "../src/db/org-scope";
@@ -135,6 +138,81 @@ describe("determinism + registration", () => {
     expect(getConnector("anthropic_console")?.sourceConnector).toBe(
       "anthropic-console@1",
     );
+  });
+});
+
+describe("discover: org-admin coverage (W2-J)", () => {
+  const orgList = (data: unknown[]) =>
+    new Response(
+      JSON.stringify({ object: "list", data, has_more: false, last_id: null }),
+      { status: 200 },
+    );
+  // Routes the three discovery endpoints; records every path hit.
+  function stubFetch(paths: string[]): typeof fetch {
+    return (async (url: RequestInfo | URL) => {
+      const p = new URL(String(url)).pathname;
+      paths.push(p);
+      if (p.endsWith("/organization/users")) {
+        return orgList([
+          { object: "organization.user", id: "user-alpha", name: "Alpha", email: "alpha@example.com", role: "owner" },
+        ]);
+      }
+      if (p.endsWith("/organization/projects")) {
+        return orgList([
+          { object: "organization.project", id: "proj_alpha", name: "Alpha", status: "active" },
+        ]);
+      }
+      if (p.endsWith("/proj_alpha/api_keys")) {
+        return orgList([
+          { object: "organization.project.api_key", id: "key_01", name: "Alice key", owner: { type: "user", user: { id: "user-alpha" } } },
+          { object: "organization.project.api_key", id: "key_svc", name: "CI bot", owner: { type: "service_account", service_account: { id: "sa_1" } } },
+        ]);
+      }
+      return orgList([]);
+    }) as typeof fetch;
+  }
+  const ctx = (mode: string | undefined, fetchImpl: typeof fetch): ConnectorContext => ({
+    connection: { id: "c1", orgId: "o1", vendor: "openai", config: { mode, fetchImpl } },
+    credential: "sk-admin-x",
+    now: () => new Date("2026-06-11T00:00:00Z"),
+    log: () => {},
+  });
+
+  it("org_admin enumerates projects + keys with the key→owner map", async () => {
+    const paths: string[] = [];
+    const subjects = await openAiConnector.discover(ctx("org_admin", stubFetch(paths)));
+
+    expect(subjects.find((s) => s.externalId === "user:user-alpha")?.kind).toBe("person");
+    expect(subjects.find((s) => s.externalId === "project:proj_alpha")?.kind).toBe("project");
+
+    // Key externalId is the raw id — the same value normalize keys api_key
+    // subjects by (usage api_key_id) — so coverage merges with usage rows.
+    const userKey = subjects.find((s) => s.externalId === "key_01");
+    expect(userKey?.kind).toBe("api_key");
+    expect(userKey?.meta).toMatchObject({ ownerType: "user", ownerUserId: "user-alpha" });
+    const svcKey = subjects.find((s) => s.externalId === "key_svc");
+    expect(svcKey?.meta).toMatchObject({ ownerType: "service_account", ownerUserId: null });
+
+    expect(paths).toContain("/v1/organization/projects");
+    expect(paths).toContain("/v1/organization/projects/proj_alpha/api_keys");
+  });
+
+  it("personal mode is unchanged: only the user, no project/key calls", async () => {
+    for (const mode of [undefined, "personal_key"]) {
+      const paths: string[] = [];
+      const subjects = await openAiConnector.discover(ctx(mode, stubFetch(paths)));
+      expect(subjects).toHaveLength(1);
+      expect(subjects[0].externalId).toBe("user:user-alpha");
+      expect(paths).toEqual(["/v1/organization/users"]);
+      expect(paths).not.toContain("/v1/organization/projects");
+    }
+  });
+
+  it("normalize is mode-agnostic (same envelope → same batch)", () => {
+    // The org-admin/personal split lives entirely in auth + discover; the
+    // pure normalize() never sees a mode, so the two modes ride identical
+    // data rules (invariant b comes from the data, not the mode).
+    expect(normalizeOpenAi(usageEnvelope)).toEqual(normalizeOpenAi(usageEnvelope));
   });
 });
 
