@@ -4,16 +4,15 @@ import {
   type AttributionLevel,
   type VendorId,
 } from "../contracts/attribution";
-import type { ConnectorContext } from "../contracts/connector";
+import type {
+  AuthCheckResult,
+  ConnectorContext,
+} from "../contracts/connector";
 import type { MetricKey } from "../contracts/metrics";
 import { getConnector } from "../connectors/registry";
 import type { forOrg } from "../db/org-scope";
 import type { CredentialEnv } from "../lib/credentials";
-import {
-  addDays,
-  chunkDaysFor,
-  DEFAULT_BACKFILL_DAYS,
-} from "../poller/backfill";
+import { addDays } from "../poller/backfill";
 import type { PollMessage } from "../poller/messages";
 
 type OrgScope = ReturnType<typeof forOrg>;
@@ -451,26 +450,41 @@ export async function putConnectionCredential(
 
   const entry = getConnector(connection.vendor);
   if (entry) {
-    const check = await scope.connections.withCredential(
-      connectionId,
-      input.kind,
-      env,
-      (plaintext) => {
-        const ctx: ConnectorContext = {
-          connection: {
-            id: connection.id,
-            orgId: scope.orgId,
-            vendor: connection.vendor as VendorId,
-            config: (connection.config as Record<string, unknown>) ?? {},
-          },
-          credential: plaintext,
-          now: () => new Date(),
-          log: () => {},
-        };
-        return entry.connector.validateAuth(ctx);
-      },
-    );
+    let check: AuthCheckResult;
+    try {
+      check = await scope.connections.withCredential(
+        connectionId,
+        input.kind,
+        env,
+        (plaintext) => {
+          const ctx: ConnectorContext = {
+            connection: {
+              id: connection.id,
+              orgId: scope.orgId,
+              vendor: connection.vendor as VendorId,
+              config: (connection.config as Record<string, unknown>) ?? {},
+            },
+            credential: plaintext,
+            now: () => new Date(),
+            log: () => {},
+          };
+          return entry.connector.validateAuth(ctx);
+        },
+      );
+    } catch (error) {
+      // validateAuth THREW (vendor network blip / 5xx / timeout), not a
+      // definitive rejection. The credential is already stored and may be
+      // perfectly valid — do NOT 500 or mark the connection errored on a
+      // transient. Leave it pending; the next poll validates for real.
+      console.warn(
+        `credential validation inconclusive for connection ${connectionId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return apiRoutes.connectionCredentialPut.response.parse({ ok: true });
+    }
     if (!check.ok) {
+      // A DEFINITIVE rejection (bad/expired key): surface it now.
       await scope.connections.setStatus(connectionId, "error", check.reason);
       throw new ApiError(400, `credential rejected: ${check.reason}`);
     }
@@ -479,11 +493,22 @@ export async function putConnectionCredential(
 }
 
 /**
- * Kick off ingestion for one connection now (onboarding "sync"): the trailing
- * backfill chain once (if none has ever run) + a regular poll over the
- * vendor's restatement window. Mirrors the per-connection branch of
- * dispatchDueConnectorWork, reusing its window/chunk helpers, but scoped to a
- * single org-owned connection and forced regardless of the poll interval.
+ * Trigger an immediate poll of one connection (the onboarding "Sync now"
+ * action): a regular poll over the vendor's restatement window, so recent
+ * activity shows up without waiting for the next cron tick.
+ *
+ * It deliberately does NOT enqueue a backfill. The trailing 30–90-day
+ * backfill chain-start is owned solely by the cron dispatcher
+ * (dispatchDueConnectorWork), which derives "already started?" from the DB
+ * (a distinct connector_runs backfill query) and runs on a single serialized
+ * tick. Enqueuing a backfill from a request handler would race: the dedup
+ * marker (a backfill connector_runs row) isn't written until the queue
+ * consumer runs, so two rapid "Sync now" clicks — or one click plus the next
+ * cron tick — would each see no backfill row and fork a duplicate full-window
+ * crawl (data stays correct via idempotent upserts, but vendor-call cost
+ * doubles). A duplicate *poll* is cheap and bounded, so triggering one here
+ * is safe; a duplicate *backfill* is not. The dispatcher starts backfill
+ * within one tick of the connection being credentialed.
  */
 export async function pollConnection(
   scope: OrgScope,
@@ -503,31 +528,12 @@ export async function pollConnection(
   }
   const now = (enqueue.now ?? (() => new Date()))();
   const today = now.toISOString().slice(0, 10);
-  const caps = entry.connector.capabilities;
-
-  const runs = await scope.connectorRuns.list({ connectionId });
-  const backfillStarted = runs.some((r) => r.kind === "backfill");
-  if (!backfillStarted) {
-    const depth = Math.min(
-      caps.maxBackfillDays ?? DEFAULT_BACKFILL_DAYS,
-      DEFAULT_BACKFILL_DAYS,
-    );
-    const window = { start: addDays(today, -(depth - 1)), end: today };
-    await enqueue.send({
-      kind: "connector-backfill",
-      orgId: scope.orgId,
-      connectionId,
-      window,
-      cursorStart: window.start,
-      chunkDays: chunkDaysFor(entry.maxCallsPerDay),
-    });
-  }
   await enqueue.send({
     kind: "connector-poll",
     orgId: scope.orgId,
     connectionId,
     window: {
-      start: addDays(today, -caps.restatementWindowDays),
+      start: addDays(today, -entry.connector.capabilities.restatementWindowDays),
       end: today,
     },
   });

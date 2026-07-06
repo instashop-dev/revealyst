@@ -15,7 +15,6 @@ import {
   clearRegistryForTests,
   registerConnector,
 } from "../src/connectors/registry";
-import { addDays, chunkDaysFor } from "../src/poller/backfill";
 import type { PollMessage } from "../src/poller/messages";
 import {
   ApiError,
@@ -155,6 +154,35 @@ describe("putConnectionCredential (validate-on-save)", () => {
     expect((await scope.connections.get(connection.id))?.status).toBe("pending");
   });
 
+  it("stores but does not error/500 when validation is inconclusive (throws)", async () => {
+    const scope = forOrg(db, orgId);
+    const { connection } = await createConnection(scope, {
+      vendor: "anthropic_console",
+      displayName: "Flaky validate",
+      authKind: "api_key",
+    });
+    const original = fakeConnector.validateAuth;
+    fakeConnector.validateAuth = async () => {
+      throw new Error("ETIMEDOUT talking to vendor");
+    };
+    try {
+      const res = await putConnectionCredential(
+        scope,
+        connection.id,
+        { kind: "api_key", value: "sk-maybe-good" },
+        ENV,
+      );
+      // Transient validation failure must NOT 500 or mark the connection
+      // errored — the key is stored and the next poll validates for real.
+      expect(res).toEqual({ ok: true });
+      expect((await scope.connections.get(connection.id))?.status).toBe(
+        "pending",
+      );
+    } finally {
+      fakeConnector.validateAuth = original;
+    }
+  });
+
   it("404s an unknown connection", async () => {
     const error = await putConnectionCredential(
       forOrg(db, orgId),
@@ -187,7 +215,7 @@ describe("putConnectionCredential (validate-on-save)", () => {
 describe("pollConnection (frozen connectionsPoll)", () => {
   const NOW = () => new Date("2026-06-15T00:00:00.000Z");
 
-  it("enqueues the first backfill chain-start + a poll", async () => {
+  it("enqueues only a restatement-window poll — never a backfill (cron owns that)", async () => {
     const scope = forOrg(db, orgId);
     const { connection } = await createConnection(scope, {
       vendor: "anthropic_console",
@@ -202,43 +230,35 @@ describe("pollConnection (frozen connectionsPoll)", () => {
       now: NOW,
     });
     expect(res).toEqual({ ok: true });
-
-    const backfill = sent.find((m) => m.kind === "connector-backfill");
-    const poll = sent.find((m) => m.kind === "connector-poll");
-    expect(backfill).toMatchObject({
-      orgId,
-      connectionId: connection.id,
-      window: { start: addDays("2026-06-15", -89), end: "2026-06-15" },
-      cursorStart: addDays("2026-06-15", -89),
-      chunkDays: chunkDaysFor(FAKE_MAX_CALLS_PER_DAY),
-    });
-    // restatementWindowDays = 2.
-    expect(poll).toMatchObject({
+    // restatementWindowDays = 2. No backfill message: enqueuing one from a
+    // request would race the cron dispatcher and fork a duplicate crawl.
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      kind: "connector-poll",
       orgId,
       connectionId: connection.id,
       window: { start: "2026-06-13", end: "2026-06-15" },
     });
   });
 
-  it("does not re-start backfill once a backfill run exists", async () => {
+  it("is idempotent under repeated calls: only cheap poll messages, no backfill fork", async () => {
     const scope = forOrg(db, orgId);
     const { connection } = await createConnection(scope, {
       vendor: "anthropic_console",
-      displayName: "Backfilled",
+      displayName: "Double clicked",
       authKind: "api_key",
     });
-    await scope.connectorRuns.start({
-      connectionId: connection.id,
-      kind: "backfill",
-    });
     const sent: PollMessage[] = [];
-    await pollConnection(scope, connection.id, {
-      send: async (m) => {
-        sent.push(m);
-      },
-      now: NOW,
-    });
-    expect(sent.map((m) => m.kind)).toEqual(["connector-poll"]);
+    const send = async (m: PollMessage) => {
+      sent.push(m);
+    };
+    await pollConnection(scope, connection.id, { send, now: NOW });
+    await pollConnection(scope, connection.id, { send, now: NOW });
+    // Two clicks → two (idempotent, bounded) polls, zero backfills.
+    expect(sent.map((m) => m.kind)).toEqual([
+      "connector-poll",
+      "connector-poll",
+    ]);
   });
 
   it("400s a vendor with no shipped connector", async () => {
