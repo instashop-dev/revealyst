@@ -1,0 +1,49 @@
+{
+  "connections": [
+    { "key": "anthropic", "vendor": "anthropic_console", "displayName": "Anthropic Console", "authKind": "admin_key" },
+    { "key": "copilot", "vendor": "github_copilot", "displayName": "GitHub Copilot", "authKind": "github_app" }
+  ],
+  "people": [
+    { "key": "alice", "pseudonym": "brisk-otter", "email": "alice@fixture.example" },
+    { "key": "bob", "pseudonym": "quiet-heron", "email": "bob@fixture.example" },
+    { "key": "carol", "pseudonym": "gilded-lynx", "email": "carol@fixture.example" }
+  ],
+  "teams": [
+    { "key": "core", "name": "Core Engineering", "members": ["alice", "bob", "carol"] }
+  ],
+  "subjects": [
+    { "key": "alice-key", "connection": "anthropic", "kind": "person", "externalId": "alice@fixture.example", "email": "alice@fixture.example" },
+    { "key": "bob-key", "connection": "anthropic", "kind": "person", "externalId": "bob@fixture.example", "email": "bob@fixture.example" },
+    { "key": "carol-key", "connection": "anthropic", "kind": "person", "externalId": "carol@fixture.example", "email": "carol@fixture.example" },
+    { "key": "shared-roundclock", "connection": "anthropic", "kind": "account", "externalId": "shared-247-login" },
+    { "key": "shared-concurrent", "connection": "anthropic", "kind": "account", "externalId": "shared-parallel-login" },
+    { "key": "shared-volume", "connection": "anthropic", "kind": "account", "externalId": "shared-firehose-key" },
+    { "key": "shared-copilot", "connection": "copilot", "kind": "account", "externalId": "shared-seat-none-grain" },
+    { "key": "shared-power", "connection": "anthropic", "kind": "account", "externalId": "shared-all-signals" }
+  ],
+  "identities": [
+    { "subject": "alice-key", "person": "alice", "method": "email_match" },
+    { "subject": "bob-key", "person": "bob", "method": "email_match" },
+    { "subject": "carol-key", "person": "carol", "method": "email_match" }
+  ],
+  "records": [
+    { "subject": "alice-key", "metricKey": "tokens_input", "day": "2026-06-01", "value": 10000, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "bob-key", "metricKey": "tokens_input", "day": "2026-06-01", "value": 10000, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "carol-key", "metricKey": "tokens_input", "day": "2026-06-01", "value": 10000, "attribution": "person", "sourceConnector": "fixture@1" },
+    { "subject": "shared-roundclock", "metricKey": "tokens_input", "day": "2026-06-01", "value": 10000, "attribution": "account", "sourceConnector": "fixture@1" },
+    { "subject": "shared-concurrent", "metricKey": "tokens_input", "day": "2026-06-01", "value": 10000, "attribution": "account", "sourceConnector": "fixture@1" },
+    { "subject": "shared-volume", "metricKey": "tokens_input", "day": "2026-06-01", "value": 100000, "attribution": "account", "sourceConnector": "fixture@1" },
+    { "subject": "shared-copilot", "metricKey": "tokens_input", "day": "2026-06-01", "value": 80000, "attribution": "account", "sourceConnector": "fixture@1" },
+    { "subject": "shared-power", "metricKey": "tokens_input", "day": "2026-06-01", "value": 100000, "attribution": "account", "sourceConnector": "fixture@1" }
+  ],
+  "signals": [
+    { "subject": "alice-key", "day": "2026-06-01", "hours": [0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0], "peakConcurrency": 1, "sourceGranularity": "1h" },
+    { "subject": "bob-key", "day": "2026-06-01", "hours": [0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0], "peakConcurrency": 1, "sourceGranularity": "1h" },
+    { "subject": "carol-key", "day": "2026-06-01", "hours": [0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0], "peakConcurrency": 1, "sourceGranularity": "1h" },
+    { "subject": "shared-roundclock", "day": "2026-06-01", "hours": [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1], "peakConcurrency": 1, "sourceGranularity": "1h" },
+    { "subject": "shared-concurrent", "day": "2026-06-01", "hours": [0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0], "peakConcurrency": 5, "sourceGranularity": "1h" },
+    { "subject": "shared-volume", "day": "2026-06-01", "hours": [0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0], "peakConcurrency": 1, "sourceGranularity": "1h" },
+    { "subject": "shared-copilot", "day": "2026-06-01", "hours": null, "peakConcurrency": null, "sourceGranularity": "none" },
+    { "subject": "shared-power", "day": "2026-06-01", "hours": [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1], "peakConcurrency": 3, "sourceGranularity": "event" }
+  ]
+}
