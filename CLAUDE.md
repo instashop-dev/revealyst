@@ -22,6 +22,14 @@ contracts. Every session auto-loads this file — it is the interface between ag
 - Windows dev machine: OpenNext builds use webpack, not Turbopack (adapter's chunk
   patching breaks on Win — see `open-next.config.ts`); DB/auth clients are created
   per request, never cached at module scope (Workers cancel cross-request I/O).
+- `npm run dev` (plain Next dev) needs `.dev.vars`'s `BETTER_AUTH_URL` set to
+  `http://localhost:3000`, not the `wrangler dev` default of `:8787` — mismatch
+  fails sign-up/sign-in with "Invalid origin" 403.
+- A corrupted `.next/dev/types/validator.ts` (from an interrupted `next dev`) breaks
+  `tsc --noEmit` repo-wide with unrelated syntax errors; `.next` isn't in tsconfig's
+  exclude — `rm -rf .next` and retype checks clean.
+- Manually-created worktrees (`git worktree add`) don't get `node_modules` —
+  run `npm install` in each before typecheck/test.
 - **Design system (W1-G):** Tailwind v4 + shadcn/ui `base-nova` — **Base UI**
   primitives, not Radix: custom triggers use `render={...}` (and
   `nativeButton={false}` when rendering an `<a>`/`Link`). Shared components in
@@ -84,6 +92,12 @@ without org scoping is a review-blocker.**
 (a) every query org-scoped · (b) never fabricate per-user numbers ·
 (c) frozen contracts untouched without an ADR · (d) no tripwire tech.
 
+**Scoring engine rule (invariant b, applied per-component):** a ratio component
+needs rows on BOTH sides — absence on either side omits the component, never
+floors it to a fabricated 0 (conflates "no data yet" with "measured zero").
+Plain (non-ratio) metric components floor to 0 on no rows; that's intentional
+and tested (`tests/scoring-evaluate.test.ts` "honesty rules").
+
 ## How the fleet works
 - **Plan mode before code, every time.** `/kickoff <workstream>` starts in plan mode;
   the founder approves the *plan*, not the diff.
@@ -96,3 +110,10 @@ without org scoping is a review-blocker.**
 - **Hooks run on every Edit/Write** (`.claude/settings.json`): a tripwire guard (rule 7) and
   a post-edit typecheck. Expect them to block on drift — that's the design, not a glitch.
 - Keep this file current: `/revise-claude-md` at session end; `/claude-md-improver` once per wave.
+- **Before deleting any branch as "merged":** check `git merge-base --is-ancestor
+  <branch> main`, not the PR's GitHub state — a branch can receive a later merge
+  *after* it was already merged upstream, stranding real work with a "MERGED" PR
+  label (cost W1-D 10 tested fixes; recovered in PR #51).
+- Flaky, not broken: an occasional `[vitest-pool]: Worker exited unexpectedly`
+  (Windows fork crash) and a rare pseudonym-collision in `tests/api-impl.test.ts`
+  are known transient flakes — rerun before treating either as a regression.
