@@ -1,0 +1,50 @@
+{
+  "_comment": "Hand-computed person-level acceptance oracle for recomputeOrg over fixtures/metric-records/personal-30d.json + fixtures/score-definitions/personal-presets.json (the placeholder person-level defs). Personal-mode semantics: a person is scored over its EXCLUSIVE subjects (each linked to exactly one person). 'solo' owns solo-console + solo-agent, both exclusive. Rounding contract (src/scoring/evaluate.ts): raw=round4(rawUnrounded); normalized=round4(normalize(rawUnrounded)); contribution=round4(normalized*weight) [uses the ROUNDED normalized]; value=round4(clamp(Σcontribution,0,100)). Ratio components omit entirely when either side has zero rows (never fabricate a rate from half the data); weights are NOT renormalized on omission. attribution=lowest across every consumed row. W2-H's read layer (dashboardSummary/listScores) hydrates these rows into the frozen scoreResultSchema; a test asserts recompute reproduces this oracle.",
+  "period": { "periodStart": "2026-06-01", "periodEnd": "2026-06-30", "periodGrain": "month" },
+  "results": [
+    {
+      "definitionSlug": "adoption",
+      "definitionVersion": 1,
+      "subjectLevel": "person",
+      "personKey": "solo",
+      "expected": {
+        "components": {
+          "active_days": { "raw": 3, "normalized": 15, "weight": 0.5, "contribution": 7.5 },
+          "tool_coverage": { "raw": 1, "normalized": 16.6667, "weight": 0.5, "contribution": 8.3334 }
+        },
+        "value": 15.8334,
+        "attribution": "person"
+      },
+      "_derivation": "active_days: distinct active_day days across solo's exclusive subjects {06-16,06-17,06-18} = 3 → normalize(3,0,20)=15 → ×0.5=7.5. tool_coverage: feature_used distinct dims {feature=subagents} = 1 → normalize(1,0,6)=16.66667 → round4 16.6667 → 16.6667×0.5=8.33335 → round4 8.3334. value=round4(7.5+8.3334)=15.8334. attribution: all rows person."
+    },
+    {
+      "definitionSlug": "fluency",
+      "definitionVersion": 1,
+      "subjectLevel": "person",
+      "personKey": "solo",
+      "expected": {
+        "components": {
+          "breadth": { "raw": 1, "normalized": 12.5, "weight": 0.33, "contribution": 4.125 },
+          "depth": { "raw": 3, "normalized": 15, "weight": 0.33, "contribution": 4.95 }
+        },
+        "value": 9.075,
+        "attribution": "person"
+      },
+      "_derivation": "breadth: feature_used distinct dims = 1 → normalize(1,0,8)=12.5 → ×0.33=4.125. depth: active_day active_days = 3 → normalize(3,0,20)=15 → ×0.33=4.95. effectiveness OMITTED: no suggestions_accepted/suggestions_offered rows (ratio needs both sides). value=round4(4.125+4.95)=9.075. attribution: person."
+    },
+    {
+      "definitionSlug": "efficiency",
+      "definitionVersion": 1,
+      "subjectLevel": "person",
+      "personKey": "solo",
+      "expected": {
+        "components": {
+          "engagement_per_spend": { "raw": 0.0078, "normalized": 77.9221, "weight": 0.5, "contribution": 38.9611 }
+        },
+        "value": 38.9611,
+        "attribution": "person"
+      },
+      "_derivation": "output_per_spend OMITTED: no suggestions_accepted rows. engagement_per_spend: active_days 3 / spend_cents 385 = 0.00779221 (raw round4 0.0078); normalize from unrounded: 0.00779221/0.01*100 = 77.9220779 → round4 77.9221; 77.9221×0.5=38.96105 → round4 38.9611. value=round4(clamp(38.9611))=38.9611. attribution: active_day + spend_cents rows all person."
+    }
+  ]
+}
