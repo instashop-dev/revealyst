@@ -20,16 +20,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { requireAppContext } from "@/lib/api-context";
-import { resolveBenchmarkSource } from "@/lib/benchmarks";
-import {
-  latestTeamScoresBySlug,
-  readDashboard,
-  readToolCoverage,
-} from "@/lib/dashboard-read";
-import { readActivityHeatmap } from "@/lib/dashboard-signals";
-import { readScoreTrends } from "@/lib/dashboard-trends";
-import { resolveSegmentSource } from "@/lib/segments";
-import { resolveSharedAccountSource } from "@/lib/shared-account";
+import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
+import { readDashboardView } from "@/lib/dashboard-view";
 import { vendorLabel } from "@/lib/vendor-labels";
 
 export const dynamic = "force-dynamic";
@@ -61,29 +53,18 @@ function formatSpend(cents: number): string {
 
 export default async function DashboardPage() {
   const ctx = await requireAppContext();
-  const readWindow = dashboardWindow();
-  const [connections, summary, heatmap, coverage, trends, segments, sharedAccounts] =
-    await Promise.all([
-      ctx.scope.connections.list(),
-      readDashboard(ctx.scope, ctx.org.visibilityMode, readWindow),
-      readActivityHeatmap(ctx.scope, readWindow),
-      readToolCoverage(ctx.scope, readWindow),
-      readScoreTrends(ctx.scope, readWindow),
-      resolveSegmentSource().forOrg(ctx.scope, ctx.org.visibilityMode, readWindow),
-      resolveSharedAccountSource().flags(ctx.scope),
-    ]);
+  const [connections, view] = await Promise.all([
+    ctx.scope.connections.list(),
+    readDashboardView(ctx.scope, ctx.org.visibilityMode, dashboardWindow()),
+  ]);
+  const { summary, benchmarks, heatmap, coverage, trends, segments, sharedAccounts } =
+    view;
 
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
   const fluency = latest.get("fluency") ?? null;
   const efficiency = latest.get("efficiency") ?? null;
   const hasScores = latest.size > 0;
-
-  const benchmarks = resolveBenchmarkSource().forScores([
-    { slug: "adoption", value: adoption?.value ?? null },
-    { slug: "fluency", value: fluency?.value ?? null },
-    { slug: "efficiency", value: efficiency?.value ?? null },
-  ]);
 
   const spendFooter =
     summary.spendCents > 0 || summary.spendCentsEstimated > 0 ? (

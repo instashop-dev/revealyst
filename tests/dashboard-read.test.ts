@@ -81,7 +81,13 @@ describe("dashboardSummary", () => {
     expect(summary.activePeople).toBe(4);
     // svc-key is the only subject with no identity link.
     expect(summary.unresolvedSubjects).toBe(1);
-    expect(summary.gaps).toEqual([]);
+    // shared-console (3 identities) surfaces the shared-account honesty gap.
+    expect(summary.gaps).toEqual([
+      {
+        kind: "shared_key_not_person_level",
+        detail: expect.stringContaining("shared account"),
+      },
+    ]);
   });
 });
 

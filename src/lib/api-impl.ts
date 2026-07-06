@@ -1,6 +1,7 @@
 import { apiRoutes } from "../contracts/api";
 import type { forOrg } from "../db/org-scope";
 import { mapScoreResults, readDashboard } from "./dashboard-read";
+import { resolveSharedAccountSource } from "./shared-account";
 import { toPersonRef, type VisibilityMode } from "./visibility";
 
 type OrgScope = ReturnType<typeof forOrg>;
@@ -110,16 +111,29 @@ export async function listConnections(scope: OrgScope) {
 /**
  * The `dashboardSummary` route: the typed dashboard aggregate (see
  * `readDashboard`) validated through the frozen response schema, so the HTTP
- * route and the server-rendered page share one aggregation path. `gaps` are
- * added in a later W2-L PR (shared-account flags); [] for now.
+ * route and the server-rendered page share one aggregation path. `gaps`
+ * surface known honesty caveats — here, shared accounts whose per-person
+ * adoption is undercounted (§6.2, surfaced not redistributed).
  */
 export async function dashboardSummary(
   scope: OrgScope,
   visibilityMode: VisibilityMode,
   period: { from: string; to: string },
 ) {
-  const data = await readDashboard(scope, visibilityMode, period);
-  return apiRoutes.dashboardSummary.response.parse({ ...data, gaps: [] });
+  const [data, sharedAccounts] = await Promise.all([
+    readDashboard(scope, visibilityMode, period),
+    resolveSharedAccountSource().flags(scope),
+  ]);
+  const gaps =
+    sharedAccounts.length > 0
+      ? [
+          {
+            kind: "shared_key_not_person_level",
+            detail: `${sharedAccounts.length} shared account(s) — adoption for the people sharing them is likely undercounted.`,
+          },
+        ]
+      : [];
+  return apiRoutes.dashboardSummary.response.parse({ ...data, gaps });
 }
 
 /**

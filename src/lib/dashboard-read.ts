@@ -139,7 +139,12 @@ export async function readDashboard(
     from: window.from,
     to: window.to,
   });
-  const scores = await mapScoreResults(scope, rawScores, visibilityMode);
+  // The team dashboard is team/org-level by construction. Person-level scores
+  // are the opt-in individual self-view's concern (W2-H) and are never surfaced
+  // here — so the private default is team-only pseudonymised structurally, not
+  // by after-the-fact stripping. Person scores still feed segment counts.
+  const teamScores = rawScores.filter((row) => row.subjectLevel !== "person");
+  const scores = await mapScoreResults(scope, teamScores, visibilityMode);
 
   const spendCents = sumValue(
     await scope.metrics.records({

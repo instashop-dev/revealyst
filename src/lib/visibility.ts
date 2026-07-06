@@ -30,3 +30,37 @@ export function toPersonRef(person: PersonLike, visibilityMode: VisibilityMode) 
 }
 
 export type PersonRef = ReturnType<typeof toPersonRef>;
+
+/**
+ * The single audit predicate for the §7 privacy default: a dashboard view is
+ * "team-only pseudonymized" iff no surfaced person carries a real name and no
+ * individual is listed as a segment member. Structural on purpose (no import
+ * of DashboardView) so it stays the one decision point — the page renders
+ * through the visibility gate, and this asserts the gate held.
+ *
+ * A private-mode view passes; a managed/full view (which deliberately surfaces
+ * names/members) throws — that asymmetry is what makes the W2 gate item
+ * ("privacy default verified as team-only pseudonymized") a real assertion,
+ * imported by W1-S's E2E via tests/harness/seams.ts.
+ */
+export function assertTeamOnlyPseudonymized(view: {
+  summary: { scores: readonly { person: PersonRef | null }[] };
+  segments: { segments: readonly { members: readonly PersonRef[] }[] };
+}): void {
+  const leaks: string[] = [];
+  for (const score of view.summary.scores) {
+    if (score.person && score.person.displayName !== null) {
+      leaks.push(`score exposes a real name for person ${score.person.id}`);
+    }
+  }
+  for (const segment of view.segments.segments) {
+    if (segment.members.length > 0) {
+      leaks.push(`segment surfaces ${segment.members.length} individual member(s)`);
+    }
+  }
+  if (leaks.length > 0) {
+    throw new Error(
+      `dashboard view is not team-only pseudonymized: ${leaks.join("; ")}`,
+    );
+  }
+}
