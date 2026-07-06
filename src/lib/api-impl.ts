@@ -2,9 +2,19 @@ import { apiRoutes, personRefSchema } from "../contracts/api";
 import {
   lowestAttribution,
   type AttributionLevel,
+  type VendorId,
 } from "../contracts/attribution";
+import type { ConnectorContext } from "../contracts/connector";
 import type { MetricKey } from "../contracts/metrics";
+import { getConnector } from "../connectors/registry";
 import type { forOrg } from "../db/org-scope";
+import type { CredentialEnv } from "../lib/credentials";
+import {
+  addDays,
+  chunkDaysFor,
+  DEFAULT_BACKFILL_DAYS,
+} from "../poller/backfill";
+import type { PollMessage } from "../poller/messages";
 
 type OrgScope = ReturnType<typeof forOrg>;
 type VisibilityMode = "private" | "managed" | "full";
@@ -104,17 +114,27 @@ export async function listPeople(
   });
 }
 
+type ConnectionRow = Awaited<
+  ReturnType<OrgScope["connections"]["list"]>
+>[number];
+
+/** One connections row → the frozen connectionSchema shape. Never carries
+ * credential material (there is no credential-read path anywhere). */
+function toConnectionShape(connection: ConnectionRow) {
+  return {
+    id: connection.id,
+    vendor: connection.vendor,
+    displayName: connection.displayName,
+    status: connection.status,
+    lastSuccessAt: connection.lastSuccessAt?.toISOString() ?? null,
+    lastError: connection.lastError,
+  };
+}
+
 export async function listConnections(scope: OrgScope) {
   const connections = await scope.connections.list();
   return apiRoutes.connectionsList.response.parse({
-    connections: connections.map((connection) => ({
-      id: connection.id,
-      vendor: connection.vendor,
-      displayName: connection.displayName,
-      status: connection.status,
-      lastSuccessAt: connection.lastSuccessAt?.toISOString() ?? null,
-      lastError: connection.lastError,
-    })),
+    connections: connections.map(toConnectionShape),
   });
 }
 
@@ -206,7 +226,9 @@ function collectGaps(runs: Array<{ gaps: unknown }>) {
       const kind = (gap as { kind: string }).kind;
       const rawDetail = (gap as { detail?: unknown }).detail;
       const detail = typeof rawDetail === "string" ? rawDetail : undefined;
-      const key = `${kind}|${detail ?? ""}`;
+      // Structured key so a literal separator inside kind/detail can't
+      // collapse two distinct gaps into one.
+      const key = JSON.stringify([kind, detail ?? null]);
       if (!seen.has(key)) {
         seen.set(key, detail !== undefined ? { kind, detail } : { kind });
       }
@@ -346,4 +368,168 @@ export async function trackedUsers(
     trackedPeople,
     unresolvedSubjects,
   });
+}
+
+// ─── Connect surface (W2-H PR2) ───────────────────────────────────────────
+// The onboarding write path: create a connection, store+validate its
+// credential (write-only — plaintext in, nothing credential-shaped out), and
+// enqueue the first backfill + poll so the <10-min key→score promise doesn't
+// wait for the next cron tick. Enqueue building blocks are shared with the
+// cron dispatcher (src/poller/dispatch.ts) — same window/chunk math, so the
+// on-demand and scheduled paths cannot drift.
+
+type CredentialKind =
+  | "api_key"
+  | "github_app_private_key"
+  | "github_app_installation"
+  | "pat"
+  | "device_token";
+
+type CreateConnectionInput = {
+  vendor: VendorId;
+  displayName: string;
+  authKind:
+    | "api_key"
+    | "admin_key"
+    | "analytics_key"
+    | "github_app"
+    | "pat"
+    | "device_token";
+  config?: Record<string, unknown>;
+};
+
+/** Queue producer, injected so tests exercise the impl without a Worker. */
+export type ConnectorEnqueue = {
+  send: (
+    message: PollMessage,
+    opts?: { delaySeconds?: number },
+  ) => Promise<void>;
+  now?: () => Date;
+};
+
+export async function createConnection(
+  scope: OrgScope,
+  input: CreateConnectionInput,
+) {
+  const connection = await scope.connections.create({
+    vendor: input.vendor,
+    displayName: input.displayName,
+    authKind: input.authKind,
+    config: input.config ?? {},
+  });
+  return apiRoutes.connectionsCreate.response.parse({
+    connection: toConnectionShape(connection),
+  });
+}
+
+/**
+ * Store the credential, then validate-on-save: if a connector for the vendor
+ * is registered, decrypt within the withCredential scope and call its
+ * validateAuth so onboarding gets immediate feedback on a bad key. A rejected
+ * key marks the connection errored (surfaced in the connections list) and
+ * 400s; the write itself already happened (write-only, no read-back), so a
+ * later re-PUT overwrites. Vendors with no shipped connector (Copilot/Cursor,
+ * or the local agent's device_token) skip validation.
+ */
+export async function putConnectionCredential(
+  scope: OrgScope,
+  connectionId: string,
+  input: { kind: CredentialKind; value: string; expiresAt?: string | null },
+  env: CredentialEnv,
+) {
+  const connection = await scope.connections.get(connectionId);
+  if (!connection) {
+    throw new ApiError(404, "connection not found");
+  }
+  await scope.connections.storeCredential(
+    connectionId,
+    input.kind,
+    input.value,
+    env,
+    input.expiresAt ? new Date(input.expiresAt) : null,
+  );
+
+  const entry = getConnector(connection.vendor);
+  if (entry) {
+    const check = await scope.connections.withCredential(
+      connectionId,
+      input.kind,
+      env,
+      (plaintext) => {
+        const ctx: ConnectorContext = {
+          connection: {
+            id: connection.id,
+            orgId: scope.orgId,
+            vendor: connection.vendor as VendorId,
+            config: (connection.config as Record<string, unknown>) ?? {},
+          },
+          credential: plaintext,
+          now: () => new Date(),
+          log: () => {},
+        };
+        return entry.connector.validateAuth(ctx);
+      },
+    );
+    if (!check.ok) {
+      await scope.connections.setStatus(connectionId, "error", check.reason);
+      throw new ApiError(400, `credential rejected: ${check.reason}`);
+    }
+  }
+  return apiRoutes.connectionCredentialPut.response.parse({ ok: true });
+}
+
+/**
+ * Kick off ingestion for one connection now (onboarding "sync"): the trailing
+ * backfill chain once (if none has ever run) + a regular poll over the
+ * vendor's restatement window. Mirrors the per-connection branch of
+ * dispatchDueConnectorWork, reusing its window/chunk helpers, but scoped to a
+ * single org-owned connection and forced regardless of the poll interval.
+ */
+export async function pollConnection(
+  scope: OrgScope,
+  connectionId: string,
+  enqueue: ConnectorEnqueue,
+) {
+  const connection = await scope.connections.get(connectionId);
+  if (!connection) {
+    throw new ApiError(404, "connection not found");
+  }
+  const entry = getConnector(connection.vendor);
+  if (!entry) {
+    throw new ApiError(
+      400,
+      `no connector available for ${connection.vendor} yet`,
+    );
+  }
+  const now = (enqueue.now ?? (() => new Date()))();
+  const today = now.toISOString().slice(0, 10);
+  const caps = entry.connector.capabilities;
+
+  const runs = await scope.connectorRuns.list({ connectionId });
+  const backfillStarted = runs.some((r) => r.kind === "backfill");
+  if (!backfillStarted) {
+    const depth = Math.min(
+      caps.maxBackfillDays ?? DEFAULT_BACKFILL_DAYS,
+      DEFAULT_BACKFILL_DAYS,
+    );
+    const window = { start: addDays(today, -(depth - 1)), end: today };
+    await enqueue.send({
+      kind: "connector-backfill",
+      orgId: scope.orgId,
+      connectionId,
+      window,
+      cursorStart: window.start,
+      chunkDays: chunkDaysFor(entry.maxCallsPerDay),
+    });
+  }
+  await enqueue.send({
+    kind: "connector-poll",
+    orgId: scope.orgId,
+    connectionId,
+    window: {
+      start: addDays(today, -caps.restatementWindowDays),
+      end: today,
+    },
+  });
+  return apiRoutes.connectionsPoll.response.parse({ ok: true });
 }
