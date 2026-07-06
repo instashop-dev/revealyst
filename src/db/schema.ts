@@ -164,6 +164,44 @@ export const teamMembers = pgTable(
   ],
 );
 
+// A pending/settled invitation of an AUTH USER into an org (ADR 0004) —
+// distinct from team_members, which groups tracked PEOPLE. The token is
+// stored hashed; its plaintext leaves the server exactly once, at creation.
+// Redemption = an org_members row with this row's role.
+export const invites = pgTable(
+  "invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    email: text("email").notNull(), // lowercased addressing hint, not an acceptance precondition
+    role: text("role", { enum: ["admin", "member"] })
+      .notNull()
+      .default("member"),
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedByUserId: text("invited_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedByUserId: text("accepted_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One live invite per (org, email); settled invites don't block re-inviting.
+    uniqueIndex("invites_org_email_pending_uq")
+      .on(t.orgId, t.email)
+      .where(sql`${t.acceptedAt} is null and ${t.revokedAt} is null`),
+    index("invites_org_idx").on(t.orgId),
+  ],
+);
+
 // A configured vendor integration. Multiple connections per vendor per org
 // are allowed (several GitHub orgs, several Revealyst Agent devices).
 // `config` holds NON-secret settings only — credentials live exclusively in

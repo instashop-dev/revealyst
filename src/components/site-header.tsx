@@ -9,6 +9,7 @@ const TITLES: Record<string, string> = {
   "/teams": "Teams",
   "/people": "People",
   "/connections": "Connections",
+  "/members": "Members",
 };
 
 function titleFor(pathname: string): string {

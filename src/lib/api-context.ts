@@ -47,11 +47,14 @@ export const appContext = cache(async () => {
 
 export type AppContext = NonNullable<Awaited<ReturnType<typeof appContext>>>;
 
-/** Page variant: bounce unauthenticated visitors to sign-in. */
-export async function requireAppContext(): Promise<AppContext> {
+/** Page variant: bounce unauthenticated visitors to sign-in. Pass the
+ * current path so sign-in can return the visitor here (invite links). */
+export async function requireAppContext(nextPath?: string): Promise<AppContext> {
   const ctx = await appContext();
   if (!ctx) {
-    redirect("/sign-in");
+    redirect(
+      nextPath ? `/sign-in?next=${encodeURIComponent(nextPath)}` : "/sign-in",
+    );
   }
   return ctx;
 }

@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   LogOut,
   UserRound,
+  UserRoundPlus,
   UsersRound,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,11 @@ const NAV_ITEMS = [
   { title: "Teams", href: "/teams", icon: UsersRound },
   { title: "People", href: "/people", icon: UserRound },
   { title: "Connections", href: "/connections", icon: Cable },
+];
+
+// Admin-only surfaces (ADR 0004): also role-gated server-side.
+const ADMIN_NAV_ITEMS = [
+  { title: "Members", href: "/members", icon: UserRoundPlus },
 ];
 
 export function AppSidebar({
@@ -87,6 +93,27 @@ export function AppSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {role === "admin" ? (
+          <SidebarGroup>
+            <SidebarGroupLabel>Administration</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {ADMIN_NAV_ITEMS.map((item) => (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      isActive={pathname.startsWith(item.href)}
+                      tooltip={item.title}
+                      render={<Link href={item.href} />}
+                    >
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
       </SidebarContent>
       <SidebarFooter>
         <SidebarSeparator />

@@ -11,6 +11,7 @@ import {
   loadFixture,
   type LoadedFixture,
 } from "../src/db/fixtures";
+import { invitesForOrg } from "../src/db/invites";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
 import type { CredentialEnv } from "../src/lib/credentials";
@@ -75,6 +76,9 @@ const SCOPED_READS: Array<{
   // Credentials are read-only via withCredential, which throws for foreign
   // rows — asserted in its own test; listed here for completeness only.
   { name: "connections.withCredential", tables: ["connection_credentials"], run: async () => [] },
+  // Invite reads live in src/db/invites.ts (ADR 0004), not on forOrg —
+  // same org-scoping rules, swept via its own org-scoped factory.
+  { name: "invites.listPending", tables: ["invites"], run: () => invitesForOrg(db, orgA).listPending() },
 ];
 
 /** Tables that legitimately carry org_id but sit outside the sweep. */
@@ -115,6 +119,20 @@ beforeAll(async () => {
       payload: { org: orgId },
     });
     await scoped.heartbeats.record(`beat-${orgId}`);
+    // A pending invite per org so the sweep's B-id universe includes one.
+    const [inviter] = await db
+      .insert(schema.user)
+      .values({
+        id: `iso-user-${orgId}`,
+        name: "Iso Admin",
+        email: `iso-${orgId}@example.com`,
+      })
+      .returning();
+    await invitesForOrg(db, orgId).create(
+      `invitee-${orgId}@example.com`,
+      "member",
+      inviter.id,
+    );
     const run = await scoped.connectorRuns.start({
       connectionId: loaded.connections.anthropic,
       kind: "poll",
