@@ -1,4 +1,17 @@
-import { and, desc, eq, gte, inArray, isNull, lte, notInArray, or, type SQL } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  ne,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import {
   countTrackedUsers,
   type BillingPeriod,
@@ -358,14 +371,20 @@ export function forOrg(db: Db, orgId: string) {
       },
 
       /**
-       * Stamps poll bookkeeping after a run (ADR 0005). Success reactivates
-       * an errored connection (transient vendor outages self-heal); a
-       * PERMANENT failure lands status "error" + the message the UI shows.
-       * Retryable failures never call this — the queue retries silently.
+       * Stamps poll bookkeeping after a run (ADR 0005, hardened in 0006).
+       * Success reactivates an errored connection (transient vendor outages
+       * self-heal via dispatch, which keeps polling errored connections); a
+       * PERMANENT failure lands status "error" + the message the UI shows;
+       * a TRANSIENT failure only stamps last_polled_at, so the dispatcher
+       * stops enqueueing duplicates while the queue message backs off.
+       * A paused connection is never touched: pausing mid-run must stick
+       * (the run raced the pause; its bookkeeping loses).
        */
       async markPolled(
         id: string,
-        outcome: { ok: true } | { ok: false; error: string },
+        outcome:
+          | { ok: true }
+          | { ok: false; error: string; transient?: boolean },
       ) {
         const now = new Date();
         const [row] = await db
@@ -378,13 +397,21 @@ export function forOrg(db: Db, orgId: string) {
                   status: "active",
                   lastError: null,
                 }
-              : {
-                  lastPolledAt: now,
-                  status: "error",
-                  lastError: outcome.error,
-                },
+              : outcome.transient
+                ? { lastPolledAt: now }
+                : {
+                    lastPolledAt: now,
+                    status: "error",
+                    lastError: outcome.error,
+                  },
           )
-          .where(and(eq(connections.orgId, orgId), eq(connections.id, id)))
+          .where(
+            and(
+              eq(connections.orgId, orgId),
+              eq(connections.id, id),
+              ne(connections.status, "paused"),
+            ),
+          )
           .returning();
         return row;
       },
@@ -392,7 +419,8 @@ export function forOrg(db: Db, orgId: string) {
       /**
        * Stamps a successful ingest/poll (ADR 0002, additive): activates the
        * connection, sets last_polled_at/last_success_at, clears last_error.
-       * Org-guarded like setStatus — returns undefined for a foreign org.
+       * Org-guarded like setStatus — returns undefined for a foreign org or
+       * a paused connection (a pause always sticks, ADR 0003).
        */
       async markSynced(id: string) {
         const now = new Date();
@@ -404,7 +432,13 @@ export function forOrg(db: Db, orgId: string) {
             lastSuccessAt: now,
             lastError: null,
           })
-          .where(and(eq(connections.orgId, orgId), eq(connections.id, id)))
+          .where(
+            and(
+              eq(connections.orgId, orgId),
+              eq(connections.id, id),
+              ne(connections.status, "paused"),
+            ),
+          )
           .returning();
         return row;
       },
@@ -668,32 +702,47 @@ export function forOrg(db: Db, orgId: string) {
         if (!owned) {
           throw new Error(`connection ${connectionId} not found in org`);
         }
-        const rows = [];
+        // Batched multi-row upsert (ADR 0003): one round-trip per ~500
+        // descriptors instead of one per row — backfill chunks feed this
+        // whole-org member lists. Dedupe on the conflict key first: one
+        // INSERT may not touch the same row twice ("cannot affect row a
+        // second time"); the last descriptor wins, matching the old
+        // sequential-loop semantics.
+        const byConflictKey = new Map<string, SubjectDescriptor>();
         for (const d of descriptors) {
-          const [row] = await db
+          byConflictKey.set(`${d.kind}:${d.externalId}`, d);
+        }
+        const rows = [];
+        const deduped = [...byConflictKey.values()];
+        const BATCH = 500;
+        for (let i = 0; i < deduped.length; i += BATCH) {
+          const slice = deduped.slice(i, i + BATCH);
+          const inserted = await db
             .insert(subjects)
-            .values({
-              orgId,
-              connectionId,
-              kind: d.kind,
-              externalId: d.externalId,
-              email: d.email?.toLowerCase() ?? null,
-              displayName: d.displayName ?? null,
-              meta: d.meta ?? {},
-            })
-            .onConflictDoUpdate({
-              target: [subjects.connectionId, subjects.kind, subjects.externalId],
-              set: {
+            .values(
+              slice.map((d) => ({
+                orgId,
+                connectionId,
+                kind: d.kind,
+                externalId: d.externalId,
                 email: d.email?.toLowerCase() ?? null,
                 displayName: d.displayName ?? null,
                 meta: d.meta ?? {},
+              })),
+            )
+            .onConflictDoUpdate({
+              target: [subjects.connectionId, subjects.kind, subjects.externalId],
+              set: {
+                email: sql`excluded.email`,
+                displayName: sql`excluded.display_name`,
+                meta: sql`excluded.meta`,
                 lastSeenAt: new Date(),
               },
               // Belt-and-braces on top of the ownership check above.
               setWhere: eq(subjects.orgId, orgId),
             })
             .returning();
-          rows.push(row);
+          rows.push(...inserted);
         }
         return rows;
       },
@@ -789,21 +838,37 @@ export function forOrg(db: Db, orgId: string) {
        * conflict keys omit org_id); the insert path is composite-FK-bound.
        */
       async upsertRecords(records: MetricRecordUpsert[]) {
+        // Batched multi-row upsert (ADR 0003): a backfill chunk carries
+        // thousands of rows; per-row round-trips over Hyperdrive were the
+        // unmodeled half of the queue wall-time budget. Dedupe on the PK
+        // (one INSERT may not touch a row twice); last entry wins — the
+        // sequential loop's restatement semantics.
+        const byPk = new Map<string, MetricRecordUpsert>();
         for (const r of records) {
+          byPk.set(
+            `${r.subjectId}|${r.metricKey}|${r.day}|${r.dim ?? ""}`,
+            r,
+          );
+        }
+        const deduped = [...byPk.values()];
+        const BATCH = 500;
+        for (let i = 0; i < deduped.length; i += BATCH) {
           await db
             .insert(metricRecords)
-            .values({
-              orgId,
-              subjectId: r.subjectId,
-              metricKey: r.metricKey,
-              day: r.day,
-              dim: r.dim ?? "",
-              connectionId: r.connectionId,
-              value: r.value,
-              attribution: r.attribution,
-              sourceConnector: r.sourceConnector,
-              rawPayloadId: r.rawPayloadId ?? null,
-            })
+            .values(
+              deduped.slice(i, i + BATCH).map((r) => ({
+                orgId,
+                subjectId: r.subjectId,
+                metricKey: r.metricKey,
+                day: r.day,
+                dim: r.dim ?? "",
+                connectionId: r.connectionId,
+                value: r.value,
+                attribution: r.attribution,
+                sourceConnector: r.sourceConnector,
+                rawPayloadId: r.rawPayloadId ?? null,
+              })),
+            )
             .onConflictDoUpdate({
               target: [
                 metricRecords.orgId,
@@ -813,11 +878,11 @@ export function forOrg(db: Db, orgId: string) {
                 metricRecords.dim,
               ],
               set: {
-                value: r.value,
-                attribution: r.attribution,
-                connectionId: r.connectionId,
-                sourceConnector: r.sourceConnector,
-                rawPayloadId: r.rawPayloadId ?? null,
+                value: sql`excluded.value`,
+                attribution: sql`excluded.attribution`,
+                connectionId: sql`excluded.connection_id`,
+                sourceConnector: sql`excluded.source_connector`,
+                rawPayloadId: sql`excluded.raw_payload_id`,
                 updatedAt: new Date(),
               },
             });
@@ -871,17 +936,26 @@ export function forOrg(db: Db, orgId: string) {
       },
 
       async upsertSignals(signals: SubjectDaySignalUpsert[]) {
+        // Batched like upsertRecords (ADR 0003); PK is (subject, day).
+        const byPk = new Map<string, SubjectDaySignalUpsert>();
         for (const s of signals) {
+          byPk.set(`${s.subjectId}|${s.day}`, s);
+        }
+        const deduped = [...byPk.values()];
+        const BATCH = 500;
+        for (let i = 0; i < deduped.length; i += BATCH) {
           await db
             .insert(subjectDaySignals)
-            .values({
-              orgId,
-              subjectId: s.subjectId,
-              day: s.day,
-              hours: s.hours ?? null,
-              peakConcurrency: s.peakConcurrency ?? null,
-              sourceGranularity: s.sourceGranularity,
-            })
+            .values(
+              deduped.slice(i, i + BATCH).map((s) => ({
+                orgId,
+                subjectId: s.subjectId,
+                day: s.day,
+                hours: s.hours ?? null,
+                peakConcurrency: s.peakConcurrency ?? null,
+                sourceGranularity: s.sourceGranularity,
+              })),
+            )
             .onConflictDoUpdate({
               target: [
                 subjectDaySignals.orgId,
@@ -889,9 +963,9 @@ export function forOrg(db: Db, orgId: string) {
                 subjectDaySignals.day,
               ],
               set: {
-                hours: s.hours ?? null,
-                peakConcurrency: s.peakConcurrency ?? null,
-                sourceGranularity: s.sourceGranularity,
+                hours: sql`excluded.hours`,
+                peakConcurrency: sql`excluded.peak_concurrency`,
+                sourceGranularity: sql`excluded.source_granularity`,
                 updatedAt: new Date(),
               },
             });

@@ -34,7 +34,14 @@
 			{
 				"queue": "revealyst-poll",
 				"max_batch_size": 10,
-				"max_batch_timeout": 5
+				"max_batch_timeout": 5,
+				// 10 retries × the consumer's exponential delays (30s…1h,
+				// run.ts retryDelaySeconds) rides out multi-hour vendor
+				// outages — the platform default of 3 dropped a backfill
+				// chain link after ~3.5 minutes. Remaining hardening: a DLQ
+				// (founder infra: `wrangler queues create revealyst-poll-dlq`,
+				// then add "dead_letter_queue" here).
+				"max_retries": 10
 			}
 		]
 	},

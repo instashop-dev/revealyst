@@ -268,10 +268,118 @@ describe("connector-poll pipeline", () => {
     expect(run?.status).toBe("error");
     expect(run?.attempt).toBe(2);
     // Transient failure must NOT flip the connection to error — the queue
-    // retries silently and the UI keeps showing the last good sync.
+    // retries silently and the UI keeps showing the last good sync. But it
+    // DOES stamp lastPolledAt, so the 5-min dispatcher stops enqueueing
+    // duplicates onto a vendor that is already rate-limiting us.
     const after = await scoped.connections.get(conn.id);
     expect(after?.status).toBe("pending");
     expect(after?.lastError).toBeNull();
+    expect(after?.lastPolledAt).not.toBeNull();
+    const sent: PollMessage[] = [];
+    await dispatchDueConnectorWork(db, {
+      send: async (m) => {
+        sent.push(m);
+      },
+      resolveConnector: (v) => (v === "cursor" ? entry : undefined),
+    });
+    expect(
+      sent.filter(
+        (m) => m.kind === "connector-poll" && m.connectionId === conn.id,
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("markPolled never un-pauses a connection (pause sticks)", async () => {
+    const conn = await newConnection();
+    const scoped = forOrg(db, orgId);
+    await scoped.connections.setStatus(conn.id, "paused");
+    await scoped.connections.markPolled(conn.id, { ok: true });
+    expect((await scoped.connections.get(conn.id))?.status).toBe("paused");
+    await scoped.connections.markPolled(conn.id, { ok: false, error: "x" });
+    expect((await scoped.connections.get(conn.id))?.status).toBe("paused");
+  });
+
+  it("an errored connection stays dispatchable and self-heals on success", async () => {
+    const conn = await newConnection();
+    const scoped = forOrg(db, orgId);
+    await scoped.connections.markPolled(conn.id, { ok: false, error: "401" });
+    expect((await scoped.connections.get(conn.id))?.status).toBe("error");
+
+    const { entry } = makeFake();
+    const sent: PollMessage[] = [];
+    await dispatchDueConnectorWork(db, {
+      send: async (m) => {
+        sent.push(m);
+      },
+      now: () => new Date(Date.now() + 2 * 3_600_000), // past the interval
+      resolveConnector: (v) => (v === "cursor" ? entry : undefined),
+    });
+    expect(
+      sent.filter(
+        (m) => m.kind === "connector-poll" && m.connectionId === conn.id,
+      ),
+    ).toHaveLength(1);
+
+    await scoped.connections.markPolled(conn.id, { ok: true });
+    expect((await scoped.connections.get(conn.id))?.status).toBe("active");
+  });
+
+  it("batched upserts absorb duplicate keys within one call (last wins)", async () => {
+    const conn = await newConnection();
+    const scoped = forOrg(db, orgId);
+    const [subject] = await scoped.subjects.upsertMany(conn.id, [
+      { kind: "person", externalId: "dupe", email: null },
+      { kind: "person", externalId: "dupe", email: "dupe@fixture.example" },
+    ]);
+    expect(subject.email).toBe("dupe@fixture.example");
+
+    await scoped.metrics.upsertRecords([
+      {
+        subjectId: subject.id,
+        metricKey: "active_day",
+        day: "2026-06-13",
+        connectionId: conn.id,
+        value: 1,
+        attribution: "person",
+        sourceConnector: "t@1",
+      },
+      {
+        subjectId: subject.id,
+        metricKey: "active_day",
+        day: "2026-06-13",
+        connectionId: conn.id,
+        value: 7,
+        attribution: "person",
+        sourceConnector: "t@1",
+      },
+    ]);
+    const rows = (
+      await scoped.metrics.records({
+        metricKey: "active_day",
+        from: "2026-06-13",
+        to: "2026-06-13",
+      })
+    ).filter((r) => r.subjectId === subject.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].value).toBe(7);
+
+    await scoped.metrics.upsertSignals([
+      { subjectId: subject.id, day: "2026-06-13", hours: null, sourceGranularity: "none" },
+      {
+        subjectId: subject.id,
+        day: "2026-06-13",
+        hours: null,
+        peakConcurrency: 2,
+        sourceGranularity: "event",
+      },
+    ]);
+    const sigs = await scoped.metrics.signals({
+      subjectId: subject.id,
+      from: "2026-06-13",
+      to: "2026-06-13",
+    });
+    expect(sigs).toHaveLength(1);
+    expect(sigs[0].sourceGranularity).toBe("event");
   });
 
   it("a permanent vendor error is recorded and does not throw (no poison loop)", async () => {
@@ -391,7 +499,7 @@ describe("chunked resumable backfill", () => {
     expect(sent[0]).toEqual(sent[1]);
   });
 
-  it("a permanent failure stops the chain audibly instead of enqueueing on", async () => {
+  it("a permanently-failed chunk is a recorded hole — the chain continues", async () => {
     const conn = await newConnection();
     const { entry } = makeFake({ pollError: () => new Error("boom") });
     const sent: PollMessage[] = [];
@@ -407,9 +515,58 @@ describe("chunked resumable backfill", () => {
       },
       makeDeps(entry, sent),
     );
-    expect(sent).toHaveLength(0);
+    // The failed chunk is logged, and the REST of the window still runs —
+    // one bad day-range must not amputate 60 days of history.
     const run = await forOrg(db, orgId).connectorRuns.latest(conn.id);
     expect(run?.status).toBe("error");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      kind: "connector-backfill",
+      cursorStart: "2026-06-06",
+    });
+  });
+
+  it("pausing mid-chain parks the cursor; unpausing resumes it", async () => {
+    const conn = await newConnection();
+    const scoped = forOrg(db, orgId);
+    await scoped.connections.setStatus(conn.id, "paused");
+    const { entry } = makeFake();
+    const sent: PollMessage[] = [];
+    const msg = {
+      kind: "connector-backfill",
+      orgId,
+      connectionId: conn.id,
+      window: { start: "2026-06-01", end: "2026-06-05" },
+      cursorStart: "2026-06-01",
+      chunkDays: 5,
+    } as const;
+    await processPollMessage(db, msg, makeDeps(entry, sent));
+    expect(sent).toEqual([msg]); // same cursor re-parked, never advanced
+    expect(await scoped.connectorRuns.latest(conn.id)).toBeUndefined();
+
+    await scoped.connections.setStatus(conn.id, "active");
+    await processPollMessage(db, sent[0], makeDeps(entry, []));
+    expect((await scoped.connectorRuns.latest(conn.id))?.status).toBe("success");
+  });
+
+  it("stale re-delivery after the next chunk started does not fork the chain", async () => {
+    const conn = await newConnection();
+    const { entry } = makeFake();
+    const window: DateWindow = { start: "2026-06-01", end: "2026-06-10" };
+    const first = {
+      kind: "connector-backfill",
+      orgId,
+      connectionId: conn.id,
+      window,
+      cursorStart: "2026-06-01",
+      chunkDays: 5,
+    } as const;
+    const sent: PollMessage[] = [];
+    const deps = makeDeps(entry, sent);
+    await processPollMessage(db, first, deps);
+    await processPollMessage(db, sent.shift()!, deps); // chunk 2 runs; chain complete
+    await processPollMessage(db, first, deps); // at-least-once re-delivery
+    expect(sent).toHaveLength(0); // chunk re-ran idempotently, no new fork
   });
 });
 

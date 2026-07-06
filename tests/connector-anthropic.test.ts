@@ -147,12 +147,19 @@ describe("normalize: claude_code analytics", () => {
     expect(record(batch, id, "lines_removed", "2026-06-11")?.value).toBe(120);
     expect(record(batch, id, "edit_actions_accepted", "2026-06-11")?.value).toBe(35);
     expect(record(batch, id, "edit_actions_rejected", "2026-06-11")?.value).toBe(6);
-    expect(record(batch, id, "tokens_input", "2026-06-11")?.value).toBe(102000);
     expect(record(batch, id, "spend_cents_estimated", "2026-06-11")?.value).toBe(662);
-    expect(
-      record(batch, id, "model_tokens", "2026-06-11", "model=claude-opus-4")?.value,
-    ).toBe(540000);
     expect(record(batch, id, "sessions", "2026-06-11")?.attribution).toBe("key_project");
+  });
+
+  it("never emits token metrics — the usage report is the canonical token source (no cross-surface double count)", () => {
+    const tokenKeys = new Set([
+      "tokens_input",
+      "tokens_output",
+      "tokens_cache_read",
+      "tokens_cache_write",
+      "model_tokens",
+    ]);
+    expect(batch.records.some((r) => tokenKeys.has(r.metricKey))).toBe(false);
   });
 
   it("maps user actors to lowercased-email person subjects with the email kept", () => {

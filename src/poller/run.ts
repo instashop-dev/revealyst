@@ -23,10 +23,16 @@ import type {
 
 // One connector run = one queue message: credential-scoped vendor I/O,
 // raw landing, PURE normalize, org-scoped upserts, connector_runs logging.
-// Retry policy: a RetryableConnectorError (429 / 5xx / network) propagates
-// to the queue consumer, which retries the MESSAGE with backoff — nothing
-// here loops. Anything else is permanent: recorded on the run + the
-// connection, and the message is acked (no poison-message loop).
+// Retry policy (ADR 0003), by phase:
+//  - vendor phase: a RetryableConnectorError (429 / 5xx / network)
+//    propagates to the queue consumer, which retries the MESSAGE with
+//    backoff — nothing here loops. Any other vendor-phase error (401, bad
+//    key, plan gate) is permanent: recorded on the run + the connection.
+//  - post-vendor phase (raw landing, normalize, upserts): errors rethrow
+//    for queue retry — the common cause is a transient DB failure, and a
+//    deterministic normalize bug still surfaces as repeated failed run
+//    rows + a stale last_success_at rather than bricking the connection.
+// Either way the dispatcher keeps polling errored connections (self-heal).
 
 /** Vendor said "not now" — the consumer retries the message with delay. */
 export class RetryableConnectorError extends Error {
@@ -96,11 +102,20 @@ export async function runConnectorPoll(
   await executeRun(db, message, "poll", message.window, deps);
 }
 
+/** Delay before a paused connection's backfill chunk re-checks (ADR 0003). */
+export const PAUSED_BACKFILL_RETRY_SECONDS = 3600;
+
 /**
  * One backfill CHUNK, then the next cursor is enqueued. Resumability is
  * structural: every write is an idempotent upsert and the next message is
  * sent only after this chunk fully landed, so a crash re-delivers THIS
  * message and re-covers the same days harmlessly.
+ *
+ * Chain survival (ADR 0003): a permanently-failed chunk is a RECORDED HOLE,
+ * not a chain-killer — the rest of the window still backfills. A paused
+ * connection re-enqueues the same cursor with a delay, so unpausing resumes
+ * the chain instead of silently truncating history. Only a deleted
+ * connection (or a vendor with no module) drops the chain.
  */
 export async function runConnectorBackfill(
   db: Db,
@@ -113,16 +128,39 @@ export async function runConnectorBackfill(
     message.chunkDays,
   );
   const outcome = await executeRun(db, message, "backfill", chunk, deps);
-  if (outcome !== "success") {
-    return; // recorded; a permanent failure stops the chain audibly
+  if (outcome === "skipped-paused") {
+    await deps.send(message, { delaySeconds: PAUSED_BACKFILL_RETRY_SECONDS });
+    return;
+  }
+  if (outcome === "skipped-gone") {
+    return; // connection deleted / vendor module gone — chain ends
   }
   const nextStart = addDays(chunk.end, 1);
-  if (nextStart <= message.window.end) {
+  if (nextStart > message.window.end) {
+    return; // chain complete
+  }
+  // Fork guard: an at-least-once redelivery of THIS message after the next
+  // cursor was already sent would fork a duplicate parallel chain. If any
+  // backfill run for the next chunk already exists, another delivery got
+  // there first — don't send again. (Duplicates that race before the next
+  // chunk STARTS still collapse here one hop later.)
+  const runs = await forOrg(db, message.orgId).connectorRuns.list({
+    connectionId: message.connectionId,
+    limit: 50,
+  });
+  const nextAlreadyStarted = runs.some(
+    (r) => r.kind === "backfill" && r.windowStart === nextStart,
+  );
+  if (!nextAlreadyStarted) {
     await deps.send({ ...message, cursorStart: nextStart });
   }
 }
 
-type RunOutcome = "success" | "skipped" | "permanent-failure";
+type RunOutcome =
+  | "success"
+  | "skipped-gone"
+  | "skipped-paused"
+  | "permanent-failure";
 
 async function executeRun(
   db: Db,
@@ -133,12 +171,15 @@ async function executeRun(
 ): Promise<RunOutcome> {
   const scoped = forOrg(db, message.orgId);
   const connection = await scoped.connections.get(message.connectionId);
-  if (!connection || connection.status === "paused") {
-    return "skipped"; // deleted or paused since dispatch — not an error
+  if (!connection) {
+    return "skipped-gone"; // deleted since dispatch — not an error
+  }
+  if (connection.status === "paused") {
+    return "skipped-paused"; // pause sticks; backfill chains wait, polls drop
   }
   const entry = (deps.resolveConnector ?? getConnector)(connection.vendor);
   if (!entry) {
-    return "skipped"; // vendor module not shipped yet (e.g. W2-J vendors)
+    return "skipped-gone"; // vendor module not shipped yet (e.g. W2-J vendors)
   }
   const now = deps.now ?? (() => new Date());
   const run = await scoped.connectorRuns.start({
@@ -149,10 +190,16 @@ async function executeRun(
     attempt: deps.attempt ?? 1,
   });
 
+  // ---- Vendor phase: only here can a failure be a credential/plan
+  // problem (permanent) vs a vendor hiccup (retryable). ----
+  let fetched: {
+    discovered: SubjectDescriptor[];
+    envelopes: Awaited<ReturnType<typeof entry.connector.poll>>;
+  };
   try {
     // Vendor I/O only inside the credential scope; landing/normalizing/
     // upserting happens after, with the plaintext already dropped.
-    const fetched = await scoped.connections.withCredential(
+    fetched = await scoped.connections.withCredential(
       connection.id,
       credentialKindFor(connection.authKind),
       deps.credentialEnv,
@@ -178,7 +225,27 @@ async function executeRun(
         return { discovered, envelopes };
       },
     );
+  } catch (error) {
+    await scoped.connectorRuns.fail(run.id, errorMessage(error));
+    if (error instanceof RetryableConnectorError) {
+      // Stamp last_polled_at (only) so the 5-min dispatcher stops piling
+      // duplicate polls onto a vendor that is already rate-limiting us —
+      // the queue retries THIS message with backoff.
+      await scoped.connections.markPolled(connection.id, {
+        ok: false,
+        error: errorMessage(error),
+        transient: true,
+      });
+      throw error;
+    }
+    await scoped.connections.markPolled(connection.id, {
+      ok: false,
+      error: errorMessage(error),
+    });
+    return "permanent-failure";
+  }
 
+  try {
     // Subject resolution: existing rows first (a minimal re-upsert must
     // never clobber emails discover() already captured), then discover's
     // fresh descriptors, then minimal descriptors for anything normalize
@@ -282,8 +349,14 @@ async function executeRun(
       })),
     );
 
+    // Subjects THIS run actually touched (discovered or referenced by
+    // normalize) — not the connection's ever-growing lifetime set.
+    const seenThisRun = new Set<string>([
+      ...fetched.discovered.map((d) => subjectKey(d)),
+      ...referenced.keys(),
+    ]);
     await scoped.connectorRuns.finish(run.id, {
-      subjectsSeen: byKey.size,
+      subjectsSeen: seenThisRun.size,
       recordsUpserted: records.length,
       signalsUpserted: signals.length,
       gaps: dedupeGaps(gaps),
@@ -291,15 +364,14 @@ async function executeRun(
     await scoped.connections.markPolled(connection.id, { ok: true });
     return "success";
   } catch (error) {
-    await scoped.connectorRuns.fail(run.id, errorMessage(error));
-    if (error instanceof RetryableConnectorError) {
-      throw error; // consumer retries the message with backoff
-    }
-    await scoped.connections.markPolled(connection.id, {
-      ok: false,
-      error: errorMessage(error),
-    });
-    return "permanent-failure";
+    // Post-vendor phase: raw landing / normalize / upserts. The typical
+    // cause is a transient DB failure — retry the message rather than
+    // bricking the connection; a deterministic normalize bug shows up as
+    // repeated failed runs + stale last_success_at (ADR 0003).
+    await scoped.connectorRuns
+      .fail(run.id, errorMessage(error))
+      .catch(() => {}); // if the DB is down, the rethrow is the signal
+    throw error;
   }
 }
 
