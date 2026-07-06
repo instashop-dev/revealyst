@@ -1,6 +1,7 @@
 import type { VendorId } from "../../src/contracts/attribution";
 import type { Connector } from "../../src/contracts/connector";
 import { anthropicConsoleConnector } from "../../src/connectors/anthropic";
+import { readDashboardView } from "../../src/lib/dashboard-view";
 import { recomputeOrg } from "../../src/scoring/recompute";
 
 // THE cross-workstream seam registry (W1-S owns it — rule 6).
@@ -15,6 +16,8 @@ import { recomputeOrg } from "../../src/scoring/recompute";
 //
 // Flip points:
 //  - W2-J connectors (copilot / cursor / openai) → add entries below
+//  - W2-L dashboard read → resolveDashboardView (below): the production team
+//    dashboard the privacy-default E2E asserts against.
 
 const CONNECTORS: Partial<Record<VendorId, Connector>> = {
   anthropic_console: anthropicConsoleConnector,
@@ -32,4 +35,11 @@ export function resolveConnector(vendor: VendorId): Connector {
 
 export function resolveRecompute() {
   return recomputeOrg;
+}
+
+/** The production team-dashboard read (W2-L). The privacy-default gate item —
+ * "team-only pseudonymized verified" — asserts assertTeamOnlyPseudonymized over
+ * the view this resolves, so the E2E runs over shippable code, not a stand-in. */
+export function resolveDashboardView() {
+  return readDashboardView;
 }
