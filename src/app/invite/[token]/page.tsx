@@ -48,6 +48,7 @@ export default async function InvitePage({
             <Button
               variant="outline"
               className="w-full"
+              nativeButton={false}
               render={<Link href="/dashboard" />}
             >
               Back to dashboard
