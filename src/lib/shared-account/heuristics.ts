@@ -38,12 +38,17 @@ export type SharedAccountConfig = {
   concurrencyMin: number;
   /** Volume at/above this multiple of the team median is anomalously high. */
   volumeMedianMultiple: number;
+  /** Minimum count of baseline (non-strong-signal) subjects required before
+   *  the volume heuristic fires — below this the median is meaningless
+   *  (e.g. Personal mode = an org of one). */
+  minBaselineSize: number;
 };
 
 export const DEFAULT_SHARED_ACCOUNT_CONFIG: SharedAccountConfig = {
   roundTheClockMinHours: 16,
   concurrencyMin: 2,
   volumeMedianMultiple: 3,
+  minBaselineSize: 3,
 };
 
 /** One `subject_day_signals` row (the fields the heuristics read). */
@@ -114,39 +119,62 @@ export function detectSharedAccounts(input: {
 }): SharedAccountFlag[] {
   const config = { ...DEFAULT_SHARED_ACCOUNT_CONFIG, ...input.config };
   const aggregates = aggregateSignals(input.signals);
-  const teamMedian = median([...input.volumeBySubject.values()]);
 
-  // Every subject that has either an intra-day signal or a volume entry.
   const subjectIds = new Set<string>([
     ...aggregates.keys(),
     ...input.volumeBySubject.keys(),
   ]);
 
-  const flags: SharedAccountFlag[] = [];
+  // Pre-pass: which subjects show a STRONG intra-day signal (round-the-clock
+  // or concurrency)? Evaluated up front for two reasons — the volume baseline
+  // must exclude them, and each subject reuses the result below.
+  const strongSignal = new Map<
+    string,
+    { roundClock: boolean; concurrent: boolean }
+  >();
   for (const subjectId of subjectIds) {
     const agg = aggregates.get(subjectId);
+    strongSignal.set(subjectId, {
+      roundClock:
+        agg?.maxActiveHoursInDay != null &&
+        agg.maxActiveHoursInDay >= config.roundTheClockMinHours,
+      concurrent:
+        agg?.maxPeakConcurrency != null &&
+        agg.maxPeakConcurrency >= config.concurrencyMin,
+    });
+  }
+
+  // The team-median baseline is computed over subjects WITHOUT a strong
+  // signal — the "normal single-user" cohort. Including the shared accounts
+  // we're hunting would let them inflate the median above their own
+  // threshold and hide, exactly when sharing is most prevalent. Volume alone
+  // stays advisory (low confidence); the baseline-size guard suppresses it
+  // entirely when there aren't enough normal users to define a median (e.g.
+  // Personal mode = an org of one). A vendor with no intra-day data (Copilot,
+  // source_granularity "none") can't corroborate volume — that residual
+  // limitation is inherent to daily-grain and surfaced honestly, not papered.
+  const baselineVolumes: number[] = [];
+  for (const [subjectId, volume] of input.volumeBySubject) {
+    const s = strongSignal.get(subjectId);
+    if (!s?.roundClock && !s?.concurrent) baselineVolumes.push(volume);
+  }
+  const teamMedian = median(baselineVolumes);
+  const baselineSufficient = baselineVolumes.length >= config.minBaselineSize;
+
+  const flags: SharedAccountFlag[] = [];
+  for (const subjectId of subjectIds) {
     const volume = input.volumeBySubject.get(subjectId) ?? 0;
+    const signal = strongSignal.get(subjectId);
     const reasons: SharedAccountReason[] = [];
 
-    // Round-the-clock — only when intra-day hours exist (degrades to silence
-    // for source_granularity "none", never a fabricated histogram).
-    if (
-      agg?.maxActiveHoursInDay != null &&
-      agg.maxActiveHoursInDay >= config.roundTheClockMinHours
-    ) {
-      reasons.push("round_the_clock");
-    }
-
-    // Concurrent usage — only when the vendor reports concurrency.
-    if (
-      agg?.maxPeakConcurrency != null &&
-      agg.maxPeakConcurrency >= config.concurrencyMin
-    ) {
-      reasons.push("concurrent_usage");
-    }
+    // Round-the-clock / concurrency — only when intra-day data exists (both
+    // degrade to silence for source_granularity "none", never fabricated).
+    if (signal?.roundClock) reasons.push("round_the_clock");
+    if (signal?.concurrent) reasons.push("concurrent_usage");
 
     // Volume ≫ team median — daily-grain, so it is the degraded-mode signal.
     if (
+      baselineSufficient &&
       teamMedian > 0 &&
       volume >= teamMedian * config.volumeMedianMultiple
     ) {

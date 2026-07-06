@@ -173,3 +173,78 @@ describe("detectSharedAccounts — thresholds and edges", () => {
     expect(median([10, 10, 10, 100])).toBe(10);
   });
 });
+
+describe("detectSharedAccounts — volume baseline robustness", () => {
+  it("catches prevalent sharing: strong-signal subjects are excluded from the median baseline", () => {
+    // 3 normal users (10k) + 3 shared accounts (40k, each with concurrency).
+    // A naive median over all six is 25k → threshold 75k → the 40k shared
+    // accounts would evade the volume test entirely. Excluding the three
+    // strong-signal accounts leaves a baseline median of 10k → threshold 30k
+    // → all three fire on volume too.
+    const flags = detectSharedAccounts({
+      signals: [
+        { subjectId: "sharedA", hours: null, peakConcurrency: 4, sourceGranularity: "1h" },
+        { subjectId: "sharedB", hours: null, peakConcurrency: 3, sourceGranularity: "1h" },
+        { subjectId: "sharedC", hours: null, peakConcurrency: 5, sourceGranularity: "1h" },
+      ],
+      volumeBySubject: new Map([
+        ["normal1", 10000],
+        ["normal2", 10000],
+        ["normal3", 10000],
+        ["sharedA", 40000],
+        ["sharedB", 40000],
+        ["sharedC", 40000],
+      ]),
+    });
+    const byId = new Map(flags.map((f) => [f.subjectId, f]));
+    for (const id of ["sharedA", "sharedB", "sharedC"]) {
+      expect(byId.get(id)?.reasons).toEqual([
+        "concurrent_usage",
+        "volume_exceeds_team_median",
+      ]);
+      expect(byId.get(id)?.confidence).toBe("high");
+    }
+    for (const id of ["normal1", "normal2", "normal3"]) {
+      expect(byId.has(id)).toBe(false);
+    }
+  });
+
+  it("suppresses volume-only flags when the baseline is too small (small teams / Personal mode = org of one)", () => {
+    // Org of two, no intra-day signals: a 10x spread would trip a naive
+    // median, but a 1-subject baseline can't define a trustworthy median.
+    expect(
+      detectSharedAccounts({
+        signals: [],
+        volumeBySubject: new Map([["a", 10000], ["b", 100000]]),
+      }),
+    ).toEqual([]);
+    // Org of one.
+    expect(
+      detectSharedAccounts({
+        signals: [],
+        volumeBySubject: new Map([["solo", 50000]]),
+      }),
+    ).toEqual([]);
+  });
+
+  it("HONEST LIMIT: pure-volume sharing with no intra-day corroboration in a shared-heavy team is not detectable", () => {
+    // No vendor intra-day data (source_granularity 'none' everywhere) and
+    // shared accounts are half the team. There is no signal that separates a
+    // heavy sharer from a heavy solo user, so the median stays inflated and
+    // nothing fires. We surface this honestly rather than fabricate a flag —
+    // the degraded-mode limitation the spec accepts (§6.2 daily-grain).
+    const flags = detectSharedAccounts({
+      signals: [
+        { subjectId: "sharedA", hours: null, peakConcurrency: null, sourceGranularity: "none" },
+        { subjectId: "sharedB", hours: null, peakConcurrency: null, sourceGranularity: "none" },
+      ],
+      volumeBySubject: new Map([
+        ["normal1", 10000],
+        ["normal2", 10000],
+        ["sharedA", 40000],
+        ["sharedB", 40000],
+      ]),
+    });
+    expect(flags).toEqual([]);
+  });
+});

@@ -58,12 +58,10 @@ export async function computeSharedAccountFlags(
       }),
     ),
   );
-  const signals: SubjectDaySignal[] = signalRowsPerSubject.flat().map((s) => ({
-    subjectId: s.subjectId,
-    hours: s.hours,
-    peakConcurrency: s.peakConcurrency,
-    sourceGranularity: s.sourceGranularity,
-  }));
+  // subject_day_signals rows are structurally a superset of SubjectDaySignal,
+  // so they pass straight through — detectSharedAccounts reads only the four
+  // fields it needs.
+  const signals: SubjectDaySignal[] = signalRowsPerSubject.flat();
 
   return detectSharedAccounts({
     signals,
