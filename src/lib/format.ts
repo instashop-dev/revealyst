@@ -1,3 +1,12 @@
+/** Cents → localized currency, e.g. 385 → "$3.85". Spend is stored in
+ * integer cents (metric_records spend_cents); format only at the edge. */
+export function formatCents(cents: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(cents / 100);
+}
+
 /** Compact relative time for sync-status surfaces: "just now", "2h ago". */
 export function formatRelativeTime(
   when: Date | string,
