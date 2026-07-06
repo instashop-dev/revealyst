@@ -325,10 +325,15 @@ describe("schema invariant: no plaintext credential columns", () => {
   // artifacts, not vendor credentials, and are documented exceptions.
   const AUTH_TABLES = new Set(["user", "session", "account", "verification"]);
   const SENSITIVE = /(secret|token|password|credential|private|api_key)/i;
-  // Documented exceptions: digests, not credentials. invites.token_hash is
-  // the SHA-256 of the invite token (ADR 0004) — the plaintext is returned
-  // once at creation and never stored.
-  const EXEMPT_COLUMNS = new Set(["invites.token_hash"]);
+  // Documented exceptions: digests of one-time tokens, not stored credentials.
+  // The plaintext is emitted once at creation and never persisted.
+  // - invites.token_hash: SHA-256 of the invite token (ADR 0004).
+  // - share_links.token_hash: SHA-256 of the share-link token (ADR 0008) —
+  //   the plaintext lives only in the public /s/<token> URL.
+  const EXEMPT_COLUMNS = new Set([
+    "invites.token_hash",
+    "share_links.token_hash",
+  ]);
 
   it("application tables carry no credential-shaped columns", () => {
     for (const exported of Object.values(schema)) {

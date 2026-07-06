@@ -1,0 +1,126 @@
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
+import { migrate } from "drizzle-orm/pglite/migrator";
+import { beforeAll, describe, expect, it } from "vitest";
+import { benchmarkConsentForOrg } from "../src/db/benchmark-consent";
+import type { Db } from "../src/db/client";
+import { createFixtureOrg } from "../src/db/fixtures";
+import { forOrg } from "../src/db/org-scope";
+import * as schema from "../src/db/schema";
+import { resolveShareToken, shareLinksForOrg } from "../src/db/share-links";
+
+// W2-H PR5 (ADR 0008): opt-in public share links + anonymized-benchmark
+// consent — lifecycle, the capability-token public read, and org isolation.
+
+let db: Db;
+let orgA: string;
+let orgB: string;
+let personA: string;
+let personB: string;
+let userA: string;
+
+beforeAll(async () => {
+  const pgliteDb = drizzle(new PGlite(), { schema });
+  await migrate(pgliteDb, { migrationsFolder: "./drizzle" });
+  db = pgliteDb as unknown as Db;
+  orgA = (await createFixtureOrg(db, "share-a", "personal")).id;
+  orgB = (await createFixtureOrg(db, "share-b", "personal")).id;
+  personA = (await forOrg(db, orgA).people.create({ displayName: "Ada" })).id;
+  personB = (await forOrg(db, orgB).people.create({ displayName: "Bo" })).id;
+  const [u] = await db
+    .insert(schema.user)
+    .values({ id: "share-user-a", name: "Ada", email: "ada@example.com" })
+    .returning();
+  userA = u.id;
+});
+
+describe("share links (opt-in public card)", () => {
+  it("mints a link, resolves the token to a minimal projection, and lists it", async () => {
+    const { link, token } = await shareLinksForOrg(db, orgA).create({
+      personId: personA,
+      scoreSlug: "fluency",
+      publicLabel: "Ada F.",
+      createdByUserId: userA,
+    });
+    expect(token).toBeTruthy();
+
+    const resolved = await resolveShareToken(db, token);
+    expect(resolved).toEqual({
+      orgId: orgA,
+      personId: personA,
+      scoreSlug: "fluency",
+      publicLabel: "Ada F.",
+    });
+    // Minimal projection: no token/hash/email leak.
+    expect(JSON.stringify(resolved)).not.toContain(token);
+
+    const listed = await shareLinksForOrg(db, orgA).list();
+    expect(listed.some((l) => l.id === link.id)).toBe(true);
+  });
+
+  it("returns null for an unknown token", async () => {
+    expect(await resolveShareToken(db, "not-a-real-token")).toBeNull();
+  });
+
+  it("revokes: the URL 404s (null) and the link drops from the active list", async () => {
+    const { link, token } = await shareLinksForOrg(db, orgA).create({
+      personId: personA,
+      scoreSlug: "adoption",
+      publicLabel: "Ada A.",
+    });
+    expect(await resolveShareToken(db, token)).not.toBeNull();
+
+    expect(await shareLinksForOrg(db, orgA).revoke(link.id)).toBe(true);
+    expect(await resolveShareToken(db, token)).toBeNull();
+    const listed = await shareLinksForOrg(db, orgA).list();
+    expect(listed.some((l) => l.id === link.id)).toBe(false);
+  });
+
+  it("is org-scoped: org B cannot revoke org A's link, nor share A's person", async () => {
+    const { link } = await shareLinksForOrg(db, orgA).create({
+      personId: personA,
+      scoreSlug: "fluency",
+      publicLabel: "Ada",
+    });
+    // B's scope can't revoke A's link.
+    expect(await shareLinksForOrg(db, orgB).revoke(link.id)).toBe(false);
+    // Composite (org_id, person_id) FK rejects sharing a cross-org person.
+    await expect(
+      shareLinksForOrg(db, orgB).create({
+        personId: personA,
+        scoreSlug: "fluency",
+        publicLabel: "smuggle",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("does not reference the smuggle attempt's person (isolation)", async () => {
+    // personB never appears in org A's active list.
+    const listed = await shareLinksForOrg(db, orgA).list();
+    expect(JSON.stringify(listed)).not.toContain(personB);
+  });
+});
+
+describe("benchmark consent (anonymized opt-in)", () => {
+  it("records and updates consent (upsert on org+user)", async () => {
+    const consent = benchmarkConsentForOrg(db, orgA);
+    expect(await consent.get(userA)).toBeUndefined();
+
+    const granted = await consent.set(userA, true);
+    expect(granted.granted).toBe(true);
+    expect((await consent.get(userA))?.granted).toBe(true);
+
+    // Re-set flips it in place — one row per (org, user).
+    const revoked = await consent.set(userA, false);
+    expect(revoked.id).toBe(granted.id);
+    expect((await consent.get(userA))?.granted).toBe(false);
+  });
+
+  it("is org-scoped: another org sees no consent for the same user", async () => {
+    await benchmarkConsentForOrg(db, orgA).set(userA, true);
+    expect(await benchmarkConsentForOrg(db, orgB).get(userA)).toBeUndefined();
+    // list() is org-filtered — org B's list never carries org A's row.
+    const bList = await benchmarkConsentForOrg(db, orgB).list();
+    expect(bList.every((r) => r.orgId === orgB)).toBe(true);
+  });
+});
