@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Cable, Gauge, Info } from "lucide-react";
+import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreCard, type ScoreComponentView } from "@/components/score-card";
+import { ShareScoreButton } from "@/components/share-score-button";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -131,13 +133,26 @@ async function PersonalSelfView({ ctx }: { ctx: AppContext }) {
     "en-US",
     { month: "long", year: "numeric", timeZone: "UTC" },
   );
+  // Share the headline (fluency) score, and only once it's actually computed —
+  // a share link to a "still computing" card isn't worth minting.
+  const fluencyComputed = scores.has("fluency");
+  const personId =
+    summary.scores.find((s) => s.person)?.person?.id ?? null;
 
   return (
     <>
       <PageHeader
         title="Your AI self-view"
         description={`${monthLabel} · adoption, fluency, and efficiency from your connected tools.`}
-      />
+      >
+        {fluencyComputed && personId && (
+          <ShareScoreButton
+            personId={personId}
+            scoreSlug="fluency"
+            defaultLabel={ctx.user.name ?? "My AI"}
+          />
+        )}
+      </PageHeader>
 
       <Card>
         <CardHeader>
@@ -229,6 +244,18 @@ async function PersonalSelfView({ ctx }: { ctx: AppContext }) {
               ))}
             </ul>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Benchmarks &amp; privacy</CardTitle>
+          <CardDescription>
+            Your data is yours. Opt in to help build published benchmarks.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <BenchmarkConsentToggle />
         </CardContent>
       </Card>
     </>
