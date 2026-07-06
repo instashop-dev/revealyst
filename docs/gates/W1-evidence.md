@@ -114,12 +114,21 @@ dimensions attempted concrete escape paths and found none that succeed.
 
 ## Sign-off
 
-- [ ] Do these numbers match reality?
-- [ ] Would I trust this score?
+- [x] Do these numbers match reality? — **Yes** (founder, 2026-07-06)
+- [x] Would I trust this score? — **Yes** (founder, 2026-07-06)
 
-**Recommendation: no more agent-fixable findings outstanding.** All three engine/harness bugs
-surfaced by this gate's adversarial pre-review are fixed and regression-tested; full suite
-321/321, typecheck clean, org-scope guard clean. What's left is founder-only:
+**GATE STATUS: PASSED.** Tagged `w1-complete`.
+
+Also landed since the checklist above was generated: [PR #51](https://github.com/instashop-dev/revealyst/pull/51)
+recovered W1-D's connector run/dispatch hardening (10 adversarially-confirmed findings —
+self-healing dispatch, backfill-chain survival, queue `max_retries`/DLQ config, 429
+thundering-herd fix, pause-override fix, Anthropic token double-counting fix, chunked batched
+upserts, queue-swallow logging, per-run `subjects_seen`, OpenAI pagination guard) that had been
+stranded on a branch merged past `main`'s own merge point and never reached it. Discovered and
+fixed during pre-W2 branch housekeeping; merged as `06ad97d`. CI green, full suite passing.
+
+Outstanding, explicitly founder-only and **not** gate-blocking (founder taking these on
+directly, per-item, outside this session):
 1. Run `/code-review ultra` for an independent cloud pass (not yet run this wave).
 2. Record live-key fixtures (`scripts/record/anthropic.mjs`) and run the golden dogfooding comparison against the Anthropic Console dashboard (items 1/8).
 3. Run `npx revealyst-agent sync` against real local Claude Code logs (item 2).
