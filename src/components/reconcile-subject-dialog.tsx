@@ -20,15 +20,11 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { Input, inputClassName } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { cn } from "@/lib/utils";
 
 type PersonRef = { id: string; pseudonym: string; displayName: string | null };
-
-const SELECT_CLASS =
-  "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30";
 
 async function post(body: unknown): Promise<Response> {
   return fetch("/api/reconcile", {
@@ -159,7 +155,7 @@ export function ReconcileSubjectDialog({
                 {/* biome-ignore lint/a11y/noLabelWithoutControl: label is bound via htmlFor/id */}
                 <select
                   id="reconcile-person"
-                  className={cn(SELECT_CLASS)}
+                  className={inputClassName}
                   value={personId}
                   onChange={(e) => setPersonId(e.target.value)}
                 >
@@ -195,7 +191,7 @@ export function ReconcileSubjectDialog({
                 </FieldLabel>
                 <select
                   id="reconcile-team"
-                  className={cn(SELECT_CLASS)}
+                  className={inputClassName}
                   value={teamId}
                   onChange={(e) => setTeamId(e.target.value)}
                 >

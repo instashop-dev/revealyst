@@ -28,12 +28,15 @@ export async function computeSharedAccountFlags(
     to: string;
     volumeMetricKey?: string;
     config?: Partial<SharedAccountConfig>;
+    /** Pre-fetched org subjects — pass to avoid a redundant subjects.list()
+     *  when the caller already has them (e.g. the reconcile page). */
+    subjects?: Awaited<ReturnType<Scoped["subjects"]["list"]>>;
   },
 ): Promise<SharedAccountFlag[]> {
   const volumeMetricKey = opts.volumeMetricKey ?? "tokens_input";
 
   const [subjectRows, volumeRecords] = await Promise.all([
-    scoped.subjects.list(),
+    opts.subjects ?? scoped.subjects.list(),
     scoped.metrics.records({
       metricKey: volumeMetricKey,
       from: opts.from,

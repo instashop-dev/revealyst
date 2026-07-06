@@ -43,14 +43,19 @@ export async function buildReconcileView(
   scoped: Scoped,
   opts: { from: string; to: string },
 ): Promise<ReconcileView> {
-  const [subjectRows, peopleRows, teamRows, connectionRows, flags] =
-    await Promise.all([
-      scoped.subjects.list(),
-      scoped.people.list(),
-      scoped.teams.list(),
-      scoped.connections.list(),
-      computeSharedAccountFlags(scoped, { from: opts.from, to: opts.to }),
-    ]);
+  // Fetch subjects once, then reuse them for the flag pass — otherwise
+  // computeSharedAccountFlags would scan the subjects table a second time.
+  const subjectRows = await scoped.subjects.list();
+  const [peopleRows, teamRows, connectionRows, flags] = await Promise.all([
+    scoped.people.list(),
+    scoped.teams.list(),
+    scoped.connections.list(),
+    computeSharedAccountFlags(scoped, {
+      from: opts.from,
+      to: opts.to,
+      subjects: subjectRows,
+    }),
+  ]);
 
   const people: PersonRef[] = peopleRows.map((p) => ({
     id: p.id,

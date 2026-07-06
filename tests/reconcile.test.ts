@@ -7,7 +7,9 @@ import type { Db } from "../src/db/client";
 import { createFixtureOrg, loadFixture } from "../src/db/fixtures";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
+import { ApiError } from "../src/lib/api-impl";
 import { buildReconcileView } from "../src/lib/reconcile";
+import { applyReconcileAction } from "../src/lib/reconcile-actions";
 
 // View-model assembly over the repo layer (PGlite). The shared-account
 // fixture has 3 resolved person-subjects + 5 unresolved shared accounts, five
@@ -56,10 +58,27 @@ describe("buildReconcileView", () => {
     // Every unresolved subject has no persons (surfaced, never fabricated).
     expect(view.unresolved.every((s) => s.persons.length === 0)).toBe(true);
 
-    // All five shared accounts carry a flag; the resolved people do not.
+    // Flags are resolution-independent metadata. In this fixture the flagged
+    // subjects all happen to be unresolved, but a resolved shared account
+    // could legitimately carry a flag too — so assert the flagged SET, never
+    // "resolved ⇒ unflagged" (which would be fixture luck, not an invariant).
     expect(view.flaggedCount).toBe(5);
     expect(view.unresolved.every((s) => s.flag !== null)).toBe(true);
-    expect(view.resolved.every((s) => s.flag === null)).toBe(true);
+    expect(
+      new Set(
+        [...view.unresolved, ...view.resolved]
+          .filter((s) => s.flag)
+          .map((s) => keyFor(s.subjectId)),
+      ),
+    ).toEqual(
+      new Set([
+        "shared-roundclock",
+        "shared-concurrent",
+        "shared-volume",
+        "shared-copilot",
+        "shared-power",
+      ]),
+    );
 
     const byKey = new Map(
       [...view.unresolved, ...view.resolved].map((s) => [keyFor(s.subjectId), s]),
@@ -94,5 +113,72 @@ describe("buildReconcileView", () => {
     expect(
       after.resolved.some((s) => s.subjectId === ids.subjects["alice-key"]),
     ).toBe(false);
+  });
+});
+
+describe("applyReconcileAction", () => {
+  it("links an unresolved subject to an existing person (method manual)", async () => {
+    const scope = forOrg(db, orgId);
+    const subjectId = ids.subjects["shared-concurrent"];
+    const result = await applyReconcileAction(scope, null, {
+      action: "link",
+      subjectId,
+      personId: ids.people["bob"],
+    });
+    expect(result).toEqual({ ok: true });
+    const rows = await scope.identities.forSubject(subjectId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].personId).toBe(ids.people["bob"]);
+    expect(rows[0].method).toBe("manual");
+  });
+
+  it("creates a person and links it (the only sanctioned person-creation path)", async () => {
+    const scope = forOrg(db, orgId);
+    const subjectId = ids.subjects["shared-volume"];
+    const before = (await scope.people.list()).length;
+    const result = await applyReconcileAction(scope, null, {
+      action: "create_and_link",
+      subjectId,
+      displayName: "Jordan Rivera",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.personId).toBeDefined();
+    expect((await scope.people.list()).length).toBe(before + 1);
+    const rows = await scope.identities.forSubject(subjectId);
+    expect(rows[0]?.personId).toBe(result.personId);
+    expect(rows[0]?.method).toBe("manual");
+  });
+
+  it("assigns a person to a team", async () => {
+    const scope = forOrg(db, orgId);
+    await applyReconcileAction(scope, null, {
+      action: "assign_team",
+      personId: ids.people["carol"],
+      teamId: ids.teams["core"],
+    });
+    const members = await scope.teams.members(ids.teams["core"]);
+    expect(members.some((m) => m.personId === ids.people["carol"])).toBe(true);
+  });
+
+  it("unlinks an identity", async () => {
+    const scope = forOrg(db, orgId);
+    const subjectId = ids.subjects["shared-concurrent"];
+    await applyReconcileAction(scope, null, {
+      action: "unlink",
+      subjectId,
+      personId: ids.people["bob"],
+    });
+    expect(await scope.identities.forSubject(subjectId)).toHaveLength(0);
+  });
+
+  it("rejects a subject that isn't in the org with a 404 (never writes)", async () => {
+    const scope = forOrg(db, orgId);
+    await expect(
+      applyReconcileAction(scope, null, {
+        action: "link",
+        subjectId: "00000000-0000-0000-0000-000000000000",
+        personId: ids.people["bob"],
+      }),
+    ).rejects.toBeInstanceOf(ApiError);
   });
 });
