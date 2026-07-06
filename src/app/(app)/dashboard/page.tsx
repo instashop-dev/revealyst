@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { Cable, Gauge } from "lucide-react";
+import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
+import { ScoreCard } from "@/components/dashboard/score-card";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
@@ -13,6 +15,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { requireAppContext } from "@/lib/api-context";
+import { resolveBenchmarkSource } from "@/lib/benchmarks";
+import { latestTeamScoresBySlug, readDashboard } from "@/lib/dashboard-read";
 import { vendorLabel } from "@/lib/vendor-labels";
 
 export const dynamic = "force-dynamic";
@@ -23,9 +27,53 @@ const VISIBILITY_LABELS = {
   full: "Full visibility",
 } as const;
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** A wide lookback so the dashboard shows the latest scored period regardless
+ * of which grain the recompute wrote (nightly rolling_28d, monthly, …). */
+function dashboardWindow(): { from: string; to: string } {
+  const now = Date.now();
+  return {
+    from: new Date(now - 180 * DAY_MS).toISOString().slice(0, 10),
+    to: new Date(now).toISOString().slice(0, 10),
+  };
+}
+
+function formatSpend(cents: number): string {
+  return `$${(cents / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 export default async function DashboardPage() {
   const ctx = await requireAppContext();
-  const connections = await ctx.scope.connections.list();
+  const [connections, summary] = await Promise.all([
+    ctx.scope.connections.list(),
+    readDashboard(ctx.scope, ctx.org.visibilityMode, dashboardWindow()),
+  ]);
+
+  const latest = latestTeamScoresBySlug(summary.scores);
+  const adoption = latest.get("adoption") ?? null;
+  const fluency = latest.get("fluency") ?? null;
+  const efficiency = latest.get("efficiency") ?? null;
+  const hasScores = latest.size > 0;
+
+  const benchmarks = resolveBenchmarkSource().forScores([
+    { slug: "adoption", value: adoption?.value ?? null },
+    { slug: "fluency", value: fluency?.value ?? null },
+    { slug: "efficiency", value: efficiency?.value ?? null },
+  ]);
+
+  const spendFooter =
+    summary.spendCents > 0 || summary.spendCentsEstimated > 0 ? (
+      <>
+        {formatSpend(summary.spendCents)} total spend across tools
+        {summary.spendCentsEstimated > 0
+          ? ` (+${formatSpend(summary.spendCentsEstimated)} estimated)`
+          : ""}
+      </>
+    ) : undefined;
 
   return (
     <>
@@ -49,10 +97,10 @@ export default async function DashboardPage() {
               <span className="truncate font-medium">{ctx.org.name}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">Your role</span>
-              <Badge variant="outline" className="capitalize">
-                {ctx.role}
-              </Badge>
+              <span className="text-muted-foreground">Active people</span>
+              <span className="tabular-nums font-medium">
+                {summary.activePeople}
+              </span>
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-muted-foreground">Privacy mode</span>
@@ -110,11 +158,34 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
-      <EmptyState
-        icon={Gauge}
-        title="No scores yet"
-        description="Adoption, Fluency, and Efficiency scores appear after your first connection syncs data. Nothing here is estimated — scores only ever come from real, attributed metrics."
-      />
+
+      {hasScores ? (
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+          <ScoreCard
+            title="Adoption"
+            description="Breadth and consistency of AI use."
+            score={adoption}
+          />
+          <ScoreCard
+            title="Fluency"
+            description="Breadth · depth · effectiveness."
+            score={fluency}
+          />
+          <ScoreCard
+            title="Efficiency"
+            description="Value signals per unit of spend."
+            score={efficiency}
+            footer={spendFooter}
+          />
+          <BenchmarkPanel benchmarks={benchmarks} />
+        </div>
+      ) : (
+        <EmptyState
+          icon={Gauge}
+          title="No scores yet"
+          description="Adoption, Fluency, and Efficiency scores appear after your first connection syncs data. Nothing here is estimated — scores only ever come from real, attributed metrics."
+        />
+      )}
     </>
   );
 }

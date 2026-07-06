@@ -1,8 +1,9 @@
-import { apiRoutes, personRefSchema } from "../contracts/api";
+import { apiRoutes } from "../contracts/api";
 import type { forOrg } from "../db/org-scope";
+import { mapScoreResults, readDashboard } from "./dashboard-read";
+import { toPersonRef, type VisibilityMode } from "./visibility";
 
 type OrgScope = ReturnType<typeof forOrg>;
-type VisibilityMode = "private" | "managed" | "full";
 
 /**
  * Route-handler cores for the frozen W1-G contract routes. Pure functions
@@ -88,14 +89,7 @@ export async function listPeople(
 ) {
   const people = await scope.people.list();
   return apiRoutes.peopleList.response.parse({
-    people: people.map((person) =>
-      personRefSchema.parse({
-        id: person.id,
-        pseudonym: person.pseudonym,
-        displayName:
-          visibilityMode === "private" ? null : (person.displayName ?? null),
-      }),
-    ),
+    people: people.map((person) => toPersonRef(person, visibilityMode)),
   });
 }
 
@@ -111,4 +105,45 @@ export async function listConnections(scope: OrgScope) {
       lastError: connection.lastError,
     })),
   });
+}
+
+/**
+ * The `dashboardSummary` route: the typed dashboard aggregate (see
+ * `readDashboard`) validated through the frozen response schema, so the HTTP
+ * route and the server-rendered page share one aggregation path. `gaps` are
+ * added in a later W2-L PR (shared-account flags); [] for now.
+ */
+export async function dashboardSummary(
+  scope: OrgScope,
+  visibilityMode: VisibilityMode,
+  period: { from: string; to: string },
+) {
+  const data = await readDashboard(scope, visibilityMode, period);
+  return apiRoutes.dashboardSummary.response.parse({ ...data, gaps: [] });
+}
+
+/**
+ * The `scoresList` route: score_results in the window, optionally filtered by
+ * definition slug and subject level. Read-only over the frozen shape.
+ */
+export async function scoresList(
+  scope: OrgScope,
+  visibilityMode: VisibilityMode,
+  query: {
+    from: string;
+    to: string;
+    slug?: string;
+    level?: "person" | "team" | "org";
+  },
+) {
+  const rawScores = await scope.scores.results({
+    from: query.from,
+    to: query.to,
+    subjectLevel: query.level,
+  });
+  let results = await mapScoreResults(scope, rawScores, visibilityMode);
+  if (query.slug) {
+    results = results.filter((result) => result.definitionSlug === query.slug);
+  }
+  return apiRoutes.scoresList.response.parse({ results });
 }

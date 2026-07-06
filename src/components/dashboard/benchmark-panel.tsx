@@ -1,0 +1,73 @@
+import type { BenchmarkSummary } from "@/lib/benchmarks";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+
+function ordinal(n: number): string {
+  const suffix =
+    n % 100 >= 11 && n % 100 <= 13
+      ? "th"
+      : ["th", "st", "nd", "rd"][n % 10] ?? "th";
+  return `${n}${suffix}`;
+}
+
+/**
+ * Org vs. published benchmarks (§8 L4). Benchmarks are load-bearing — a score
+ * is meaningless without comparison. Sources are cited inline so the number is
+ * auditable, and an org with no score shows "—", never an invented percentile.
+ */
+export function BenchmarkPanel({
+  benchmarks,
+}: {
+  benchmarks: BenchmarkSummary[];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Benchmark</CardTitle>
+        <CardDescription>
+          Your scores vs. published industry benchmarks.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {benchmarks.map((b) => (
+          <div key={b.slug} className="flex flex-col gap-1">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">{b.label}</span>
+              <span className="tabular-nums text-muted-foreground">
+                {b.orgValue == null ? "—" : Math.round(b.orgValue)} vs{" "}
+                {Math.round(b.peerMedian)} median
+              </span>
+            </div>
+            <div className="relative h-2 w-full rounded-full bg-muted">
+              {/* peer median marker */}
+              <div
+                className="absolute top-[-2px] h-3 w-0.5 bg-muted-foreground/60"
+                style={{ left: `${Math.max(0, Math.min(100, b.peerMedian))}%` }}
+                aria-hidden
+              />
+              {b.orgValue != null ? (
+                <div
+                  className="absolute top-0 size-2 -translate-x-1/2 rounded-full bg-primary ring-2 ring-background"
+                  style={{
+                    left: `${Math.max(0, Math.min(100, b.orgValue))}%`,
+                  }}
+                  aria-hidden
+                />
+              ) : null}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {b.percentile == null
+                ? "No score yet."
+                : `${ordinal(Math.round(b.percentile))} percentile · ${b.source}`}
+            </p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
