@@ -2,6 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Cable, Gauge, Info } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
+import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
+import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
+import { ScoreCard as TeamScoreCard } from "@/components/dashboard/score-card";
+import { ScoreTrend } from "@/components/dashboard/score-trend";
+import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
+import { SharedAccountFlags } from "@/components/dashboard/shared-account-flags";
+import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { ScoreCard, type ScoreComponentView } from "@/components/score-card";
@@ -20,6 +27,8 @@ import {
 import { listBenchmarks } from "@/db/benchmarks";
 import { requireAppContext, type AppContext } from "@/lib/api-context";
 import { dashboardSummary } from "@/lib/api-impl";
+import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
+import { readDashboardView } from "@/lib/dashboard-view";
 import { formatCents } from "@/lib/format";
 import { vendorLabel } from "@/lib/vendor-labels";
 import { periodFor } from "@/scoring";
@@ -89,6 +98,18 @@ function componentViews(
       normalized: typeof n === "number" ? n : null,
     };
   });
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** A wide lookback so the dashboard shows the latest scored period regardless
+ * of which grain the recompute wrote (nightly rolling_28d, monthly, …). */
+function dashboardWindow(): { from: string; to: string } {
+  const now = Date.now();
+  return {
+    from: new Date(now - 180 * DAY_MS).toISOString().slice(0, 10),
+    to: new Date(now).toISOString().slice(0, 10),
+  };
 }
 
 export default async function DashboardPage() {
@@ -262,13 +283,35 @@ async function PersonalSelfView({ ctx }: { ctx: AppContext }) {
   );
 }
 
-function TeamOverview({
+async function TeamOverview({
   ctx,
   connections,
 }: {
   ctx: AppContext;
   connections: Awaited<ReturnType<AppContext["scope"]["connections"]["list"]>>;
 }) {
+  const view = await readDashboardView(
+    ctx.scope,
+    ctx.org.visibilityMode,
+    dashboardWindow(),
+  );
+  const { summary, benchmarks, heatmap, coverage, trends, segments, sharedAccounts } =
+    view;
+  const latest = latestTeamScoresBySlug(summary.scores);
+  const adoption = latest.get("adoption") ?? null;
+  const fluency = latest.get("fluency") ?? null;
+  const efficiency = latest.get("efficiency") ?? null;
+  const hasScores = latest.size > 0;
+  const spendFooter =
+    summary.spendCents > 0 || summary.spendCentsEstimated > 0 ? (
+      <>
+        {formatCents(summary.spendCents)} total spend across tools
+        {summary.spendCentsEstimated > 0
+          ? ` (+${formatCents(summary.spendCentsEstimated)} estimated)`
+          : ""}
+      </>
+    ) : undefined;
+
   return (
     <>
       <PageHeader
@@ -287,10 +330,10 @@ function TeamOverview({
               <span className="truncate font-medium">{ctx.org.name}</span>
             </div>
             <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">Your role</span>
-              <Badge variant="outline" className="capitalize">
-                {ctx.role}
-              </Badge>
+              <span className="text-muted-foreground">Active people</span>
+              <span className="tabular-nums font-medium">
+                {summary.activePeople}
+              </span>
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-muted-foreground">Privacy mode</span>
@@ -350,11 +393,46 @@ function TeamOverview({
           </CardContent>
         </Card>
       </div>
-      <EmptyState
-        icon={Gauge}
-        title="Team scores arrive with the team dashboard"
-        description="Team-level Adoption, Fluency, and Efficiency land in W2-L. Nothing here is estimated — scores only ever come from real, attributed metrics."
-      />
+      {hasScores ? (
+        <>
+          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+            <TeamScoreCard
+              title="Adoption"
+              description="Breadth and consistency of AI use."
+              score={adoption}
+            />
+            <TeamScoreCard
+              title="Fluency"
+              description="Breadth · depth · effectiveness."
+              score={fluency}
+            />
+            <TeamScoreCard
+              title="Efficiency"
+              description="Value signals per unit of spend."
+              score={efficiency}
+              footer={spendFooter}
+            />
+            <BenchmarkPanel benchmarks={benchmarks} />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ActivityHeatmap heatmap={heatmap} />
+            <div className="grid gap-4">
+              <ToolCoveragePanel coverage={coverage} />
+              <ScoreTrend trends={trends} />
+            </div>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SegmentBreakdown distribution={segments} />
+            <SharedAccountFlags flags={sharedAccounts} />
+          </div>
+        </>
+      ) : (
+        <EmptyState
+          icon={Gauge}
+          title="No scores yet"
+          description="Adoption, Fluency, and Efficiency scores appear after your first connection syncs data. Nothing here is estimated — scores only ever come from real, attributed metrics."
+        />
+      )}
     </>
   );
 }

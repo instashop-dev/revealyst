@@ -1,0 +1,94 @@
+import type { ActivityHeatmap } from "@/lib/dashboard-signals";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const HOUR_TICKS = [0, 6, 12, 18];
+
+/**
+ * Weekday × hour-of-day activity heatmap from sub-daily signals. Team-level and
+ * aggregate — no per-person exposure. Cells scale with intensity; an empty grid
+ * and the "no sub-daily data" note keep the absence honest.
+ */
+export function ActivityHeatmap({ heatmap }: { heatmap: ActivityHeatmap }) {
+  const max = Math.max(0, ...heatmap.grid.flat());
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Activity heatmap</CardTitle>
+        <CardDescription>
+          When AI activity happens across the team (by weekday and UTC hour).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {heatmap.daysWithSignals === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No sub-daily activity data in this period yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <div className="flex flex-col gap-1">
+              {heatmap.grid.map((row, weekday) => (
+                <div key={weekday} className="flex items-center gap-1">
+                  <span className="w-8 shrink-0 text-xs text-muted-foreground">
+                    {WEEKDAYS[weekday]}
+                  </span>
+                  <div className="flex gap-0.5">
+                    {row.map((value, hour) => {
+                      const intensity = max > 0 ? value / max : 0;
+                      return (
+                        <div
+                          key={hour}
+                          className="size-3 rounded-[2px]"
+                          style={{
+                            backgroundColor:
+                              value > 0
+                                ? `color-mix(in oklab, var(--primary) ${Math.round(
+                                    15 + intensity * 85,
+                                  )}%, transparent)`
+                                : "var(--muted)",
+                          }}
+                          title={`${WEEKDAYS[weekday]} ${String(hour).padStart(2, "0")}:00 — ${value}`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+              <div className="flex items-center gap-1 pl-9">
+                <div className="flex gap-0.5">
+                  {Array.from({ length: 24 }, (_, hour) => (
+                    <span
+                      key={hour}
+                      className="w-3 text-center text-[9px] text-muted-foreground"
+                    >
+                      {HOUR_TICKS.includes(hour) ? hour : ""}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {heatmap.peakConcurrency != null ? (
+            <span>Peak concurrency: {heatmap.peakConcurrency}</span>
+          ) : null}
+          {heatmap.daysWithoutSubDaily > 0 ? (
+            <span>
+              {heatmap.daysWithoutSubDaily} subject-day
+              {heatmap.daysWithoutSubDaily === 1 ? "" : "s"} without sub-daily
+              data (not shown)
+            </span>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
