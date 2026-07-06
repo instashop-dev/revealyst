@@ -44,7 +44,12 @@ jobs:
           fetch-depth: 0
       - name: Require an ADR for frozen-contract changes
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=1
+          # Fetch the base branch WITHOUT --depth=1: a shallow tip has no
+          # ancestors, so `git merge-base` can't resolve the fork point when the
+          # base has advanced past where this PR branched — it errexits the job
+          # with a misleading "frozen" failure. Full base history (checkout is
+          # already fetch-depth: 0) makes merge-base reliable.
+          git fetch origin "${{ github.base_ref }}"
           base=$(git merge-base "origin/${{ github.base_ref }}" HEAD)
           changed=$(git diff --name-only "$base" HEAD)
           # fixtures/: ADDING files is fine (new coverage); modifying or
