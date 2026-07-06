@@ -6,6 +6,7 @@ import {
   Cable,
   LayoutDashboard,
   LogOut,
+  ScanFace,
   UserRound,
   UserRoundPlus,
   UsersRound,
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
 // Admin-only surfaces (ADR 0004): also role-gated server-side.
 const ADMIN_NAV_ITEMS = [
   { title: "Members", href: "/members", icon: UserRoundPlus },
+  { title: "Reconcile", href: "/reconcile", icon: ScanFace },
 ];
 
 export function AppSidebar({

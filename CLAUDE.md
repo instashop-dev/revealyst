@@ -104,7 +104,9 @@ and tested (`tests/scoring-evaluate.test.ts` "honesty rules").
 - **Fresh context beats long context.** One workstream per session; new session per
   major task. State lives in the branch, the contracts, and this file — not a conversation.
 - Inner loop: plan → feature-dev → build against fixtures → own tests →
-  `/commit-push-pr` → `/code-review` → merge on green CI. Small PRs; a workstream is a chain.
+  `/code-review` + **apply fixes** → `/commit-push-pr` → merge on green CI. Run
+  review and land its fixes BEFORE opening the PR (see merge-race below), so the
+  PR's first commit is already the reviewed state. Small PRs; a workstream is a chain.
 - Custom skills: `/kickoff`, `/gate-check`, `/adr`, `/new-connector`. Gate pre-review:
   `/gate-review <wave>` workflow + the `contract-guardian` / `adversarial-reviewer` subagents.
 - **Hooks run on every Edit/Write** (`.claude/settings.json`): a tripwire guard (rule 7) and
@@ -114,6 +116,13 @@ and tested (`tests/scoring-evaluate.test.ts` "honesty rules").
   <branch> main`, not the PR's GitHub state — a branch can receive a later merge
   *after* it was already merged upstream, stranding real work with a "MERGED" PR
   label (cost W1-D 10 tested fixes; recovered in PR #51).
+- **Merge-race: the founder merges each PR at its PR-creation-time commit**, so any
+  commit pushed *after* `gh pr create` (e.g. review fixes) is silently dropped from
+  the merge. Always `/code-review` + apply fixes *before* opening the PR. If fixes
+  slipped in after, verify each with `git merge-base --is-ancestor <fixSHA>
+  origin/<target>`; recovery for a stacked chain = retarget the still-open tip PR's
+  base to the integration branch (its HEAD holds the whole reviewed stack). Cost
+  W2-K all 4 PRs (#55/#57/#60), recovered via #63 retargeted to `w2-k`.
 - Flaky, not broken: an occasional `[vitest-pool]: Worker exited unexpectedly`
   (Windows fork crash) and a rare pseudonym-collision in `tests/api-impl.test.ts`
   are known transient flakes — rerun before treating either as a regression.
