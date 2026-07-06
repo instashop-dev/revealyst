@@ -3,7 +3,9 @@ import type {
   CompletionsBucket,
   CostsBucket,
   OpenAiPage,
+  OrgProjectsList,
   OrgUsersList,
+  ProjectApiKeysList,
 } from "./types";
 
 // Thin HTTP layer for the OpenAI org admin surface. Error policy per
@@ -129,6 +131,66 @@ export async function fetchOrgUsers(
     }
   } while (after);
   return users;
+}
+
+/** The shared `{data, has_more, last_id}` org-list envelope. */
+type OrgListPage<Item> = {
+  object: "list";
+  data: Item[];
+  has_more: boolean;
+  last_id?: string | null;
+};
+
+/** Generic cursor walk for the org-list endpoints (projects, project
+ * api_keys). Mirrors fetchOrgUsers' loud-fail on a truncated page
+ * (has_more without a cursor). */
+async function paginateOrgList<Item>(
+  credential: string,
+  path: string,
+  fetchFn: FetchFn,
+): Promise<Item[]> {
+  const out: Item[] = [];
+  let after: string | null | undefined = null;
+  do {
+    const page: OrgListPage<Item> = await getJson<OrgListPage<Item>>(
+      credential,
+      path,
+      after ? { limit: "100", after } : { limit: "100" },
+      fetchFn,
+    );
+    out.push(...page.data);
+    if (page.has_more && !page.last_id) {
+      throw new Error(`openai: ${path} returned has_more without last_id`);
+    }
+    after = page.has_more ? page.last_id : null;
+    if (after) await sleep(CALL_SPACING_MS);
+  } while (after);
+  return out;
+}
+
+/** Org projects — coverage subjects (org-admin mode). */
+export async function fetchProjects(
+  credential: string,
+  fetchFn: FetchFn = fetch,
+): Promise<OrgProjectsList["data"]> {
+  return paginateOrgList<OrgProjectsList["data"][number]>(
+    credential,
+    "/v1/organization/projects",
+    fetchFn,
+  );
+}
+
+/** A project's API keys — the key→owner map (org-admin mode). */
+export async function fetchProjectApiKeys(
+  credential: string,
+  projectId: string,
+  fetchFn: FetchFn = fetch,
+): Promise<ProjectApiKeysList["data"]> {
+  return paginateOrgList<ProjectApiKeysList["data"][number]>(
+    credential,
+    `/v1/organization/projects/${projectId}/api_keys`,
+    fetchFn,
+  );
 }
 
 const unixStart = (day: string) => `${Date.parse(`${day}T00:00:00Z`) / 1000}`;
