@@ -9,14 +9,17 @@ import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
 import { resolveSharedAccountSource } from "../src/lib/shared-account";
 
-// W2-L PR3: the shared-account flag adapter. The team-30d fixture seeds one
-// shared account — `shared-console`, linked to bob + carol + dave (3
-// identities). Single-identity subjects (alice-console, copilot-bob,
-// eve-console) and the unresolved svc-key (0 links) must NOT flag.
+// W2-L: the dashboard's shared-account source, now backed by W2-K's real
+// detector (round-the-clock / concurrency / volume-vs-median) enriched with
+// display fields. The team-30d fixture's `shared-console` has an all-hours
+// histogram (round-the-clock) and peakConcurrency 3 (concurrent), so it flags
+// with high confidence; single-user subjects (alice, copilot, eve) and the
+// signal-less svc-key do not.
 
 const teamFixture = JSON.parse(
   readFileSync("fixtures/metric-records/team-30d.json", "utf8"),
 );
+const WINDOW = { from: "2026-06-01", to: "2026-06-30" };
 
 let db: Db;
 let scope: ReturnType<typeof forOrg>;
@@ -31,15 +34,19 @@ beforeAll(async () => {
   scope = forOrg(db, orgId);
 });
 
-describe("resolveSharedAccountSource", () => {
-  it("flags the shared account and nothing else", async () => {
-    const flags = await resolveSharedAccountSource().flags(scope);
+describe("resolveSharedAccountSource (W2-K detector)", () => {
+  it("flags the shared account with usage-pattern reasons, and nothing else", async () => {
+    const flags = await resolveSharedAccountSource().flags(scope, WINDOW);
 
     expect(flags).toHaveLength(1);
     const flag = flags[0];
     expect(flag.subjectId).toBe(loaded.subjects["shared-console"]);
-    expect(flag.identityCount).toBe(3);
+    // Enriched display fields.
     expect(flag.vendor).toBe("anthropic_console");
     expect(flag.externalId).toBe("shared-team-login");
+    expect(flag.identityCount).toBe(3);
+    // W2-K detection: all-hours histogram + peakConcurrency 3.
+    expect(flag.reasons.sort()).toEqual(["concurrent_usage", "round_the_clock"]);
+    expect(flag.confidence).toBe("high");
   });
 });
