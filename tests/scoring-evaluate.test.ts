@@ -240,15 +240,75 @@ describe("ratio components", () => {
     expect(result?.components.acceptance.normalized).toBeCloseTo(63.3333, 3);
   });
 
-  it("zero denominator floors raw at 0 — never NaN or Infinity", () => {
+  it("both sides present but denominator aggregates to 0 floors raw at 0 — never NaN or Infinity", () => {
     const result = evaluateDefinition(
       acceptance,
-      byMetric([row("suggestions_accepted", "2026-06-01", 38)]),
+      byMetric([
+        row("suggestions_accepted", "2026-06-01", 38),
+        row("suggestions_offered", "2026-06-01", 0),
+      ]),
       JUNE,
     );
     expect(result?.components.acceptance.raw).toBe(0);
     expect(result?.value).toBe(0);
     expect(Number.isFinite(result!.value)).toBe(true);
+  });
+
+  it("denominator absent (no rows, not just zero) is not a computable rate — omitted, never fabricated as 0", () => {
+    const result = evaluateDefinition(
+      acceptance,
+      byMetric([row("suggestions_accepted", "2026-06-01", 38)]),
+      JUNE,
+    );
+    // The lone component was omitted for lack of data → nothing was
+    // consumed → the whole-definition honesty guard applies.
+    expect(result).toBeNull();
+  });
+
+  it("numerator absent (no rows), denominator present — also not a computable rate, never floors to 0", () => {
+    // The exact asymmetry the adversarial pre-review found live: real spend
+    // (denominator) with no usage data yet (numerator) must never read as
+    // "real spend, zero output."
+    const result = evaluateDefinition(
+      acceptance,
+      byMetric([row("suggestions_offered", "2026-06-01", 120)]),
+      JUNE,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("a ratio component missing one side is omitted, not zeroed, alongside a component that does have data", () => {
+    const mixed = components([
+      {
+        key: "days",
+        weight: 0.5,
+        normalization: { min: 0, max: 20 },
+        metric: "active_day",
+        aggregation: "active_days",
+      },
+      {
+        key: "acceptance",
+        weight: 0.5,
+        normalization: { min: 0, max: 0.5 },
+        ratio: {
+          numerator: { metric: "suggestions_accepted", aggregation: "sum" },
+          denominator: { metric: "suggestions_offered", aggregation: "sum" },
+        },
+      },
+    ]);
+    const result = evaluateDefinition(
+      mixed,
+      byMetric([row("active_day", "2026-06-01", 1)]), // no suggestions data at all
+      JUNE,
+    );
+    expect(result).not.toBeNull();
+    // Only the component with real data is in the breakdown — the ratio
+    // component is absent entirely, not present with a fabricated raw 0.
+    expect(result?.components).toEqual({
+      days: { raw: 1, normalized: 5, weight: 0.5, contribution: 2.5 },
+    });
+    expect(result?.components.acceptance).toBeUndefined();
+    expect(result?.value).toBe(2.5);
   });
 });
 

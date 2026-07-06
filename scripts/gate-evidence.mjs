@@ -121,7 +121,7 @@ org-scope guard ${pass(orgScope.ok)} · vitest exit ${pass(vitest.ok)}.
 |---|---|---|
 | 1 | Real Anthropic data lands normalized, attribution-tagged, backfilled, re-pollable (W1-D) | Seam: **${connectorSeam}**. ${founder("run the merged connector against live keys; recordings replay must match reality (scripts/record/README.md)")} |
 | 2 | Claude Code local ingest pushes metric records (W1-E) | ${founder("run `npx revealyst-agent sync` against real local logs; confirm records land")} |
-| 3 | Engine computes correct scores from fixtures (W1-F) | Seam: **${engineSeam}**. E2E hand-verified adoption preset: value 30, attribution key_project (${pass(e2e.passed)}) |
+| 3 | Engine computes correct scores from fixtures (W1-F) | Seam: **${engineSeam}**. E2E hand-verified adoption preset via \`recomputeOrg\` (the production recompute entrypoint): value ≈13.3334, attribution person (${pass(e2e.passed)}) |
 | 4 | App shell live behind auth (W1-G) | ${founder("sign in at the production URL; screenshot the authenticated shell")} |
 | 5 | E2E harness green on ingest→score (W1-S) | ${pass(e2e.passed && e2e.found)} — tests/e2e/ingest-to-score.e2e.test.ts (${e2e.tests} tests): signup → connect → replay → normalize → upsert (idempotent) → score → isolation |
 | 6 | Tenant-isolation sweep (every wave) | ${pass(isolation.passed && isolation.found)} — tests/tenant-isolation.test.ts (${isolation.tests} tests incl. completeness tripwire) |

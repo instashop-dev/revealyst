@@ -10,16 +10,17 @@ import { forOrg, membershipForUser } from "../../src/db/org-scope";
 import * as schema from "../../src/db/schema";
 import { createAuth } from "../../src/lib/auth";
 import type { CredentialEnv } from "../../src/lib/credentials";
+import { periodFor } from "../../src/scoring/periods";
 import { SAMPLE_PERIOD, sampleClaudeCodeEnvelope } from "../harness/sample-envelopes";
-import { resolveConnector, resolveScoreEvaluator } from "../harness/seams";
-import type { ScoredRecord } from "../harness/reference-scoring";
+import { resolveConnector, resolveRecompute } from "../harness/seams";
 
 // W1-S cross-workstream E2E (rule 6): the seam-owning run over the frozen
 // contracts — signup → connect (encrypted credential) → poll-replay →
 // normalize → org-scoped upserts (idempotent re-poll) → score → read back,
 // plus the cross-org isolation assertion. Implementations resolve through
-// tests/harness/seams.ts: reference stubs today, W1-D/W1-F production code
-// at the wave gate — the test body never changes.
+// tests/harness/seams.ts, which now points at the merged W1-D connector and
+// the merged W1-F engine (via its production `recomputeOrg` entrypoint) —
+// this run proves the shippable code, not a harness stand-in.
 
 function testKek(version: string, fill: number): string {
   const bytes = new Uint8Array(32).fill(fill);
@@ -116,7 +117,7 @@ describe("E2E: signup → connect → ingest → normalize → score", () => {
     // (12 + 3 sessions), not produce two records or drop one.
     const apiKeySessions = batch.records.find(
       (r) =>
-        r.subject.externalId === "api-key-1" &&
+        r.subject.externalId === "name:api-key-1" &&
         r.metricKey === "sessions" &&
         r.day === SAMPLE_PERIOD.start,
     );
@@ -147,7 +148,7 @@ describe("E2E: signup → connect → ingest → normalize → score", () => {
         connectionId,
         value: r.value,
         attribution: r.attribution,
-        sourceConnector: "anthropic-console@reference",
+        sourceConnector: "anthropic-console@1",
         rawPayloadId,
       })),
     );
@@ -173,7 +174,7 @@ describe("E2E: signup → connect → ingest → normalize → score", () => {
         connectionId,
         value: r.value,
         attribution: r.attribution,
-        sourceConnector: "anthropic-console@reference",
+        sourceConnector: "anthropic-console@1",
         rawPayloadId,
       })),
     );
@@ -210,60 +211,45 @@ describe("E2E: signup → connect → ingest → normalize → score", () => {
     adoptionDefinitionId = adoption!.id;
     expect(adoption!.subjectLevel).toBe("team");
 
-    // Feed the evaluator through the same org-scoped read path the engine
-    // will use — never raw table access.
-    const inputs: ScoredRecord[] = [];
-    for (const metricKey of ["active_day", "feature_used"]) {
-      const rows = await scoped.metrics.records({
-        metricKey,
-        from: SAMPLE_PERIOD.start,
-        to: SAMPLE_PERIOD.end,
-      });
-      inputs.push(
-        ...rows.map((r) => ({
-          metricKey: r.metricKey,
-          day: r.day,
-          dim: r.dim,
-          value: r.value,
-          attribution: r.attribution,
-        })),
-      );
-    }
-
-    const evaluate = resolveScoreEvaluator();
-    const result = evaluate(adoption!.components, inputs, SAMPLE_PERIOD);
-
-    // Hand-computed from the sample envelope + the seeded v1 preset:
-    // active_days raw 2 → (2/20)·100 = 10, ×0.5 = 5
-    // tool_coverage raw 3 (vscode, iTerm.app, github_actions) → 50, ×0.5 = 25
-    expect(result.value).toBeCloseTo(30, 6);
-    expect(result.attribution).toBe(expectedAttribution);
-    expect(result.components.active_days.raw).toBe(2);
-    expect(result.components.tool_coverage.raw).toBe(3);
-
-    // Persist twice (nightly + post-backfill recompute) — upsert, one row.
-    for (let run = 0; run < 2; run++) {
-      await scoped.scores.upsertResults([
-        {
-          definitionId: adoptionDefinitionId,
-          subjectLevel: "team",
-          teamId: team.id,
-          periodStart: SAMPLE_PERIOD.start,
-          periodEnd: SAMPLE_PERIOD.end,
-          periodGrain: "rolling_28d",
-          value: result.value,
-          attribution: result.attribution,
-          components: result.components,
-        },
-      ]);
-    }
+    // Run the SAME entrypoint the nightly/post-backfill recompute uses (no
+    // hand-rolled evaluation in the test) — this proves the production
+    // engine, reading through the org-scoped repository, never raw tables.
+    const recompute = resolveRecompute();
+    const period = periodFor("rolling_28d", SAMPLE_PERIOD.end);
+    const summary = await recompute(db, orgId, { period });
+    // 'adoption' and 'fluency' both have SOME real plain-metric data
+    // (active_day, feature_used), so both write a result; 'fluency's ratio
+    // component (suggestions_accepted/offered — no rows at all) is omitted
+    // from its breakdown rather than fabricated as 0. 'efficiency' has only
+    // ratio components and neither has both sides present (spend_cents
+    // never lands here), so every one of its components is omitted and it
+    // evaluates to null — absence of data is never scored as 0, per-component
+    // as well as whole-definition (src/scoring/evaluate.ts).
+    expect(summary.resultsWritten).toBe(2);
 
     const stored = await scoped.scores.results({ definitionId: adoptionDefinitionId });
     expect(stored).toHaveLength(1);
-    expect(stored[0].value).toBeCloseTo(30, 6);
-    expect(stored[0].attribution).toBe("key_project");
+
+    // Hand-computed from the sample envelope + the seeded v1 preset, scoped
+    // to the team's only member (user-1 — api-key-1 is not a team member,
+    // so its rows are correctly excluded by the real recompute path):
+    // active_days raw 2 (day1, day2) → (2/20)·100 = 10, ×0.5 = 5
+    // tool_coverage raw 1 (claude_code is the only connector wired here;
+    //   W2-J's copilot/cursor/openai connectors add further feature_used
+    //   dims) → (1/6)·100 = 16.6667, ×0.5 = 8.3334
+    expect(stored[0].value).toBeCloseTo(13.3334, 4);
+    expect(stored[0].attribution).toBe("person"); // team = user-1 only, all person-level
     // Breakdown survives storage in the frozen shape.
-    expect(() => scoreComponentBreakdownSchema.parse(stored[0].components)).not.toThrow();
+    const breakdown = scoreComponentBreakdownSchema.parse(stored[0].components);
+    expect(breakdown.active_days.raw).toBe(2);
+    expect(breakdown.tool_coverage.raw).toBe(1);
+
+    // Re-run (nightly + post-backfill recompute) — upsert on the frozen
+    // key, still one row, same value.
+    await recompute(db, orgId, { period });
+    const storedAgain = await scoped.scores.results({ definitionId: adoptionDefinitionId });
+    expect(storedAgain).toHaveLength(1);
+    expect(storedAgain[0].value).toBeCloseTo(13.3334, 4);
   });
 
   it("cross-org isolation: the rival org sees none of it", async () => {

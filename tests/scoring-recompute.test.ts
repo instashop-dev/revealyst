@@ -335,6 +335,123 @@ describe("recompute paths", () => {
   });
 });
 
+describe("person-level stale row reconciliation", () => {
+  it("removes a person's score row once their subject is relinked into a shared account", async () => {
+    // The adversarial gate finding, reproduced: a person-level definition
+    // scores alice from her exclusive alice-console subject; a later
+    // account merge/handoff links a second person to that SAME subject,
+    // making it shared. Without reconciliation, alice's row from the first
+    // recompute would survive forever — a person-level number permanently
+    // disconnected from her now-shared attribution (§6.1: shared accounts
+    // never mint per-person rows).
+    const [def] = await db
+      .insert(schema.scoreDefinitions)
+      .values({
+        orgId: orgA,
+        slug: "relink-check",
+        version: 1,
+        name: "Relink check",
+        subjectLevel: "person",
+        components: [
+          {
+            key: "days",
+            weight: 1,
+            normalization: { min: 0, max: 20 },
+            metric: "active_day",
+            aggregation: "active_days",
+          },
+        ],
+        status: "active",
+      })
+      .returning();
+    const scoped = forOrg(db, orgA);
+
+    // Round 1: alice-console is exclusively alice's, copilot-bob exclusively
+    // bob's — active_day has real, exclusive data for both.
+    const first = await recomputeOrg(db, orgA, { period: JUNE });
+    expect(first.stalePersonResultsRemoved).toBe(0);
+    const firstPass = await scoped.scores.results({ definitionId: def.id });
+    expect(firstPass).toHaveLength(2);
+    const alicesFirstRow = firstPass.find((r) => r.personId === A.people.alice);
+    expect(alicesFirstRow).toBeDefined();
+    expect(alicesFirstRow!.value).toBeGreaterThan(0);
+
+    // Simulate the relink: a second person joins alice's subject only.
+    const frank = await scoped.people.create({
+      displayName: "Frank",
+      email: "frank@fixture.example",
+    });
+    await scoped.identities.link(A.subjects["alice-console"], frank.id, "manual");
+
+    const second = await recomputeOrg(db, orgA, { period: JUNE });
+    // >=1, not necessarily exactly 1: this definition's alice row is
+    // reconciled away, and so is any other active person-level definition's
+    // alice row from an earlier test in this file — the summary is org-wide.
+    expect(second.stalePersonResultsRemoved).toBeGreaterThanOrEqual(1);
+
+    const secondPass = await scoped.scores.results({ definitionId: def.id });
+    // Alice's stale row is gone — no fabricated row appears for anyone else
+    // on that now-shared subject (never redistributed) — but bob, whose
+    // subject was untouched, keeps his own unrelated row.
+    expect(secondPass).toHaveLength(1);
+    expect(secondPass[0].personId).toBe(A.people.bob);
+    expect(secondPass.some((r) => r.personId === A.people.alice)).toBe(false);
+    expect(secondPass.some((r) => r.personId === frank.id)).toBe(false);
+
+    // Cleanup so later assertions in this file see the original fixture
+    // shape (orgA is shared mutable state across this file's tests).
+    await scoped.identities.unlink(A.subjects["alice-console"], frank.id);
+    await db.delete(schema.scoreResults).where(eq(schema.scoreResults.definitionId, def.id));
+    await db
+      .delete(schema.scoreDefinitions)
+      .where(eq(schema.scoreDefinitions.id, def.id));
+  });
+
+  it("is idempotent: re-running after a relink does not re-remove already-removed rows", async () => {
+    const [def] = await db
+      .insert(schema.scoreDefinitions)
+      .values({
+        orgId: orgA,
+        slug: "relink-check-2",
+        version: 1,
+        name: "Relink check 2",
+        subjectLevel: "person",
+        components: [
+          {
+            key: "days",
+            weight: 1,
+            normalization: { min: 0, max: 20 },
+            metric: "active_day",
+            aggregation: "active_days",
+          },
+        ],
+        status: "active",
+      })
+      .returning();
+    const scoped = forOrg(db, orgA);
+
+    await recomputeOrg(db, orgA, { period: JUNE });
+    const frank = await scoped.people.create({
+      displayName: "Frank2",
+      email: "frank2@fixture.example",
+    });
+    await scoped.identities.link(A.subjects["alice-console"], frank.id, "manual");
+    await recomputeOrg(db, orgA, { period: JUNE }); // removes alice's row
+
+    const rerun = await recomputeOrg(db, orgA, { period: JUNE });
+    expect(rerun.stalePersonResultsRemoved).toBe(0); // nothing left to remove
+    const remaining = await scoped.scores.results({ definitionId: def.id });
+    expect(remaining).toHaveLength(1); // bob's untouched row survives
+    expect(remaining[0].personId).toBe(A.people.bob);
+
+    await scoped.identities.unlink(A.subjects["alice-console"], frank.id);
+    await db.delete(schema.scoreResults).where(eq(schema.scoreResults.definitionId, def.id));
+    await db
+      .delete(schema.scoreDefinitions)
+      .where(eq(schema.scoreDefinitions.id, def.id));
+  });
+});
+
 describe("tenant isolation", () => {
   it("recompute writes stay inside the org", async () => {
     // Org A has custom definitions B never had; B's results came only from

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, lte, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, notInArray, or, type SQL } from "drizzle-orm";
 import {
   countTrackedUsers,
   type BillingPeriod,
@@ -1023,6 +1023,44 @@ export function forOrg(db: Db, orgId: string) {
               },
             });
         }
+      },
+
+      /**
+       * Reconciles person-level score_results for one (definition, period)
+       * down to exactly the people this recompute run actually scored.
+       * `upsertResults` only inserts/updates — a person who no longer
+       * qualifies (their subject stopped being exclusive on relink, e.g.
+       * W2-K's shared-account detection, or their signal dropped to zero)
+       * would otherwise keep last run's row forever, silently disconnected
+       * from current attribution. Called once per definition+period after
+       * that round's upserts are known, so it is safe to re-run (idempotent)
+       * and scoped tightly (never touches other definitions/periods/teams).
+       */
+      async deleteStalePersonResults(
+        definitionId: string,
+        period: { periodStart: string; periodEnd: string },
+        keepPersonIds: string[],
+      ) {
+        const scope = [
+          eq(scoreResults.orgId, orgId),
+          eq(scoreResults.definitionId, definitionId),
+          eq(scoreResults.subjectLevel, "person"),
+          eq(scoreResults.periodStart, period.periodStart),
+          eq(scoreResults.periodEnd, period.periodEnd),
+        ];
+        const removed = await db
+          .delete(scoreResults)
+          .where(
+            and(
+              ...scope,
+              keepPersonIds.length > 0
+                ? notInArray(scoreResults.personId, keepPersonIds)
+                // No-one qualified this round — every existing row is stale.
+                : undefined,
+            ),
+          )
+          .returning({ id: scoreResults.id });
+        return removed.length;
       },
 
       async results(filter: {

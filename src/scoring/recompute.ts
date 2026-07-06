@@ -173,6 +173,9 @@ export type RecomputeSummary = {
   definitionsEvaluated: number;
   definitionsSkipped: number;
   resultsWritten: number;
+  /** Stale person-level rows reconciled away this run (relinked off an
+   * exclusive subject, or dropped to zero signal) — surfaced, never silent. */
+  stalePersonResultsRemoved: number;
 };
 
 /**
@@ -193,12 +196,14 @@ export async function recomputeOrg(
       definitionsEvaluated: 0,
       definitionsSkipped: skipped,
       resultsWritten: 0,
+      stalePersonResultsRemoved: 0,
     };
   }
 
   const byMetric = await loadRowsByMetric(scoped, definitions, period);
   const { linked, exclusive } = await loadPersonSubjects(scoped);
   const upserts: ScoreResultUpsert[] = [];
+  let staleRemoved = 0;
 
   const needsTeams = definitions.some((d) => d.subjectLevel === "team");
   const teamSubjects = new Map<string, Set<string>>();
@@ -225,6 +230,7 @@ export async function recomputeOrg(
 
     if (definition.subjectLevel === "person") {
       // Exclusive subjects only: shared accounts never mint per-person rows.
+      const scoredPersonIds: string[] = [];
       for (const [personId, subjectIds] of exclusive) {
         const result = evaluateDefinition(
           definition.components,
@@ -233,8 +239,19 @@ export async function recomputeOrg(
         );
         if (result) {
           upserts.push({ ...base, personId, ...result });
+          scoredPersonIds.push(personId);
         }
       }
+      // A person who no longer qualifies this round (relinked off an
+      // exclusive subject, or dropped to zero signal) must not keep a
+      // stale row from a prior recompute — reconcile down to exactly who
+      // was actually scored just now.
+      const removed = await scoped.scores.deleteStalePersonResults(
+        definition.id,
+        period,
+        scoredPersonIds,
+      );
+      staleRemoved += removed;
     } else if (definition.subjectLevel === "team") {
       for (const [teamId, subjectIds] of teamSubjects) {
         const result = evaluateDefinition(
@@ -265,5 +282,6 @@ export async function recomputeOrg(
     definitionsEvaluated: definitions.length,
     definitionsSkipped: skipped,
     resultsWritten: upserts.length,
+    stalePersonResultsRemoved: staleRemoved,
   };
 }

@@ -109,6 +109,16 @@ export function evaluateDefinition(
         rowsByMetric.get(component.ratio.numerator.metric) ?? [];
       const denominatorRows =
         rowsByMetric.get(component.ratio.denominator.metric) ?? [];
+      // A rate needs BOTH sides measured. If either side has zero rows, we
+      // cannot tell "genuinely zero" from "hasn't synced yet" — unlike a
+      // plain metric's own absence (an accepted floor, see the honesty-rules
+      // suite), dividing an absent side against a present, non-zero other
+      // side would fabricate a specific, misleading number (e.g. "real
+      // spend, zero output") rather than an honest floor. Omit the
+      // component entirely — never fabricate a rate from half the data.
+      if (numeratorRows.length === 0 || denominatorRows.length === 0) {
+        continue;
+      }
       const numerator = aggregate(
         numeratorRows,
         component.ratio.numerator.aggregation,
@@ -119,7 +129,8 @@ export function evaluateDefinition(
         component.ratio.denominator.aggregation,
         period,
       );
-      // Zero (or absent) denominator → raw 0: an honest floor, never NaN.
+      // Both sides have rows here; denominator can still aggregate to 0
+      // (e.g. distinct_dims over all-empty dims) — floor rather than NaN.
       raw = denominator === 0 ? 0 : numerator / denominator;
       consumed.push(
         ...numeratorRows.map((r) => r.attribution),

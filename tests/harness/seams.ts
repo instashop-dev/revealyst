@@ -1,24 +1,23 @@
 import type { VendorId } from "../../src/contracts/attribution";
 import type { Connector } from "../../src/contracts/connector";
-import { referenceAnthropicConsole } from "./reference-anthropic";
-import { evaluateScore } from "./reference-scoring";
+import { anthropicConsoleConnector } from "../../src/connectors/anthropic";
+import { recomputeOrg } from "../../src/scoring/recompute";
 
 // THE cross-workstream seam registry (W1-S owns it — rule 6).
 //
 // The E2E harness resolves its connector and score-engine implementations
-// HERE and nowhere else. Today both entries are W1-S reference stubs so the
-// ingest→score path is green before W1-D/W1-F merge; when a real
-// implementation lands on MAIN (never read another workstream's branch —
-// rule 3), the swap is one line in this file and the same E2E becomes the
-// wave-gate run over production code.
+// HERE and nowhere else. Both entries below are the production
+// implementations that merged in W1-D and W1-F — this file is where the
+// wave-gate E2E stops being a harness exercise and becomes a run over
+// shippable code. `recomputeOrg` is the same entrypoint the nightly/
+// post-backfill recompute path calls in production, not a re-implementation
+// of it, so the E2E proves the real engine, not a lookalike.
 //
 // Flip points:
-//  - W1-D merges src connector for anthropic_console  → import it, replace entry
-//  - W1-F merges the score engine                     → replace resolveScoreEvaluator
-//  - W2-J connectors (copilot / cursor / openai)      → add entries
+//  - W2-J connectors (copilot / cursor / openai) → add entries below
 
 const CONNECTORS: Partial<Record<VendorId, Connector>> = {
-  anthropic_console: referenceAnthropicConsole,
+  anthropic_console: anthropicConsoleConnector,
 };
 
 export function resolveConnector(vendor: VendorId): Connector {
@@ -31,6 +30,6 @@ export function resolveConnector(vendor: VendorId): Connector {
   return connector;
 }
 
-export function resolveScoreEvaluator() {
-  return evaluateScore;
+export function resolveRecompute() {
+  return recomputeOrg;
 }
