@@ -33,6 +33,11 @@ const unauthorized: AgentIngestOutcome = {
   body: { error: "invalid device token" },
 };
 
+/** A dimensionless metric has dim ""; a dimensioned one is "model=<id>" /
+ * "feature=<name>". 128 chars is generous for any real label and hostile
+ * to content smuggling. */
+const MAX_DIM_LENGTH = 128;
+
 function badRequest(error: string): AgentIngestOutcome {
   return { ok: false, status: 400, body: { error } };
 }
@@ -118,6 +123,20 @@ export async function ingestAgentBatch(
     if (record.attribution === "person" && record.subject.kind !== "person") {
       return badRequest(
         `person attribution claimed for ${record.subject.kind} subject — never fabricate people`,
+      );
+    }
+    // Defense in depth: the frozen metric_records.dim is unbounded, and a
+    // connector's dim is derived from vendor free text (here, the log's
+    // message.model). A hostile local process can plant a log to smuggle
+    // content through dim; bound its length and reject control characters
+    // so it can never be an exfil channel. The CLI also sanitizes model
+    // before it becomes a dim — this is the server-side backstop.
+    const hasControlChar = Array.from(record.dim).some(
+      (c) => c.charCodeAt(0) <= 0x20,
+    );
+    if (record.dim.length > MAX_DIM_LENGTH || hasControlChar) {
+      return badRequest(
+        "dim too long or contains whitespace/control characters",
       );
     }
   }

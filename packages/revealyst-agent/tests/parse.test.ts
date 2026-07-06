@@ -43,6 +43,8 @@ describe("parseSessionContent", () => {
       (a) => a.kind === "assistant" && a.dedupKey === "req-main-1",
     );
     expect(streamed).toHaveLength(2); // split turn shares the requestId
+    // Parse keeps BOTH streamed lines verbatim (last-wins dedup is the
+    // summarizer's job, exercised in summarize.test.ts).
     if (streamed[0].kind === "assistant") {
       expect(streamed[0].model).toBe("claude-fable-5");
       expect(streamed[0].usage).toEqual({
@@ -51,6 +53,30 @@ describe("parseSessionContent", () => {
         cacheRead: 5000,
         cacheWrite: 800,
       });
+    }
+  });
+
+  it("sanitizes the model to a safe charset/length (no content smuggling)", () => {
+    const hostile = JSON.stringify({
+      type: "assistant",
+      sessionId: "s1",
+      timestamp: "2026-07-01T10:00:00.000Z",
+      requestId: "r1",
+      message: {
+        id: "m1",
+        model: "claude fable 5 <SENTINEL rotate AWS key>",
+        usage: { input_tokens: 1 },
+      },
+    });
+    const [event] = parseSessionContent(hostile).events;
+    if (event.kind === "assistant") {
+      // Bounding, not letter-stripping: no spaces/punctuation, safe charset,
+      // length-capped. (A bare alphanumeric word survives — that residual is
+      // documented; the model field is §5-allowlisted.)
+      expect(event.model).not.toContain(" ");
+      expect(event.model).not.toContain("<");
+      expect(event.model!.length).toBeLessThanOrEqual(64);
+      expect(event.model).toMatch(/^[A-Za-z0-9._:-]+$/);
     }
   });
 

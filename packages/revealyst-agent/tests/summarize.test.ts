@@ -16,6 +16,10 @@ const SIDE = readFileSync(
   "fixtures/vendor-payloads/claude-code-local/sidechain-session.jsonl",
   "utf8",
 );
+const STREAMED = readFileSync(
+  "fixtures/vendor-payloads/claude-code-local/streamed-usage.jsonl",
+  "utf8",
+);
 
 const SUBJECT = { kind: "person", externalId: "dev@example.com" } as const;
 const OPTS = {
@@ -45,8 +49,9 @@ function value(
 describe("summarize", () => {
   const summary = summarize(allEvents(), OPTS);
 
-  it("computes known-truth token sums (dedup by requestId, sidechain included)", () => {
-    // Day 1: main 1200+400 (streamed dup counted ONCE) + sidechain 2000.
+  it("counts a streamed turn once, sidechain usage included (§5 dedup)", () => {
+    // Day 1 input: main req-main-1 1200 (its two streamed lines collapse to
+    // one) + 400 (req-main-2) + sidechain 2000 = 3600.
     expect(value(summary.records, "tokens_input", "2026-07-01")).toBe(3600);
     expect(value(summary.records, "tokens_output", "2026-07-01")).toBe(900);
     expect(value(summary.records, "tokens_cache_read", "2026-07-01")).toBe(5100);
@@ -56,8 +61,10 @@ describe("summarize", () => {
     expect(value(summary.records, "tokens_output", "2026-07-02")).toBe(50);
   });
 
-  it("counts sessions, prompts, and active days", () => {
-    expect(value(summary.records, "sessions", "2026-07-01")).toBe(2); // main + sidechain
+  it("counts sessions as human sessions only (§5: sidechain ≠ session)", () => {
+    // Day 1 has a main session + a sidechain; only the main counts as a
+    // session, though the sidechain's tokens ARE summed above.
+    expect(value(summary.records, "sessions", "2026-07-01")).toBe(1);
     expect(value(summary.records, "sessions", "2026-07-02")).toBe(1);
     expect(value(summary.records, "prompts", "2026-07-01")).toBe(1); // tool-result ≠ prompt
     expect(value(summary.records, "prompts", "2026-07-02")).toBe(1);
@@ -108,16 +115,27 @@ describe("summarize", () => {
     expect(value(summary.records, "tokens_input", "2026-06-25")).toBeUndefined();
   });
 
-  it("builds hour histograms and peak concurrency from event timestamps", () => {
+  it("builds hour histograms from DEDUPED events (streamed dup not double-counted)", () => {
     const day1 = summary.signals.find((s) => s.day === "2026-07-01")!;
-    expect(day1.hours?.[9]).toBe(7); // 5 main + 2 sidechain events at 09:xx UTC
-    expect(day1.hours?.[10]).toBe(1);
-    expect(day1.hours?.reduce((a, b) => a + b, 0)).toBe(8);
-    expect(day1.peakConcurrency).toBe(2); // main + sidechain overlap at 09:xx
+    // hr9 deduped: prompt, 1 assistant (req-main-1 collapsed), tool-result
+    // activity, attachment, sidechain user, sidechain assistant = 6.
+    expect(day1.hours?.[9]).toBe(6);
+    expect(day1.hours?.[10]).toBe(1); // req-main-2 assistant
+    expect(day1.hours?.reduce((a, b) => a + b, 0)).toBe(7);
     expect(day1.sourceGranularity).toBe("event");
 
     const day2 = summary.signals.find((s) => s.day === "2026-07-02")!;
     expect(day2.hours?.[8]).toBe(2);
+  });
+
+  it("reports peak concurrency as REAL interval overlap, not hourly buckets", () => {
+    // Day 1: sidechain [09:20,09:21] runs inside main [09:12,10:30] → 2
+    // sessions truly overlap.
+    const day1 = summary.signals.find((s) => s.day === "2026-07-01")!;
+    expect(day1.peakConcurrency).toBe(2);
+    // Day 2: a single session, no overlap — concurrency 1, not "2 because
+    // two events share an hour".
+    const day2 = summary.signals.find((s) => s.day === "2026-07-02")!;
     expect(day2.peakConcurrency).toBe(1);
   });
 
@@ -129,6 +147,20 @@ describe("summarize", () => {
           r.attribution === "person",
       ),
     ).toBe(true);
+  });
+
+  it("dedups streamed usage LAST-WINS (§5): the final line's usage, not the partial", () => {
+    // req-stream has two streamed lines: a partial (input 100) then the
+    // final cumulative line (input 1200). §5 mandates last-wins. A
+    // first-wins bug yields 100; summing both yields 1300.
+    const streamed = summarize(parseSessionContent(STREAMED).events, OPTS);
+    expect(value(streamed.records, "tokens_input", "2026-07-01")).toBe(1200);
+    expect(value(streamed.records, "tokens_output", "2026-07-01")).toBe(300);
+    expect(value(streamed.records, "sessions", "2026-07-01")).toBe(1);
+    // One deduped assistant turn → one model request, not two.
+    expect(
+      value(streamed.records, "model_requests", "2026-07-01", "model=claude-fable-5"),
+    ).toBe(1);
   });
 
   it("is deterministic over the same events (pure)", () => {

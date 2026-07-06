@@ -406,6 +406,24 @@ describe("agent ingest — body validation (400 before any write)", () => {
     expect(outcome).toMatchObject({ ok: false, status: 400 });
   });
 
+  it("rejects an over-long or control-char dim (content-smuggling backstop)", async () => {
+    const longDim = makeBatch();
+    longDim.records[0].dim = `model=${"x".repeat(200)}`;
+    expect(await ingestAgentBatch(db, ENV, tokenA, longDim)).toMatchObject({
+      ok: false,
+      status: 400,
+    });
+
+    const contentDim = makeBatch();
+    // A model field smuggling text would land here as a spaced dim.
+    contentDim.records[0].dim = "model=rotate AWS key AKIA";
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, contentDim);
+    expect(outcome).toMatchObject({ ok: false, status: 400 });
+    if (!outcome.ok) {
+      expect(outcome.body.error).toMatch(/whitespace\/control/);
+    }
+  });
+
   it("rejects malformed signal hours (not 24 slots)", async () => {
     const batch = makeBatch();
     batch.signals[0].hours = [1, 2, 3];
