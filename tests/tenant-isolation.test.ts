@@ -11,8 +11,10 @@ import {
   loadFixture,
   type LoadedFixture,
 } from "../src/db/fixtures";
+import { benchmarkConsentForOrg } from "../src/db/benchmark-consent";
 import { invitesForOrg } from "../src/db/invites";
 import { forOrg } from "../src/db/org-scope";
+import { shareLinksForOrg } from "../src/db/share-links";
 import * as schema from "../src/db/schema";
 import type { CredentialEnv } from "../src/lib/credentials";
 
@@ -79,6 +81,14 @@ const SCOPED_READS: Array<{
   // Invite reads live in src/db/invites.ts (ADR 0004), not on forOrg —
   // same org-scoping rules, swept via its own org-scoped factory.
   { name: "invites.listPending", tables: ["invites"], run: () => invitesForOrg(db, orgA).listPending() },
+  // Share links + benchmark consent live in their own org-scoped factories
+  // (ADR 0008), same rules. Public share resolution is a capability-token
+  // read (asserted in share-links.test.ts), not an ambient org-scoped read.
+  { name: "shareLinks.list", tables: ["share_links"], run: () => shareLinksForOrg(db, orgA).list() },
+  // list(), not get(userId): a get keyed on an org-A-only userId can never
+  // return org B's row regardless of the org filter (vacuous). list() is
+  // org-filtered, so a dropped filter deterministically surfaces B's row.
+  { name: "benchmarkConsent.list", tables: ["benchmark_consent"], run: () => benchmarkConsentForOrg(db, orgA).list() },
 ];
 
 /** Tables that legitimately carry org_id but sit outside the sweep. */
@@ -133,6 +143,15 @@ beforeAll(async () => {
       "member",
       inviter.id,
     );
+    // An opt-in share link + a consent row per org (ADR 0008) so their B-side
+    // ids join the leak universe and the sweep's assertions are non-vacuous.
+    await shareLinksForOrg(db, orgId).create({
+      personId: loaded.people.alice,
+      scoreSlug: "fluency",
+      publicLabel: "Ada",
+      createdByUserId: inviter.id,
+    });
+    await benchmarkConsentForOrg(db, orgId).set(inviter.id, true);
     const run = await scoped.connectorRuns.start({
       connectionId: loaded.connections.anthropic,
       kind: "poll",
