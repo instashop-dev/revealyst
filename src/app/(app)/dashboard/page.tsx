@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Cable, Gauge } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -26,6 +27,16 @@ const VISIBILITY_LABELS = {
 export default async function DashboardPage() {
   const ctx = await requireAppContext();
   const connections = await ctx.scope.connections.list();
+
+  // A fresh personal workspace has nothing to show until a source is
+  // connected — send it to the focused onboarding flow (W2-H). An errored
+  // connection (e.g. a rejected key at first attempt) does NOT count as
+  // connected, so a bad first key can't strand the user on an empty
+  // dashboard. /onboarding itself never redirects here, so there is no loop.
+  const hasUsableConnection = connections.some((c) => c.status !== "error");
+  if (ctx.org.kind === "personal" && !hasUsableConnection) {
+    redirect("/onboarding");
+  }
 
   return (
     <>

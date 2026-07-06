@@ -1,0 +1,475 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Check,
+  Clock,
+  KeyRound,
+  TerminalSquare,
+} from "lucide-react";
+import { toast } from "sonner";
+import { Alert, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+
+// W2-H onboarding: sign up → connect (Anthropic key · OpenAI key · install
+// the Revealyst Agent) → the connection's first poll + cron backfill land
+// data, and the dashboard shows the first insight. Copilot/Cursor for
+// individuals have no personal API (connector-facts §6a.2), so they are shown
+// as honest "connect when available" states rather than dead inputs.
+
+type InitialConnection = {
+  id: string;
+  vendor: string;
+  status: "pending" | "active" | "paused" | "error";
+};
+
+/** A key-based vendor connectable in Personal mode right now. */
+type KeyVendor = {
+  vendor: "anthropic_console" | "openai";
+  label: string;
+  blurb: string;
+  placeholder: string;
+  keyHint: string;
+};
+
+const KEY_VENDORS: KeyVendor[] = [
+  {
+    vendor: "anthropic_console",
+    label: "Anthropic",
+    blurb: "Console usage + cost and Claude Code analytics.",
+    placeholder: "sk-ant-…",
+    keyHint: "Admin API key from console.anthropic.com → Settings → API keys.",
+  },
+  {
+    vendor: "openai",
+    label: "OpenAI",
+    blurb: "Personal usage + spend from your OpenAI API key.",
+    placeholder: "sk-…",
+    keyHint: "API key from platform.openai.com → API keys.",
+  },
+];
+
+// Individual Copilot/Cursor expose no personal metrics API — honest, not a
+// dead form (org connectors arrive in Team mode via W2-J).
+const COMING_SOON = [
+  { label: "GitHub Copilot", note: "Individual plans have no metrics API yet." },
+  { label: "Cursor", note: "Personal usage export is on the roadmap." },
+];
+
+async function postJson(url: string, body?: unknown) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  let payload: unknown = null;
+  try {
+    payload = await res.json();
+  } catch {
+    // no / non-JSON body
+  }
+  return { ok: res.ok, status: res.status, payload };
+}
+
+function errorText(payload: unknown, fallback: string): string {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    typeof (payload as { error?: unknown }).error === "string"
+  ) {
+    return (payload as { error: string }).error;
+  }
+  return fallback;
+}
+
+/** The connection for a vendor that counts as "connected" — an errored one
+ * (e.g. a rejected key at step 2) does NOT, so its card stays retryable. */
+function usableConnection(
+  connections: InitialConnection[],
+  vendor: string,
+): InitialConnection | undefined {
+  return connections.find((c) => c.vendor === vendor && c.status !== "error");
+}
+
+export function OnboardingWizard({
+  initialConnections,
+}: {
+  initialConnections: InitialConnection[];
+}) {
+  const [connected, setConnected] = useState<Set<string>>(
+    () =>
+      new Set(
+        initialConnections
+          .filter((c) => c.status !== "error")
+          .map((c) => c.vendor),
+      ),
+  );
+
+  function markConnected(vendor: string) {
+    setConnected((prev) => new Set(prev).add(vendor));
+  }
+
+  const anyConnected = connected.size > 0;
+
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+      <div className="flex flex-col gap-2 text-center">
+        <div className="mx-auto flex size-11 items-center justify-center rounded-xl bg-primary font-heading text-lg font-bold text-primary-foreground">
+          R
+        </div>
+        <h1 className="font-heading text-2xl font-semibold tracking-tight">
+          Connect your AI tools
+        </h1>
+        <p className="text-balance text-muted-foreground">
+          Connect at least one source to see your AI adoption, fluency, and
+          spend. Your keys are encrypted at rest and never displayed again.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-4">
+        {KEY_VENDORS.map((v) => {
+          // Reuse an existing connection's id on retry so a second attempt
+          // overwrites (storeCredential upserts) instead of orphaning a
+          // duplicate row — there is no client-side delete.
+          const existing = initialConnections.find((c) => c.vendor === v.vendor);
+          return (
+            <ApiKeyConnectCard
+              key={v.vendor}
+              vendor={v}
+              existingConnectionId={existing?.id ?? null}
+              initiallyDone={Boolean(usableConnection(initialConnections, v.vendor))}
+              onConnected={() => markConnected(v.vendor)}
+            />
+          );
+        })}
+
+        <AgentConnectCard
+          existingConnectionId={
+            initialConnections.find((c) => c.vendor === "claude_code_local")
+              ?.id ?? null
+          }
+          initiallyPaired={Boolean(
+            usableConnection(initialConnections, "claude_code_local"),
+          )}
+          onConnected={() => markConnected("claude_code_local")}
+        />
+
+        {COMING_SOON.map((c) => (
+          <Card key={c.label} className="opacity-70">
+            <CardHeader>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">{c.label}</CardTitle>
+                <Badge variant="outline">
+                  <Clock data-icon="inline-start" />
+                  Connect when available
+                </Badge>
+              </div>
+              <CardDescription>{c.note}</CardDescription>
+            </CardHeader>
+          </Card>
+        ))}
+      </div>
+
+      <div className="flex flex-col items-center gap-2">
+        {anyConnected ? (
+          // Real link only when enabled — a disabled <a> would still
+          // navigate (anchors ignore `disabled`). The dashboard is a
+          // force-dynamic server component, so the click re-fetches.
+          <Button size="lg" nativeButton={false} render={<Link href="/dashboard" />}>
+            View my dashboard
+            <ArrowRight data-icon="inline-end" />
+          </Button>
+        ) : (
+          <Button size="lg" disabled>
+            Connect a source to continue
+            <ArrowRight data-icon="inline-end" />
+          </Button>
+        )}
+        {anyConnected && (
+          <p className="text-xs text-muted-foreground">
+            Backfilling your history now — scores fill in as data lands.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ApiKeyConnectCard({
+  vendor,
+  existingConnectionId,
+  initiallyDone,
+  onConnected,
+}: {
+  vendor: KeyVendor;
+  existingConnectionId: string | null;
+  initiallyDone: boolean;
+  onConnected: () => void;
+}) {
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(initiallyDone);
+
+  async function connect(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      // 1) reuse an existing connection (retry) or create one
+      let connectionId = existingConnectionId;
+      if (!connectionId) {
+        const created = await postJson("/api/connections", {
+          vendor: vendor.vendor,
+          displayName: `My ${vendor.label}`,
+          authKind: "api_key",
+          config: {},
+        });
+        if (!created.ok) {
+          setError(
+            errorText(created.payload, `Could not connect (${created.status})`),
+          );
+          return;
+        }
+        connectionId = (
+          created.payload as { connection?: { id?: string } }
+        )?.connection?.id ?? null;
+        if (!connectionId) {
+          setError("Unexpected response creating the connection");
+          return;
+        }
+      }
+
+      // 2) store + validate the key (validate-on-save: a bad key 400s here)
+      const cred = await postJson(
+        `/api/connections/${connectionId}/credential`,
+        { kind: "api_key", value: key },
+      );
+      if (!cred.ok) {
+        setError(errorText(cred.payload, "That key was rejected"));
+        return;
+      }
+
+      // 3) nudge an immediate poll (best-effort — cron also picks it up)
+      await postJson(`/api/connections/${connectionId}/poll`).catch(() => {});
+
+      setDone(true);
+      setKey("");
+      onConnected();
+      toast.success(`${vendor.label} connected`);
+    } catch {
+      // fetch rejects (offline / DNS) — surface it instead of hanging.
+      setError("Network error — check your connection and try again");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base">{vendor.label}</CardTitle>
+          {done && (
+            <Badge variant="secondary">
+              <Check data-icon="inline-start" />
+              Connected
+            </Badge>
+          )}
+        </div>
+        <CardDescription>{vendor.blurb}</CardDescription>
+      </CardHeader>
+      {!done && (
+        <CardContent>
+          <form onSubmit={connect} className="flex flex-col gap-3">
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor={`key-${vendor.vendor}`}>
+                  <KeyRound data-icon="inline-start" />
+                  API key
+                </FieldLabel>
+                <Input
+                  id={`key-${vendor.vendor}`}
+                  type="password"
+                  value={key}
+                  onChange={(e) => setKey(e.target.value)}
+                  placeholder={vendor.placeholder}
+                  autoComplete="off"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">{vendor.keyHint}</p>
+              </Field>
+            </FieldGroup>
+            {error && (
+              <Alert variant="destructive">
+                <AlertCircle />
+                <AlertTitle>{error}</AlertTitle>
+              </Alert>
+            )}
+            <div>
+              <Button type="submit" size="sm" disabled={busy || key.length === 0}>
+                {busy && <Spinner data-icon="inline-start" />}
+                Connect {vendor.label}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function AgentConnectCard({
+  existingConnectionId,
+  initiallyPaired,
+  onConnected,
+}: {
+  existingConnectionId: string | null;
+  initiallyPaired: boolean;
+  onConnected: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [paired, setPaired] = useState(initiallyPaired);
+
+  async function setup() {
+    setBusy(true);
+    setError(null);
+    try {
+      // Reuse an existing agent connection (re-issue rotates its token)
+      // rather than creating a duplicate.
+      let connectionId = existingConnectionId;
+      if (!connectionId) {
+        const created = await postJson("/api/connections", {
+          vendor: "claude_code_local",
+          displayName: "Revealyst Agent",
+          authKind: "device_token",
+          config: {},
+        });
+        if (!created.ok) {
+          setError(
+            errorText(
+              created.payload,
+              `Could not set up the agent (${created.status})`,
+            ),
+          );
+          return;
+        }
+        connectionId = (
+          created.payload as { connection?: { id?: string } }
+        )?.connection?.id ?? null;
+        if (!connectionId) {
+          setError("Unexpected response creating the connection");
+          return;
+        }
+      }
+      const issued = await postJson(
+        `/api/connections/${connectionId}/agent-token`,
+      );
+      if (!issued.ok) {
+        setError(errorText(issued.payload, "Could not issue a device token"));
+        return;
+      }
+      const issuedToken = (issued.payload as { token?: string })?.token;
+      if (!issuedToken) {
+        setError("No token was returned — please try again");
+        return;
+      }
+      setToken(issuedToken);
+      setPaired(true);
+      onConnected();
+    } catch {
+      setError("Network error — check your connection and try again");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-base">
+            Revealyst Agent (Claude Code)
+          </CardTitle>
+          {paired && (
+            <Badge variant="secondary">
+              <Check data-icon="inline-start" />
+              Paired
+            </Badge>
+          )}
+        </div>
+        <CardDescription>
+          Summarizes your local Claude Code sessions on your machine — never raw
+          prompt content — and pushes metrics with a device token.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {token ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-muted-foreground">
+              Copy this token now — it is shown once. Then run the agent:
+            </p>
+            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
+              <code>{`REVEALYST_TOKEN=${token} npx revealyst-agent sync`}</code>
+            </pre>
+          </div>
+        ) : paired ? (
+          <p className="text-sm text-muted-foreground">
+            Agent already paired. Re-generate a token below if you need to set up
+            another machine — that rotates the previous one.
+          </p>
+        ) : (
+          error && (
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertTitle>{error}</AlertTitle>
+            </Alert>
+          )
+        )}
+        {!token && (
+          <div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={setup}
+            >
+              {busy ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <TerminalSquare data-icon="inline-start" />
+              )}
+              {paired ? "Re-generate device token" : "Generate device token"}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+      {token && (
+        <CardFooter>
+          <p className="text-xs text-muted-foreground">
+            Lost it? Re-generate from the connection later — that rotates the
+            token.
+          </p>
+        </CardFooter>
+      )}
+    </Card>
+  );
+}
