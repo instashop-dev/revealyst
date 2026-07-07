@@ -14,6 +14,7 @@ import { listOrgIds } from "./db/system";
 import { dispatchDueConnectorWork } from "./poller/dispatch";
 import { SYSTEM_ORG_ID, type PollMessage } from "./poller/messages";
 import { processPollMessage } from "./poller/process";
+import { sendInBatches } from "./poller/queue";
 import { retryDelaySeconds, RetryableConnectorError } from "./poller/run";
 import { previousDay } from "./scoring";
 
@@ -35,13 +36,11 @@ export default {
       // fan-out must not serialize thousands of orgs one send at a time.
       const db = createDb(env);
       const day = previousDay(new Date().toISOString().slice(0, 10));
-      const messages = (await listOrgIds(db)).map((orgId) => ({
-        body: { kind: "score-recompute", orgId, day } satisfies PollMessage,
-      }));
-      // Queues sendBatch caps at 100 messages per call.
-      for (let i = 0; i < messages.length; i += 100) {
-        await env.POLL_QUEUE.sendBatch(messages.slice(i, i + 100));
-      }
+      const messages = (await listOrgIds(db)).map(
+        (orgId) =>
+          ({ kind: "score-recompute", orgId, day }) satisfies PollMessage,
+      );
+      await sendInBatches(env.POLL_QUEUE, messages);
       return;
     }
     await env.POLL_QUEUE.send({
@@ -51,9 +50,7 @@ export default {
     await env.POLL_QUEUE.send({ kind: "purge-raw" } satisfies PollMessage);
     const db = createDb(env);
     await dispatchDueConnectorWork(db, {
-      send: async (message) => {
-        await env.POLL_QUEUE.send(message);
-      },
+      send: (messages) => sendInBatches(env.POLL_QUEUE, messages),
     });
   },
 

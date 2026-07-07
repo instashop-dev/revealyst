@@ -27,6 +27,7 @@ import {
 } from "../src/poller/backfill";
 import { dispatchDueConnectorWork } from "../src/poller/dispatch";
 import type { PollMessage } from "../src/poller/messages";
+import { QUEUE_BATCH_SIZE, sendInBatches } from "../src/poller/queue";
 import { processPollMessage } from "../src/poller/process";
 import {
   credentialKindFor,
@@ -349,8 +350,8 @@ describe("connector-poll pipeline", () => {
     expect(after?.lastPolledAt).not.toBeNull();
     const sent: PollMessage[] = [];
     await dispatchDueConnectorWork(db, {
-      send: async (m) => {
-        sent.push(m);
+      send: async (msgs) => {
+        sent.push(...msgs);
       },
       resolveConnector: (v) => (v === "cursor" ? entry : undefined),
     });
@@ -380,8 +381,8 @@ describe("connector-poll pipeline", () => {
     const { entry } = makeFake();
     const sent: PollMessage[] = [];
     await dispatchDueConnectorWork(db, {
-      send: async (m) => {
-        sent.push(m);
+      send: async (msgs) => {
+        sent.push(...msgs);
       },
       now: () => new Date(Date.now() + 2 * 3_600_000), // past the interval
       resolveConnector: (v) => (v === "cursor" ? entry : undefined),
@@ -648,8 +649,8 @@ describe("cron dispatch", () => {
     const { entry } = makeFake();
     const sent: PollMessage[] = [];
     await dispatchDueConnectorWork(db, {
-      send: async (m) => {
-        sent.push(m);
+      send: async (msgs) => {
+        sent.push(...msgs);
       },
       now: NOW,
       resolveConnector: (v) => (v === "cursor" ? entry : undefined),
@@ -687,8 +688,8 @@ describe("cron dispatch", () => {
     const { entry } = makeFake();
     const sent: PollMessage[] = [];
     await dispatchDueConnectorWork(db, {
-      send: async (m) => {
-        sent.push(m);
+      send: async (msgs) => {
+        sent.push(...msgs);
       },
       // markPolled stamped real now; a minute later nothing is due.
       now: () => new Date(Date.now() + 60_000),
@@ -713,8 +714,8 @@ describe("cron dispatch", () => {
     const { entry } = makeFake();
     const sent: PollMessage[] = [];
     await dispatchDueConnectorWork(db, {
-      send: async (m) => {
-        sent.push(m);
+      send: async (msgs) => {
+        sent.push(...msgs);
       },
       now: NOW,
       resolveConnector: () => entry,
@@ -726,6 +727,66 @@ describe("cron dispatch", () => {
           m.connectionId === conn.id,
       ),
     ).toHaveLength(0);
+  });
+
+  it("hands the whole fan-out to send in one call, not one per connection", async () => {
+    // The at-scale path (thousands of orgs): dispatch must NOT `await` a
+    // round-trip per candidate — it accrues every due message and calls the
+    // sink once, which the worker flushes via sendInBatches.
+    const FRESH = 60;
+    const { entry } = makeFake();
+    for (let i = 0; i < FRESH; i++) {
+      await newConnection();
+    }
+
+    const calls: PollMessage[][] = [];
+    const total = await dispatchDueConnectorWork(db, {
+      send: async (msgs) => {
+        calls.push(msgs);
+      },
+      now: NOW,
+      resolveConnector: (v) => (v === "cursor" ? entry : undefined),
+    });
+
+    // Exactly one send, carrying the entire fan-out (not one send per msg).
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toHaveLength(total);
+    // The 60 fresh connections each emit a backfill chain-start + first poll.
+    expect(total).toBeGreaterThanOrEqual(FRESH * 2);
+  });
+});
+
+describe("sendInBatches (Queue fan-out chunking)", () => {
+  function fakeQueue() {
+    const calls: PollMessage[][] = [];
+    const queue = {
+      send: async () => {},
+      sendBatch: async (batch: Iterable<{ body: PollMessage }>) => {
+        calls.push([...batch].map((m) => m.body));
+      },
+    } as unknown as Queue;
+    return { queue, calls };
+  }
+
+  it("sends nothing for an empty list (sendBatch([]) would throw)", async () => {
+    const { queue, calls } = fakeQueue();
+    await sendInBatches(queue, []);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("chunks into Queue-cap batches and wraps each body as { body }", async () => {
+    const { queue, calls } = fakeQueue();
+    const bodies: PollMessage[] = Array.from(
+      { length: 2 * QUEUE_BATCH_SIZE + 50 },
+      (_, i) => ({ kind: "noop-poll", orgId: `org-${i}` }),
+    );
+    await sendInBatches(queue, bodies);
+    expect(calls.map((c) => c.length)).toEqual([
+      QUEUE_BATCH_SIZE,
+      QUEUE_BATCH_SIZE,
+      50,
+    ]);
+    expect(calls.flat()).toEqual(bodies); // order + exact bodies preserved
   });
 });
 
