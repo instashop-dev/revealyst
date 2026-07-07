@@ -22,6 +22,10 @@ import { previousDay } from "./scoring";
 // score recompute (W1-F). The */5 tick keeps the W0-B heartbeat + purge.
 const NIGHTLY_SCORE_CRON = "0 2 * * *";
 
+// Dead-letter queue for poll messages that exhaust max_retries (wrangler.jsonc
+// consumer config). This worker consumes it too — see the queue() branch.
+const DLQ_QUEUE_NAME = "revealyst-poll-dlq";
+
 export default {
   fetch: openNextHandler.fetch,
 
@@ -55,6 +59,20 @@ export default {
   },
 
   async queue(batch, env) {
+    if (batch.queue === DLQ_QUEUE_NAME) {
+      // A poll message that exhausted all retries. It can't be recovered
+      // here, but it must not vanish silently: log the full body at error
+      // level (Workers Logs / Logpush make it durable + alertable) and ack
+      // so it doesn't loop back into the DLQ.
+      for (const message of batch.messages) {
+        console.error(
+          `[dlq] message dead-lettered after ${message.attempts} attempts:`,
+          JSON.stringify(message.body),
+        );
+        message.ack();
+      }
+      return;
+    }
     const db = createDb(env);
     for (const message of batch.messages) {
       try {

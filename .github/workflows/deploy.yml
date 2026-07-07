@@ -34,10 +34,14 @@ jobs:
             npx drizzle-kit migrate
           fi
 
-      - name: Ensure poll queue exists
-        # Errors if it already exists — masked, because a genuinely missing
-        # queue fails the deploy step right after with a clearer message.
-        run: npx wrangler queues create revealyst-poll || echo "queue create skipped (may already exist)"
+      - name: Ensure poll queues exist
+        # Errors if they already exist — masked, because a genuinely missing
+        # queue fails the deploy step right after with a clearer message. The
+        # DLQ must exist before deploy since the consumer config references it
+        # as dead_letter_queue (wrangler.jsonc).
+        run: |
+          npx wrangler queues create revealyst-poll || echo "revealyst-poll create skipped (may already exist)"
+          npx wrangler queues create revealyst-poll-dlq || echo "revealyst-poll-dlq create skipped (may already exist)"
 
       - name: Build and deploy
         run: npm run deploy

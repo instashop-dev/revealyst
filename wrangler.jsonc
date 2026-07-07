@@ -38,12 +38,31 @@
 				// 10 retries × the consumer's exponential delays (30s…1h,
 				// run.ts retryDelaySeconds) rides out multi-hour vendor
 				// outages — the platform default of 3 dropped a backfill
-				// chain link after ~3.5 minutes. Remaining hardening: a DLQ
-				// (founder infra: `wrangler queues create revealyst-poll-dlq`,
-				// then add "dead_letter_queue" here).
-				"max_retries": 10
+				// chain link after ~3.5 minutes. After the 10th retry a
+				// message is dead-lettered to revealyst-poll-dlq (below)
+				// instead of vanishing silently.
+				"max_retries": 10,
+				"dead_letter_queue": "revealyst-poll-dlq"
+			},
+			{
+				// Dead-letter sink: src/worker.ts branches on batch.queue and
+				// logs each exhausted message at error level (durable +
+				// alertable via "observability" below), then acks it. A drop
+				// is now visible, never silent. Founder infra: `wrangler
+				// queues create revealyst-poll-dlq` (the Deploy workflow does
+				// this before deploy).
+				"queue": "revealyst-poll-dlq",
+				"max_batch_size": 10,
+				"max_batch_timeout": 30,
+				"max_retries": 3
 			}
 		]
+	},
+	// Workers Logs: retain invocation logs (incl. the [queue]/[dlq]
+	// console.error lines) so poll failures and dead-lettered messages are
+	// queryable + alertable rather than lost to the ether.
+	"observability": {
+		"enabled": true
 	},
 	"services": [
 		// Self-reference service binding required by the OpenNext cache

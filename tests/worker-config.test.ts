@@ -17,8 +17,15 @@ function readWranglerConfig() {
     triggers: { crons: string[] };
     queues: {
       producers: { binding: string; queue: string }[];
-      consumers: { queue: string }[];
+      consumers: {
+        queue: string;
+        max_batch_size?: number;
+        max_batch_timeout?: number;
+        max_retries?: number;
+        dead_letter_queue?: string;
+      }[];
     };
+    observability?: { enabled: boolean };
   };
 }
 
@@ -52,5 +59,34 @@ describe("wrangler.jsonc", () => {
       (s) => s.binding === "WORKER_SELF_REFERENCE",
     );
     expect(self?.service).toBe(config.name);
+  });
+
+  it("keeps the poll consumer's retry + batch tuning (ADR 0006)", () => {
+    const poll = config.queues.consumers.find(
+      (c) => c.queue === "revealyst-poll",
+    );
+    expect(poll).toBeDefined();
+    // The default of 3 dropped a backfill chain link after ~3.5 min; 10
+    // retries × exponential backoff rides out multi-hour outages.
+    expect(poll?.max_retries).toBe(10);
+    expect(poll?.max_batch_size).toBe(10);
+    expect(poll?.max_batch_timeout).toBe(5);
+  });
+
+  it("dead-letters exhausted poll messages to a DLQ the worker consumes", () => {
+    const poll = config.queues.consumers.find(
+      (c) => c.queue === "revealyst-poll",
+    );
+    // Routed to the DLQ instead of silently dropped after the last retry…
+    expect(poll?.dead_letter_queue).toBe("revealyst-poll-dlq");
+    // …and the DLQ is actually consumed (src/worker.ts logs + acks it),
+    // otherwise dead-lettered messages just pile up unseen.
+    expect(
+      config.queues.consumers.some((c) => c.queue === "revealyst-poll-dlq"),
+    ).toBe(true);
+  });
+
+  it("enables Workers observability so poll/DLQ logs are durable", () => {
+    expect(config.observability?.enabled).toBe(true);
   });
 });
