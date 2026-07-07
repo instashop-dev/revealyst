@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { apiRoutes } from "@/contracts/api";
@@ -8,8 +9,14 @@ import type { z } from "zod";
 
 // Paddle Checkout overlay trigger (W3-M PR3). Loads Paddle.js, initializes it
 // with the client-safe token, and on click asks the server to create a
-// transaction (org_id bound server-side) before opening the overlay. Entitlement
-// flips when the PR2 webhook lands, so success shows a "pending" state.
+// transaction (org_id bound server-side) before opening the overlay.
+//
+// Entitlement flips only when the PR2 webhook lands, so between "checkout
+// completed" and that webhook the org is still on the free plan. To avoid a
+// refresh re-showing the upgrade button (and letting an anxious admin start a
+// SECOND paid transaction), a completed checkout is persisted to localStorage
+// and the button shows a "processing" state that survives reloads and
+// auto-refreshes until the webhook lands (which unmounts this button).
 
 type CheckoutResponse = z.infer<(typeof apiRoutes)["billingCheckout"]["response"]>;
 
@@ -30,6 +37,24 @@ declare global {
 }
 
 const PADDLE_JS = "https://cdn.paddle.com/paddle/v2/paddle.js";
+const PENDING_KEY = "revealyst_upgrade_pending";
+/** After this long we assume the webhook won't arrive (canceled / failed) and
+ * let the user try again rather than trapping them in "processing". */
+const PENDING_MAX_AGE_MS = 15 * 60 * 1000;
+const REFRESH_MS = 5000;
+
+function readPending(): boolean {
+  try {
+    const at = Number(localStorage.getItem(PENDING_KEY));
+    if (!at || Date.now() - at > PENDING_MAX_AGE_MS) {
+      localStorage.removeItem(PENDING_KEY);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function UpgradeButton({
   clientToken,
@@ -38,9 +63,29 @@ export function UpgradeButton({
   clientToken: string;
   environment: "sandbox" | "production";
 }) {
+  const router = useRouter();
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  const [pending, setPending] = useState(false);
+
+  // Restore a pending upgrade across reloads.
+  useEffect(() => {
+    if (readPending()) setPending(true);
+  }, []);
+
+  // While an upgrade is processing, poll for the webhook-driven entitlement
+  // flip; when it lands, the parent (paywall/billing) re-renders without us.
+  useEffect(() => {
+    if (!pending) return;
+    const id = setInterval(() => {
+      if (!readPending()) {
+        setPending(false);
+        return;
+      }
+      router.refresh();
+    }, REFRESH_MS);
+    return () => clearInterval(id);
+  }, [pending, router]);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +97,14 @@ export function UpgradeButton({
       paddle.Initialize?.({
         token: clientToken,
         eventCallback: (event) => {
-          if (event.name === "checkout.completed") setDone(true);
+          if (event.name === "checkout.completed") {
+            try {
+              localStorage.setItem(PENDING_KEY, String(Date.now()));
+            } catch {
+              // non-fatal: the in-memory pending state still applies
+            }
+            setPending(true);
+          }
         },
       });
       setReady(true);
@@ -91,10 +143,10 @@ export function UpgradeButton({
     }
   }
 
-  if (done) {
+  if (pending) {
     return (
       <p className="text-sm text-muted-foreground">
-        Payment received — your workspace will switch to Team in a moment.
+        Payment received — activating your workspace. This can take a moment.
       </p>
     );
   }

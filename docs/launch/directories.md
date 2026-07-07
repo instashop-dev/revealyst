@@ -14,7 +14,7 @@ paste. Base copy: `.agents/product-marketing-context.md` one-liner +
 and add it to the list — re-check `src/connectors/registry.ts` first.)*
 
 **Standard long description:** landing-page hero paragraph + the three scores
-+ pricing line (Personal free forever · Team $2/tracked user, free ≤10).
++ pricing line (Personal free forever · Team $2/tracked user, free ≤5).
 
 ## Tier 1 — do these (dev/SaaS audiences, real referral traffic)
 | Directory | Notes |

@@ -2,6 +2,7 @@ import type { Db } from "../db/client";
 import { forOrg } from "../db/org-scope";
 import { subscriptionsForOrg } from "../db/subscriptions";
 import { ApiError } from "./api-impl";
+import { trailing30dPeriod } from "./entitlements";
 import {
   createCheckoutTransaction,
   createPortalSession,
@@ -19,12 +20,9 @@ import {
  * calendar month would bill 1–2 seats for a 40-person fleet that upgrades on
  * the 1st.) PR5's metering keeps it in sync each cycle. */
 async function currentSeatCount(db: Db, orgId: string): Promise<number> {
-  const end = new Date();
-  const start = new Date(end.getTime() - 29 * 24 * 60 * 60 * 1000);
-  const { trackedPersonIds } = await forOrg(db, orgId).billing.trackedUsers({
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-  });
+  const { trackedPersonIds } = await forOrg(db, orgId).billing.trackedUsers(
+    trailing30dPeriod(),
+  );
   return Math.max(1, trackedPersonIds.length);
 }
 

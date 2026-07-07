@@ -11,7 +11,7 @@ webhooks (`subscription.created/updated/canceled`, `transaction.completed`)
 drive the org's **entitlement state** so the app can enforce the paid tier.
 
 That entitlement state has to be **durable and org-scoped** — the paywall
-(≤10 free tracked users, upgrade at the 11th) and the metering job both read
+(≤5 free tracked users, upgrade at the 6th) and the metering job both read
 "is this org on Team, and for how many seats." No table at the W0-C freeze
 holds it: `orgs` has no plan/subscription concept, and the `tracked_user`
 metering primitive ([`tracked-user.ts`](../../src/contracts/tracked-user.ts))
