@@ -12,7 +12,7 @@ chaser routine (per the harness-setup doc) to poll status until each clears.
 | GitHub Marketplace listing (optional, deferrable) | Marketplace review | When the W2 site is live (needs public URLs) | Days–weeks (human review) | ☐ deferred |
 | Anthropic / OpenAI / Cursor | — | — | **None needed** — customer-created admin keys | ✅ n/a |
 | Paddle MoR onboarding | paddle.com | The instant W2 has a live site | Days–weeks (KYC) | ☐ waiting on W2 |
-| Legal pass (ToS/DPA/privacy) | counsel | When W3-N drafts terms | Weeks | ☐ waiting on drafts |
+| Legal pass (ToS/DPA/privacy) | counsel | When W3-N drafts terms | Weeks | ☐ **drafts ready — file with counsel** (W3-N: `docs/legal/`, `/legal/terms`, `/legal/privacy`) |
 
 Only GitHub requires an *app-shaped* approval, and only Copilot needs it: every
 other V1 connector authenticates with a customer-created API key pasted into

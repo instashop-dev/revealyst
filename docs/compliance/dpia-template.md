@@ -97,7 +97,7 @@ These are Revealyst defaults, so your DPIA can rely on them:
 | Score used as a disciplinary/performance metric | Low / High | Individual view is opt-in self-coaching; document internally that scores are **not** used for HR decisions `[state this in your worker notice]` | Low |
 | Re-identification from pseudonymized aggregates | Low / Medium | Pseudonyms + team-level aggregation; individual identities gated behind an explicit visibility-mode change | Low |
 | Over-attribution from shared accounts | Low / Low | Shared-account detection flags undercounting rather than fabricating people (§6.2); no per-user numbers invented | Low |
-| Secret/credential compromise | Low / High | AES-256-GCM envelope encryption under a versioned Worker-secret key (KEK); least-privilege, read-only vendor scopes | Low |
+| Secret/credential compromise | Low / High | AES-256-GCM envelope encryption under a versioned Worker-secret key (KEK); credentials used only to read usage data (Revealyst performs no writes/admin actions) | Low |
 
 ## 6. Consultation & sign-off
 
