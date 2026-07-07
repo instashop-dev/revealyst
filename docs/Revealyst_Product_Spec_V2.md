@@ -1,6 +1,7 @@
 # Revealyst — Product Specification (V2)
 
 **Version:** 2.4 · **Date:** July 7, 2026
+**Superseded by:** [Revealyst Product Specification V3](Revealyst_Product_Spec_V3.md) (the V1.5 spec) — this document remains the V1 reference; §2–§7 stay in force where V3 says so.
 **Supersedes:** Revealyst Product Specification V1 (`Revealyst_Product_Spec_V1.docx`)
 **Basis:** Revised per the Business & Technical Feasibility Study v1.1 ([docs/Revealyst_Feasibility_Study.md](Revealyst_Feasibility_Study.md)) and subsequent analysis of single-vendor analytics, shared-account attribution, cross-functional expansion, and individual (Personal-mode) usage.
 **Execution model:** V1 is built by **parallel AI coding agents** orchestrated by the founder (see [docs/Revealyst_Execution_Plan.md](Revealyst_Execution_Plan.md)), and ships **without a pre-build customer-validation gate** — the positioning and pricing in this spec are taken as the working thesis.
