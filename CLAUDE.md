@@ -4,8 +4,9 @@ Multi-tool AI-adoption analytics for CTOs: "who's using AI, how well, and are we
 getting our money's worth." Built by parallel AI-agent workstreams against frozen
 contracts. Every session auto-loads this file — it is the interface between agents.
 
-> Ground truth: [Product Spec](docs/Revealyst_Product_Spec_V2.md) ·
-> [Execution Plan](docs/Revealyst_Execution_Plan.md) ·
+> Ground truth: [Product Spec V3 — V1.5 scope](docs/Revealyst_Product_Spec_V3.md)
+> (V1 reference: [Spec V2](docs/Revealyst_Product_Spec_V2.md)) ·
+> [Execution Plan](docs/Revealyst_Execution_Plan.md) (V1 waves; V1.5 waves in Spec V3 §16) ·
 > [Claude Code Workflow](docs/Revealyst_Claude_Code_Workflow.md) ·
 > [Harness setup status](docs/Revealyst_Harness_Setup.md)
 
