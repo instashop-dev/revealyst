@@ -4,6 +4,7 @@ import {
   ensureSystemOrg as ensureSystemOrgRow,
   purgeExpiredRawPayloads,
 } from "../db/system";
+import { meterSubscription } from "../metering/meter";
 import { periodFor, recomputeOrg } from "../scoring";
 import {
   SYSTEM_ORG_ID,
@@ -70,6 +71,14 @@ export async function processPollMessage(
       ) {
         await recomputeOrg(db, message.orgId, { period: rolling });
       }
+      return;
+    }
+    case "meter-subscription": {
+      const d = requireDeps(deps, message.kind);
+      if (!d.paddleConfig) {
+        throw new Error("meter-subscription requires Paddle config (worker consumer)");
+      }
+      await meterSubscription(db, d.paddleConfig, message);
       return;
     }
   }

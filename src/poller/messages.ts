@@ -46,6 +46,16 @@ export type PollMessage =
       orgId: string;
       /** UTC calendar day anchoring the periods (YYYY-MM-DD). */
       day: string;
+    }
+  | {
+      // W3-M PR5: reports one org's current tracked_user count to Paddle as the
+      // subscription's seat quantity. Sent daily (one message per active/
+      // trialing subscription); a no-op when the count is unchanged, so
+      // re-delivery is harmless.
+      kind: "meter-subscription";
+      orgId: string;
+      paddleSubscriptionId: string;
+      priceId: string;
     };
 
 export type ConnectorPollMessage = Extract<
