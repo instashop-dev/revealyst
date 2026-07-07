@@ -47,6 +47,17 @@ export const scoreSubjectLevelEnum = pgEnum("score_subject_level", [
   "org",
 ]);
 
+// Paddle subscription status (W3-M, ADR 0009). Mirrors Paddle's subscription
+// statuses. Effective entitlement is DERIVED, not stored: active/trialing/
+// past_due grant the Team plan; paused/canceled (and no row) are Personal/free.
+export const subscriptionStatusEnum = pgEnum("subscription_status", [
+  "active",
+  "trialing",
+  "past_due",
+  "paused",
+  "canceled",
+]);
+
 // W0-C core schema. Every application table carries org_id; child tables
 // reference their parent via composite (org_id, parent_id) FKs so a
 // cross-org reference is unrepresentable at the DB level, not merely
@@ -787,6 +798,52 @@ export const benchmarkConsent = pgTable(
   (t) => [
     unique("benchmark_consent_org_id_id_uq").on(t.orgId, t.id),
     unique("benchmark_consent_org_user_uq").on(t.orgId, t.userId),
+  ],
+);
+
+// Paddle subscription / entitlement state (W3-M, ADR 0009). One row per Paddle
+// subscription, org-scoped. Effective plan is DERIVED from `status` (see the
+// enum) — there is no plan column to keep in sync with Paddle. Personal/free
+// orgs never get a row. `paddle_subscription_id` is globally unique so the
+// webhook upsert is idempotent regardless of delivery order. The billed
+// `quantity` is the frozen tracked_user count (src/contracts/tracked-user.ts);
+// this table stores the last value Paddle confirmed, never redefines it.
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    paddleSubscriptionId: text("paddle_subscription_id").notNull().unique(),
+    paddleCustomerId: text("paddle_customer_id"),
+    status: subscriptionStatusEnum("status").notNull(),
+    priceId: text("price_id").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    currentPeriodStart: timestamp("current_period_start", {
+      withTimezone: true,
+    }),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
+    // The Paddle event's `occurred_at` — event time, NOT row-write time.
+    // Webhook deliveries are not ordered, so the upsert applies an event only
+    // when it is newer than the stored one (see applyPaddleSubscriptionEvent),
+    // and entitlement resolution orders on this. `updated_at` stays row-write
+    // time so a metering quantity write never reorders the entitlement.
+    paddleOccurredAt: timestamp("paddle_occurred_at", {
+      withTimezone: true,
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("subscriptions_org_id_id_uq").on(t.orgId, t.id),
+    index("subscriptions_org_idx").on(t.orgId),
   ],
 );
 
