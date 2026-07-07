@@ -25,7 +25,12 @@ import {
 } from "@/components/ui/card";
 import { ScoreCardMock } from "@/components/marketing/score-card-mock";
 import { Section } from "@/components/marketing/section";
+import { trackLaunchEvent } from "@/lib/launch-events";
 import { VENDOR_LABELS, vendorLabel } from "@/lib/vendor-labels";
+
+// Request-rendered so the landing_view event fires per visit (§15). The page
+// itself reads no data — the only per-request work is the event write.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Revealyst — see who's actually adopting AI, and how well",
@@ -34,7 +39,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Revealyst — see who's actually adopting AI, and how well",
     description:
-      "Neutral, cross-tool AI adoption analytics with published, versioned scoring. Free for individuals and teams up to 10 tracked users.",
+      "Neutral, cross-tool AI adoption analytics with versioned, inspectable scoring. Free for individuals and teams up to 10 tracked users.",
   },
   twitter: {
     card: "summary_large_image",
@@ -104,7 +109,7 @@ const PRIVACY_POINTS = [
     icon: EyeOff,
     title: "Pseudonymized, team-level by default",
     detail:
-      "Individual identities are never surfaced unless someone opts into their own self-view. There is no manager leaderboard to build.",
+      "Individual identities appear only if an org admin explicitly changes the visibility mode — never silently. Individual self-view is the free Personal mode, where you are your own data subject.",
   },
   {
     icon: ShieldCheck,
@@ -122,7 +127,7 @@ const PRIVACY_POINTS = [
     icon: FileSearch,
     title: "Compliance guidance included",
     detail:
-      "DPIA template, works-council notification note, and AI Act checklist ship in onboarding. Built for EU buyers, not retrofitted.",
+      "DPIA template, works-council notification note, and AI Act checklist ship inside the product. Built for EU buyers, not retrofitted.",
   },
 ];
 
@@ -166,13 +171,18 @@ const TIERS: {
   },
   {
     name: "Enterprise",
-    tagline: "For when you need the paperwork.",
+    tagline: "For when you need the paperwork — talk to us.",
     price: "Custom",
-    features: ["SSO and audit", "DPA and org-wide connectors", "Industry benchmarks"],
+    features: [
+      "Custom DPA",
+      "SSO and audit (roadmap)",
+      "Org-wide connectors (roadmap)",
+    ],
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  await trackLaunchEvent("landing_view");
   return (
     <main className="flex min-h-dvh flex-col">
       {/* Hero — dark, echoing the share-card artifact. Arbitrary-value CSS
@@ -329,7 +339,7 @@ export default function Home() {
               step: "Connect",
               icon: KeyRound,
               detail:
-                "Point Revealyst at the admin APIs and keys you already control — read-only, encrypted at rest. Individuals connect their own keys or Claude Code logs.",
+                "Point Revealyst at the admin APIs and keys you already control — we only ever read, and credentials are envelope-encrypted at rest. Individuals connect their own keys or Claude Code logs.",
             },
             {
               step: "Backfill",
@@ -341,7 +351,7 @@ export default function Home() {
               step: "Score",
               icon: Scale,
               detail:
-                "Adoption, Fluency, and Efficiency compute from published, versioned definitions — with benchmarks, so a 78 means something.",
+                "Adoption, Fluency, and Efficiency compute from versioned definitions you can inspect — with benchmarks, so a 78 means something.",
             },
           ].map((item, i) => (
             <li key={item.step} className="flex flex-col gap-3">
@@ -366,7 +376,7 @@ export default function Home() {
         index="03"
         eyebrow="The three scores"
         title="Three numbers that answer the board's question."
-        lead="Every score is computed from a versioned, published definition. You can see which formula produced which number — and history recomputes when definitions improve."
+        lead="Every score is computed from a versioned definition you can inspect. You can see which formula produced which number — and history recomputes when definitions improve."
       >
         <div className="grid gap-6 md:grid-cols-3">
           {SCORES.map((score) => (
@@ -423,7 +433,7 @@ export default function Home() {
         </div>
         <div className="flex flex-col gap-2 rounded-xl border bg-muted/50 p-6 md:flex-row md:items-center md:justify-between md:gap-6">
           <blockquote className="font-heading text-xl font-medium text-balance">
-            “You think 12 people use AI. The pattern suggests ~30.”
+            “You think 12 people use AI. The pattern says it&apos;s more.”
           </blockquote>
           <p className="max-w-md text-sm text-muted-foreground">
             Shared-account detection flags round-the-clock seats and outlier
@@ -473,11 +483,12 @@ export default function Home() {
             <p className="text-sm text-muted-foreground">
               The score card is opt-in and shows exactly one thing: the label
               you chose and your featured score. No email, no employer, no
-              history. Revoke the link any time.
+              history.
             </p>
             <p className="text-sm text-muted-foreground">
-              Curious how you compare? Opt into anonymized benchmarks and see
-              where your fluency lands against developers on similar tools.
+              Curious how you compare? Opt into anonymized benchmarks to help
+              build the published comparison set — verified industry norms
+              appear alongside your scores as they land.
             </p>
             <Button
               variant="outline"

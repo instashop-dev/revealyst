@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { getApiContext } from "@/lib/api-context";
+import { trackLaunchEvent } from "@/lib/launch-events";
 import { resolveShareCard } from "@/lib/share-card";
 
 // Social-preview image for a public share card (ADR 0008). Text-only with the
@@ -20,6 +21,11 @@ export default async function ShareCardImage({
   const { token } = await params;
   const { db } = getApiContext();
   const card = await resolveShareCard(db, token);
+  if (card) {
+    // §15: OG-image fetches ≈ link unfurls in socials/chat. Slug + host only —
+    // never the token or label (src/lib/launch-events.ts privacy rule).
+    await trackLaunchEvent("share_card_og_view", card.scoreSlug);
+  }
 
   const label = card?.publicLabel ?? "Revealyst";
   const scoreLabel = card?.scoreLabel ?? "AI Fluency";

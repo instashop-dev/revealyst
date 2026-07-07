@@ -140,7 +140,30 @@ The KMS one slipped into merged PR #75 because that PR's fact-check was scoped
 narrowly to the claim under suspicion; a broad "check every sentence" pass in
 #76 caught both. Run an adversarial content fact-check (a reviewer that did not
 write the prose) over the whole document, grounded in the schema/credential/
-connector-facts contracts.
+connector-facts contracts. W3-P repeats confirmed the pattern (13 findings in
+launch copy, incl. the same "read-only" claim independently re-invented) and
+added a structural fix: the landing page's "Connects" strip derives from
+`src/connectors/registry.ts` — never hard-code connector claims in copy, and
+never present-tense an unshipped connector (Copilot is "Soon").
+
+**Timestamp gotcha (analytics/funnels, W3-P):** `score_results.computed_at` is
+REWRITTEN by the nightly recompute upsert (`org-scope.ts` `upsertResults`) —
+never derive "first score" / activation timing from it (min(computed_at) reads
+as days, not minutes, for any org older than a day). `connector_runs` rows are
+append-only per attempt — the stable timestamp source; score-row EXISTENCE is
+stable for activation booleans.
+
+**Tailwind v4 `.dark`-scoped sections (W1-G design system):** inside a
+section-level `dark` class, arbitrary-value CSS must use the raw tokens
+(`var(--background)`, `var(--muted-foreground)`) — the `@theme inline`
+`--color-*` vars resolve at `:root` (light) and ignore the scoped override
+(painted a white vignette over a dark hero; invisible to DOM assertions, found
+only by mechanism review). Also: base-nova `Card` draws its outline with
+`ring-1`, so `border-*` color classes are silent no-ops on it — use `ring-*`.
+
+- Windows dev machine: `preview_screenshot` can time out persistently while
+  `preview_snapshot`/`preview_inspect`/`preview_eval` all work — verify with
+  DOM/CSS-level assertions instead of blocking on the screenshot.
 
 ## How the fleet works
 - **Plan mode before code, every time.** `/kickoff <workstream>` starts in plan mode;
@@ -173,6 +196,15 @@ connector-facts contracts.
   origin/<target>`; recovery for a stacked chain = retarget the still-open tip PR's
   base to the integration branch (its HEAD holds the whole reviewed stack). Cost
   W2-K all 4 PRs (#55/#57/#60), recovered via #63 retargeted to `w2-k`.
+  **Stacked-PR variant (W3-P):** GitHub's merge button merges a PR into its
+  *base branch* — for a stacked PR that's the parent branch, NOT main. "All
+  PRs merged" can therefore leave every non-root PR stranded on stack branches
+  (cost W3-P #88/#90; recovered via #91→#92 from the stack tip based on main).
+  After any stack merge, verify the TIP commit with `git merge-base
+  --is-ancestor <tipSHA> origin/main` before celebrating or deleting branches.
+  And if a recovery PR develops conflicts with main, don't push the resolution
+  to the open PR (merge-race drops it) — resolve on a fresh branch and
+  recreate the PR with the resolution in its creation-time HEAD.
 - Flaky, not broken: an occasional `[vitest-pool]: Worker exited unexpectedly`
   (Windows fork crash) and a rare pseudonym-collision in `tests/api-impl.test.ts`
   are known transient flakes — rerun before treating either as a regression.
