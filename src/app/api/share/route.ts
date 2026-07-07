@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { shareLinksForOrg } from "@/db/share-links";
 import { ApiError } from "@/lib/api-impl";
-import { handleApi, parseBody } from "@/lib/api-route";
+import { handleApi, parseBody, parseQuery } from "@/lib/api-route";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     if (person.authUserId !== ctx.user.id) {
       throw new ApiError(403, "you can only share your own score");
     }
-    const { token } = await shareLinksForOrg(ctx.db, ctx.org.id).create({
+    const { link, token } = await shareLinksForOrg(ctx.db, ctx.org.id).create({
       personId: body.personId,
       scoreSlug: body.scoreSlug,
       publicLabel: body.publicLabel,
@@ -42,6 +42,37 @@ export async function POST(req: Request) {
       targetId: body.personId,
       metadata: { scoreSlug: body.scoreSlug },
     });
-    return { token };
+    // id lets the dialog correlate this link with the active list (e.g. to
+    // clear the shown one-time URL if the user immediately revokes it).
+    return { token, id: link.id };
+  });
+}
+
+const listShareSchema = z.object({ personId: z.string().uuid() });
+
+// The owner's "my share links" list. Plaintext tokens are never stored, so
+// this returns metadata only (no URLs) — the URL is shown once at creation.
+// Same self-only rule as POST: you can only list your own links.
+export async function GET(req: Request) {
+  return handleApi(async (ctx) => {
+    const { personId } = parseQuery(listShareSchema, req);
+    const person = await ctx.scope.people.get(personId);
+    if (!person) {
+      throw new ApiError(400, "person not in this org");
+    }
+    if (person.authUserId !== ctx.user.id) {
+      throw new ApiError(403, "you can only list your own share links");
+    }
+    const links = await shareLinksForOrg(ctx.db, ctx.org.id).listForPerson(
+      personId,
+    );
+    return {
+      links: links.map((l) => ({
+        id: l.id,
+        scoreSlug: l.scoreSlug,
+        publicLabel: l.publicLabel,
+        createdAt: l.createdAt.toISOString(),
+      })),
+    };
   });
 }

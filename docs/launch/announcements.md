@@ -184,7 +184,7 @@ prompt content ever, no browser extension. If your works council would veto
 it, we didn't build it.
 
 Free forever for individuals (measure your own AI fluency — mine is linked in
-the comments). Teams: $2 per tracked user per month, free up to 10.
+the comments). Teams: $2 per tracked user per month, free up to 5.
 
 <landing>?ref=li
 ```

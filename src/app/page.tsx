@@ -484,7 +484,7 @@ export default async function Home() {
             <p className="text-sm text-muted-foreground">
               The score card is opt-in and shows exactly one thing: the label
               you chose and your featured score. No email, no employer, no
-              history.
+              history. Revoke the link any time.
             </p>
             <p className="text-sm text-muted-foreground">
               Curious how you compare? Opt into anonymized benchmarks to help

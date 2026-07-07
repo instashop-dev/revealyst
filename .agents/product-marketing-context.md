@@ -7,7 +7,7 @@
 **What it does:** Revealyst pulls usage telemetry from the admin APIs of the AI tools a company already pays for and turns it into three scores — Adoption, Fluency, Efficiency — with team benchmarks. **Connector truth (verify against `src/connectors/registry.ts` before writing copy):** live today = Anthropic Console, OpenAI, Cursor, plus the Claude Code local agent; GitHub Copilot and Claude Enterprise are planned (spec §10) but NOT shipped — copy must say "soon", never present tense. It is the neutral third party: no AI vendor will ever credibly measure its own product's impact or tell you a competitor's tool is used better.
 **Product category:** AI enablement / adoption analytics. Explicitly NOT FinOps and NOT employee monitoring.
 **Product type:** B2B SaaS (PLG), with a free Personal mode as the individual on-ramp — same product, same machinery, not a separate B2C funnel.
-**Business model:** Personal $0 forever · Team $2/tracked-user/mo (free for ≤10 tracked users; time-boxed 50% founder discount → $1/user, publicly sunset-dated 2026-08-31, implemented as a Paddle discount, never a lower list price) · Enterprise custom. Billing via Paddle as Merchant of Record (handles global VAT — part of the EU-safe story). "Tracked user" = an identity-resolved person with usage in the period; unresolved keys/accounts are surfaced but never billed.
+**Business model:** Personal $0 forever · Team $2/tracked-user/mo (free for ≤5 tracked users — `FREE_TRACKED_USER_LIMIT` in `src/lib/entitlements.ts` is the source of truth, W3-M revised it from 10; time-boxed 50% founder discount → $1/user, publicly sunset-dated 2026-08-31, implemented as a Paddle discount, never a lower list price) · Enterprise custom. Billing via Paddle as Merchant of Record (handles global VAT — part of the EU-safe story). "Tracked user" = an identity-resolved person with usage in the period; unresolved keys/accounts are surfaced but never billed.
 
 ## Target Audience
 **Target companies:** Engineering-led companies, 25–200 employees (V1 beachhead). Explicitly not enterprise 5000+ at launch.
@@ -62,12 +62,12 @@
 | "Isn't this employee monitoring?" | Team-level and pseudonymized by default; no prompt content ever in Team mode; individual view is opt-in self-coaching only; DPIA/works-council/AI-Act guidance ships in onboarding. The architecture, not a setting, makes surveillance impossible. |
 | "The vendors already give me dashboards." | Per-tool, seat=person assumptions that shared accounts break, and self-graded impact claims. Nobody compares across tools or scores fluency — that's the whole product. |
 | "Is a fluency score even credible?" | Behavioral signals only (acceptance rates, engaged days, feature breadth, output shipped), published versioned methodology, component drill-downs, benchmark context. When data doesn't support a number, we omit it rather than fake it. |
-| "$2/user seems too cheap to be real." | Deliberate low anchor — COGS is cents per tracked user; expansion comes from feature depth and headcount, not price hikes. Free ≤10 tracked users to prove value first. |
+| "$2/user seems too cheap to be real." | Deliberate low anchor — COGS is cents per tracked user; expansion comes from feature depth and headcount, not price hikes. Free ≤5 tracked users to prove value first. |
 **Anti-persona:** 5000+ enterprises wanting sales-led procurement; companies wanting prompt-content review of employees (we refuse by design); non-engineering orgs needing org-wide coverage today (V2 — connectors don't exist yet, and we say so).
 
 ## Switching Dynamics
 **Push:** Board pressure to justify AI spend; vendor dashboards that can't answer cross-tool questions; unused seats quietly burning budget.
-**Pull:** First consolidated spend+adoption view within ~10 minutes of self-serve signup; a fluency score nobody else offers; free entry (Personal, and Team ≤10).
+**Pull:** First consolidated spend+adoption view within ~10 minutes of self-serve signup; a fluency score nobody else offers; free entry (Personal, and Team ≤5).
 **Habit:** "The Copilot dashboard is good enough"; quarterly spreadsheet ritual already exists.
 **Anxiety:** Works-council/GDPR blowback (answered by the privacy architecture); another SaaS to justify (answered by $2 + free bands); data-access trust (read-only admin APIs + envelope-encrypted credentials).
 
@@ -107,7 +107,7 @@
 | Neutrality | Cross-vendor by construction; no AI vendor relationship to protect |
 | Honesty | Attribution-confidence tags; omit-don't-fabricate scoring rules (score-definitions.md) |
 | EU-safety | Pseudonymized team default; no content capture; DPIA/works-council/AI-Act guidance; Paddle MoR for VAT |
-| Speed | Self-serve; first insight target <10 min; free entry both sides (Personal, Team ≤10) |
+| Speed | Self-serve; first insight target <10 min; free entry both sides (Personal, Team ≤5) |
 
 ## Goals
 **Business goal:** V1 launch validation via live signals: activation (first score), share-card virality, Personal→Team conversion (spec §15 — no pre-launch validation gate exists by design).
