@@ -88,7 +88,13 @@ and ADR-covered:
 - Route probes and landing-copy checks: see checklist row 1.
 - `POST /api/billing/checkout` unauthenticated → 401 (fail-closed).
 - `POST /api/webhooks/paddle` → was `500 "webhook secret not configured"`
-  (Finding 3); will resolve on the founder's re-deploy with the completed secrets.
+  (Finding 3). After this pass's deploy.yml fix + secret sync + re-deploy
+  (run 28870312823, `43abaa6`): unsigned probe now returns
+  `401 "invalid signature"` — the webhook/entitlement path is live and
+  fail-closed. Checkout/portal/metering still await the founder's
+  `PADDLE_API_KEY` + `PADDLE_CLIENT_TOKEN`.
+- Post-fix prod content verified: ToS has zero Copilot mentions; landing mock
+  card renders the "Example card" caption; all fixed copy is live.
 - Paddle production objects verified live via API (price, FOUNDER discount,
   webhook destination + 4 events) — details in checklist row 2.
 
@@ -243,8 +249,9 @@ tripwires (none introduced).
 - [ ] Would I trust this score? — founder
 
 **Founder actions to convert CONDITIONAL PASS → PASS:**
-1. Add repo secrets `PADDLE_API_KEY` + `PADDLE_CLIENT_TOKEN` (prod values),
-   re-run Deploy, confirm `POST /api/webhooks/paddle` (unsigned) returns 401.
+1. Add repo secrets `PADDLE_API_KEY` + `PADDLE_CLIENT_TOKEN` (prod values)
+   and re-run Deploy. (The webhook secret is already live — unsigned probe
+   returns 401 — so this unblocks checkout, portal, and the metering PATCH.)
 2. End-to-end Team purchase walkthrough on prod (checkout overlay → webhook →
    entitlement flips → portal), incl. the Paddle dashboard "Default Payment
    Link" setting.
