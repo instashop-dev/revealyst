@@ -1,0 +1,19 @@
+{
+  "event_id": "evt_01kwxq0unknownstatus0000000",
+  "event_type": "subscription.updated",
+  "occurred_at": "2026-07-10T09:00:00.000Z",
+  "notification_id": "ntf_01kwxq0unknownstatus0000000",
+  "data": {
+    "id": "sub_01kwxq0000000000000000000a",
+    "status": "some_future_status",
+    "customer_id": "ctm_01kwxq0000000000000000000c",
+    "custom_data": { "org_id": "ORG_PLACEHOLDER" },
+    "items": [
+      {
+        "price": { "id": "pri_01kwxp80bbbgpaaat2501eybpb" },
+        "quantity": 12
+      }
+    ],
+    "canceled_at": null
+  }
+}

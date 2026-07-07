@@ -1,6 +1,6 @@
 import { and, desc, eq, lt } from "drizzle-orm";
 import type { Db } from "./client";
-import { subscriptions } from "./schema";
+import { orgs, subscriptions } from "./schema";
 
 // Paddle subscription / entitlement state (ADR 0009). Lives in the schema zone
 // beside org-scope.ts. Reads/writes for an authenticated org go through the
@@ -116,6 +116,23 @@ export function subscriptionsForOrg(db: Db, orgId: string) {
       return row ?? null;
     },
   };
+}
+
+/**
+ * Does this org exist? A pre-check for the webhook handler so an event naming a
+ * deleted or bogus org (the `orgs` FK is `onDelete: cascade`) is acknowledged +
+ * ignored rather than throwing a foreign-key violation that Paddle retries for
+ * days. Global read of the tenant root (like membership lookups), not org-scoped
+ * data. The caller MUST pass a syntactically valid UUID — a malformed id would
+ * make Postgres throw on the uuid cast.
+ */
+export async function orgExists(db: Db, orgId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: orgs.id })
+    .from(orgs)
+    .where(eq(orgs.id, orgId))
+    .limit(1);
+  return row !== undefined;
 }
 
 export type PaddleSubscriptionUpsert = {
