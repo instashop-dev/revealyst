@@ -23,25 +23,32 @@ export type BenchmarkNorm = {
 export const BENCHMARK_NORMS_VERSION = 0;
 
 export const BENCHMARK_NORMS: BenchmarkNorm[] = [
+  // Provenance honesty (invariant b, score-definitions.md): these curves are
+  // MODELED estimates from public commentary, not verified published data —
+  // the source strings must say so until a founder verifies primary sources
+  // (docs/launch/benchmark-post-data-needs.md) and the panel switches to
+  // verified benchmark rows.
   {
     slug: "adoption",
     label: "AI Adoption",
     peerMedian: 52,
     percentiles: { p10: 20, p25: 38, p50: 52, p75: 68, p90: 82 },
-    source: "Worklytics / Section AI-adoption benchmarks (2025, published)",
+    source:
+      "Revealyst modeled estimate (unverified) — from public Worklytics / Section AI-adoption commentary",
   },
   {
     slug: "fluency",
     label: "AI Fluency",
     peerMedian: 49,
     percentiles: { p10: 18, p25: 34, p50: 49, p75: 65, p90: 80 },
-    source: "GitHub Copilot acceptance-rate norms + published fluency studies (2025)",
+    source:
+      "Revealyst modeled estimate (unverified) — from public Copilot acceptance-rate commentary",
   },
   {
     slug: "efficiency",
     label: "AI Efficiency",
     peerMedian: 45,
     percentiles: { p10: 15, p25: 30, p50: 45, p75: 62, p90: 78 },
-    source: "Published value-per-spend benchmarks (2025)",
+    source: "Revealyst modeled estimate (unverified)",
   },
 ];
