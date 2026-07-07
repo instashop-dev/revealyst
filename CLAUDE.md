@@ -25,6 +25,16 @@ contracts. Every session auto-loads this file — it is the interface between ag
 - `npm run dev` (plain Next dev) needs `.dev.vars`'s `BETTER_AUTH_URL` set to
   `http://localhost:3000`, not the `wrangler dev` default of `:8787` — mismatch
   fails sign-up/sign-in with "Invalid origin" 403.
+- Vitest resolves `@/` only under tsc/Next, NOT at test runtime — code imported
+  by tests (`src/lib`, `src/db`) must use RELATIVE value imports (`../db/x`);
+  `@/` is fine only in route files (vitest never runs them).
+- `next dev` hits a LOCAL Postgres, not Neon: `createDb` prefers the HYPERDRIVE
+  binding, whose wrangler `localConnectionString` is `127.0.0.1:5432` — run
+  `npm run dev:db` (PGlite socket) first. That socket's postgres.js
+  prepared-statement bug (`08P01 … prepared statement`) breaks the authenticated
+  session query, so a logged-in app-shell flow can't be fully driven against
+  `dev:db` — unit-test that logic instead. `.dev.vars` is per-worktree
+  (gitignored); appending without a trailing newline concatenates onto the last key.
 - A corrupted `.next/dev/types/validator.ts` (from an interrupted `next dev`) breaks
   `tsc --noEmit` repo-wide with unrelated syntax errors; `.next` isn't in tsconfig's
   exclude — `rm -rf .next` and retype checks clean.
@@ -42,7 +52,10 @@ contracts. Every session auto-loads this file — it is the interface between ag
   <slug>` (offline, no DB) writes the next-numbered `drizzle/*.sql` + snapshot +
   `_journal` entry. Migration numbers and ADR numbers are INDEPENDENT sequences
   (both collided at 0009/0010) — check `ls drizzle/*.sql` and `ls docs/decisions/`
-  separately before numbering.
+  separately before numbering. Re-check `ls docs/decisions/` after your FINAL
+  sync to main too: a parallel workstream can merge its ADR into your number
+  between your first check and your PR (W3-M's 0010 collided with W3-O's merged
+  `0010-audit-log`; renumbered to 0011).
 - Unauthenticated routes use `getApiContext()` (no session) from
   `src/lib/api-context.ts`, not `handleApi`/`appContext` (which require a
   session, 401 otherwise). System-level / bounded cross-org DB reads belong in
@@ -153,6 +166,24 @@ as days, not minutes, for any org older than a day). `connector_runs` rows are
 append-only per attempt — the stable timestamp source; score-row EXISTENCE is
 stable for activation booleans.
 
+**Billing/entitlement pattern (W3-M, Paddle):** the free-band paywall gates BOTH
+the page shell (`(app)/layout.tsx`) AND the JSON APIs (`handleApi` — the API
+choke point; 402 by default, opt-out `allowOverFreeBand` only for the
+upgrade/portal routes). A UI-only gate leaves fleet data readable via `/api/*`
+with the session cookie. `org.kind` never becomes `team` (nothing sets it), so
+entitlement is count-based (`tracked_user` × subscription via
+`src/lib/access.ts` `computeAccess`), never kind-based. Product params shown in
+UI/legal prose (free-band size, price) render a single source-of-truth constant
+(`FREE_TRACKED_USER_LIMIT`) so ToS/landing can't drift from what the code
+enforces — the W3-N content-overclaim rule applies to rendered pages, not just
+docs. Metering is a charge path on an at-least-once queue: compare-and-set the
+seat quantity in Postgres BEFORE the Paddle PATCH (`subscriptionsForOrg`
+`.setQuantityIf`) so concurrent/redelivered messages charge once, and
+record-then-charge so a mid-flight crash under-bills (safe), never
+double-charges. Paddle checkout needs a dashboard Checkout Settings → Default
+Payment Link set, or `POST /transactions` 400s
+`transaction_default_checkout_url_not_set` and the overlay never opens.
+
 **Tailwind v4 `.dark`-scoped sections (W1-G design system):** inside a
 section-level `dark` class, arbitrary-value CSS must use the raw tokens
 (`var(--background)`, `var(--muted-foreground)`) — the `@theme inline`
@@ -208,3 +239,9 @@ only by mechanism review). Also: base-nova `Card` draws its outline with
 - Flaky, not broken: an occasional `[vitest-pool]: Worker exited unexpectedly`
   (Windows fork crash) and a rare pseudonym-collision in `tests/api-impl.test.ts`
   are known transient flakes — rerun before treating either as a regression.
+  The full suite fails a *different* small set each run under load (2–5 files,
+  auth/connector tests); confirm by running the named files in isolation (they
+  pass) rather than assuming a regression.
+- `preview-deploy` CI intermittently fails on a Cloudflare Hyperdrive-binding 500
+  (`code: 10021`, "try again later") unrelated to the diff — `gh run rerun <id>
+  --failed`, don't debug.
