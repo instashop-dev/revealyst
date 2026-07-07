@@ -1,10 +1,11 @@
-import { and, eq, exists, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, lt, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
   connectionCredentials,
   connections,
   connectorRuns,
   orgs,
+  pollHeartbeats,
   rawPayloads,
 } from "./schema";
 
@@ -89,6 +90,25 @@ export async function listConnectorWorkCandidates(
     ...r,
     backfillStarted: started.has(r.connectionId),
   }));
+}
+
+/**
+ * The most recent poll heartbeat's timestamp (the cron → queue → consumer →
+ * Postgres round-trip proven by the no-op poller), for the /api/health
+ * liveness probe. Returns null before the first tick. `limit 1` keeps the
+ * result tiny, but poll_heartbeats has no index on observed_at yet and is
+ * never purged, so this is a seqscan + top-N that grows with the log —
+ * negligible at current volume; a follow-up adds an observed_at index +
+ * heartbeat retention. System-level telemetry (poller liveness, not tenant
+ * data), so it reads across the table like the other jobs here.
+ */
+export async function latestHeartbeatAt(db: Db): Promise<Date | null> {
+  const [row] = await db
+    .select({ observedAt: pollHeartbeats.observedAt })
+    .from(pollHeartbeats)
+    .orderBy(desc(pollHeartbeats.observedAt))
+    .limit(1);
+  return row?.observedAt ?? null;
 }
 
 /**
