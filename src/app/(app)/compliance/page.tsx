@@ -121,7 +121,22 @@ export default function CompliancePage() {
       <p className="mb-6 text-sm text-muted-foreground">
         These are guidance, not legal advice — the DPIA, works-council
         consultation, and worker notification are your controller obligations.
-        Each guide is a starting point your DPO or counsel should finalize.
+        Each guide is a starting point your DPO or counsel should finalize. Our
+        own{" "}
+        <a
+          href="/legal/terms"
+          className="font-medium text-foreground underline"
+        >
+          Terms
+        </a>{" "}
+        and{" "}
+        <a
+          href="/legal/privacy"
+          className="font-medium text-foreground underline"
+        >
+          Privacy Policy
+        </a>{" "}
+        set out how Revealyst itself handles data.
       </p>
 
       <div className="flex flex-col gap-4">
