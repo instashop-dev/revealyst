@@ -129,9 +129,9 @@ Parallel agents each pass their own unit tests, but nothing owns the seams — w
 
 ### W3-M. Billing — **Paddle (Merchant of Record)**
 - **Paddle Billing** with Paddle as MoR: Paddle is the seller of record and handles global sales tax/VAT collection, remittance, and invoicing — a meaningful simplification for a solo founder selling into the EU (no per-country VAT registration; complements the EU-safe positioning).
-- Plans: **Personal** free forever · **Team** per-tracked-user at the $3–5 list (pick one number, e.g. $4) modeled as a **quantity-based subscription**. The metered quantity is the **`tracked_user` count defined in W0-C** (identity-resolved people billed; unresolved key/account subjects surfaced, not billed) — a metering job reports it to Paddle each billing cycle (proration per Paddle's quantity-update rules); free band ≤10 tracked users enforced in-app with the upgrade paywall at the 11th.
+- Plans: **Personal** free forever · **Team** per-tracked-user at a **$2 list** (founder decision, Spec v2.4) modeled as a **quantity-based subscription**. The metered quantity is the **`tracked_user` count defined in W0-C** (identity-resolved people billed; unresolved key/account subjects surfaced, not billed) — a metering job reports it to Paddle each billing cycle (proration per Paddle's quantity-update rules); free band ≤10 tracked users enforced in-app with the upgrade paywall at the 11th.
 - Integrate **Paddle Checkout (overlay)** for self-serve upgrade and **webhooks** (`subscription.created/updated/canceled`, `transaction.completed`) → entitlement state in Postgres; customer portal links for invoices/cancellation.
-- Time-boxed founder pricing (~$2/user, publicly sunset-dated, per §11) implemented as a Paddle **discount**, never a separate low list price.
+- Time-boxed founder pricing (**50% off → $1/user**, publicly sunset-dated, per §11) implemented as a Paddle **discount**, never a separate low list price.
 - **Approval timing — why later than the GitHub App.** Paddle's MoR onboarding reviews the actual product and a live domain, which don't exist at W0, so it is filed **the moment W2 produces a live site** — not W0 like the OAuth/GitHub App reviews (which need no site). This is the split behind orchestration rule 5. Also: tax-category setup (SaaS) and sandbox coverage in CI.
 
 ### W3-N. Compliance guidance content

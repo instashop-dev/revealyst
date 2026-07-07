@@ -11,7 +11,7 @@ chaser routine (per the harness-setup doc) to poll status until each clears.
 | GitHub App registration | github.com/settings/apps (or org) | **Now** (no site needed) | Instant to create; install-approval per customer org | ✅ filed |
 | GitHub Marketplace listing (optional, deferrable) | Marketplace review | When the W2 site is live (needs public URLs) | Days–weeks (human review) | ☐ deferred |
 | Anthropic / OpenAI / Cursor | — | — | **None needed** — customer-created admin keys | ✅ n/a |
-| Paddle MoR onboarding | paddle.com | The instant W2 has a live site | Days–weeks (KYC) | ☐ waiting on W2 |
+| Paddle MoR onboarding | paddle.com | The instant W2 has a live site | Days–weeks (KYC) | 🔶 account created; **sandbox catalog configured** (see below); MoR/KYC approval status TBC |
 | Legal pass (ToS/DPA/privacy) | counsel | When W3-N drafts terms | Weeks | ☐ waiting on drafts |
 
 Only GitHub requires an *app-shaped* approval, and only Copilot needs it: every
@@ -98,6 +98,31 @@ for each = "create this key type, paste it here" with per-vendor screenshots
 (W2 content task).
 
 ---
+
+## Paddle — sandbox catalog (configured 2026-07-07)
+
+Set up via the Paddle MCP server against the **sandbox** environment (Spec v2.4
+pricing: $2/user/mo list + 50% founder discount). Live environment not yet
+configured — repeat these in Live before launch (IDs differ per environment).
+These IDs are **config, not secrets** — safe to commit; W3-M consumes them.
+
+| Object | Sandbox ID | Notes |
+|---|---|---|
+| Product | `pro_01kwxp8090acsjpd3ypjtbhcm7` | "Revealyst Team", tax category `saas` |
+| Price | `pri_01kwxp80bbbgpaaat2501eybpb` | $2.00/tracked user/mo (200¢ USD), monthly, quantity 1–10,000 |
+| Discount | `dsc_01kwxp80eny3jr72zc3qkdhh7z` | code `FOUNDER`, 50% off, recurring, expires `2026-08-31T23:59:59Z`, restricted to the Team product |
+| Webhook dest. | `ntfset_01kwxp80kkb9ye9whrggx3qkdd` | url → `https://revealyst.thapi.workers.dev/api/webhooks/paddle`; events: `subscription.created/updated/canceled`, `transaction.completed`; `traffic_source: all` |
+
+**Webhook signing secret is NOT recorded here** (sensitive). It was returned at
+creation time; store it as a Worker/repo secret (e.g. `PADDLE_WEBHOOK_SECRET_SANDBOX`)
+when W3-M builds the handler — never in a tracked file. The `/api/webhooks/paddle`
+route does not exist until W3-M, so this destination will log delivery failures
+until then (expected).
+
+**Founder-discount model:** `recur: true` + `expires_at` = redeem `FOUNDER` before
+the sunset date to lock in 50% off on every renewal; after the date the code can
+no longer be redeemed. This is the §11 "time-boxed, publicly sunset-dated founder
+pricing as a discount" model — not a first-N-months discount.
 
 ## Chaser setup (after filing)
 
