@@ -82,13 +82,14 @@ async function safeText(res: Response): Promise<string> {
   }
 }
 
-async function paddlePost(
+async function paddleRequest(
   config: PaddleServerConfig,
+  method: "POST" | "PATCH",
   path: string,
   body: unknown,
 ): Promise<unknown> {
   const res = await fetch(`${config.apiBase}${path}`, {
-    method: "POST",
+    method,
     headers: {
       Authorization: `Bearer ${config.apiKey}`,
       "Content-Type": "application/json",
@@ -99,6 +100,48 @@ async function paddlePost(
     throw new PaddleApiError(path, res.status, await safeText(res));
   }
   return res.json();
+}
+
+function paddlePost(
+  config: PaddleServerConfig,
+  path: string,
+  body: unknown,
+): Promise<unknown> {
+  return paddleRequest(config, "POST", path, body);
+}
+
+/**
+ * Proration mode for metered seat changes (PR5). `prorated_next_billing_period`
+ * adjusts the charge fairly but applies it at the next renewal — so a daily
+ * metering job never surprises a customer with mid-cycle micro-charges. Tunable
+ * to `prorated_immediately` if immediate billing is preferred.
+ */
+const METERING_PRORATION_MODE = "prorated_next_billing_period";
+
+/**
+ * Reports a new seat quantity for a subscription (PR5 metering). The quantity
+ * is the frozen tracked_user count — this only forwards it to Paddle; it never
+ * redefines it.
+ *
+ * ASSUMES A SINGLE-PRICE SUBSCRIPTION. Paddle's PATCH REPLACES the whole items
+ * list, so sending one item drops any others. Our checkout only ever creates
+ * single-item (Team price) subscriptions, so this is correct today — but adding
+ * a second line item (an add-on, a base+usage plan) would require reading the
+ * live items first and updating only the metered one.
+ */
+export async function updateSubscriptionQuantity(
+  config: PaddleServerConfig,
+  input: { subscriptionId: string; priceId: string; quantity: number },
+): Promise<void> {
+  await paddleRequest(
+    config,
+    "PATCH",
+    `/subscriptions/${encodeURIComponent(input.subscriptionId)}`,
+    {
+      items: [{ price_id: input.priceId, quantity: input.quantity }],
+      proration_billing_mode: METERING_PRORATION_MODE,
+    },
+  );
 }
 
 /**

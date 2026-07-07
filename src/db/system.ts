@@ -7,6 +7,7 @@ import {
   orgs,
   pollHeartbeats,
   rawPayloads,
+  subscriptions,
 } from "./schema";
 
 // System-level maintenance jobs. These run across orgs by design (raw
@@ -90,6 +91,26 @@ export async function listConnectorWorkCandidates(
     ...r,
     backfillStarted: started.has(r.connectionId),
   }));
+}
+
+/**
+ * Subscriptions to meter this cycle (W3-M PR5) — the metering dispatcher's one
+ * cross-org read. Only `active`/`trialing` subscriptions are metered: a
+ * `past_due` sub is in dunning (don't adjust seats mid-collection), and
+ * `paused`/`canceled` grant no access. Per-org counting then goes back through
+ * forOrg. System-level by design, like the other reads here.
+ */
+export async function listSubscriptionsToMeter(
+  db: Db,
+): Promise<Array<{ orgId: string; paddleSubscriptionId: string; priceId: string }>> {
+  return db
+    .select({
+      orgId: subscriptions.orgId,
+      paddleSubscriptionId: subscriptions.paddleSubscriptionId,
+      priceId: subscriptions.priceId,
+    })
+    .from(subscriptions)
+    .where(inArray(subscriptions.status, ["active", "trialing"]));
 }
 
 /**

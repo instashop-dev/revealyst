@@ -115,6 +115,33 @@ export function subscriptionsForOrg(db: Db, orgId: string) {
         .returning();
       return row ?? null;
     },
+
+    /**
+     * Compare-and-set the seat quantity (metering, PR5): flips `expected` →
+     * `next` only if the stored quantity is still `expected`. Returns whether it
+     * won. Postgres row-locks the UPDATE, so of two concurrent/redelivered
+     * meter messages that both observed `expected`, exactly one claims the
+     * transition — the charge path keys off this so a Paddle PATCH fires once.
+     * Org-scoped (WHERE pins org_id).
+     */
+    async setQuantityIf(
+      paddleSubscriptionId: string,
+      expected: number,
+      next: number,
+    ): Promise<boolean> {
+      const [row] = await db
+        .update(subscriptions)
+        .set({ quantity: next })
+        .where(
+          and(
+            eq(subscriptions.orgId, orgId),
+            eq(subscriptions.paddleSubscriptionId, paddleSubscriptionId),
+            eq(subscriptions.quantity, expected),
+          ),
+        )
+        .returning({ id: subscriptions.id });
+      return row !== undefined;
+    },
   };
 }
 

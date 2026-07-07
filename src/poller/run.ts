@@ -14,6 +14,7 @@ import {
 import type { Db } from "../db/client";
 import { forOrg, type SubjectDescriptor } from "../db/org-scope";
 import type { CredentialEnv } from "../lib/credentials";
+import type { PaddleServerConfig } from "../lib/paddle";
 import { addDays, chunkForCursor } from "./backfill";
 import type {
   ConnectorBackfillMessage,
@@ -58,6 +59,9 @@ export type PollDeps = {
   now?: () => Date;
   /** Test seam: overrides the vendor registry. */
   resolveConnector?: typeof getConnector;
+  /** Resolved Paddle server config for meter-subscription messages (PR5);
+   * absent when Paddle isn't configured for this environment. */
+  paddleConfig?: PaddleServerConfig;
 };
 
 /** connections.auth_kind → the credential row kind that stores its secret.
