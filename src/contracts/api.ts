@@ -343,4 +343,31 @@ export const apiRoutes = {
       unresolvedSubjects: z.array(subjectSchema),
     }),
   },
+
+  // Paddle Checkout: creates a server-side transaction with org_id bound from
+  // the session (ADR 0011), returns the opaque transaction id + the client-safe
+  // token/environment the overlay needs. Never sends the server API key.
+  billingCheckout: {
+    method: "POST",
+    path: "/api/billing/checkout",
+    request: null,
+    response: z.object({
+      transactionId: z.string(),
+      clientToken: z.string(),
+      environment: z.enum(["sandbox", "production"]),
+    }),
+  },
+
+  // Paddle hosted customer portal: creates a fresh authenticated session (ADR
+  // 0011) and returns its links. Generated per request, never cached.
+  billingPortal: {
+    method: "GET",
+    path: "/api/billing/portal",
+    request: null,
+    response: z.object({
+      overviewUrl: z.string().url(),
+      cancelUrl: z.string().url().nullable(),
+      updatePaymentUrl: z.string().url().nullable(),
+    }),
+  },
 } as const satisfies Record<string, RouteContract>;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Cable,
+  CreditCard,
   LayoutDashboard,
   LogOut,
   ScanFace,
@@ -42,6 +43,7 @@ const NAV_ITEMS = [
 const ADMIN_NAV_ITEMS = [
   { title: "Members", href: "/members", icon: UserRoundPlus },
   { title: "Reconcile", href: "/reconcile", icon: ScanFace },
+  { title: "Billing", href: "/billing", icon: CreditCard },
   { title: "Compliance", href: "/compliance", icon: ShieldCheck },
 ];
 
