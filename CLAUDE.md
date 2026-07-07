@@ -30,6 +30,10 @@ contracts. Every session auto-loads this file — it is the interface between ag
   exclude — `rm -rf .next` and retype checks clean.
 - Manually-created worktrees (`git worktree add`) don't get `node_modules` —
   run `npm install` in each before typecheck/test.
+- `git worktree remove` can report "Permission denied" deleting the directory
+  (locked by an editor/indexer) yet still succeed at unregistering the
+  worktree — `git worktree prune` cleans up the stub; the leftover empty
+  folder is harmless.
 - **Design system (W1-G):** Tailwind v4 + shadcn/ui `base-nova` — **Base UI**
   primitives, not Radix: custom triggers use `render={...}` (and
   `nativeButton={false}` when rendering an `<a>`/`Link`). Shared components in
@@ -92,6 +96,16 @@ without org scoping is a review-blocker.**
 (a) every query org-scoped · (b) never fabricate per-user numbers ·
 (c) frozen contracts untouched without an ADR · (d) no tripwire tech.
 
+**Gate-check finding pattern (W2):** 2 of 3 gate blockers were "a new call
+site forgot a guard its siblings already had" — `dashboard-view.ts` threaded
+`visibilityMode` into `readDashboard`/`resolveSegmentSource` but not the
+adjacent `resolveSharedAccountSource().flags()` call; the poller never got
+the delete-then-upsert restatement guard that agent-ingest already used. When
+adding a call alongside existing ones, diff it against its siblings for the
+same guard — and if a new field is added to a type an audit predicate
+inspects (e.g. `assertTeamOnlyPseudonymized`), update the predicate too, or
+it passes vacuously.
+
 **Scoring engine rule (invariant b, applied per-component):** a ratio component
 needs rows on BOTH sides — absence on either side omits the component, never
 floors it to a fabricated 0 (conflates "no data yet" with "measured zero").
@@ -116,6 +130,12 @@ and tested (`tests/scoring-evaluate.test.ts` "honesty rules").
   <branch> main`, not the PR's GitHub state — a branch can receive a later merge
   *after* it was already merged upstream, stranding real work with a "MERGED" PR
   label (cost W1-D 10 tested fixes; recovered in PR #51).
+  The ancestor check itself has a false-negative mode: an intermediate branch in
+  a stacked-PR chain can show NO even when fully merged, if it got a no-op
+  merge-back commit after being forked further. Before treating NO as stranded
+  work, run `git log main..branch --oneline` — if the only "unique" commits are
+  merges of a *later* PR in the same stack (not real diffs), it's a stale
+  pointer, not lost work.
 - **Merge-race: the founder merges each PR at its PR-creation-time commit**, so any
   commit pushed *after* `gh pr create` (e.g. review fixes) is silently dropped from
   the merge. Always `/code-review` + apply fixes *before* opening the PR. If fixes
