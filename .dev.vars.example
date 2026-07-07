@@ -16,3 +16,13 @@ BETTER_AUTH_URL=http://localhost:8787
 # request is accepted on a signature match against EITHER, so both can be set.
 # PADDLE_WEBHOOK_SECRET=            # live notification-setting secret
 # PADDLE_WEBHOOK_SECRET_SANDBOX=    # sandbox notification-setting secret
+
+# Paddle Checkout + portal (W3-M PR3). ENVIRONMENT selects the API base and the
+# Paddle.js environment. API_KEY is server-only; CLIENT_TOKEN is safe to expose
+# to the browser. PRICE_ID / DISCOUNT_ID are the Team price + FOUNDER discount
+# for the chosen environment.
+# PADDLE_ENVIRONMENT=sandbox        # sandbox | production
+# PADDLE_API_KEY=                   # server-side API key (never exposed)
+# PADDLE_CLIENT_TOKEN=              # client-side token (Paddle.js)
+# PADDLE_PRICE_ID=                  # Team price id for this environment
+# PADDLE_DISCOUNT_ID=               # FOUNDER discount id for this environment
