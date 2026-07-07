@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { AlertCircle } from "lucide-react";
@@ -139,7 +140,7 @@ function SignInForm() {
             Sign in with GitHub
           </Button>
         </CardContent>
-        <CardFooter>
+        <CardFooter className="flex flex-col gap-2">
           <Button
             type="button"
             variant="link"
@@ -153,6 +154,20 @@ function SignInForm() {
               ? "No account? Create one"
               : "Have an account? Sign in"}
           </Button>
+          <p className="text-center text-xs text-muted-foreground">
+            By continuing you agree to our{" "}
+            <Link href="/legal/terms" className="underline hover:text-foreground">
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link
+              href="/legal/privacy"
+              className="underline hover:text-foreground"
+            >
+              Privacy Policy
+            </Link>
+            .
+          </p>
         </CardFooter>
       </Card>
     </main>

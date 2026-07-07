@@ -112,6 +112,20 @@ floors it to a fabricated 0 (conflates "no data yet" with "measured zero").
 Plain (non-ratio) metric components floor to 0 on no rows; that's intentional
 and tested (`tests/scoring-evaluate.test.ts` "honesty rules").
 
+**Content/legal-workstream rule (invariant b, W3-N):** prose is a claim surface
+too — a DPIA/ToS/DPA that states a security control or product behavior the
+system doesn't have is an invariant-(b) overclaim, just like a fabricated
+number. Fact-check EVERY product claim in written content against the code, not
+only the one you're suspicious of: W3-N shipped a "KMS envelope" claim (there is
+no KMS — it's a versioned Worker-secret KEK, see `src/lib/credentials.ts`) and a
+"read-only vendor scopes" claim (the admin keys are non-scoped full-access per
+`docs/connector-facts.md` — Revealyst *uses* them read-only; the scope isn't).
+The KMS one slipped into merged PR #75 because that PR's fact-check was scoped
+narrowly to the claim under suspicion; a broad "check every sentence" pass in
+#76 caught both. Run an adversarial content fact-check (a reviewer that did not
+write the prose) over the whole document, grounded in the schema/credential/
+connector-facts contracts.
+
 ## How the fleet works
 - **Plan mode before code, every time.** `/kickoff <workstream>` starts in plan mode;
   the founder approves the *plan*, not the diff.

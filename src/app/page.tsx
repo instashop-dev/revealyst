@@ -21,6 +21,14 @@ export default function Home() {
         Sign in
         <ArrowRight data-icon="inline-end" />
       </Button>
+      <footer className="mt-4 flex gap-4 text-sm text-muted-foreground">
+        <Link href="/legal/terms" className="hover:text-foreground">
+          Terms
+        </Link>
+        <Link href="/legal/privacy" className="hover:text-foreground">
+          Privacy
+        </Link>
+      </footer>
     </main>
   );
 }

@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   LogOut,
   ScanFace,
+  ShieldCheck,
   UserRound,
   UserRoundPlus,
   UsersRound,
@@ -34,10 +35,14 @@ const NAV_ITEMS = [
   { title: "Connections", href: "/connections", icon: Cable },
 ];
 
-// Admin-only surfaces (ADR 0004): also role-gated server-side.
+// Admin-only surfaces (ADR 0004): Members/Reconcile are also role-gated
+// server-side (they read org data). Compliance is grouped here because rollout
+// is an admin concern, but it is *static guidance with no data reads* (§7), so
+// it needs no server-side gate — unlike its data-reading siblings.
 const ADMIN_NAV_ITEMS = [
   { title: "Members", href: "/members", icon: UserRoundPlus },
   { title: "Reconcile", href: "/reconcile", icon: ScanFace },
+  { title: "Compliance", href: "/compliance", icon: ShieldCheck },
 ];
 
 export function AppSidebar({
