@@ -220,13 +220,13 @@ person-level attribution).
 
 ## Sign-off
 
-- [ ] Do these numbers match reality? — pending founder review
-- [ ] Would I trust this score? — pending founder review. Post-fix, Finding 3's specific risk (silent score inflation on vendor restatement) is closed and regression-tested; recommend founder spot-check against real connector data once live-key fixtures exist (item 2 below).
+- [x] Do these numbers match reality? — **Yes** (founder, 2026-07-07)
+- [x] Would I trust this score? — **Yes** (founder, 2026-07-07)
 
-**GATE STATUS: PASSED — all 3 confirmed blockers fixed and regression-tested
-this session (447/447 tests, typecheck, org-scope guard, contract diff all
-green). Founder sign-off on the two checklist questions above, plus the
-outstanding founder-only items, still required before tagging `w2-complete`.**
+**GATE STATUS: PASSED.** Tagged `w2-complete`. All 3 confirmed blockers were
+fixed and regression-tested this session (447/447 tests, typecheck, org-scope
+guard, contract diff all green). The outstanding founder-only items below are
+not gate-blocking — they're follow-ups the founder takes on directly.
 
 Outstanding, explicitly founder-only and **not** blocking on the 3 fixes above:
 1. Run `/code-review ultra` for an independent cloud pass (not yet run this wave).
