@@ -47,7 +47,7 @@ export async function readDashboardView(
       readToolCoverage(scope, window),
       readScoreTrends(scope, window),
       resolveSegmentSource().forOrg(scope, visibilityMode, window),
-      resolveSharedAccountSource().flags(scope, window),
+      resolveSharedAccountSource().flags(scope, visibilityMode, window),
     ]);
 
   const latest = latestTeamScoresBySlug(summary.scores);

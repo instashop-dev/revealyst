@@ -53,7 +53,7 @@ export function SharedAccountFlags({ flags }: { flags: SharedAccountFlag[] }) {
                     <span className="flex min-w-0 items-center gap-1.5">
                       <Users className="size-3.5 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 truncate">
-                        {flag.externalId}
+                        {flag.externalId ?? "Shared account"}
                         <span className="text-muted-foreground">
                           {" "}
                           · {vendorLabel(flag.vendor)}

@@ -18,9 +18,15 @@ export async function POST(req: Request) {
   return handleApi(async (ctx) => {
     const body = await parseBody(createShareSchema, req);
     // Ownership: the person must belong to this org (the composite FK would
-    // reject a foreign person anyway; this returns a useful 400).
-    if (!(await ctx.scope.people.get(body.personId))) {
+    // reject a foreign person anyway; this returns a useful 400) AND must be
+    // the caller themselves — this is an opt-in self-share (ADR 0008), not a
+    // way for any org member to publish a teammate's score without consent.
+    const person = await ctx.scope.people.get(body.personId);
+    if (!person) {
       throw new ApiError(400, "person not in this org");
+    }
+    if (person.authUserId !== ctx.user.id) {
+      throw new ApiError(403, "you can only share your own score");
     }
     const { token } = await shareLinksForOrg(ctx.db, ctx.org.id).create({
       personId: body.personId,

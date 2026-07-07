@@ -79,6 +79,10 @@ describe("privacy default (team-only pseudonymized)", () => {
       (s) => s.segment === "ai_native",
     )!;
     expect(aiNatives.count).toBe(1);
+    // The fixture's shared-console subject flags (round-the-clock +
+    // concurrent) — its real account identifier must not leak either.
+    expect(view.sharedAccounts).toHaveLength(1);
+    expect(view.sharedAccounts[0].externalId).toBeNull();
   });
 
   it("fails the audit under full visibility, where the real name surfaces", async () => {
@@ -89,6 +93,8 @@ describe("privacy default (team-only pseudonymized)", () => {
     )!;
     expect(aiNatives.members).toHaveLength(1);
     expect(aiNatives.members[0].displayName).toBe(REAL_NAME);
+    // Full visibility also surfaces the shared account's real identifier.
+    expect(view.sharedAccounts[0].externalId).toBe("shared-team-login");
     // The predicate is not vacuous: a name-bearing view is NOT team-only.
     expect(() => assertTeamOnlyPseudonymized(view)).toThrow(
       /not team-only pseudonymized/,

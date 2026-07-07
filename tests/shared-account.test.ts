@@ -36,7 +36,7 @@ beforeAll(async () => {
 
 describe("resolveSharedAccountSource (W2-K detector)", () => {
   it("flags the shared account with usage-pattern reasons, and nothing else", async () => {
-    const flags = await resolveSharedAccountSource().flags(scope, WINDOW);
+    const flags = await resolveSharedAccountSource().flags(scope, "full", WINDOW);
 
     expect(flags).toHaveLength(1);
     const flag = flags[0];
@@ -48,5 +48,15 @@ describe("resolveSharedAccountSource (W2-K detector)", () => {
     // W2-K detection: all-hours histogram + peakConcurrency 3.
     expect(flag.reasons.sort()).toEqual(["concurrent_usage", "round_the_clock"]);
     expect(flag.confidence).toBe("high");
+  });
+
+  it("redacts externalId in private mode (§7 — the account identifier can be a real email)", async () => {
+    const flags = await resolveSharedAccountSource().flags(scope, "private", WINDOW);
+
+    expect(flags).toHaveLength(1);
+    expect(flags[0].externalId).toBeNull();
+    // Non-identifying fields still surface — the flag stays useful metadata.
+    expect(flags[0].vendor).toBe("anthropic_console");
+    expect(flags[0].confidence).toBe("high");
   });
 });

@@ -249,6 +249,78 @@ describe("connector-poll pipeline", () => {
     expect(runs).toHaveLength(2); // but every attempt is logged
   });
 
+  it("re-polls the same window with a SHRUNK dim set: the dropped dim's stale row does not survive", async () => {
+    // A vendor restatement can drop a dim (or a whole day) between two polls
+    // of the same trailing window. upsertRecords only touches keys present
+    // in the current batch, so without a delete-then-upsert the dropped
+    // dim's row from poll #1 would survive forever and permanently inflate
+    // any distinct_dims-based score reading it.
+    const conn = await newConnection();
+    let dims = ["feature=composer", "feature=bugbot"];
+    const connector: Connector = {
+      vendor: "cursor",
+      capabilities: {
+        subDaily: "1h",
+        attributionCeiling: "person",
+        restatementWindowDays: 2,
+        maxBackfillDays: 90,
+      },
+      async validateAuth() {
+        return { ok: true };
+      },
+      async discover() {
+        return [{ kind: "person", externalId: "u1", email: "u1@fixture.example" }];
+      },
+      async poll(_ctx, window) {
+        return [{ kind: "fake.daily", window, payload: { dims } }];
+      },
+      normalize(raw: RawPayloadEnvelope) {
+        const payload = raw.payload as { dims: string[] };
+        return {
+          records: payload.dims.map((dim) => ({
+            subject: { kind: "person" as const, externalId: "u1" },
+            metricKey: "feature_used" as const,
+            day: "2026-06-12",
+            dim,
+            value: 1,
+            attribution: "person" as const,
+          })),
+          signals: [],
+          gaps: [],
+        };
+      },
+    };
+    const entry: RegisteredConnector = {
+      connector,
+      sourceConnector: "fake@1",
+      maxCallsPerDay: 1,
+      pollIntervalMinutes: 60,
+    };
+    const window: DateWindow = { start: "2026-06-11", end: "2026-06-13" };
+    const msg = {
+      kind: "connector-poll",
+      orgId,
+      connectionId: conn.id,
+      window,
+    } as const;
+
+    await processPollMessage(db, msg, makeDeps(entry, []));
+    dims = ["feature=composer"]; // restatement drops 'feature=bugbot'
+    await processPollMessage(db, msg, makeDeps(entry, []));
+
+    const rows = await db
+      .select()
+      .from(schema.metricRecords)
+      .where(
+        and(
+          eq(schema.metricRecords.orgId, orgId),
+          eq(schema.metricRecords.connectionId, conn.id),
+          eq(schema.metricRecords.metricKey, "feature_used"),
+        ),
+      );
+    expect(rows.map((r) => r.dim).sort()).toEqual(["feature=composer"]);
+  });
+
   it("a retryable vendor error propagates for queue retry and logs the attempt", async () => {
     const conn = await newConnection();
     const { entry } = makeFake({

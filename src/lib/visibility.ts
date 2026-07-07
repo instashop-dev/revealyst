@@ -33,10 +33,12 @@ export type PersonRef = ReturnType<typeof toPersonRef>;
 
 /**
  * The single audit predicate for the §7 privacy default: a dashboard view is
- * "team-only pseudonymized" iff no surfaced person carries a real name and no
- * individual is listed as a segment member. Structural on purpose (no import
- * of DashboardView) so it stays the one decision point — the page renders
- * through the visibility gate, and this asserts the gate held.
+ * "team-only pseudonymized" iff no surfaced person carries a real name, no
+ * individual is listed as a segment member, and no shared-account flag carries
+ * a real vendor account identifier (often an email — same leak class as a
+ * person's name). Structural on purpose (no import of DashboardView) so it
+ * stays the one decision point — the page renders through the visibility
+ * gate, and this asserts the gate held.
  *
  * A private-mode view passes; a managed/full view (which deliberately surfaces
  * names/members) throws — that asymmetry is what makes the W2 gate item
@@ -46,6 +48,7 @@ export type PersonRef = ReturnType<typeof toPersonRef>;
 export function assertTeamOnlyPseudonymized(view: {
   summary: { scores: readonly { person: PersonRef | null }[] };
   segments: { segments: readonly { members: readonly PersonRef[] }[] };
+  sharedAccounts: readonly { externalId: string | null }[];
 }): void {
   const leaks: string[] = [];
   for (const score of view.summary.scores) {
@@ -56,6 +59,11 @@ export function assertTeamOnlyPseudonymized(view: {
   for (const segment of view.segments.segments) {
     if (segment.members.length > 0) {
       leaks.push(`segment surfaces ${segment.members.length} individual member(s)`);
+    }
+  }
+  for (const flag of view.sharedAccounts) {
+    if (flag.externalId !== null) {
+      leaks.push(`shared-account flag exposes a real account identifier`);
     }
   }
   if (leaks.length > 0) {

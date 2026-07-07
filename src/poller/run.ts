@@ -326,6 +326,17 @@ async function executeRun(
       return id;
     };
 
+    // Delete-then-upsert: a vendor restatement can drop a dim (or a whole
+    // day) between polls of the same trailing window, and upsertRecords only
+    // touches keys present in THIS batch — a stale natural key from a prior
+    // poll would otherwise survive forever and permanently inflate any
+    // distinct_dims-based score. Scoped to exactly this run's window, so a
+    // backfill chunk's delete never touches days outside its own chunk.
+    await scoped.metrics.deleteWindowForConnection(
+      connection.id,
+      window.start,
+      window.end,
+    );
     await scoped.metrics.upsertRecords(
       records.map((r) => ({
         subjectId: subjectId(r.subject),
