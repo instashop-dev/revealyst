@@ -29,7 +29,7 @@ export default async function ConnectionsPage() {
         <EmptyState
           icon={Cable}
           title="No connections yet"
-          description="Connect a vendor (Anthropic, Copilot, Cursor, OpenAI, or the Claude Code local agent) to start ingesting usage metrics. Connecting arrives with the onboarding flow."
+          description="Connect a vendor (Anthropic, Cursor, OpenAI, or the Claude Code local agent) to start ingesting usage metrics. Connecting arrives with the onboarding flow."
         />
       ) : (
         <div className="rounded-xl border">

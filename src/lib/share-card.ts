@@ -1,13 +1,19 @@
-import type { Db } from "@/db/client";
-import { forOrg } from "@/db/org-scope";
-import { resolveShareToken } from "@/db/share-links";
-import { periodFor } from "@/scoring";
+// Relative value imports: this file is imported by tests, and vitest does
+// not resolve `@/` at test runtime (CLAUDE.md).
+import type { Db } from "../db/client";
+import { forOrg } from "../db/org-scope";
+import { resolveShareToken } from "../db/share-links";
+import { periodFor } from "../scoring";
 
 // Resolves a public share token to exactly what the card renders (ADR 0008):
-// the user-chosen public label + the featured score's current-month value.
-// The token is the capability; we read ONLY that person's featured score via
-// forOrg(the token's org) — never org-wide data. Shared by the public page
-// and its OG image so both render identical numbers.
+// the user-chosen public label + the featured score's latest computed month
+// value. "Latest computed", not "current calendar month": the first row of a
+// new month lands only with the nightly recompute on the 2nd, and an
+// already-shared card must not flip to "not computed yet" for a day at every
+// month boundary (W3 gate finding). The token is the capability; we read
+// ONLY that person's featured score via forOrg(the token's org) — never
+// org-wide data. Shared by the public page and its OG image so both render
+// identical numbers.
 
 const SLUG_LABELS: Record<string, string> = {
   adoption: "AI Adoption",
@@ -26,17 +32,28 @@ export type ShareCard = {
 export async function resolveShareCard(
   db: Db,
   token: string,
+  now: Date = new Date(),
 ): Promise<ShareCard | null> {
   const link = await resolveShareToken(db, token);
   if (!link) {
     return null;
   }
-  const period = periodFor("month", new Date().toISOString().slice(0, 10));
+  // Window: current month plus the previous one, so the card keeps showing
+  // last month's number until the new month's first recompute lands.
+  const today = now.toISOString().slice(0, 10);
+  const period = periodFor("month", today);
+  const prevPeriod = periodFor(
+    "month",
+    // Any day inside the previous month: the day before this period starts.
+    new Date(Date.parse(`${period.periodStart}T00:00:00Z`) - 86_400_000)
+      .toISOString()
+      .slice(0, 10),
+  );
   const scope = forOrg(db, link.orgId);
   const [defs, results] = await Promise.all([
     scope.scores.definitions(),
     scope.scores.results({
-      from: period.periodStart,
+      from: prevPeriod.periodStart,
       to: period.periodEnd,
       subjectLevel: "person",
     }),
@@ -58,8 +75,10 @@ export async function resolveShareCard(
     )
     .sort(
       (a, b) =>
+        // Latest computed month first, then highest definition version.
+        b.periodStart.localeCompare(a.periodStart) ||
         (versionByDefId.get(b.definitionId) ?? 0) -
-        (versionByDefId.get(a.definitionId) ?? 0),
+          (versionByDefId.get(a.definitionId) ?? 0),
     )[0];
   return {
     publicLabel: link.publicLabel,

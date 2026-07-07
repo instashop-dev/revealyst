@@ -8,6 +8,7 @@ import { createFixtureOrg } from "../src/db/fixtures";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
 import { resolveShareToken, shareLinksForOrg } from "../src/db/share-links";
+import { resolveShareCard } from "../src/lib/share-card";
 
 // W2-H PR5 (ADR 0008): opt-in public share links + anonymized-benchmark
 // consent — lifecycle, the capability-token public read, and org isolation.
@@ -166,5 +167,67 @@ describe("benchmark consent (anonymized opt-in)", () => {
     // list() is org-filtered — org B's list never carries org A's row.
     const bList = await benchmarkConsentForOrg(db, orgB).list();
     expect(bList.every((r) => r.orgId === orgB)).toBe(true);
+  });
+});
+
+describe("share card month boundary (W3 gate finding)", () => {
+  it("falls back to the previous month's score until the new month's first recompute lands", async () => {
+    const [def] = await db
+      .insert(schema.scoreDefinitions)
+      .values({
+        orgId: orgA,
+        slug: "fluency",
+        version: 1,
+        name: "Fluency",
+        subjectLevel: "person",
+        components: [],
+        status: "active",
+      })
+      .returning();
+    const base = {
+      orgId: orgA,
+      definitionId: def.id,
+      subjectLevel: "person" as const,
+      personId: personA,
+      periodGrain: "month" as const,
+      attribution: "person" as const,
+      components: {},
+    };
+    // June is computed; July (the "current" month) is not yet.
+    await db.insert(schema.scoreResults).values({
+      ...base,
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-30",
+      value: 78,
+    });
+    const { token } = await shareLinksForOrg(db, orgA).create({
+      personId: personA,
+      scoreSlug: "fluency",
+      publicLabel: "Ada F.",
+      createdByUserId: userA,
+    });
+
+    // Early on July 1st, before the nightly recompute has written any July
+    // row: the card must show June's number, not "not computed yet".
+    const atBoundary = await resolveShareCard(
+      db,
+      token,
+      new Date("2026-07-01T05:00:00Z"),
+    );
+    expect(atBoundary?.value).toBe(78);
+
+    // Once the current month IS computed, it wins over the previous one.
+    await db.insert(schema.scoreResults).values({
+      ...base,
+      periodStart: "2026-07-01",
+      periodEnd: "2026-07-31",
+      value: 82,
+    });
+    const midMonth = await resolveShareCard(
+      db,
+      token,
+      new Date("2026-07-15T12:00:00Z"),
+    );
+    expect(midMonth?.value).toBe(82);
   });
 });

@@ -42,7 +42,7 @@ export function SharedAccountFlags({ flags }: { flags: SharedAccountFlag[] }) {
       <CardContent className="flex flex-col gap-3 text-sm">
         {flags.length === 0 ? (
           <p className="text-muted-foreground">
-            No shared accounts detected. Per-person attribution is clean.
+            No usage patterns suggesting shared accounts in this window.
           </p>
         ) : (
           <>

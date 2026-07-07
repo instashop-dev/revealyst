@@ -369,7 +369,7 @@ describe("person-level stale row reconciliation", () => {
     // Round 1: alice-console is exclusively alice's, copilot-bob exclusively
     // bob's — active_day has real, exclusive data for both.
     const first = await recomputeOrg(db, orgA, { period: JUNE });
-    expect(first.stalePersonResultsRemoved).toBe(0);
+    expect(first.staleResultsRemoved).toBe(0);
     const firstPass = await scoped.scores.results({ definitionId: def.id });
     expect(firstPass).toHaveLength(2);
     const alicesFirstRow = firstPass.find((r) => r.personId === A.people.alice);
@@ -387,7 +387,7 @@ describe("person-level stale row reconciliation", () => {
     // >=1, not necessarily exactly 1: this definition's alice row is
     // reconciled away, and so is any other active person-level definition's
     // alice row from an earlier test in this file — the summary is org-wide.
-    expect(second.stalePersonResultsRemoved).toBeGreaterThanOrEqual(1);
+    expect(second.staleResultsRemoved).toBeGreaterThanOrEqual(1);
 
     const secondPass = await scoped.scores.results({ definitionId: def.id });
     // Alice's stale row is gone — no fabricated row appears for anyone else
@@ -439,7 +439,7 @@ describe("person-level stale row reconciliation", () => {
     await recomputeOrg(db, orgA, { period: JUNE }); // removes alice's row
 
     const rerun = await recomputeOrg(db, orgA, { period: JUNE });
-    expect(rerun.stalePersonResultsRemoved).toBe(0); // nothing left to remove
+    expect(rerun.staleResultsRemoved).toBe(0); // nothing left to remove
     const remaining = await scoped.scores.results({ definitionId: def.id });
     expect(remaining).toHaveLength(1); // bob's untouched row survives
     expect(remaining[0].personId).toBe(A.people.bob);
@@ -449,6 +449,71 @@ describe("person-level stale row reconciliation", () => {
     await db
       .delete(schema.scoreDefinitions)
       .where(eq(schema.scoreDefinitions.id, def.id));
+  });
+});
+
+describe("team/org stale row reconciliation (ADR 0012)", () => {
+  it("removes team and org score rows when the metric window is restated to empty", async () => {
+    // The W3 gate finding, reproduced: team/org rows only ever upserted —
+    // after a restatement-to-empty (poller window delete, purged
+    // connection) evaluate returns null at every level and the old rows
+    // would render forever, computed from data that no longer exists.
+    // A dedicated org so wiping metric rows can't disturb other tests.
+    const orgC = (await createFixtureOrg(db, "score-org-c", "team")).id;
+    await loadFixture(db, orgC, teamFixture);
+    const defs = await db
+      .insert(schema.scoreDefinitions)
+      .values(
+        (["team", "org"] as const).map((level) => ({
+          orgId: orgC,
+          slug: `stale-${level}-check`,
+          version: 1,
+          name: `Stale ${level} check`,
+          subjectLevel: level,
+          components: [
+            {
+              key: "days",
+              weight: 1,
+              normalization: { min: 0, max: 20 },
+              metric: "active_day",
+              aggregation: "active_days" as const,
+            },
+          ],
+          status: "active" as const,
+        })),
+      )
+      .returning();
+    const teamDef = defs.find((d) => d.subjectLevel === "team")!;
+    const orgDef = defs.find((d) => d.subjectLevel === "org")!;
+    const scoped = forOrg(db, orgC);
+
+    await recomputeOrg(db, orgC, { period: JUNE });
+    expect(
+      (await scoped.scores.results({ definitionId: teamDef.id })).length,
+    ).toBeGreaterThan(0);
+    expect(
+      await scoped.scores.results({ definitionId: orgDef.id }),
+    ).toHaveLength(1);
+
+    // Restatement-to-empty: every metric row for the org vanishes.
+    await db
+      .delete(schema.metricRecords)
+      .where(eq(schema.metricRecords.orgId, orgC));
+
+    const after = await recomputeOrg(db, orgC, { period: JUNE });
+    expect(after.staleResultsRemoved).toBeGreaterThanOrEqual(2);
+    expect(
+      await scoped.scores.results({ definitionId: teamDef.id }),
+    ).toHaveLength(0);
+    expect(
+      await scoped.scores.results({ definitionId: orgDef.id }),
+    ).toHaveLength(0);
+
+    // Idempotent: nothing left to remove for these definitions on a rerun.
+    await recomputeOrg(db, orgC, { period: JUNE });
+    expect(
+      await scoped.scores.results({ definitionId: teamDef.id }),
+    ).toHaveLength(0);
   });
 });
 

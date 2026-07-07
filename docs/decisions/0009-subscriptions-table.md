@@ -1,6 +1,6 @@
 # 0009 — `subscriptions` table + Paddle entitlement state (additive)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-07
 - **Deciders:** Founder (W3-M kickoff — approved plan, "start execution")
 

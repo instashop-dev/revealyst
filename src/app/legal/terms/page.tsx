@@ -30,7 +30,7 @@ export default function TermsPage() {
         Revealyst is a cross-vendor analytics product that measures adoption,
         fluency, and cost-efficiency of AI developer tools. It reads usage and
         cost data from the vendor accounts you connect (for example Anthropic,
-        OpenAI, GitHub Copilot, and Cursor) and from the optional Revealyst
+        OpenAI, and Cursor) and from the optional Revealyst
         Agent, and presents normalized metrics and scores. The Service does not
         read the content of your prompts, completions, code, or messages.
       </p>

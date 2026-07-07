@@ -38,7 +38,8 @@ export function ScoreCardMock({
         <span className="pb-2 text-base text-muted-foreground">/ 100</span>
       </div>
       <p className="text-xs text-muted-foreground">
-        Measured across real AI-tool usage — not self-reported.
+        Example card — scores are measured from real AI-tool usage, not
+        self-reported.
       </p>
     </div>
   );

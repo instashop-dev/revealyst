@@ -57,6 +57,13 @@ jobs:
           GH_OAUTH_CLIENT_SECRET: ${{ secrets.GH_OAUTH_CLIENT_SECRET }}
           CREDENTIAL_KEK_CURRENT: ${{ secrets.CREDENTIAL_KEK_CURRENT }}
           CREDENTIAL_KEK_PREVIOUS: ${{ secrets.CREDENTIAL_KEK_PREVIOUS }}
+          PADDLE_ENVIRONMENT: ${{ secrets.PADDLE_ENVIRONMENT }}
+          PADDLE_API_KEY: ${{ secrets.PADDLE_API_KEY }}
+          PADDLE_CLIENT_TOKEN: ${{ secrets.PADDLE_CLIENT_TOKEN }}
+          PADDLE_PRICE_ID: ${{ secrets.PADDLE_PRICE_ID }}
+          PADDLE_DISCOUNT_ID: ${{ secrets.PADDLE_DISCOUNT_ID }}
+          PADDLE_WEBHOOK_SECRET: ${{ secrets.PADDLE_WEBHOOK_SECRET }}
+          PADDLE_WEBHOOK_SECRET_SANDBOX: ${{ secrets.PADDLE_WEBHOOK_SECRET_SANDBOX }}
         run: |
           put() {
             if [ -n "$2" ]; then
@@ -71,6 +78,16 @@ jobs:
           put GITHUB_CLIENT_ID "$GH_OAUTH_CLIENT_ID"
           put GITHUB_CLIENT_SECRET "$GH_OAUTH_CLIENT_SECRET"
           put CREDENTIAL_KEK_CURRENT "$CREDENTIAL_KEK_CURRENT"
+          # W3-M billing: without these, checkout 500s and the Paddle webhook
+          # rejects every event ("webhook secret not configured") — found at
+          # the W3 gate check. Values are per-environment (prod, not sandbox).
+          put PADDLE_ENVIRONMENT "$PADDLE_ENVIRONMENT"
+          put PADDLE_API_KEY "$PADDLE_API_KEY"
+          put PADDLE_CLIENT_TOKEN "$PADDLE_CLIENT_TOKEN"
+          put PADDLE_PRICE_ID "$PADDLE_PRICE_ID"
+          put PADDLE_DISCOUNT_ID "$PADDLE_DISCOUNT_ID"
+          put PADDLE_WEBHOOK_SECRET "$PADDLE_WEBHOOK_SECRET"
+          put PADDLE_WEBHOOK_SECRET_SANDBOX "$PADDLE_WEBHOOK_SECRET_SANDBOX"
           # PREVIOUS exists only during a rotation window: when the repo
           # secret is removed, delete it from the Worker too — otherwise the
           # retired KEK could decrypt not-yet-rewrapped rows forever.

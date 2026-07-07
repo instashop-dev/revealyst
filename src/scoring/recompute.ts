@@ -173,9 +173,11 @@ export type RecomputeSummary = {
   definitionsEvaluated: number;
   definitionsSkipped: number;
   resultsWritten: number;
-  /** Stale person-level rows reconciled away this run (relinked off an
-   * exclusive subject, or dropped to zero signal) — surfaced, never silent. */
-  stalePersonResultsRemoved: number;
+  /** Stale rows reconciled away this run, across all subject levels: a
+   * person relinked off an exclusive subject or dropped to zero signal, or
+   * a team/org whose underlying window emptied (ADR 0012) — surfaced,
+   * never silent. */
+  staleResultsRemoved: number;
 };
 
 /**
@@ -196,7 +198,7 @@ export async function recomputeOrg(
       definitionsEvaluated: 0,
       definitionsSkipped: skipped,
       resultsWritten: 0,
-      stalePersonResultsRemoved: 0,
+      staleResultsRemoved: 0,
     };
   }
 
@@ -253,6 +255,7 @@ export async function recomputeOrg(
       );
       staleRemoved += removed;
     } else if (definition.subjectLevel === "team") {
+      const scoredTeamIds: string[] = [];
       for (const [teamId, subjectIds] of teamSubjects) {
         const result = evaluateDefinition(
           definition.components,
@@ -261,8 +264,17 @@ export async function recomputeOrg(
         );
         if (result) {
           upserts.push({ ...base, teamId, ...result });
+          scoredTeamIds.push(teamId);
         }
       }
+      // Same reconcile-down as the person branch (ADR 0012): a team whose
+      // underlying rows vanished (restatement-to-empty, purged connection)
+      // must not keep a score computed from data that no longer exists.
+      staleRemoved += await scoped.scores.deleteStaleTeamResults(
+        definition.id,
+        period,
+        scoredTeamIds,
+      );
     } else {
       const result = evaluateDefinition(
         definition.components,
@@ -271,6 +283,12 @@ export async function recomputeOrg(
       );
       if (result) {
         upserts.push({ ...base, ...result });
+      } else {
+        // Org sibling of the same reconcile (ADR 0012).
+        staleRemoved += await scoped.scores.deleteStaleOrgResults(
+          definition.id,
+          period,
+        );
       }
     }
   }
@@ -282,6 +300,6 @@ export async function recomputeOrg(
     definitionsEvaluated: definitions.length,
     definitionsSkipped: skipped,
     resultsWritten: upserts.length,
-    stalePersonResultsRemoved: staleRemoved,
+    staleResultsRemoved: staleRemoved,
   };
 }

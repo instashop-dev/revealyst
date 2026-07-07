@@ -15,7 +15,7 @@
 // - A person is counted once no matter how many subjects or tools resolve
 //   to them; a person with zero active subjects in P is not tracked.
 //
-// Paddle metering, the ≤10 free band, and the paywall all key off this
+// Paddle metering, the free band (FREE_TRACKED_USER_LIMIT), and the paywall all key off this
 // count. Changing this definition post-freeze is an ADR + W3-M re-sync.
 // The SQL twin lives in forOrg(db, org).billing.trackedUsers(period); a
 // contract test asserts pure and SQL agree on shared fixtures.

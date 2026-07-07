@@ -65,7 +65,7 @@ export default async function BillingPage() {
               </CardTitle>
               <CardDescription>
                 {isTeam
-                  ? `${entitlement.quantity} seat${entitlement.quantity === 1 ? "" : "s"} billed at $2 / tracked user / month.`
+                  ? `${entitlement.quantity} seat${entitlement.quantity === 1 ? "" : "s"} billed per tracked user / month — $2 list${hasFounderDiscount ? ", 50% off with the FOUNDER discount where applied" : ""}.`
                   : `${trackedCount} of ${FREE_TRACKED_USER_LIMIT} free tracked users used.`}
               </CardDescription>
             </div>

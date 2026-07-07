@@ -1,6 +1,6 @@
 # 0011 — billing checkout + portal API routes (additive)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-07
 - **Deciders:** Founder (W3-M PR3 kickoff — approved plan, Plan B)
 

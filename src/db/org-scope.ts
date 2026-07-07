@@ -1139,6 +1139,57 @@ export function forOrg(db: Db, orgId: string) {
         return removed.length;
       },
 
+      /**
+       * Team/org siblings of `deleteStalePersonResults` (ADR 0012): after a
+       * restatement-to-empty (poller delete of a whole window, purged
+       * connection), evaluate returns null and `upsertResults` never touches
+       * the old row — a team/org score computed from data that no longer
+       * exists would otherwise render forever. Same idempotent, tightly
+       * scoped delete, keyed by teamId / the single org-level row.
+       */
+      async deleteStaleTeamResults(
+        definitionId: string,
+        period: { periodStart: string; periodEnd: string },
+        keepTeamIds: string[],
+      ) {
+        const removed = await db
+          .delete(scoreResults)
+          .where(
+            and(
+              eq(scoreResults.orgId, orgId),
+              eq(scoreResults.definitionId, definitionId),
+              eq(scoreResults.subjectLevel, "team"),
+              eq(scoreResults.periodStart, period.periodStart),
+              eq(scoreResults.periodEnd, period.periodEnd),
+              keepTeamIds.length > 0
+                ? notInArray(scoreResults.teamId, keepTeamIds)
+                // No team qualified this round — every existing row is stale.
+                : undefined,
+            ),
+          )
+          .returning({ id: scoreResults.id });
+        return removed.length;
+      },
+
+      async deleteStaleOrgResults(
+        definitionId: string,
+        period: { periodStart: string; periodEnd: string },
+      ) {
+        const removed = await db
+          .delete(scoreResults)
+          .where(
+            and(
+              eq(scoreResults.orgId, orgId),
+              eq(scoreResults.definitionId, definitionId),
+              eq(scoreResults.subjectLevel, "org"),
+              eq(scoreResults.periodStart, period.periodStart),
+              eq(scoreResults.periodEnd, period.periodEnd),
+            ),
+          )
+          .returning({ id: scoreResults.id });
+        return removed.length;
+      },
+
       async results(filter: {
         definitionId?: string;
         subjectLevel?: (typeof scoreResults.subjectLevel.enumValues)[number];

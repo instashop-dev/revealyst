@@ -336,33 +336,39 @@ async function executeRun(
     // poll would otherwise survive forever and permanently inflate any
     // distinct_dims-based score. Scoped to exactly this run's window, so a
     // backfill chunk's delete never touches days outside its own chunk.
-    await scoped.metrics.deleteWindowForConnection(
-      connection.id,
-      window.start,
-      window.end,
-    );
-    await scoped.metrics.upsertRecords(
-      records.map((r) => ({
-        subjectId: subjectId(r.subject),
-        metricKey: r.metricKey,
-        day: r.day,
-        dim: r.dim,
-        connectionId: connection.id,
-        value: r.value,
-        attribution: r.attribution,
-        sourceConnector: entry.sourceConnector,
-        rawPayloadId: r.rawPayloadId,
-      })),
-    );
-    await scoped.metrics.upsertSignals(
-      signals.map((s) => ({
-        subjectId: subjectId(s.subject),
-        day: s.day,
-        hours: s.hours,
-        peakConcurrency: s.peakConcurrency,
-        sourceGranularity: s.sourceGranularity,
-      })),
-    );
+    // Transactional like its agent-ingest sibling: queue consumers run
+    // concurrently with the nightly recompute, and a recompute SELECT landing
+    // between the delete and the upsert would score a half-restated window.
+    await db.transaction(async (tx) => {
+      const txScoped = forOrg(tx as unknown as Db, message.orgId);
+      await txScoped.metrics.deleteWindowForConnection(
+        connection.id,
+        window.start,
+        window.end,
+      );
+      await txScoped.metrics.upsertRecords(
+        records.map((r) => ({
+          subjectId: subjectId(r.subject),
+          metricKey: r.metricKey,
+          day: r.day,
+          dim: r.dim,
+          connectionId: connection.id,
+          value: r.value,
+          attribution: r.attribution,
+          sourceConnector: entry.sourceConnector,
+          rawPayloadId: r.rawPayloadId,
+        })),
+      );
+      await txScoped.metrics.upsertSignals(
+        signals.map((s) => ({
+          subjectId: subjectId(s.subject),
+          day: s.day,
+          hours: s.hours,
+          peakConcurrency: s.peakConcurrency,
+          sourceGranularity: s.sourceGranularity,
+        })),
+      );
+    });
 
     // Subjects THIS run actually touched (discovered or referenced by
     // normalize) — not the connection's ever-growing lifetime set.

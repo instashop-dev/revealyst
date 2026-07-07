@@ -204,8 +204,8 @@ engineering teams ("who's using AI, how well, and is it worth the money").
 
 The IH-relevant part is the pricing decision. The category looks like this:
 WakaTime $8.25/user, Jellyfish $35–50/dev, Worklytics ~$2.5K/mo floor,
-Larridin $50K+/yr. I priced Team at $2/tracked user/month, free below 10
-users, Personal free forever.
+Larridin $50K+/yr. I priced Team at $2/tracked user/month, free up to 5
+tracked users, Personal free forever.
 
 Why a price that low on purpose: COGS is cents per tracked user, adoption
 friction in this category is trust + connector setup (not price), and the
