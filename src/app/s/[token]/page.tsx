@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getApiContext } from "@/lib/api-context";
+import { trackLaunchEvent } from "@/lib/launch-events";
 import { resolveShareCard } from "@/lib/share-card";
 
 // Public, unauthenticated score card (ADR 0008). The token is the capability;
@@ -46,6 +47,10 @@ export default async function ShareCardPage({
   if (!card) {
     notFound();
   }
+  // §15 share-card virality: name + score slug + host only — never the
+  // token, label, or any identifier (src/lib/launch-events.ts privacy rule;
+  // crawler-unfurl conflation documented there too).
+  await trackLaunchEvent("share_card_view", card.scoreSlug);
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-8 p-6">

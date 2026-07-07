@@ -25,7 +25,12 @@ import {
 } from "@/components/ui/card";
 import { ScoreCardMock } from "@/components/marketing/score-card-mock";
 import { Section } from "@/components/marketing/section";
+import { trackLaunchEvent } from "@/lib/launch-events";
 import { VENDOR_LABELS, vendorLabel } from "@/lib/vendor-labels";
+
+// Request-rendered so the landing_view event fires per visit (§15). The page
+// itself reads no data — the only per-request work is the event write.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Revealyst — see who's actually adopting AI, and how well",
@@ -172,7 +177,8 @@ const TIERS: {
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  await trackLaunchEvent("landing_view");
   return (
     <main className="flex min-h-dvh flex-col">
       {/* Hero — dark, echoing the share-card artifact. Arbitrary-value CSS

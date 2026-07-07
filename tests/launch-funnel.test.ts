@@ -1,0 +1,159 @@
+import { describe, expect, it } from "vitest";
+import { writeLaunchEvent } from "../src/lib/launch-events";
+import {
+  deriveLaunchFunnel,
+  percentile,
+  type OrgFunnelRow,
+} from "../src/lib/launch-funnel";
+
+const T0 = new Date("2026-07-01T10:00:00Z");
+const plusMinutes = (m: number) => new Date(T0.getTime() + m * 60_000);
+
+function row(overrides: Partial<OrgFunnelRow> = {}): OrgFunnelRow {
+  return {
+    orgId: crypto.randomUUID(),
+    kind: "personal",
+    createdAt: T0,
+    firstConnectionAt: null,
+    firstBackfillSuccessAt: null,
+    hasScore: false,
+    shareLinks: 0,
+    members: 1,
+    invitesSent: 0,
+    invitesAccepted: 0,
+    ...overrides,
+  };
+}
+
+describe("percentile", () => {
+  it("returns null on empty input (never fabricates a 0)", () => {
+    expect(percentile([], 50)).toBeNull();
+  });
+
+  it("nearest-rank p90", () => {
+    expect(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 90)).toBe(9);
+    expect(percentile([7], 90)).toBe(7);
+  });
+});
+
+describe("deriveLaunchFunnel", () => {
+  it("empty input: zero stages, null rates — no fabricated denominators", () => {
+    const f = deriveLaunchFunnel([]);
+    expect(f.stages).toEqual({
+      orgs: 0,
+      connected: 0,
+      backfilled: 0,
+      activated: 0,
+    });
+    expect(f.timeToFirstInsight.medianMinutes).toBeNull();
+    expect(f.timeToFirstInsight.under10MinRate).toBeNull();
+    expect(f.shareCard.rate).toBeNull();
+  });
+
+  it("counts each stage independently from timestamps", () => {
+    const f = deriveLaunchFunnel([
+      row(), // signed up only
+      row({ firstConnectionAt: plusMinutes(2) }), // connected, no backfill yet
+      row({
+        // connected + backfill errored (no success) — not counted as backfilled
+        firstConnectionAt: plusMinutes(2),
+        firstBackfillSuccessAt: null,
+      }),
+      row({
+        firstConnectionAt: plusMinutes(1),
+        firstBackfillSuccessAt: plusMinutes(4),
+        hasScore: true,
+      }),
+    ]);
+    expect(f.stages).toEqual({
+      orgs: 4,
+      connected: 3,
+      backfilled: 1,
+      activated: 1,
+    });
+  });
+
+  it("time-to-first-insight anchors on first successful backfill (stable, append-only), not the rewritable score computed_at", () => {
+    const f = deriveLaunchFunnel([
+      row({ firstBackfillSuccessAt: plusMinutes(6), hasScore: true }),
+      row({ firstBackfillSuccessAt: plusMinutes(8), hasScore: true }),
+      row({ firstBackfillSuccessAt: plusMinutes(45), hasScore: true }),
+      row(), // never synced — excluded from samples
+    ]);
+    expect(f.timeToFirstInsight.samples).toBe(3);
+    expect(f.timeToFirstInsight.medianMinutes).toBe(8);
+    expect(f.timeToFirstInsight.p90Minutes).toBe(45);
+    expect(f.timeToFirstInsight.under10MinRate).toBeCloseTo(2 / 3);
+  });
+
+  it("median is averaged-midpoint on even samples — nearest-rank would bias the §15 headline low", () => {
+    const f = deriveLaunchFunnel([
+      row({ firstBackfillSuccessAt: plusMinutes(4) }),
+      row({ firstBackfillSuccessAt: plusMinutes(28) }),
+    ]);
+    expect(f.timeToFirstInsight.medianMinutes).toBe(16);
+  });
+
+  it("share-card rate uses activated orgs as the denominator", () => {
+    const f = deriveLaunchFunnel([
+      row({ hasScore: true, shareLinks: 2 }),
+      row({ hasScore: true }),
+      // shared without a score result should not happen, but if it does it
+      // must not inflate the rate: not activated → not in either side.
+      row({ shareLinks: 1 }),
+    ]);
+    expect(f.shareCard).toEqual({
+      activated: 2,
+      withShareLink: 1,
+      rate: 0.5,
+    });
+  });
+
+  it("personal→team signals: invites, acceptance, multi-member growth", () => {
+    const f = deriveLaunchFunnel([
+      row({ invitesSent: 3, invitesAccepted: 1, members: 2 }),
+      row({ invitesSent: 1 }),
+      row({ kind: "team", members: 5, invitesSent: 4, invitesAccepted: 4 }),
+      row(),
+    ]);
+    expect(f.personalToTeam).toEqual({
+      personalOrgs: 3,
+      teamOrgs: 1,
+      personalWithInvites: 2,
+      personalWithAcceptedInvites: 1,
+      personalMultiMember: 1,
+    });
+  });
+});
+
+describe("writeLaunchEvent", () => {
+  it("no-ops without a dataset binding", () => {
+    expect(() => writeLaunchEvent(undefined, "landing_view")).not.toThrow();
+  });
+
+  it("writes name + coarse dim + host only — the no-PII data-point shape", () => {
+    const points: unknown[] = [];
+    const dataset = {
+      writeDataPoint: (p: unknown) => void points.push(p),
+    } as AnalyticsEngineDataset;
+    writeLaunchEvent(dataset, "share_card_view", "fluency", "revealyst.thapi.workers.dev");
+    writeLaunchEvent(dataset, "landing_view");
+    expect(points).toEqual([
+      {
+        blobs: ["share_card_view", "fluency", "revealyst.thapi.workers.dev"],
+        doubles: [1],
+        indexes: ["share_card_view"],
+      },
+      { blobs: ["landing_view", "", ""], doubles: [1], indexes: ["landing_view"] },
+    ]);
+  });
+
+  it("swallows a throwing sink — metrics never break a render", () => {
+    const dataset = {
+      writeDataPoint: () => {
+        throw new Error("sink down");
+      },
+    } as unknown as AnalyticsEngineDataset;
+    expect(() => writeLaunchEvent(dataset, "landing_view")).not.toThrow();
+  });
+});

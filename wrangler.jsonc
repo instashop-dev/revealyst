@@ -64,6 +64,17 @@
 	"observability": {
 		"enabled": true
 	},
+	// §15 launch metrics (W3-P): view-side events only (landing/share-card
+	// views can't be derived from DB rows). Everything row-derivable is read
+	// by scripts/launch-metrics.ts instead. No PII in data points — see
+	// src/lib/launch-events.ts. Datasets need no pre-creation; the binding
+	// starts recording on first write. Read via the CF dashboard / SQL API.
+	"analytics_engine_datasets": [
+		{
+			"binding": "LAUNCH_EVENTS",
+			"dataset": "revealyst_launch_events"
+		}
+	],
 	"services": [
 		// Self-reference service binding required by the OpenNext cache
 		// interception path; the service name must match "name" above.
