@@ -79,10 +79,18 @@ describe("invite lifecycle (ADR 0004)", () => {
       adminUserId,
     );
     const joined = await acceptInvite(db, token, dev.id);
-    expect(joined).toEqual({ orgId: teamOrgId, role: "member" });
+    expect(joined).toEqual({
+      orgId: teamOrgId,
+      role: "member",
+      alreadyAccepted: false,
+    });
 
-    // Idempotent for the redeemer…
-    expect(await acceptInvite(db, token, dev.id)).toEqual(joined);
+    // Idempotent for the redeemer — flagged as a replay (ADR 0010: callers
+    // must not audit a second join for a re-POSTed token)…
+    expect(await acceptInvite(db, token, dev.id)).toEqual({
+      ...joined,
+      alreadyAccepted: true,
+    });
     // …but burned for anyone else.
     const rival = await makeUser("rival-1", "Rival", "rival@example.com");
     await expect(acceptInvite(db, token, rival.id)).rejects.toMatchObject({

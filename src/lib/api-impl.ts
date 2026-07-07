@@ -435,6 +435,7 @@ export async function putConnectionCredential(
   connectionId: string,
   input: { kind: CredentialKind; value: string; expiresAt?: string | null },
   env: CredentialEnv,
+  actorUserId?: string,
 ) {
   const connection = await scope.connections.get(connectionId);
   if (!connection) {
@@ -447,6 +448,19 @@ export async function putConnectionCredential(
     env,
     input.expiresAt ? new Date(input.expiresAt) : null,
   );
+  // Audit HERE, not in the route: the store is durable from this point even
+  // if validate-on-save rejects the key below (400) — overwriting a working
+  // key with a bad one is exactly the action the trail must attribute
+  // (ADR 0010). Kind only, never the value.
+  if (actorUserId) {
+    await scope.auditLog.record({
+      actorUserId,
+      action: "connection.store_credential",
+      targetKind: "connection",
+      targetId: connectionId,
+      metadata: { kind: input.kind },
+    });
+  }
 
   const entry = getConnector(connection.vendor);
   if (entry) {

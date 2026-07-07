@@ -34,6 +34,14 @@ export async function POST(req: Request) {
       publicLabel: body.publicLabel,
       createdByUserId: ctx.user.id,
     });
+    // Audit the share creation — never the token (it IS the capability).
+    await ctx.scope.auditLog.record({
+      actorUserId: ctx.user.id,
+      action: "share.create",
+      targetKind: "person",
+      targetId: body.personId,
+      metadata: { scoreSlug: body.scoreSlug },
+    });
     return { token };
   });
 }
