@@ -11,7 +11,7 @@ chaser routine (per the harness-setup doc) to poll status until each clears.
 | GitHub App registration | github.com/settings/apps (or org) | **Now** (no site needed) | Instant to create; install-approval per customer org | ✅ filed |
 | GitHub Marketplace listing (optional, deferrable) | Marketplace review | When the W2 site is live (needs public URLs) | Days–weeks (human review) | ☐ deferred |
 | Anthropic / OpenAI / Cursor | — | — | **None needed** — customer-created admin keys | ✅ n/a |
-| Paddle MoR onboarding | paddle.com | The instant W2 has a live site | Days–weeks (KYC) | 🔶 account created; **sandbox catalog configured** (see below); MoR/KYC approval status TBC |
+| Paddle MoR onboarding | paddle.com | The instant W2 has a live site | Days–weeks (KYC) | 🔶 account created; **sandbox + production catalog configured** (see below); MoR/KYC approval status TBC |
 | Legal pass (ToS/DPA/privacy) | counsel | When W3-N drafts terms | Weeks | ☐ **drafts ready — file with counsel** (W3-N: `docs/legal/`, `/legal/terms`, `/legal/privacy`) |
 
 Only GitHub requires an *app-shaped* approval, and only Copilot needs it: every
@@ -99,25 +99,41 @@ for each = "create this key type, paste it here" with per-vendor screenshots
 
 ---
 
-## Paddle — sandbox catalog (configured 2026-07-07)
+## Paddle — catalog IDs (configured 2026-07-07)
 
-Set up via the Paddle MCP server against the **sandbox** environment (Spec v2.4
-pricing: $2/user/mo list + 50% founder discount). Live environment not yet
-configured — repeat these in Live before launch (IDs differ per environment).
-These IDs are **config, not secrets** — safe to commit; W3-M consumes them.
+Set up via the Paddle MCP server (Spec v2.4 pricing: $2/user/mo list + 50%
+founder discount). **Both sandbox and production are configured** — IDs differ
+per environment, so W3-M must select by `PADDLE_ENVIRONMENT`. These IDs are
+**config, not secrets** — safe to commit; W3-M consumes them.
+
+### Sandbox
 
 | Object | Sandbox ID | Notes |
 |---|---|---|
 | Product | `pro_01kwxp8090acsjpd3ypjtbhcm7` | "Revealyst Team", tax category `saas` |
 | Price | `pri_01kwxp80bbbgpaaat2501eybpb` | $2.00/tracked user/mo (200¢ USD), monthly, quantity 1–10,000 |
 | Discount | `dsc_01kwxp80eny3jr72zc3qkdhh7z` | code `FOUNDER`, 50% off, recurring, expires `2026-08-31T23:59:59Z`, restricted to the Team product |
-| Webhook dest. | `ntfset_01kwxp80kkb9ye9whrggx3qkdd` | url → `https://revealyst.thapi.workers.dev/api/webhooks/paddle`; events: `subscription.created/updated/canceled`, `transaction.completed`; `traffic_source: all` |
+| Webhook dest. | `ntfset_01kwxp80kkb9ye9whrggx3qkdd` | url → `/api/webhooks/paddle`; 4 events; `traffic_source: all` (incl. simulation, for W3-M CI tests) |
 
-**Webhook signing secret is NOT recorded here** (sensitive). It was returned at
-creation time; store it as a Worker/repo secret (e.g. `PADDLE_WEBHOOK_SECRET_SANDBOX`)
-when W3-M builds the handler — never in a tracked file. The `/api/webhooks/paddle`
-route does not exist until W3-M, so this destination will log delivery failures
-until then (expected).
+### Production (live)
+
+| Object | Production ID | Notes |
+|---|---|---|
+| Product | `pro_01kwxr7mccxmbzjqfegmnfa382` | "Revealyst Team", tax category `saas` |
+| Price | `pri_01kwxr7mysf3s37c9tk3mmd5y6` | $2.00/tracked user/mo (200¢ USD), monthly, quantity 1–10,000 |
+| Discount | `dsc_01kwxr7n6f46g0dn190zvev43g` | code `FOUNDER`, 50% off, recurring, expires `2026-08-31T23:59:59Z`, Team-only, **`enabled_for_checkout: true` — LIVE/publicly redeemable now** |
+| Webhook dest. | `ntfset_01kwxr7necjebkw89g6fndtyfv` | url → `/api/webhooks/paddle`; 4 events; `traffic_source: platform` (real events only) |
+
+**Webhook signing secrets are NOT recorded here** (sensitive). Each environment
+returns its own at creation; store them as Worker/repo secrets (e.g.
+`PADDLE_WEBHOOK_SECRET_SANDBOX` / `PADDLE_WEBHOOK_SECRET`) when W3-M builds the
+handler — never in a tracked file.
+
+⚠️ **Both webhook destinations point at `/api/webhooks/paddle`, which does not
+exist until W3-M** — so both log delivery failures until the handler ships, and
+Paddle may **auto-deactivate** the *production* destination after sustained
+failures. W3-M: check both destinations are `active` and re-activate the
+production one if needed (`notificationSettings.update { active: true }`).
 
 **Founder-discount model:** `recur: true` + `expires_at` = redeem `FOUNDER` before
 the sunset date to lock in 50% off on every renewal; after the date the code can
