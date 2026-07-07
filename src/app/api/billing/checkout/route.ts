@@ -14,6 +14,7 @@ export async function POST() {
         orgId: ctx.org.id,
         role: ctx.role,
       }),
-    { adminOnly: true },
+    // Must work WHILE the org is over the free band — this IS the upgrade path.
+    { adminOnly: true, allowOverFreeBand: true },
   );
 }

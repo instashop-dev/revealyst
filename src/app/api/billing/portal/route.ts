@@ -15,7 +15,8 @@ export async function GET() {
         resolvePaddleServerConfig(ctx.env as PaddleEnv),
         ctx.org.id,
       ),
-    { adminOnly: true },
+    // Managing/canceling must work regardless of free-band state.
+    { adminOnly: true, allowOverFreeBand: true },
   );
   // The response carries an authenticated, expiring portal URL — never let a
   // browser or intermediary cache it (ADR 0011: generated per request).

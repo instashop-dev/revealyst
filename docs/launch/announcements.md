@@ -51,7 +51,7 @@ would make benchmarks richer doesn't exist on day one.
 
 Personal mode is free forever — connect your own keys or Claude Code and get
 your own fluency score. Mine: <share-link>. Teams are $2/tracked user/month
-and free up to 10 tracked users; you're only billed for identity-resolved
+and free up to 5 tracked users; you're only billed for identity-resolved
 people with real usage.
 
 Happy to go deep on the scoring formulas, the shared-account heuristics, or
@@ -71,7 +71,7 @@ See who's actually adopting AI — and how well
 ```
 Neutral AI-adoption analytics across Cursor, OpenAI & Claude (Copilot soon).
 Adoption, Fluency & Efficiency scores from versioned, inspectable formulas —
-team-level, pseudonymized, no prompt content. Free for individuals & teams ≤10.
+team-level, pseudonymized, no prompt content. Free for individuals & teams ≤5.
 ```
 **Topics:** Analytics · Developer Tools · SaaS
 
@@ -96,7 +96,7 @@ prompt content, no browser extension. Built to survive an EU works council.
 Personal mode is free forever — measure your own AI fluency and share the
 card if you like it. Here's mine: <share-link>
 
-Team pricing is $2/tracked user/mo, free up to 10 tracked users, and there's
+Team pricing is $2/tracked user/mo, free up to 5 tracked users, and there's
 a 50% founder rate ($1) through Aug 31, 2026.
 
 I'll be here all day — ask me anything, especially the hard questions about
@@ -150,7 +150,7 @@ get your own fluency score.
 
 Mine is public: <share-link>
 
-Teams: $2/tracked user/mo, free ≤10. You're only billed for real, resolved
+Teams: $2/tracked user/mo, free ≤5. You're only billed for real, resolved
 people.
 
 Test your AI fluency: <landing>?ref=x
@@ -184,7 +184,7 @@ prompt content ever, no browser extension. If your works council would veto
 it, we didn't build it.
 
 Free forever for individuals (measure your own AI fluency — mine is linked in
-the comments). Teams: $2 per tracked user per month, free up to 10.
+the comments). Teams: $2 per tracked user per month, free up to 5.
 
 <landing>?ref=li
 ```

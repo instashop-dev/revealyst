@@ -3,6 +3,8 @@
 // Product-behavior statements are grounded in the real system (Product Spec §7);
 // commercial terms are grounded in the W3-M Paddle-as-MoR model.
 
+import { FREE_TRACKED_USER_LIMIT } from "@/lib/entitlements";
+
 export const metadata = {
   title: "Terms of Service · Revealyst",
 };
@@ -44,7 +46,8 @@ export default function TermsPage() {
           multi-user organizations. A &ldquo;tracked user&rdquo; is an
           identity-resolved person with at least one usage record in the billing
           period; usage that resolves only to a shared key or account is
-          surfaced but not billed. Teams of up to 10 tracked users are free.
+          surfaced but not billed. Teams of up to {FREE_TRACKED_USER_LIMIT}{" "}
+          tracked users are free.
         </li>
       </ul>
       <p>

@@ -13,6 +13,7 @@ import {
 import "@/connectors";
 import { registeredVendors } from "@/connectors/registry";
 import type { VendorId } from "@/contracts/attribution";
+import { FREE_TRACKED_USER_LIMIT } from "@/lib/entitlements";
 import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,7 +40,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Revealyst — see who's actually adopting AI, and how well",
     description:
-      "Neutral, cross-tool AI adoption analytics with versioned, inspectable scoring. Free for individuals and teams up to 10 tracked users.",
+      `Neutral, cross-tool AI adoption analytics with versioned, inspectable scoring. Free for individuals and teams up to ${FREE_TRACKED_USER_LIMIT} tracked users.`,
   },
   twitter: {
     card: "summary_large_image",
@@ -158,7 +159,7 @@ const TIERS: {
     tagline: "For engineering-led companies, self-serve end to end.",
     price: "$2",
     priceSuffix: "/ tracked user / mo",
-    badge: "Free ≤ 10 tracked users",
+    badge: `Free ≤ ${FREE_TRACKED_USER_LIMIT} tracked users`,
     highlight: true,
     features: [
       "All connectors, full history",
@@ -249,9 +250,9 @@ export default async function Home() {
                 </Button>
               </div>
               <p className="text-sm text-muted-foreground">
-                Free for individuals — and for teams up to 10 tracked users.
-                Sign up, connect a key, see your first insight in minutes. No
-                sales call.
+                Free for individuals — and for teams up to{" "}
+                {FREE_TRACKED_USER_LIMIT} tracked users. Sign up, connect a key,
+                see your first insight in minutes. No sales call.
               </p>
             </div>
 
