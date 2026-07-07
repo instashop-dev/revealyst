@@ -180,6 +180,15 @@ only by mechanism review). Also: base-nova `Card` draws its outline with
   origin/<target>`; recovery for a stacked chain = retarget the still-open tip PR's
   base to the integration branch (its HEAD holds the whole reviewed stack). Cost
   W2-K all 4 PRs (#55/#57/#60), recovered via #63 retargeted to `w2-k`.
+  **Stacked-PR variant (W3-P):** GitHub's merge button merges a PR into its
+  *base branch* — for a stacked PR that's the parent branch, NOT main. "All
+  PRs merged" can therefore leave every non-root PR stranded on stack branches
+  (cost W3-P #88/#90; recovered via #91→#92 from the stack tip based on main).
+  After any stack merge, verify the TIP commit with `git merge-base
+  --is-ancestor <tipSHA> origin/main` before celebrating or deleting branches.
+  And if a recovery PR develops conflicts with main, don't push the resolution
+  to the open PR (merge-race drops it) — resolve on a fresh branch and
+  recreate the PR with the resolution in its creation-time HEAD.
 - Flaky, not broken: an occasional `[vitest-pool]: Worker exited unexpectedly`
   (Windows fork crash) and a rare pseudonym-collision in `tests/api-impl.test.ts`
   are known transient flakes — rerun before treating either as a regression.
