@@ -8,6 +8,7 @@
     "agent": "tsx packages/revealyst-agent/src/cli.ts",
     "dev:seed": "tsx scripts/seed-fixtures.ts",
     "calibrate:scores": "tsx scripts/calibrate-scores.ts",
+    "rotate:kek": "tsx scripts/rotate-kek.ts",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
