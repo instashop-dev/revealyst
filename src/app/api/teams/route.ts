@@ -14,7 +14,15 @@ export async function POST(req: Request) {
   return handleApi(
     async (ctx) => {
       const body = await parseBody(apiRoutes.teamsCreate.request, req);
-      return createTeam(ctx.scope, body.name);
+      const res = await createTeam(ctx.scope, body.name);
+      await ctx.scope.auditLog.record({
+        actorUserId: ctx.user.id,
+        action: "team.create",
+        targetKind: "team",
+        targetId: res.id,
+        metadata: { name: res.name },
+      });
+      return res;
     },
     { adminOnly: true },
   );

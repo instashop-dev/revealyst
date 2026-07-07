@@ -37,6 +37,16 @@ export async function POST(req: Request) {
           ctx.db,
           ctx.org.id,
         ).create(body.email, body.role, ctx.user.id);
+        // Audit the invite — role but never the token (ADR 0010). The email
+        // is already stored on the invite row itself; the audit row carries
+        // only the reference.
+        await ctx.scope.auditLog.record({
+          actorUserId: ctx.user.id,
+          action: "invite.create",
+          targetKind: "invite",
+          targetId: invite.id,
+          metadata: { role: invite.role },
+        });
         return {
           invite: {
             id: invite.id,

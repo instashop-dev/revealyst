@@ -13,7 +13,15 @@ export async function PUT(
   return handleApi(
     async (ctx) => {
       const body = await parseBody(apiRoutes.teamsPutMembers.request, req);
-      return putTeamMembers(ctx.scope, id, body.personIds);
+      const res = await putTeamMembers(ctx.scope, id, body.personIds);
+      await ctx.scope.auditLog.record({
+        actorUserId: ctx.user.id,
+        action: "team.set_members",
+        targetKind: "team",
+        targetId: id,
+        metadata: { memberCount: body.personIds.length },
+      });
+      return res;
     },
     { adminOnly: true },
   );
