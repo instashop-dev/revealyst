@@ -12,13 +12,10 @@ import {
 } from "@/components/ui/card";
 import { subscriptionsForOrg } from "@/db/subscriptions";
 import { requireAppContext } from "@/lib/api-context";
+import { FREE_TRACKED_USER_LIMIT, trailing30dPeriod } from "@/lib/entitlements";
 import { resolvePaddleClientConfig, type PaddleEnv } from "@/lib/paddle";
 
 export const dynamic = "force-dynamic";
-
-// Free band: ≤10 tracked users. The paywall (PR4) enforces this; here it is
-// only displayed.
-const FREE_TRACKED_USER_LIMIT = 10;
 
 export default async function BillingPage() {
   const ctx = await requireAppContext();
@@ -28,12 +25,10 @@ export default async function BillingPage() {
   }
 
   const entitlement = await subscriptionsForOrg(ctx.db, ctx.org.id).current();
-  const now = new Date();
-  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
-  const { trackedPersonIds } = await ctx.scope.billing.trackedUsers({
-    start: `${now.getUTCFullYear()}-${month}-01`,
-    end: now.toISOString().slice(0, 10),
-  });
+  // Same window the paywall enforces on, so the displayed count matches.
+  const { trackedPersonIds } = await ctx.scope.billing.trackedUsers(
+    trailing30dPeriod(),
+  );
   const trackedCount = trackedPersonIds.length;
 
   // Client-safe Paddle config; absent in an unconfigured env — degrade to a
