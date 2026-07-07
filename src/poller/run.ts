@@ -23,7 +23,7 @@ import type {
 
 // One connector run = one queue message: credential-scoped vendor I/O,
 // raw landing, PURE normalize, org-scoped upserts, connector_runs logging.
-// Retry policy (ADR 0003), by phase:
+// Retry policy (ADR 0005/0006), by phase:
 //  - vendor phase: a RetryableConnectorError (429 / 5xx / network)
 //    propagates to the queue consumer, which retries the MESSAGE with
 //    backoff — nothing here loops. Any other vendor-phase error (401, bad
@@ -102,7 +102,7 @@ export async function runConnectorPoll(
   await executeRun(db, message, "poll", message.window, deps);
 }
 
-/** Delay before a paused connection's backfill chunk re-checks (ADR 0003). */
+/** Delay before a paused connection's backfill chunk re-checks (ADR 0006). */
 export const PAUSED_BACKFILL_RETRY_SECONDS = 3600;
 
 /**
@@ -111,7 +111,7 @@ export const PAUSED_BACKFILL_RETRY_SECONDS = 3600;
  * sent only after this chunk fully landed, so a crash re-delivers THIS
  * message and re-covers the same days harmlessly.
  *
- * Chain survival (ADR 0003): a permanently-failed chunk is a RECORDED HOLE,
+ * Chain survival (ADR 0006): a permanently-failed chunk is a RECORDED HOLE,
  * not a chain-killer — the rest of the window still backfills. A paused
  * connection re-enqueues the same cursor with a delay, so unpausing resumes
  * the chain instead of silently truncating history. Only a deleted
@@ -378,7 +378,7 @@ async function executeRun(
     // Post-vendor phase: raw landing / normalize / upserts. The typical
     // cause is a transient DB failure — retry the message rather than
     // bricking the connection; a deterministic normalize bug shows up as
-    // repeated failed runs + stale last_success_at (ADR 0003).
+    // repeated failed runs + stale last_success_at (ADR 0006).
     await scoped.connectorRuns
       .fail(run.id, errorMessage(error))
       .catch(() => {}); // if the DB is down, the rethrow is the signal

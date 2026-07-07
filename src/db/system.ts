@@ -1,4 +1,4 @@
-import { and, desc, eq, exists, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, lt, ne, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
   connectionCredentials,
@@ -39,7 +39,7 @@ export async function listOrgIds(db: Db): Promise<string[]> {
  * one cross-org read (system-level by design; per-org writes then go
  * through forOrg). A connection qualifies once it has a stored credential
  * (nothing to poll with otherwise) and is not paused. Errored connections
- * STAY candidates (ADR 0003): that is the self-heal path — the next
+ * STAY candidates (ADR 0006): that is the self-heal path — the next
  * successful poll re-activates them via markPolled, so a transient vendor
  * or DB failure never permanently halts ingestion. A wrong credential
  * costs one visibly-failed run per interval until the user fixes it.
@@ -90,6 +90,27 @@ export async function listConnectorWorkCandidates(
     ...r,
     backfillStarted: started.has(r.connectionId),
   }));
+}
+
+/**
+ * Per-org count of credential rows still wrapped under a non-current KEK —
+ * the rotation driver's dry-run (scripts/rotate-kek.ts). System-level by
+ * design, like the other cross-org reads here; raw access is allowed only
+ * inside src/db/**.
+ */
+export async function countCredentialsNeedingRewrap(
+  db: Db,
+  targetKekVersion: string,
+): Promise<Array<{ orgId: string; count: number }>> {
+  const rows = await db
+    .select({
+      orgId: connectionCredentials.orgId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(connectionCredentials)
+    .where(ne(connectionCredentials.kekVersion, targetKekVersion))
+    .groupBy(connectionCredentials.orgId);
+  return rows;
 }
 
 /**
