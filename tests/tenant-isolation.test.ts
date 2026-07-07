@@ -15,6 +15,10 @@ import { benchmarkConsentForOrg } from "../src/db/benchmark-consent";
 import { invitesForOrg } from "../src/db/invites";
 import { forOrg } from "../src/db/org-scope";
 import { shareLinksForOrg } from "../src/db/share-links";
+import {
+  applyPaddleSubscriptionEvent,
+  subscriptionsForOrg,
+} from "../src/db/subscriptions";
 import * as schema from "../src/db/schema";
 import type { CredentialEnv } from "../src/lib/credentials";
 
@@ -89,6 +93,11 @@ const SCOPED_READS: Array<{
   // return org B's row regardless of the org filter (vacuous). list() is
   // org-filtered, so a dropped filter deterministically surfaces B's row.
   { name: "benchmarkConsent.list", tables: ["benchmark_consent"], run: () => benchmarkConsentForOrg(db, orgA).list() },
+  // Subscriptions live in their own org-scoped factory (ADR 0009). The webhook
+  // upsert (applyPaddleSubscriptionEvent) is a capability-style write keyed on
+  // the passthrough orgId, not an ambient org-scoped read — list() is the
+  // org-filtered read the sweep exercises.
+  { name: "subscriptions.list", tables: ["subscriptions"], run: () => subscriptionsForOrg(db, orgA).list() },
 ];
 
 /** Tables that legitimately carry org_id but sit outside the sweep. */
@@ -152,6 +161,17 @@ beforeAll(async () => {
       createdByUserId: inviter.id,
     });
     await benchmarkConsentForOrg(db, orgId).set(inviter.id, true);
+    // A Team subscription per org (ADR 0009) so subscription ids join the leak
+    // universe and the subscriptions sweep is non-vacuous.
+    await applyPaddleSubscriptionEvent(db, {
+      orgId,
+      paddleSubscriptionId: `sub-${orgId}`,
+      paddleCustomerId: `ctm-${orgId}`,
+      occurredAt: new Date(`${PERIOD.start}T00:00:00Z`),
+      status: "active",
+      priceId: "pri_test",
+      quantity: 5,
+    });
     const run = await scoped.connectorRuns.start({
       connectionId: loaded.connections.anthropic,
       kind: "poll",
