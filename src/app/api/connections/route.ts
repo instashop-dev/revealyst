@@ -13,6 +13,14 @@ export async function GET() {
 export async function POST(req: Request) {
   return handleApi(async (ctx) => {
     const body = await parseBody(apiRoutes.connectionsCreate.request, req);
-    return createConnection(ctx.scope, body);
+    const res = await createConnection(ctx.scope, body);
+    await ctx.scope.auditLog.record({
+      actorUserId: ctx.user.id,
+      action: "connection.create",
+      targetKind: "connection",
+      targetId: res.connection.id,
+      metadata: { vendor: body.vendor },
+    });
+    return res;
   });
 }

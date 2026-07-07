@@ -10,3 +10,9 @@ BETTER_AUTH_URL=http://localhost:8787
 # GitHub OAuth (optional locally; founder registers the OAuth app).
 # GITHUB_CLIENT_ID=
 # GITHUB_CLIENT_SECRET=
+
+# Paddle Billing webhook secrets (W3-M). Worker secrets in deployed envs; set
+# whichever Paddle environment you point at this app's /api/webhooks/paddle. A
+# request is accepted on a signature match against EITHER, so both can be set.
+# PADDLE_WEBHOOK_SECRET=            # live notification-setting secret
+# PADDLE_WEBHOOK_SECRET_SANDBOX=    # sandbox notification-setting secret

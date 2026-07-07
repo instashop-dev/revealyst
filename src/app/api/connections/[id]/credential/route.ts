@@ -14,11 +14,14 @@ export async function POST(
   const { id } = await params;
   return handleApi(async (ctx) => {
     const body = await parseBody(apiRoutes.connectionCredentialPut.request, req);
+    // Audit happens inside the impl, right after the store — so a
+    // validate-on-save rejection (400) still leaves the who-stored-it row.
     return putConnectionCredential(
       ctx.scope,
       id,
       body,
       ctx.env as CredentialEnv,
+      ctx.user.id,
     );
   });
 }

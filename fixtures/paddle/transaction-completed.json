@@ -1,0 +1,19 @@
+{
+  "event_id": "evt_01kwxq0txncompleted00000000",
+  "event_type": "transaction.completed",
+  "occurred_at": "2026-07-07T09:00:05.000Z",
+  "notification_id": "ntf_01kwxq0txncompleted00000000",
+  "data": {
+    "id": "txn_01kwxq0000000000000000000t",
+    "status": "completed",
+    "subscription_id": "sub_01kwxq0000000000000000000a",
+    "customer_id": "ctm_01kwxq0000000000000000000c",
+    "custom_data": { "org_id": "ORG_PLACEHOLDER" },
+    "items": [
+      {
+        "price": { "id": "pri_01kwxp80bbbgpaaat2501eybpb" },
+        "quantity": 5
+      }
+    ]
+  }
+}

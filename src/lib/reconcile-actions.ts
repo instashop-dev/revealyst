@@ -49,6 +49,21 @@ export async function applyReconcileAction(
   action: ReconcileAction,
 ): Promise<{ ok: true; personId?: string }> {
   const createdBy = actorUserId ?? undefined;
+  // Audit (ADR 0010): recorded after the write succeeds, so a failed action
+  // never leaves a phantom trail. Especially load-bearing for unlink — a
+  // hard delete that otherwise leaves no trace of who undid a mapping.
+  const audit = (
+    auditAction: string,
+    targetId: string,
+    metadata: Record<string, unknown>,
+  ) =>
+    scope.auditLog.record({
+      actorUserId,
+      action: auditAction,
+      targetKind: "identity",
+      targetId,
+      metadata,
+    });
   switch (action.action) {
     case "link": {
       await requireSubject(scope, action.subjectId);
@@ -58,6 +73,9 @@ export async function applyReconcileAction(
         "manual",
         createdBy,
       );
+      await audit("identity.link", action.subjectId, {
+        personId: action.personId,
+      });
       return { ok: true };
     }
     case "create_and_link": {
@@ -76,14 +94,27 @@ export async function applyReconcileAction(
         "manual",
         createdBy,
       );
+      await audit("identity.create_and_link", action.subjectId, {
+        personId: person.id,
+      });
       return { ok: true, personId: person.id };
     }
     case "unlink": {
       await scope.identities.unlink(action.subjectId, action.personId);
+      await audit("identity.unlink", action.subjectId, {
+        personId: action.personId,
+      });
       return { ok: true };
     }
     case "assign_team": {
       await scope.teams.addMember(action.teamId, action.personId);
+      await scope.auditLog.record({
+        actorUserId,
+        action: "team.assign_member",
+        targetKind: "team",
+        targetId: action.teamId,
+        metadata: { personId: action.personId },
+      });
       return { ok: true };
     }
   }

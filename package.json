@@ -9,6 +9,7 @@
     "dev:seed": "tsx scripts/seed-fixtures.ts",
     "calibrate:scores": "tsx scripts/calibrate-scores.ts",
     "launch:metrics": "tsx scripts/launch-metrics.ts",
+    "rotate:kek": "tsx scripts/rotate-kek.ts",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",

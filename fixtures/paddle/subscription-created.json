@@ -1,0 +1,23 @@
+{
+  "event_id": "evt_01kwxq0created0000000000000",
+  "event_type": "subscription.created",
+  "occurred_at": "2026-07-07T09:00:00.000Z",
+  "notification_id": "ntf_01kwxq0created0000000000000",
+  "data": {
+    "id": "sub_01kwxq0000000000000000000a",
+    "status": "active",
+    "customer_id": "ctm_01kwxq0000000000000000000c",
+    "custom_data": { "org_id": "ORG_PLACEHOLDER" },
+    "current_billing_period": {
+      "starts_at": "2026-07-07T09:00:00.000Z",
+      "ends_at": "2026-08-07T09:00:00.000Z"
+    },
+    "items": [
+      {
+        "price": { "id": "pri_01kwxp80bbbgpaaat2501eybpb" },
+        "quantity": 5
+      }
+    ],
+    "canceled_at": null
+  }
+}

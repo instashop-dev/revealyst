@@ -11,14 +11,21 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  return handleApi((ctx) =>
-    pollConnection(ctx.scope, id, {
+  return handleApi(async (ctx) => {
+    const res = await pollConnection(ctx.scope, id, {
       send: async (message, opts) => {
         await ctx.env.POLL_QUEUE.send(
           message,
           opts?.delaySeconds ? { delaySeconds: opts.delaySeconds } : undefined,
         );
       },
-    }),
-  );
+    });
+    await ctx.scope.auditLog.record({
+      actorUserId: ctx.user.id,
+      action: "connection.poll",
+      targetKind: "connection",
+      targetId: id,
+    });
+    return res;
+  });
 }

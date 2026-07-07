@@ -138,7 +138,7 @@ export async function acceptInvite(
   db: Db,
   token: string,
   userId: string,
-): Promise<{ orgId: string; role: InviteRole }> {
+): Promise<{ orgId: string; role: InviteRole; alreadyAccepted: boolean }> {
   const tokenHash = await hashInviteToken(token);
   const [invite] = await db
     .select()
@@ -152,7 +152,9 @@ export async function acceptInvite(
   }
   if (invite.acceptedAt) {
     if (invite.acceptedByUserId === userId) {
-      return { orgId: invite.orgId, role: invite.role }; // already redeemed by this user
+      // Already redeemed by this user — a no-op replay, flagged so callers
+      // (e.g. the audit write, ADR 0010) don't record a second join.
+      return { orgId: invite.orgId, role: invite.role, alreadyAccepted: true };
     }
     throw new InviteError("already_used");
   }
@@ -169,7 +171,7 @@ export async function acceptInvite(
       .set({ acceptedAt: new Date(), acceptedByUserId: userId })
       .where(eq(invites.id, invite.id));
   });
-  return { orgId: invite.orgId, role: invite.role };
+  return { orgId: invite.orgId, role: invite.role, alreadyAccepted: false };
 }
 
 /**

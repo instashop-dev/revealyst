@@ -77,6 +77,7 @@ const SCOPED_READS: Array<{
   { name: "scores.results", tables: ["score_results"], run: (s) => s.scores.results({}) },
   { name: "billing.trackedUsers", tables: ["metric_records", "identities"], run: (s) => s.billing.trackedUsers(PERIOD) },
   { name: "heartbeats.list", tables: ["poll_heartbeats"], run: (s) => s.heartbeats.list() },
+  { name: "auditLog.list", tables: ["audit_log"], run: (s) => s.auditLog.list() },
   { name: "connectorRuns.list", tables: ["connector_runs"], run: (s) => s.connectorRuns.list() },
   { name: "connectorRuns.latest(B)", tables: ["connector_runs"], run: (s, c) => s.connectorRuns.latest(c.B.connections.anthropic) },
   // Credentials are read-only via withCredential, which throws for foreign
@@ -161,6 +162,15 @@ beforeAll(async () => {
       createdByUserId: inviter.id,
     });
     await benchmarkConsentForOrg(db, orgId).set(inviter.id, true);
+    // An audit row per org (ADR 0010) whose target is a fixture team id, so
+    // the B-side row carries a B id and the auditLog sweep is non-vacuous.
+    await scoped.auditLog.record({
+      actorUserId: inviter.id,
+      action: "team.create",
+      targetKind: "team",
+      targetId: loaded.teams.core,
+      metadata: { seededFor: orgId },
+    });
     // A Team subscription per org (ADR 0009) so subscription ids join the leak
     // universe and the subscriptions sweep is non-vacuous.
     await applyPaddleSubscriptionEvent(db, {

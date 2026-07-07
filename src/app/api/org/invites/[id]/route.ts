@@ -16,6 +16,14 @@ export async function DELETE(
       if (!revoked) {
         throw new ApiError(404, "no pending invite with that id");
       }
+      // The invite row's tombstone records THAT it was revoked; this
+      // records WHO revoked it (the row has no revoker column).
+      await ctx.scope.auditLog.record({
+        actorUserId: ctx.user.id,
+        action: "invite.revoke",
+        targetKind: "invite",
+        targetId: id,
+      });
       return { ok: true };
     },
     { adminOnly: true },

@@ -40,6 +40,25 @@ export async function POST(
 
   const secret = generateAgentSecret();
   await scoped.connections.storeCredential(id, "device_token", secret, env);
+  // Audit the (re-)issue — never the secret itself (ADR 0010). BEST-EFFORT,
+  // unlike the other audited routes: the rotation already invalidated the
+  // old token, and the new one is readable ONLY from this response — a
+  // transient audit-insert failure must not turn into a 500 that destroys
+  // the one-time token and bricks the agent. The failure still lands in
+  // Workers Logs (observability) via console.error.
+  await scoped.auditLog
+    .record({
+      actorUserId: session.user.id,
+      action: "connection.issue_agent_token",
+      targetKind: "connection",
+      targetId: id,
+    })
+    .catch((error) => {
+      console.error(
+        `[audit] connection.issue_agent_token write failed for ${id}:`,
+        error,
+      );
+    });
 
   return Response.json({
     token: composeAgentToken(membership.orgId, id, secret),
