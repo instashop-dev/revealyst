@@ -99,6 +99,50 @@ describe("share links (opt-in public card)", () => {
     const listed = await shareLinksForOrg(db, orgA).list();
     expect(JSON.stringify(listed)).not.toContain(personB);
   });
+
+  it("listForPerson: only that person's ACTIVE links, org-scoped (W3-P revoke surface)", async () => {
+    const links = shareLinksForOrg(db, orgA);
+    const other = (await forOrg(db, orgA).people.create({ displayName: "Cy" }))
+      .id;
+    const mine = await links.create({
+      personId: personA,
+      scoreSlug: "efficiency",
+      publicLabel: "Ada E.",
+    });
+    const theirs = await links.create({
+      personId: other,
+      scoreSlug: "fluency",
+      publicLabel: "Cy F.",
+    });
+
+    const listed = await links.listForPerson(personA);
+    expect(listed.some((l) => l.id === mine.link.id)).toBe(true);
+    expect(listed.some((l) => l.id === theirs.link.id)).toBe(false);
+    // Revoked links drop from the owner's list too.
+    await links.revoke(mine.link.id);
+    const after = await links.listForPerson(personA);
+    expect(after.some((l) => l.id === mine.link.id)).toBe(false);
+    // Cross-org: org B sees nothing for org A's person.
+    expect(await shareLinksForOrg(db, orgB).listForPerson(personA)).toEqual([]);
+  });
+
+  it("get: org-scoped by id, includes revoked rows for ownership checks", async () => {
+    const links = shareLinksForOrg(db, orgA);
+    const { link } = await links.create({
+      personId: personA,
+      scoreSlug: "adoption",
+      publicLabel: "Ada G.",
+    });
+    expect((await links.get(link.id))?.id).toBe(link.id);
+    // Org B's scope cannot fetch it at all.
+    expect(await shareLinksForOrg(db, orgB).get(link.id)).toBeUndefined();
+    // Still fetchable after revocation (the DELETE route needs the row to
+    // check ownership and answer idempotently).
+    await links.revoke(link.id);
+    expect((await links.get(link.id))?.revokedAt).not.toBeNull();
+    // Second revoke is a no-op false — the route maps it to idempotent success.
+    expect(await links.revoke(link.id)).toBe(false);
+  });
 });
 
 describe("benchmark consent (anonymized opt-in)", () => {

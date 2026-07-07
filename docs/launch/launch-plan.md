@@ -114,11 +114,11 @@ Read daily during launch week, from `npm run launch:metrics` + AE dashboard:
   versioned Worker-secret KEK).
 - **Blockers found by the 2026-07-07 adversarial fact-check — must clear
   before launch day:**
-  - [ ] **Share-link revoke surface**: `shareLinksForOrg().revoke()` exists at
-        the DB layer but no route/UI reaches it — a user cannot kill their own
-        share URL. The landing copy's revoke promise was removed until this
-        ships; ship it before launch (the artifact's privacy story needs it),
-        then restore the "revoke any time" line.
+  - [x] **Share-link revoke surface** — RESOLVED: `GET /api/share?personId=`
+        (own links, metadata only — tokens are never stored) +
+        `DELETE /api/share/:id` (self-only, audited as `share.revoke`,
+        idempotent), active-links list + revoke button in the share dialog,
+        and the landing "Revoke the link any time." line restored.
   - [ ] **Team benchmark panel provenance**: the panel still renders the
         placeholder `norms.ts` fixture whose source strings claim
         "(2025, published)" — violates score-definitions.md's verified-only

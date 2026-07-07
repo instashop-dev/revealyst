@@ -60,6 +60,30 @@ export function shareLinksForOrg(db: Db, orgId: string) {
         .orderBy(desc(shareLinks.createdAt));
     },
 
+    /** Active links for one person — the owner's "my share links" surface. */
+    async listForPerson(personId: string) {
+      return db
+        .select()
+        .from(shareLinks)
+        .where(
+          and(
+            eq(shareLinks.orgId, orgId),
+            eq(shareLinks.personId, personId),
+            isNull(shareLinks.revokedAt),
+          ),
+        )
+        .orderBy(desc(shareLinks.createdAt));
+    },
+
+    /** One link by id, org-scoped (revoked rows included — callers check). */
+    async get(id: string) {
+      const [row] = await db
+        .select()
+        .from(shareLinks)
+        .where(and(eq(shareLinks.orgId, orgId), eq(shareLinks.id, id)));
+      return row;
+    },
+
     /** Revocation is a tombstone — the row stays auditable, the URL 404s. */
     async revoke(id: string) {
       const [row] = await db
