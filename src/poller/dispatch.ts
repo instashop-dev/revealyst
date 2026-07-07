@@ -14,9 +14,17 @@ import type { PollMessage } from "./messages";
 // elapsed. A message enqueued-but-unprocessed for a whole tick can be
 // dispatched twice — harmless (idempotent upserts), bounded to one
 // duplicate by the 5-min cron vs ≥15-min intervals.
+//
+// Fan-out is BATCHED, not one send per candidate: a per-message
+// `await POLL_QUEUE.send()` would serialize thousands of round-trips inside
+// a single scheduled invocation and blow its wall-clock (the same reason the
+// nightly score recompute batches). Every due message accrues into one array
+// handed to `send` in a single call; the worker flushes it through
+// `sendInBatches` (the shared chunk-of-100 + envelope helper in ./queue).
 
 export type DispatchDeps = {
-  send: (message: PollMessage) => Promise<void>;
+  /** Enqueue every due message; the impl batches to the Queue cap. */
+  send: (messages: PollMessage[]) => Promise<void>;
   now?: () => Date;
   /** Test seam: overrides the vendor registry. */
   resolveConnector?: typeof getConnector;
@@ -30,7 +38,7 @@ export async function dispatchDueConnectorWork(
   const now = (deps.now ?? (() => new Date()))();
   const today = now.toISOString().slice(0, 10);
   const candidates = await listConnectorWorkCandidates(db);
-  let sent = 0;
+  const messages: PollMessage[] = [];
 
   for (const c of candidates) {
     const entry = resolve(c.vendor);
@@ -47,7 +55,7 @@ export async function dispatchDueConnectorWork(
         DEFAULT_BACKFILL_DAYS,
       );
       const window = { start: addDays(today, -(depth - 1)), end: today };
-      await deps.send({
+      messages.push({
         kind: "connector-backfill",
         orgId: c.orgId,
         connectionId: c.connectionId,
@@ -55,7 +63,6 @@ export async function dispatchDueConnectorWork(
         cursorStart: window.start,
         chunkDays: chunkDaysFor(entry.maxCallsPerDay),
       });
-      sent++;
     }
 
     const duePoll =
@@ -65,7 +72,7 @@ export async function dispatchDueConnectorWork(
     if (duePoll) {
       // Regular poll re-covers the restatement window — vendors restate
       // recent days, and the upsert key makes re-polls overwrite.
-      await deps.send({
+      messages.push({
         kind: "connector-poll",
         orgId: c.orgId,
         connectionId: c.connectionId,
@@ -74,8 +81,10 @@ export async function dispatchDueConnectorWork(
           end: today,
         },
       });
-      sent++;
     }
   }
-  return sent;
+
+  // Hand the whole fan-out to the batching sink in one call (empty-safe).
+  await deps.send(messages);
+  return messages.length;
 }
