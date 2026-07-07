@@ -34,6 +34,19 @@ contracts. Every session auto-loads this file — it is the interface between ag
   (locked by an editor/indexer) yet still succeed at unregistering the
   worktree — `git worktree prune` cleans up the stub; the leftover empty
   folder is harmless.
+- Adding a Queue consumer to `wrangler.jsonc` (e.g. a DLQ) makes `wrangler
+  versions upload` fail "Queue X does not exist" until the queue exists — add a
+  `wrangler queues create <q>` step to BOTH `deploy.yml` AND the `preview-deploy`
+  job in `ci.yml`, or every PR's preview-deploy goes red.
+- New table: edit `src/db/schema.ts`, then `npx drizzle-kit generate --name
+  <slug>` (offline, no DB) writes the next-numbered `drizzle/*.sql` + snapshot +
+  `_journal` entry. Migration numbers and ADR numbers are INDEPENDENT sequences
+  (both collided at 0009/0010) — check `ls drizzle/*.sql` and `ls docs/decisions/`
+  separately before numbering.
+- Unauthenticated routes use `getApiContext()` (no session) from
+  `src/lib/api-context.ts`, not `handleApi`/`appContext` (which require a
+  session, 401 otherwise). System-level / bounded cross-org DB reads belong in
+  the non-frozen `src/db/system.ts` (routes may import it; never `db/schema`).
 - **Design system (W1-G):** Tailwind v4 + shadcn/ui `base-nova` — **Base UI**
   primitives, not Radix: custom triggers use `render={...}` (and
   `nativeButton={false}` when rendering an `<a>`/`Link`). Shared components in
@@ -59,7 +72,10 @@ contracts. Every session auto-loads this file — it is the interface between ag
 ## Frozen contracts — do not touch without an ADR (tag `contracts-v1`)
 Frozen at the W0-C freeze ceremony. Any change requires an ADR in `docs/decisions/`
 — **stop and ask before touching them.** CI blocks PRs that change a frozen path
-without a `docs/decisions/` change in the same PR.
+without a `docs/decisions/` change in the same PR. Adding a NEW org-scoped table
+is one such PR (additive, but still trips the guard): ADR + `drizzle-kit generate`
++ a `SCOPED_READS` entry in `tests/tenant-isolation.test.ts` with a non-vacuous
+B-org seed row in its `beforeAll` (the completeness tripwire fails otherwise).
 - **`src/contracts/**`** — typed interfaces: `Connector` (pure `normalize`, honesty
   gaps), `ScoreDefinition`/`ScoreResult` + zod shapes, `CANONICAL_METRICS`,
   attribution ladder + `lowestAttribution`, API-route contracts (`api.ts`), and
