@@ -119,12 +119,12 @@ Read daily during launch week, from `npm run launch:metrics` + AE dashboard:
         share URL. The landing copy's revoke promise was removed until this
         ships; ship it before launch (the artifact's privacy story needs it),
         then restore the "revoke any time" line.
-  - [ ] **Team benchmark panel provenance**: the panel still renders the
-        placeholder `norms.ts` fixture whose source strings claim
-        "(2025, published)" — violates score-definitions.md's verified-only
-        rule. Before ANY public screenshot/demo: swap to the verified-only DB
-        source (as personal view does) or relabel as "modeled estimate
-        (unverified)".
+  - [x] **Team benchmark panel provenance** — RESOLVED (relabel): norms.ts
+        sources now read "Revealyst modeled estimate (unverified) — …" and the
+        panel description says "modeled industry norms — verified published
+        benchmarks will replace these". (Full swap to the verified-only DB
+        source deferred: DB rows lack the percentile-curve shape the panel
+        renders; revisit when founder-verified rows land with PR 4.)
   - [ ] **Paddle end-to-end**: checkout/webhook/entitlement wiring (W3-M) must
         be live — buy a Team seat as a stranger. If launching without it, the
         Paddle footnote + "self-serve end to end" copy come off the landing

@@ -16,9 +16,11 @@ function ordinal(n: number): string {
 }
 
 /**
- * Org vs. published benchmarks (§8 L4). Benchmarks are load-bearing — a score
- * is meaningless without comparison. Sources are cited inline so the number is
+ * Org vs. industry norms (§8 L4). Benchmarks are load-bearing — a score is
+ * meaningless without comparison. Sources are cited inline so the number is
  * auditable, and an org with no score shows "—", never an invented percentile.
+ * Until founder-verified benchmark rows exist, the norms are MODELED estimates
+ * and the copy here must say so (invariant b — no false provenance).
  */
 export function BenchmarkPanel({
   benchmarks,
@@ -30,7 +32,8 @@ export function BenchmarkPanel({
       <CardHeader>
         <CardTitle>Benchmark</CardTitle>
         <CardDescription>
-          Your scores vs. published industry benchmarks.
+          Your scores vs. modeled industry norms — verified published
+          benchmarks will replace these as sources are confirmed.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
