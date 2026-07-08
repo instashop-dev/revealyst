@@ -235,6 +235,28 @@ describe("client", () => {
       vi.useRealTimers();
     }
   });
+
+  it("a response whose body never resolves also times out (not just a stalled connect)", async () => {
+    vi.useFakeTimers();
+    try {
+      const slowBody = (async () =>
+        ({
+          status: 200,
+          ok: true,
+          headers: new Headers(),
+          json: () => new Promise(() => {}),
+          text: () => new Promise(() => {}),
+        }) as unknown as Response) as typeof fetch;
+      const validate = checkAdminKey("k", slowBody);
+      await vi.runAllTimersAsync();
+      await expect(validate).resolves.toEqual({
+        ok: false,
+        reason: expect.stringMatching(/timed out/),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("end-to-end team mode (stubbed vendor)", () => {
