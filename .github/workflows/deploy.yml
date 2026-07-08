@@ -64,6 +64,7 @@ jobs:
           PADDLE_DISCOUNT_ID: ${{ secrets.PADDLE_DISCOUNT_ID }}
           PADDLE_WEBHOOK_SECRET: ${{ secrets.PADDLE_WEBHOOK_SECRET }}
           PADDLE_WEBHOOK_SECRET_SANDBOX: ${{ secrets.PADDLE_WEBHOOK_SECRET_SANDBOX }}
+          ADMIN_USER_IDS: ${{ secrets.ADMIN_USER_IDS }}
           SES_ACCESS_KEY_ID: ${{ secrets.SES_ACCESS_KEY_ID }}
           SES_SECRET_ACCESS_KEY: ${{ secrets.SES_SECRET_ACCESS_KEY }}
           SES_REGION: ${{ secrets.SES_REGION }}
@@ -92,6 +93,10 @@ jobs:
           put PADDLE_DISCOUNT_ID "$PADDLE_DISCOUNT_ID"
           put PADDLE_WEBHOOK_SECRET "$PADDLE_WEBHOOK_SECRET"
           put PADDLE_WEBHOOK_SECRET_SANDBOX "$PADDLE_WEBHOOK_SECRET_SANDBOX"
+          # Platform-admin bootstrap (ADR 0016): comma-separated Better Auth
+          # user ids granted /admin access without the user.role column being
+          # set. Unset/empty = no platform admins; the admin section is inert.
+          put ADMIN_USER_IDS "$ADMIN_USER_IDS"
           # SES transactional email (account mgmt): password reset + signup
           # email verification. Without these, sendEmail() no-ops (no mail
           # sent) and — with requireEmailVerification — new signups can't

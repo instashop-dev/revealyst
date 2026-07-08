@@ -22,6 +22,7 @@ export type Surface = "app" | "marketing" | "neutral";
 // plus the flat authed routes (sign-in, onboarding, invite). Matched only at a
 // path boundary so "/peoplesearch" is not treated as "/people".
 export const APP_PATH_PREFIXES = [
+  "/admin",
   "/dashboard",
   "/teams",
   "/people",

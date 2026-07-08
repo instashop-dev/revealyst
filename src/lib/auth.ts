@@ -1,18 +1,62 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import {
+  APIError,
+  createAuthMiddleware,
+  getSessionFromCtx,
+} from "better-auth/api";
+import { admin } from "better-auth/plugins/admin";
 import { assertDeletableAndPurgeOrg } from "../db/account-deletion";
 import { createDb, type Db } from "../db/client";
-import { ensureOrgOfOne } from "../db/org-scope";
+import { ensureOrgOfOne, forOrg } from "../db/org-scope";
+import { ensureSystemOrg } from "../db/system";
+import { SYSTEM_ORG_ID, SYSTEM_ORG_NAME } from "../poller/messages";
+import {
+  type AdminEnv,
+  isPlatformAdmin,
+  parseAdminUserIds,
+} from "./admin-access";
 import { APP_ORIGIN, MARKETING_ORIGIN } from "./domains";
 import { type EmailEnv, sendEmail } from "./email";
 
-export type AuthEnv = EmailEnv & {
-  BETTER_AUTH_SECRET?: string;
-  BETTER_AUTH_URL?: string;
-  GITHUB_CLIENT_ID?: string;
-  GITHUB_CLIENT_SECRET?: string;
-};
+export type AuthEnv = EmailEnv &
+  AdminEnv & {
+    BETTER_AUTH_SECRET?: string;
+    BETTER_AUTH_URL?: string;
+    GITHUB_CLIENT_ID?: string;
+    GITHUB_CLIENT_SECRET?: string;
+  };
+
+// Admin-plugin endpoints that are cut outright (ADR 0016) — blocked in
+// hooks.before so there is never a deployed window where they work:
+// - remove-user deletes via the internal adapter and BYPASSES
+//   deleteUser.beforeDelete → would skip assertDeletableAndPurgeOrg and
+//   strand org rows (violates ADR 0015's purge invariant). Users self-delete
+//   via /account.
+// - create-user / update-user / set-user-password: profile writes are cut
+//   (view-only admin), and update-user's generic `data` payload could set
+//   role/banned — bypassing the set-role/ban guards AND the audit trail.
+// - revoke-user-session(s): session-revocation UI is cut; ban (audited)
+//   covers the emergency.
+const BLOCKED_ADMIN_PATHS = new Set([
+  "/admin/remove-user",
+  "/admin/create-user",
+  "/admin/update-user",
+  "/admin/set-user-password",
+  "/admin/revoke-user-session",
+  "/admin/revoke-user-sessions",
+]);
+
+// Mutations whose TARGET must not be a platform admin (blocks the
+// "impersonate/ban/demote admin B, act as B" escalations), and whose target
+// must not be the caller for set-role/ban (lockout protection).
+const TARGET_GUARDED_ADMIN_PATHS = new Set([
+  "/admin/impersonate-user",
+  "/admin/ban-user",
+  "/admin/set-role",
+]);
+const SELF_GUARDED_ADMIN_PATHS = new Set(["/admin/ban-user", "/admin/set-role"]);
 
 /**
  * Builds the Better Auth instance for a given db + env. Exported separately
@@ -97,6 +141,155 @@ export function createAuth(db: Db, env: AuthEnv) {
       },
     },
     socialProviders: github,
+    // Platform-admin console (ADR 0016). Mounts /api/auth/admin/* (list-users,
+    // set-role, ban/unban-user, impersonate-user, stop-impersonating, ...).
+    // Bootstrap staff via the ADMIN_USER_IDS Worker secret; day-2 admins are
+    // promoted with the audited set-role endpoint. defaultRole "user" — a
+    // NULL role column also reads as "user" (src/lib/admin-access.ts).
+    //
+    // TRIPWIRE: session cookieCache is currently DISABLED, so `user.banned`
+    // and `session.impersonatedBy` are read fresh from the database on every
+    // request — a ban or stop-impersonation takes effect immediately. If
+    // cookieCache is ever enabled, those reads lag by the cache TTL and every
+    // admin gate (requireAdminContext, handleAdminApi, the plugin's own
+    // banned-user check) must be revisited before shipping.
+    plugins: [
+      admin({
+        adminUserIds: parseAdminUserIds(env),
+        defaultRole: "user",
+        impersonationSessionDuration: 60 * 60, // 1h — support sessions, not shifts
+      }),
+    ],
+    // Guard + audit at the auth-handler level (ADR 0016): the plugin mounts
+    // its endpoints regardless, so wrapper routes would be bypassable. These
+    // hooks run on every Better Auth endpoint — non-/admin/* paths return
+    // immediately.
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (!ctx.path.startsWith("/admin/")) return;
+        if (BLOCKED_ADMIN_PATHS.has(ctx.path)) {
+          throw new APIError("FORBIDDEN", {
+            message: "This admin endpoint is disabled (ADR 0016).",
+          });
+        }
+        if (!TARGET_GUARDED_ADMIN_PATHS.has(ctx.path)) return;
+        // Keep the role model binary ("user" | "admin"): a compound role like
+        // "admin,user" would read as admin to the plugin's split(",") checks
+        // but not to isPlatformAdmin's exact match — a hidden-admin hole.
+        if (ctx.path === "/admin/set-role") {
+          const role: unknown = ctx.body?.role;
+          if (role !== "user" && role !== "admin") {
+            throw new APIError("BAD_REQUEST", {
+              message: 'Platform roles are binary: "user" or "admin".',
+            });
+          }
+        }
+        const targetId: unknown = ctx.body?.userId;
+        if (typeof targetId !== "string" || targetId.length === 0) {
+          return; // the endpoint's own body schema 400s it
+        }
+        // Self set-role/ban is a lockout footgun (demote/ban yourself, lose
+        // the only admin). The plugin only 400s self-ban; block both here.
+        if (SELF_GUARDED_ADMIN_PATHS.has(ctx.path)) {
+          const session = await getSessionFromCtx(ctx);
+          if (session && session.user.id === targetId) {
+            throw new APIError("FORBIDDEN", {
+              message: "You cannot change your own platform role or ban yourself.",
+            });
+          }
+        }
+        // Admin-on-admin actions are blocked outright: impersonating, banning,
+        // or demoting another platform admin is a privilege-escalation /
+        // staff-abuse surface. Covers both role="admin" AND ADMIN_USER_IDS.
+        const target = (await ctx.context.internalAdapter.findUserById(
+          targetId,
+        )) as { id: string; role?: string | null } | null;
+        if (target && isPlatformAdmin(target, env)) {
+          throw new APIError("FORBIDDEN", {
+            message: "This action cannot target a platform admin.",
+          });
+        }
+      }),
+      after: createAuthMiddleware(async (ctx) => {
+        if (!ctx.path.startsWith("/admin/")) return;
+        // Failed calls land here too, with the APIError as the returned
+        // value — only record mutations that actually happened.
+        const returned = ctx.context.returned;
+        if (!returned || returned instanceof Error) return;
+        let entry: {
+          action: string;
+          actorUserId: string | null;
+          targetId: string | null;
+          metadata?: Record<string, unknown>;
+        } | null = null;
+        switch (ctx.path) {
+          case "/admin/impersonate-user": {
+            const r = returned as {
+              session: { impersonatedBy?: string | null };
+              user: { id: string };
+            };
+            entry = {
+              action: "admin.impersonate.start",
+              actorUserId: r.session.impersonatedBy ?? null,
+              targetId: r.user.id,
+            };
+            break;
+          }
+          case "/admin/stop-impersonating": {
+            // The request's session is the impersonated one — the handler
+            // cached it on ctx.context before deleting the row. Its user is
+            // the impersonation TARGET; its impersonatedBy is the admin.
+            const impersonated = ctx.context.session;
+            entry = {
+              action: "admin.impersonate.stop",
+              actorUserId:
+                impersonated?.session.impersonatedBy ??
+                (returned as { user: { id: string } }).user.id,
+              targetId: impersonated?.user.id ?? null,
+            };
+            break;
+          }
+          case "/admin/set-role":
+          case "/admin/ban-user":
+          case "/admin/unban-user": {
+            const actor = await getSessionFromCtx(ctx);
+            const action =
+              ctx.path === "/admin/set-role"
+                ? "admin.role.set"
+                : ctx.path === "/admin/ban-user"
+                  ? "admin.user.ban"
+                  : "admin.user.unban";
+            entry = {
+              action,
+              actorUserId: actor?.user.id ?? null,
+              targetId:
+                typeof ctx.body?.userId === "string" ? ctx.body.userId : null,
+              // ids and short labels only — never secrets (ADR 0010).
+              metadata:
+                ctx.path === "/admin/set-role"
+                  ? { role: ctx.body?.role }
+                  : ctx.path === "/admin/ban-user"
+                    ? { reason: ctx.body?.banReason ?? null }
+                    : undefined,
+            };
+            break;
+          }
+          default:
+            return;
+        }
+        // Internal-only accountability: admin actions land in the SYSTEM
+        // org's audit log, never in a customer org's (ADR 0016). A failed
+        // write throws — loud beats silently-unaudited admin power.
+        await ensureSystemOrg(db, SYSTEM_ORG_ID, SYSTEM_ORG_NAME);
+        await forOrg(db, SYSTEM_ORG_ID).auditLog.record({
+          actorUserId: entry.actorUserId,
+          action: entry.action,
+          targetKind: "user",
+          targetId: entry.targetId,
+          metadata: entry.metadata,
+        });
+      }),
+    },
     databaseHooks: {
       user: {
         create: {

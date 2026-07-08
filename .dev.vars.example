@@ -11,6 +11,10 @@ BETTER_AUTH_URL=http://localhost:8787
 # GITHUB_CLIENT_ID=
 # GITHUB_CLIENT_SECRET=
 
+# Platform admins (optional; ADR 0016): comma-separated Better Auth user ids
+# granted /admin access. Empty/unset = no platform admins.
+# ADMIN_USER_IDS=
+
 # Paddle Billing webhook secrets (W3-M). Worker secrets in deployed envs; set
 # whichever Paddle environment you point at this app's /api/webhooks/paddle. A
 # request is accepted on a signature match against EITHER, so both can be set.
