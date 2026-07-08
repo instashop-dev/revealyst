@@ -1,0 +1,15 @@
+# Codex MCP config. Do NOT hardcode live secrets here — this file is committed.
+# Replace the placeholder Bearer tokens below with your own Paddle API keys
+# locally (or wire them from your shell env). Keep real keys out of git.
+
+[mcp_servers.paddle-live]
+url = "https://mcp.paddle.com/mcp"
+
+[mcp_servers.paddle-live.http_headers]
+Authorization = "Bearer pdl_live_apikey_REPLACE_ME"
+
+[mcp_servers.paddle-sandbox]
+url = "https://sandbox-mcp.paddle.com/mcp"
+
+[mcp_servers.paddle-sandbox.http_headers]
+Authorization = "Bearer pdl_sdbx_apikey_REPLACE_ME"
