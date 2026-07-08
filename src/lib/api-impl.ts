@@ -1,4 +1,8 @@
-import { apiRoutes, personRefSchema } from "../contracts/api";
+import {
+  apiRoutes,
+  personRefSchema,
+  type ConnectionsUpdateRequest,
+} from "../contracts/api";
 import {
   lowestAttribution,
   type AttributionLevel,
@@ -421,6 +425,35 @@ export async function createConnection(
   });
 }
 
+/** ADR 0013: rename and/or pause-resume. Resume deliberately leaves
+ * lastError for the next successful poll to clear, and lands a never-synced
+ * connection on "pending" (never fabricate a clean or healthy state). */
+export async function updateConnection(
+  scope: OrgScope,
+  connectionId: string,
+  patch: ConnectionsUpdateRequest,
+) {
+  const row = await scope.connections.update(connectionId, patch);
+  if (!row) {
+    throw new ApiError(404, "connection not found");
+  }
+  return apiRoutes.connectionsUpdate.response.parse({
+    connection: toConnectionShape(row),
+  });
+}
+
+/** Implements the frozen connectionsDelete contract (ADR 0013). Removes the
+ * connection's metric_records plus the cascade graph (credential, subjects
+ * and their records, raw payloads, run history) in one transaction; scores
+ * reconcile at the next recompute. */
+export async function deleteConnection(scope: OrgScope, connectionId: string) {
+  const removed = await scope.connections.delete(connectionId);
+  if (!removed) {
+    throw new ApiError(404, "connection not found");
+  }
+  return apiRoutes.connectionsDelete.response.parse({ ok: true });
+}
+
 /**
  * Store the credential, then validate-on-save: if a connector for the vendor
  * is registered, decrypt within the withCredential scope and call its
@@ -498,7 +531,10 @@ export async function putConnectionCredential(
       return apiRoutes.connectionCredentialPut.response.parse({ ok: true });
     }
     if (!check.ok) {
-      // A DEFINITIVE rejection (bad/expired key): surface it now.
+      // A DEFINITIVE rejection (bad/expired key): surface it now. On a
+      // PAUSED connection the status write no-ops (pause sticks, ADR 0013 —
+      // "error" would re-enter the dispatch candidate set); the 400 below
+      // still tells the caller the key is bad.
       await scope.connections.setStatus(connectionId, "error", check.reason);
       throw new ApiError(400, `credential rejected: ${check.reason}`);
     }

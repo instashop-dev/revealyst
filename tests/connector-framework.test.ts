@@ -617,7 +617,9 @@ describe("chunked resumable backfill", () => {
     expect(sent).toEqual([msg]); // same cursor re-parked, never advanced
     expect(await scoped.connectorRuns.latest(conn.id)).toBeUndefined();
 
-    await scoped.connections.setStatus(conn.id, "active");
+    // Un-pausing goes through update() — setStatus never touches a paused
+    // connection (pause sticks, ADR 0013).
+    await scoped.connections.update(conn.id, { status: "active" });
     await processPollMessage(db, sent[0], makeDeps(entry, []));
     expect((await scoped.connectorRuns.latest(conn.id))?.status).toBe("success");
   });
