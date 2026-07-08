@@ -116,6 +116,65 @@ describe("buildReconcileView", () => {
   });
 });
 
+describe("buildReconcileView — activity signal", () => {
+  it("flags unresolved subjects with active_day rows and surfaces them first", async () => {
+    // Mirrors the real Anthropic Console topology that motivated this: a
+    // person-kind subject with no data next to an api_key-kind sibling that
+    // carries the actual usage. Reconciling only the recognizably-named one
+    // must not silently leave the data-bearing subject unresolved.
+    const org = await createFixtureOrg(db, "w2k-activity", "team");
+    const local = await loadFixture(db, org.id, {
+      connections: [
+        {
+          key: "anthropic",
+          vendor: "anthropic_console",
+          displayName: "Anthropic",
+          authKind: "admin_key",
+        },
+      ],
+      people: [],
+      teams: [],
+      subjects: [
+        {
+          key: "empty-stub",
+          connection: "anthropic",
+          kind: "person",
+          externalId: "acct:empty",
+          displayName: "Empty Person",
+        },
+        { key: "real-data", connection: "anthropic", kind: "api_key", externalId: "apikey_1" },
+      ],
+      identities: [],
+      records: [
+        {
+          subject: "real-data",
+          metricKey: "active_day",
+          day: "2026-06-01",
+          value: 1,
+          attribution: "key_project",
+          sourceConnector: "fixture@1",
+        },
+      ],
+      signals: [],
+    });
+    const scoped = forOrg(db, org.id);
+    const view = await buildReconcileView(scoped, {
+      from: "2026-05-01",
+      to: "2026-07-01",
+    });
+
+    const emptyEntry = view.unresolved.find(
+      (s) => s.subjectId === local.subjects["empty-stub"],
+    );
+    const dataEntry = view.unresolved.find(
+      (s) => s.subjectId === local.subjects["real-data"],
+    );
+    expect(emptyEntry?.hasActivity).toBe(false);
+    expect(dataEntry?.hasActivity).toBe(true);
+    expect(view.unresolved[0].subjectId).toBe(local.subjects["real-data"]);
+  });
+});
+
 describe("applyReconcileAction", () => {
   it("links an unresolved subject to an existing person (method manual)", async () => {
     const scope = forOrg(db, orgId);
