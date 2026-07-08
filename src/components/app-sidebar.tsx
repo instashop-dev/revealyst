@@ -10,6 +10,7 @@ import {
   ScanFace,
   ShieldCheck,
   UserRound,
+  UserRoundCog,
   UserRoundPlus,
   UsersRound,
 } from "lucide-react";
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
   { title: "Teams", href: "/teams", icon: UsersRound },
   { title: "People", href: "/people", icon: UserRound },
   { title: "Connections", href: "/connections", icon: Cable },
+  { title: "Account", href: "/account", icon: UserRoundCog },
 ];
 
 // Admin-only surfaces (ADR 0004): Members/Reconcile are also role-gated

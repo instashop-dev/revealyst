@@ -22,7 +22,9 @@ describe("classifyPath", () => {
       "/billing",
       "/compliance",
       "/playbook",
+      "/account",
       "/sign-in",
+      "/reset-password",
       "/onboarding",
       "/invite/tok_123",
     ]) {

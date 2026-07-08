@@ -1,11 +1,13 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { assertDeletableAndPurgeOrg } from "../db/account-deletion";
 import { createDb, type Db } from "../db/client";
 import { ensureOrgOfOne } from "../db/org-scope";
 import { APP_ORIGIN, MARKETING_ORIGIN } from "./domains";
+import { type EmailEnv, sendEmail } from "./email";
 
-export type AuthEnv = {
+export type AuthEnv = EmailEnv & {
   BETTER_AUTH_SECRET?: string;
   BETTER_AUTH_URL?: string;
   GITHUB_CLIENT_ID?: string;
@@ -38,6 +40,61 @@ export function createAuth(db: Db, env: AuthEnv) {
     database: drizzleAdapter(db, { provider: "pg" }),
     emailAndPassword: {
       enabled: true,
+      // Signup requires a confirmed email: sign-in throws 403
+      // EMAIL_NOT_VERIFIED until the address is verified. Existing users are
+      // backfilled to verified by migration 0017 so this doesn't lock them out.
+      requireEmailVerification: true,
+      // A password reset is often an account-recovery action (the user
+      // suspects their credential leaked) — revoke any other live sessions so
+      // the reset actually locks a compromised session out, matching
+      // change-password-form.tsx's revokeOtherSessions: true.
+      revokeSessionsOnPasswordReset: true,
+      // NOTE: better-auth invokes this via `runInBackgroundOrAwait`, which
+      // catches and only logs a thrown error — it never reaches the client,
+      // even though sendEmail() throws on a real SES failure. A failed send
+      // here is therefore silent: the caller sees success. Known limitation
+      // (ADR 0014); mitigate by keeping SES healthy, not by relying on this
+      // throw to surface anything.
+      sendResetPassword: async ({ user, url }) => {
+        await sendEmail(env, {
+          to: user.email,
+          subject: "Reset your Revealyst password",
+          html: `<p>We received a request to reset your Revealyst password.</p>
+<p><a href="${url}">Reset your password</a></p>
+<p>This link expires soon. If you didn't request it, you can ignore this email.</p>`,
+        });
+      },
+    },
+    emailVerification: {
+      sendOnSignUp: true,
+      // Clicking the link verifies the address and signs the user in, landing
+      // them on the callbackURL passed from the sign-up form.
+      autoSignInAfterVerification: true,
+      // Same runInBackgroundOrAwait caveat as sendResetPassword above: a
+      // failed send is swallowed, not surfaced to the sign-up caller.
+      sendVerificationEmail: async ({ user, url }) => {
+        await sendEmail(env, {
+          to: user.email,
+          subject: "Confirm your Revealyst email",
+          html: `<p>Welcome to Revealyst! Confirm your email to finish signing up.</p>
+<p><a href="${url}">Confirm your email</a></p>
+<p>If you didn't create an account, you can ignore this email.</p>`,
+        });
+      },
+    },
+    user: {
+      deleteUser: {
+        enabled: true,
+        // Gates + tears down the user's personal org-of-one (ADR 0014).
+        // Fires on the immediate path (no sendDeleteAccountVerification
+        // configured): with a password for credential accounts, or — for
+        // OAuth-only accounts with no password — on a fresh session (Better
+        // Auth's default session.freshAge, 24h) per delete-account-dialog.tsx.
+        // Throwing aborts the delete.
+        beforeDelete: async (user) => {
+          await assertDeletableAndPurgeOrg(db, user.id);
+        },
+      },
     },
     socialProviders: github,
     databaseHooks: {

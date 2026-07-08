@@ -64,6 +64,10 @@ jobs:
           PADDLE_DISCOUNT_ID: ${{ secrets.PADDLE_DISCOUNT_ID }}
           PADDLE_WEBHOOK_SECRET: ${{ secrets.PADDLE_WEBHOOK_SECRET }}
           PADDLE_WEBHOOK_SECRET_SANDBOX: ${{ secrets.PADDLE_WEBHOOK_SECRET_SANDBOX }}
+          SES_ACCESS_KEY_ID: ${{ secrets.SES_ACCESS_KEY_ID }}
+          SES_SECRET_ACCESS_KEY: ${{ secrets.SES_SECRET_ACCESS_KEY }}
+          SES_REGION: ${{ secrets.SES_REGION }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
         run: |
           put() {
             if [ -n "$2" ]; then
@@ -88,6 +92,15 @@ jobs:
           put PADDLE_DISCOUNT_ID "$PADDLE_DISCOUNT_ID"
           put PADDLE_WEBHOOK_SECRET "$PADDLE_WEBHOOK_SECRET"
           put PADDLE_WEBHOOK_SECRET_SANDBOX "$PADDLE_WEBHOOK_SECRET_SANDBOX"
+          # SES transactional email (account mgmt): password reset + signup
+          # email verification. Without these, sendEmail() no-ops (no mail
+          # sent) and — with requireEmailVerification — new signups can't
+          # confirm their address. EMAIL_FROM must be an SES-verified identity,
+          # and the SES account must be out of the sandbox to reach real users.
+          put SES_ACCESS_KEY_ID "$SES_ACCESS_KEY_ID"
+          put SES_SECRET_ACCESS_KEY "$SES_SECRET_ACCESS_KEY"
+          put SES_REGION "$SES_REGION"
+          put EMAIL_FROM "$EMAIL_FROM"
           # PREVIOUS exists only during a rotation window: when the repo
           # secret is removed, delete it from the Worker too — otherwise the
           # retired KEK could decrypt not-yet-rewrapped rows forever.

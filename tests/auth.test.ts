@@ -2,11 +2,36 @@ import { PGlite } from "@electric-sql/pglite";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Db } from "../src/db/client";
 import { ensureOrgOfOne, membershipForUser } from "../src/db/org-scope";
 import { createAuth, type Auth } from "../src/lib/auth";
 import * as schema from "../src/db/schema";
+
+// Email verification + password reset are required flows now, but tests must
+// not send real mail. Mock the SES sender and read the token out of the
+// captured verification/reset email instead.
+vi.mock("../src/lib/email", () => ({ sendEmail: vi.fn() }));
+import { sendEmail } from "../src/lib/email";
+
+const sendEmailMock = vi.mocked(sendEmail);
+
+/**
+ * Pull the most recent verification/reset token emailed to `address`. Better
+ * Auth carries the token differently per flow: verification is
+ * `/verify-email?token=…`, password reset is `/reset-password/<token>?…`.
+ */
+function lastEmailedToken(address: string): string {
+  for (let i = sendEmailMock.mock.calls.length - 1; i >= 0; i--) {
+    const [, msg] = sendEmailMock.mock.calls[i];
+    if (msg.to !== address) continue;
+    const query = msg.html.match(/[?&]token=([^"&]+)/);
+    if (query) return decodeURIComponent(query[1]);
+    const path = msg.html.match(/\/reset-password\/([^"?]+)/);
+    if (path) return decodeURIComponent(path[1]);
+  }
+  throw new Error(`no email with a token captured for ${address}`);
+}
 
 let db: Db;
 let auth: Auth;
@@ -22,7 +47,7 @@ beforeAll(async () => {
 });
 
 describe("email + password auth", () => {
-  it("signs up a user and creates their org of one", async () => {
+  it("signs up a user, creates their org of one, and sends a verification email", async () => {
     const result = await auth.api.signUpEmail({
       body: {
         name: "Ada Lovelace",
@@ -38,9 +63,25 @@ describe("email + password auth", () => {
     expect(membership).toBeDefined();
     expect(membership.orgName).toBe("Ada Lovelace");
     expect(membership.role).toBe("admin");
+
+    // sendOnSignUp fired the verification email.
+    expect(
+      sendEmailMock.mock.calls.some(([, msg]) => msg.to === "ada@example.com"),
+    ).toBe(true);
   });
 
-  it("signs in with the same credentials and gets a session token", async () => {
+  it("rejects sign-in until the email is verified", async () => {
+    await expect(
+      auth.api.signInEmail({
+        body: { email: "ada@example.com", password: "correct-horse-battery" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("verifies the email, then signs in and gets a session token", async () => {
+    const token = lastEmailedToken("ada@example.com");
+    await auth.api.verifyEmail({ query: { token } });
+
     const result = await auth.api.signInEmail({
       body: {
         email: "ada@example.com",
@@ -55,6 +96,27 @@ describe("email + password auth", () => {
     await expect(
       auth.api.signInEmail({
         body: { email: "ada@example.com", password: "wrong-password" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("resets the password via the emailed token", async () => {
+    await auth.api.requestPasswordReset({
+      body: { email: "ada@example.com", redirectTo: "/reset-password" },
+    });
+    const token = lastEmailedToken("ada@example.com");
+    await auth.api.resetPassword({
+      body: { newPassword: "new-correct-horse-battery", token },
+    });
+
+    // New password works; old one no longer does.
+    const ok = await auth.api.signInEmail({
+      body: { email: "ada@example.com", password: "new-correct-horse-battery" },
+    });
+    expect(ok.token).toBeTruthy();
+    await expect(
+      auth.api.signInEmail({
+        body: { email: "ada@example.com", password: "correct-horse-battery" },
       }),
     ).rejects.toThrow();
   });
@@ -110,9 +172,7 @@ describe("org bootstrap resilience", () => {
     const healed = await ensureOrgOfOne(db, orphan);
     expect(healed.orgName).toBe("Orphan User");
     expect(healed.role).toBe("admin");
-    expect((await membershipForUser(db, orphan.id))?.orgId).toBe(
-      healed.orgId,
-    );
+    expect((await membershipForUser(db, orphan.id))?.orgId).toBe(healed.orgId);
   });
 
   it("rejects duplicate org membership at the schema level", async () => {
