@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Cable, Gauge, Info } from "lucide-react";
+import { Cable, Gauge, Info, UsersRound } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
@@ -217,6 +217,35 @@ async function PersonalSelfView({ ctx }: { ctx: AppContext }) {
           );
         })}
       </div>
+
+      {/* None of the three scores has ever computed, and there's ingested
+          data sitting unlinked — the near-certain cause is that no `people`
+          row exists yet for this org's usage subjects (nothing auto-creates
+          one; /reconcile's "Create person" is the sanctioned manual path).
+          Admin-gated like /reconcile itself — a non-admin member can't act
+          on this, so don't show a dead-end link. */}
+      {scores.size === 0 && summary.unresolvedSubjects > 0 && ctx.role === "admin" && (
+        <Alert>
+          <UsersRound />
+          <AlertTitle>Scores need an identity link</AlertTitle>
+          <AlertDescription>
+            <p>
+              We&apos;re seeing usage data, but it isn&apos;t linked to a
+              tracked person yet, so Adoption, Fluency, and Efficiency
+              can&apos;t compute. Resolve it once in Reconcile.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="mt-2"
+              nativeButton={false}
+              render={<Link href="/reconcile" />}
+            >
+              Go to Reconcile
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {summary.gaps.length > 0 && (
         <Alert>
