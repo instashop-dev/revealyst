@@ -1,0 +1,42 @@
+name: Recompute Scores
+
+# Manual one-off (founder-triggered from the Actions tab or
+# `gh workflow run recompute-scores.yml`), for when a score-affecting change
+# (new/changed definitions, a backfill migration) shouldn't wait for the
+# nightly `0 2 * * *` cron. Runs scripts/recompute-org.ts — the same
+# recomputeOrg entrypoint the nightly cron and poller queue consumer use
+# (idempotent: upserts on the frozen key, reconciles stale rows, ADR 0012).
+# Uses the same DATABASE_URL repo secret deploy.yml already uses for
+# migrations — no new credentials.
+on:
+  workflow_dispatch:
+    inputs:
+      org_id:
+        description: "Org id to recompute (leave blank to recompute every org)"
+        required: false
+        default: ""
+      day:
+        description: "Anchor day YYYY-MM-DD (leave blank for today, UTC)"
+        required: false
+        default: ""
+
+jobs:
+  recompute:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Recompute
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL repo secret not set — nothing to do"
+            exit 1
+          fi
+          npx tsx scripts/recompute-org.ts "${{ inputs.org_id }}" "${{ inputs.day }}"
