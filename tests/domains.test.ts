@@ -12,6 +12,9 @@ import {
 describe("classifyPath", () => {
   it("classifies (app) group + flat authed routes as app", () => {
     for (const p of [
+      "/admin",
+      "/admin/users",
+      "/admin/users/user-123",
       "/dashboard",
       "/dashboard/anything",
       "/teams",
@@ -44,6 +47,7 @@ describe("classifyPath", () => {
     // Not "/people" — a different route that merely shares the prefix.
     expect(classifyPath("/peoplesearch")).toBe("neutral");
     expect(classifyPath("/billings")).toBe("neutral");
+    expect(classifyPath("/administrivia")).toBe("neutral");
   });
 
   it("treats api, assets, and metadata routes as neutral (checked first)", () => {

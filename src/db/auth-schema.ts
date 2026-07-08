@@ -27,6 +27,14 @@ export const user = pgTable("user", {
     .defaultNow()
     .$onUpdate(() => new Date())
     .notNull(),
+  // Better Auth admin plugin (ADR 0016). PLATFORM role — "user" | "admin" —
+  // written only by the plugin's set-role endpoint; NULL means "user"
+  // (existing rows are never backfilled). Distinct from org_members.role,
+  // which is the per-org membership role.
+  role: text("role"),
+  banned: boolean("banned"),
+  banReason: text("ban_reason"),
+  banExpires: timestamp("ban_expires", { withTimezone: true }),
 });
 
 export const session = pgTable(
@@ -47,6 +55,9 @@ export const session = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // Set on sessions minted by the admin plugin's impersonate-user endpoint:
+    // the platform admin's user id (ADR 0016). NULL for normal sessions.
+    impersonatedBy: text("impersonated_by"),
   },
   (table) => [index("session_user_id_idx").on(table.userId)],
 );

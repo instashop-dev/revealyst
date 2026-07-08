@@ -5,6 +5,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createDb, type Db } from "@/db/client";
 import { orgContextForUser } from "@/db/org-context";
 import { ensureOrgOfOne, forOrg } from "@/db/org-scope";
+import { isPlatformAdmin } from "@/lib/admin-access";
 import { createAuth, type AuthEnv } from "@/lib/auth";
 import type { CredentialEnv } from "@/lib/credentials";
 
@@ -40,7 +41,11 @@ export const appContext = cache(async () => {
     session,
     user: session.user,
     org: orgContext.org,
+    // Per-org membership role ("admin" | "member") — NOT the platform role.
     role: orgContext.role,
+    // Platform staff (ADR 0016): user.role === "admin" or ADMIN_USER_IDS.
+    // Kept as a boolean, never a second `role` field — that name is taken.
+    isPlatformAdmin: isPlatformAdmin(session.user, env as AuthEnv),
     scope: forOrg(db, orgContext.org.id),
   };
 });

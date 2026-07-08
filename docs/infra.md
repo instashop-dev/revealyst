@@ -81,6 +81,15 @@ a W0-C hardening note: credentials contract).
    Email+password works without this; the GitHub button errors until set.
    (This OAuth app is for *login* — separate from the Copilot-metrics
    GitHub App in docs/approvals.md.)
+4. **Platform admins (optional; ADR 0016):** `ADMIN_USER_IDS` — comma-separated
+   Better Auth user ids (the `user.id` column, visible in Neon or via your
+   session) granted platform-admin power without the `user.role` column being
+   set. This is the *bootstrap* path: set it as an `ADMIN_USER_IDS` repo secret
+   (the Deploy workflow syncs it to the Worker) with the founder's user id;
+   day-2 admins are then promoted in-product via the audited set-role endpoint.
+   Unset or empty = no platform admins; every `/api/auth/admin/*` endpoint
+   403s and the `/admin` section is unreachable — the app behaves exactly as
+   before this feature existed.
 
 ## 5. Queues (unblocks: production poller; needs Workers Paid)
 `npx wrangler queues create revealyst-poll` before the first deploy —
