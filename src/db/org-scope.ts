@@ -359,6 +359,13 @@ export function forOrg(db: Db, orgId: string) {
         return row;
       },
 
+      /**
+       * Like markPolled/markSynced, a paused connection is never touched
+       * (pause always sticks, ADR 0003; guard added by ADR 0013 — its one
+       * caller is credential validate-on-save, whose "error" write would
+       * otherwise make a paused connection a dispatch candidate again).
+       * Explicit un-pausing goes through `update({ status })`.
+       */
       async setStatus(
         id: string,
         status: (typeof connections.status.enumValues)[number],
@@ -367,9 +374,88 @@ export function forOrg(db: Db, orgId: string) {
         const [row] = await db
           .update(connections)
           .set({ status, lastError: lastError ?? null })
+          .where(
+            and(
+              eq(connections.orgId, orgId),
+              eq(connections.id, id),
+              ne(connections.status, "paused"),
+            ),
+          )
+          .returning();
+        return row;
+      },
+
+      /**
+       * Partial update for the ADR 0013 PATCH: touches ONLY the requested
+       * fields. Deliberately NOT setStatus — setStatus always overwrites
+       * lastError (nulls it unless passed), so pausing an errored connection
+       * through it would erase the honest error message. Resume leaves
+       * lastError alone too (the next successful poll clears it via
+       * markPolled), and a never-synced connection resumes to "pending", not
+       * "active" — status never claims a health the connection hasn't
+       * demonstrated (invariant b). Empty patches are rejected upstream by
+       * the frozen contract; throwing here keeps the writer a writer.
+       * Returns undefined for an unknown id or a foreign org.
+       */
+      async update(
+        id: string,
+        patch: { displayName?: string; status?: "active" | "paused" },
+      ) {
+        const set: Partial<{
+          displayName: string;
+          status: "active" | "paused" | SQL;
+        }> = {};
+        if (patch.displayName !== undefined) set.displayName = patch.displayName;
+        if (patch.status === "paused") set.status = "paused";
+        if (patch.status === "active") {
+          set.status = sql`CASE WHEN ${connections.lastSuccessAt} IS NULL THEN 'pending' ELSE 'active' END`;
+        }
+        if (Object.keys(set).length === 0) {
+          throw new Error("connections.update requires at least one field");
+        }
+        const [row] = await db
+          .update(connections)
+          .set(set)
           .where(and(eq(connections.orgId, orgId), eq(connections.id, id)))
           .returning();
         return row;
+      },
+
+      /**
+       * Deletes a connection (ADR 0013) and, explicitly first, its ingested
+       * metric_records — the NO ACTION metric_records_org_connection_fk
+       * blocks the connection delete while any record references it (the
+       * subjects cascade does NOT satisfy it: the RI check fires against
+       * rows the nested cascade hasn't removed). The remaining graph
+       * (credentials, subjects + their records, raw payloads, connector
+       * runs) goes via the frozen cascades, all inside one transaction.
+       * Stale score results reconcile at the next recompute (ADR 0012).
+       * Returns the deleted id, undefined for unknown/foreign.
+       */
+      async delete(id: string) {
+        return db.transaction(async (tx) => {
+          // Existence check first: the records delete below scans the org's
+          // metric_records (no connection_id-leading index) — don't pay that
+          // for an unknown/foreign id.
+          const [owned] = await tx
+            .select({ id: connections.id })
+            .from(connections)
+            .where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
+          if (!owned) return undefined;
+          await tx
+            .delete(metricRecords)
+            .where(
+              and(
+                eq(metricRecords.orgId, orgId),
+                eq(metricRecords.connectionId, id),
+              ),
+            );
+          const [row] = await tx
+            .delete(connections)
+            .where(and(eq(connections.orgId, orgId), eq(connections.id, id)))
+            .returning({ id: connections.id });
+          return row;
+        });
       },
 
       /**

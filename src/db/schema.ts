@@ -471,8 +471,11 @@ export const metricRecords = pgTable(
       mode: "number",
     }).notNull(),
     attribution: attributionLevelEnum("attribution").notNull(),
-    // Connector module id+version, e.g. 'anthropic-console@1' — survives
-    // connection deletion (unlike connection_id).
+    // Connector module id+version, e.g. 'anthropic-console@1'. Note: since
+    // ADR 0013, deleting a connection destroys its metric_records (explicit
+    // transactional delete in org-scope connections.delete — the NO ACTION
+    // FK below forbids leaving them dangling); sourceConnector identifies
+    // the module for rows whose subject belongs to a DIFFERENT connection.
     sourceConnector: text("source_connector").notNull(),
     rawPayloadId: uuid("raw_payload_id").references(() => rawPayloads.id, {
       onDelete: "set null",

@@ -129,7 +129,7 @@ export type AgentIngestRequest = z.infer<typeof agentIngestRequestSchema>;
 
 /** One frozen route contract: path + method + request/response schemas. */
 export type RouteContract = {
-  method: "GET" | "POST" | "PUT" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   request: z.ZodType | null;
   response: z.ZodType;
@@ -229,6 +229,25 @@ export const apiRoutes = {
     path: "/api/connections/:id/poll",
     request: null,
     response: ok,
+  },
+  /** ADR 0013. Rename and/or pause-resume; config is create-time only and
+   * credential material goes exclusively through connectionCredentialPut —
+   * this route can never carry it. Admin-only at the handler. An empty patch
+   * is a 400 (a no-op "update" would fabricate audit-trail entries). Resuming
+   * a never-synced connection lands "pending", not "active" — the row never
+   * claims a health it hasn't demonstrated (invariant b). */
+  connectionsUpdate: {
+    method: "PATCH",
+    path: "/api/connections/:id",
+    request: z
+      .object({
+        displayName: z.string().min(1).optional(),
+        status: z.enum(["active", "paused"]).optional(),
+      })
+      .refine((patch) => Object.keys(patch).length > 0, {
+        message: "at least one field required",
+      }),
+    response: z.object({ connection: connectionSchema }),
   },
   connectionsDelete: {
     method: "DELETE",
@@ -371,3 +390,9 @@ export const apiRoutes = {
     }),
   },
 } as const satisfies Record<string, RouteContract>;
+
+/** ADR 0013 — the PATCH body, derived from the frozen schema so impl layers
+ * can't drift from the contract. */
+export type ConnectionsUpdateRequest = z.infer<
+  typeof apiRoutes.connectionsUpdate.request
+>;

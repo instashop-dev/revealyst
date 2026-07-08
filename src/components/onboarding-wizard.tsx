@@ -145,7 +145,8 @@ export function OnboardingWizard({
         {KEY_VENDORS.map((v) => {
           // Reuse an existing connection's id on retry so a second attempt
           // overwrites (storeCredential upserts) instead of orphaning a
-          // duplicate row — there is no client-side delete.
+          // duplicate row (admins CAN delete since ADR 0013, but onboarding
+          // shouldn't create cleanup work).
           const existing = initialConnections.find((c) => c.vendor === v.vendor);
           return (
             <ApiKeyConnectCard

@@ -1,7 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type {
   AuthCheckResult,
   Connector,
@@ -97,8 +97,13 @@ describe("createConnection (frozen connectionsCreate)", () => {
 });
 
 describe("putConnectionCredential (validate-on-save)", () => {
-  it("stores and validates a good key, leaving the connection un-errored", async () => {
+  // Each test sets validateResult as needed; reset so no test depends on a
+  // prior test remembering a trailing reset.
+  beforeEach(() => {
     validateResult = { ok: true };
+  });
+
+  it("stores and validates a good key, leaving the connection un-errored", async () => {
     const scope = forOrg(db, orgId);
     const { connection } = await createConnection(scope, {
       vendor: "anthropic_console",
@@ -134,7 +139,28 @@ describe("putConnectionCredential (validate-on-save)", () => {
     const row = await scope.connections.get(connection.id);
     expect(row?.status).toBe("error");
     expect(row?.lastError).toBe("401 invalid api key");
-    validateResult = { ok: true };
+  });
+
+  it("a rejected key on a PAUSED connection 400s but never un-pauses (ADR 0013)", async () => {
+    validateResult = { ok: false, reason: "401 invalid api key" };
+    const scope = forOrg(db, orgId);
+    const { connection } = await createConnection(scope, {
+      vendor: "anthropic_console",
+      displayName: "Paused, bad key",
+      authKind: "api_key",
+    });
+    await scope.connections.update(connection.id, { status: "paused" });
+    const error = await putConnectionCredential(
+      scope,
+      connection.id,
+      { kind: "api_key", value: "sk-bad" },
+      ENV,
+    ).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(400);
+    // "error" is a dispatch candidate; pause must stick (setStatus guard).
+    const row = await scope.connections.get(connection.id);
+    expect(row?.status).toBe("paused");
   });
 
   it("skips validation for a vendor with no shipped connector", async () => {
