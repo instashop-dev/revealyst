@@ -56,6 +56,7 @@ export default async function AppLayout({
         org={{ name: ctx.org.name, kind: ctx.org.kind }}
         role={ctx.role}
         user={{ name: ctx.user.name ?? null, email: ctx.user.email }}
+        isPlatformAdmin={ctx.isPlatformAdmin}
       />
       <SidebarInset>
         <SiteHeader />

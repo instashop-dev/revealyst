@@ -13,6 +13,7 @@ import {
   UserRoundCog,
   UserRoundPlus,
   UsersRound,
+  Wrench,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -49,14 +50,22 @@ const ADMIN_NAV_ITEMS = [
   { title: "Compliance", href: "/compliance", icon: ShieldCheck },
 ];
 
+// Platform-staff-only discovery link (ADR 0016) — a different axis from
+// ADMIN_NAV_ITEMS above (per-org membership role): this is the founder/staff
+// concept gated on isPlatformAdmin, never on org role. The /admin route
+// itself re-checks via requireAdminContext; this entry is discovery only.
+const PLATFORM_NAV_ITEMS = [{ title: "Admin", href: "/admin", icon: Wrench }];
+
 export function AppSidebar({
   org,
   role,
   user,
+  isPlatformAdmin,
 }: {
   org: { name: string; kind: "personal" | "team" | "system" };
   role: "admin" | "member";
   user: { name: string | null; email: string };
+  isPlatformAdmin: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -110,6 +119,27 @@ export function AppSidebar({
             <SidebarGroupContent>
               <SidebarMenu>
                 {ADMIN_NAV_ITEMS.map((item) => (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      isActive={pathname.startsWith(item.href)}
+                      tooltip={item.title}
+                      render={<Link href={item.href} />}
+                    >
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ) : null}
+        {isPlatformAdmin ? (
+          <SidebarGroup>
+            <SidebarGroupLabel>Platform</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {PLATFORM_NAV_ITEMS.map((item) => (
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton
                       isActive={pathname.startsWith(item.href)}
