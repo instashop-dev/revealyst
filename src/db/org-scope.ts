@@ -326,6 +326,13 @@ export function forOrg(db: Db, orgId: string) {
             and(eq(teamMembers.orgId, orgId), eq(teamMembers.teamId, teamId)),
           );
       },
+
+      async allMembers() {
+        return db
+          .select({ teamId: teamMembers.teamId, personId: teamMembers.personId })
+          .from(teamMembers)
+          .where(eq(teamMembers.orgId, orgId));
+      },
     },
 
     connections: {
@@ -913,6 +920,13 @@ export function forOrg(db: Db, orgId: string) {
           .where(
             and(eq(identities.orgId, orgId), eq(identities.personId, personId)),
           );
+      },
+
+      async all() {
+        return db
+          .select()
+          .from(identities)
+          .where(eq(identities.orgId, orgId));
       },
     },
 

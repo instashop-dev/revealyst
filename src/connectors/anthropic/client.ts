@@ -1,4 +1,5 @@
 import { RetryableConnectorError } from "../../poller/run";
+import { withTimeout } from "../http";
 import type {
   AnthropicPage,
   ClaudeCodeRecord,
@@ -36,31 +37,34 @@ async function getJson<T>(
       url.searchParams.set(key, value);
     }
   }
-  const response = await fetchFn(url.toString(), {
-    headers: {
-      "x-api-key": credential,
-      "anthropic-version": ANTHROPIC_VERSION,
-      "user-agent": "revealyst-connector-anthropic/1",
-    },
+  return withTimeout("anthropic", async (signal) => {
+    const response = await fetchFn(url.toString(), {
+      headers: {
+        "x-api-key": credential,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "user-agent": "revealyst-connector-anthropic/1",
+      },
+      signal,
+    });
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get("retry-after"));
+      throw new RetryableConnectorError(
+        "anthropic: 429 rate limited",
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60,
+      );
+    }
+    if (response.status >= 500) {
+      throw new RetryableConnectorError(
+        `anthropic: ${response.status} server error`,
+        60,
+      );
+    }
+    if (!response.ok) {
+      const body = (await response.text()).slice(0, 300);
+      throw new Error(`anthropic: ${response.status} on ${path}: ${body}`);
+    }
+    return (await response.json()) as T;
   });
-  if (response.status === 429) {
-    const retryAfter = Number(response.headers.get("retry-after"));
-    throw new RetryableConnectorError(
-      "anthropic: 429 rate limited",
-      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60,
-    );
-  }
-  if (response.status >= 500) {
-    throw new RetryableConnectorError(
-      `anthropic: ${response.status} server error`,
-      60,
-    );
-  }
-  if (!response.ok) {
-    const body = (await response.text()).slice(0, 300);
-    throw new Error(`anthropic: ${response.status} on ${path}: ${body}`);
-  }
-  return (await response.json()) as T;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

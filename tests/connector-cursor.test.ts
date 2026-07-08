@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { cursorConnector, cursorEntry } from "../src/connectors/cursor";
-import { fetchDailyUsage } from "../src/connectors/cursor/client";
+import { checkAdminKey, fetchDailyUsage } from "../src/connectors/cursor/client";
 import { normalizeCursor } from "../src/connectors/cursor/normalize";
 import { ENVELOPE_KINDS, type CursorRaw } from "../src/connectors/cursor/types";
 import { getConnector } from "../src/connectors/registry";
@@ -206,6 +206,34 @@ describe("client", () => {
     await expect(
       fetchDailyUsage("k", { start: "2026-06-11", end: "2026-06-11" }, forbidden),
     ).rejects.toThrow(/403/);
+  });
+
+  it("a fetch that never resolves times out instead of hanging forever", async () => {
+    vi.useFakeTimers();
+    try {
+      const neverResolves = (() => new Promise<Response>(() => {})) as typeof fetch;
+      // checkAdminKey exercises the GET call site.
+      const validate = checkAdminKey("k", neverResolves);
+      await vi.runAllTimersAsync();
+      await expect(validate).resolves.toEqual({
+        ok: false,
+        reason: expect.stringMatching(/timed out/),
+      });
+
+      // fetchDailyUsage exercises the POST call site.
+      const raw = fetchDailyUsage(
+        "k",
+        { start: "2026-06-11", end: "2026-06-11" },
+        neverResolves,
+      );
+      const assertion = expect(raw).rejects.toSatisfy(
+        (e) => e instanceof RetryableConnectorError && /timed out/.test(e.message),
+      );
+      await vi.runAllTimersAsync();
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

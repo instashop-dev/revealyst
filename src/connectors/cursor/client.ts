@@ -1,4 +1,5 @@
 import { RetryableConnectorError } from "../../poller/run";
+import { withTimeout } from "../http";
 import type {
   CursorDailyUsageResponse,
   CursorDailyUsageRow,
@@ -40,16 +41,19 @@ async function post<T>(
   body: Record<string, unknown>,
   fetchFn: FetchFn,
 ): Promise<T> {
-  const response = await fetchFn(new URL(path, BASE).toString(), {
-    method: "POST",
-    headers: {
-      authorization: authHeader(credential),
-      "content-type": "application/json",
-      "user-agent": "revealyst-connector-cursor/1",
-    },
-    body: JSON.stringify(body),
+  return withTimeout("cursor", async (signal) => {
+    const response = await fetchFn(new URL(path, BASE).toString(), {
+      method: "POST",
+      headers: {
+        authorization: authHeader(credential),
+        "content-type": "application/json",
+        "user-agent": "revealyst-connector-cursor/1",
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+    return handle<T>(response, path);
   });
-  return handle<T>(response, path);
 }
 
 async function get<T>(
@@ -57,13 +61,16 @@ async function get<T>(
   path: string,
   fetchFn: FetchFn,
 ): Promise<T> {
-  const response = await fetchFn(new URL(path, BASE).toString(), {
-    headers: {
-      authorization: authHeader(credential),
-      "user-agent": "revealyst-connector-cursor/1",
-    },
+  return withTimeout("cursor", async (signal) => {
+    const response = await fetchFn(new URL(path, BASE).toString(), {
+      headers: {
+        authorization: authHeader(credential),
+        "user-agent": "revealyst-connector-cursor/1",
+      },
+      signal,
+    });
+    return handle<T>(response, path);
   });
-  return handle<T>(response, path);
 }
 
 async function handle<T>(response: Response, path: string): Promise<T> {
