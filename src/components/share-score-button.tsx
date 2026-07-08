@@ -17,6 +17,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
+import { toMarketingOrigin } from "@/lib/domains";
 
 type ShareLinkRow = {
   id: string;
@@ -85,7 +86,10 @@ export function ShareScoreButton({
         token: string;
         id: string;
       };
-      setUrl(`${window.location.origin}/s/${token}`);
+      // Public share cards live on the marketing host (revealyst.com), not the
+      // app host this dialog renders on — mint the URL there. In local dev
+      // toMarketingOrigin is a no-op, so the link stays on localhost.
+      setUrl(`${toMarketingOrigin(window.location.origin)}/s/${token}`);
       setUrlLinkId(id);
       void refreshLinks();
     } catch {

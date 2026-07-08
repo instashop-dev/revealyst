@@ -3,6 +3,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createDb, type Db } from "../db/client";
 import { ensureOrgOfOne } from "../db/org-scope";
+import { APP_ORIGIN, MARKETING_ORIGIN } from "./domains";
 
 export type AuthEnv = {
   BETTER_AUTH_SECRET?: string;
@@ -29,6 +30,11 @@ export function createAuth(db: Db, env: AuthEnv) {
   return betterAuth({
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
+    // The app + auth origin is app.revealyst.com; sign-in always happens there
+    // (marketing links/redirects steer users onto it). Trust both custom hosts
+    // explicitly so a stray cross-origin request never 403s "Invalid origin"
+    // during or after the domain cutover — see src/lib/domains.ts.
+    trustedOrigins: [APP_ORIGIN, MARKETING_ORIGIN],
     database: drizzleAdapter(db, { provider: "pg" }),
     emailAndPassword: {
       enabled: true,

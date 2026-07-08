@@ -34,7 +34,7 @@ APIs of the AI tools a company already pays for and turns them into three scores
 - **"Soon"** (in the frozen vendor enum, no connector module): GitHub Copilot,
   Claude Enterprise. The landing page derives this strip from
   `src/connectors/registry.ts`, so copy can never overclaim.
-- **Live** at https://revealyst.thapi.workers.dev (Cloudflare Workers + Neon Postgres).
+- **Live** at https://revealyst.thapi.workers.dev (Cloudflare Workers + Neon Postgres). Custom domains now attached with a host split: `revealyst.com` (marketing) + `app.revealyst.com` (app/auth) — `docs/infra.md` §6.
 
 ### 1.2 Target audience
 
@@ -153,7 +153,11 @@ implementation, founder reviewing).
 
 ### System A — Technical SEO foundation (custom domain, sitemap, robots, metadataBase, static landing)
 
-The single highest-leverage fix. Production runs on `revealyst.thapi.workers.dev`
+The single highest-leverage fix. **Update:** the custom domains are now attached
+with a marketing/app host split (`revealyst.com` + `app.revealyst.com`,
+`docs/infra.md` §6); the remaining SEO plumbing below (sitemap/robots/
+`metadataBase` on `revealyst.com`) and the `workers.dev` → canonical 301 are the
+outstanding items. Historically production ran only on `revealyst.thapi.workers.dev`
 (`docs/infra.md`): a shared `workers.dev` subdomain accrues no domain authority,
 looks untrustworthy on directories and in checkout, and every backlink earned at
 launch would point at a domain the product doesn't own. The repo also has **no
@@ -669,9 +673,11 @@ vanity traffic — none map to a decision a solo founder can act on.
   months out; the free band means survival doesn't depend on it short-term.
 
 ### Dependencies
-- **`revealyst.com` (purchased) wired before launch** — backlinks earned on
-  `workers.dev` are lost value. Cutover also touches `BETTER_AUTH_URL`,
-  Paddle-approved domains, and the OG/`metadataBase` URLs.
+- **`revealyst.com` + `app.revealyst.com` attached (host split, done)** —
+  `docs/infra.md` §6. Cutover touches `BETTER_AUTH_URL` (→ `app.revealyst.com`),
+  the GitHub OAuth callback, Paddle-approved domains, and the OG/`metadataBase`
+  URLs (→ `revealyst.com`). Still deferred: the `workers.dev` → canonical 301 so
+  launch backlinks accrue to the real domain.
 - Docs SEO plumbing (sitemap/robots/metadataBase) before any content investment.
 - Benchmark engine depends on consent volume; small-N labeling rules protect
   honesty until then.

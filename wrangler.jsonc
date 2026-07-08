@@ -13,6 +13,17 @@
 		"directory": ".open-next/assets",
 		"binding": "ASSETS"
 	},
+	// Custom domains (docs/infra.md §6): both hostnames resolve to this one
+	// Worker; the host split (marketing vs app) is enforced in src/worker.ts via
+	// src/lib/domains.ts. Attach these in the Cloudflare dashboard first (auto
+	// DNS + cert); this config keeps them attached idempotently on deploy.
+	// `wrangler versions upload` (CI preview) ignores routes, so previews are
+	// unaffected. workers_dev stays enabled during migration (the old URL keeps
+	// serving) — leave it at its default.
+	"routes": [
+		{ "pattern": "revealyst.com", "custom_domain": true },
+		{ "pattern": "app.revealyst.com", "custom_domain": true }
+	],
 	// Poller architecture: Cron Trigger enqueues one message per connection;
 	// the queue consumer polls and writes. W0-B runs the no-op heartbeat.
 	"triggers": {
