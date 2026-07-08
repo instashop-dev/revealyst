@@ -35,6 +35,19 @@ export async function handleApi(
       );
     }
   }
+  return respondWith(fn, ctx);
+}
+
+/**
+ * Run a handler and serialize its result / ApiError the standard way. The
+ * single response-shape seam shared by handleApi and handleAdminApi
+ * (src/lib/admin-context.ts) so the error envelope can't drift between the
+ * customer and admin API surfaces.
+ */
+export async function respondWith(
+  fn: (ctx: AppContext) => Promise<unknown>,
+  ctx: AppContext,
+): Promise<NextResponse> {
   try {
     return NextResponse.json(await fn(ctx));
   } catch (error) {

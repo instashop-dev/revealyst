@@ -296,6 +296,28 @@ describe("admin mutations: guarded + audited", () => {
 });
 
 describe("guard hooks: admin-on-admin, self, and cut endpoints", () => {
+  it("gives non-admin callers no admin-enumeration oracle", async () => {
+    // The target-guard 403s are distinctive ("cannot target a platform
+    // admin"). They must fire only for callers the endpoint would let
+    // through — a plain user probing an admin id gets the endpoint's own
+    // generic 403, indistinguishable from probing a non-admin id.
+    const plain = await makeUser("Prober");
+    const adminTarget = await makeUser("Hidden Admin");
+    await promote(adminTarget.id);
+    const plainTarget = await makeUser("Hidden User");
+
+    for (const target of [adminTarget, plainTarget]) {
+      const err = await auth.api
+        .banUser({ body: { userId: target.id }, headers: plain.headers })
+        .then(
+          () => null,
+          (e: unknown) => e,
+        );
+      expect((err as { statusCode?: number }).statusCode).toBe(403);
+      expect(String((err as Error).message)).not.toMatch(/platform admin/i);
+    }
+  });
+
   it("blocks impersonating a platform admin (role column)", async () => {
     const admin = await makeUser("Admin A");
     const admin2 = await makeUser("Admin B");

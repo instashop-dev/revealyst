@@ -28,9 +28,11 @@ export type AuthEnv = EmailEnv &
     GITHUB_CLIENT_SECRET?: string;
   };
 
-// Admin-plugin endpoints that are cut outright (ADR 0016) — blocked in
-// hooks.before so there is never a deployed window where they work:
-// - remove-user deletes via the internal adapter and BYPASSES
+// The only admin-plugin endpoints that are ALLOWED (ADR 0016) — everything
+// else under /admin/* is 403'd in hooks.before, fail-closed, so a better-auth
+// upgrade that adds or renames a mutation endpoint can never ship unguarded
+// or unaudited. Deliberately cut (and so absent below):
+// - remove-user: deletes via the internal adapter and BYPASSES
 //   deleteUser.beforeDelete → would skip assertDeletableAndPurgeOrg and
 //   strand org rows (violates ADR 0015's purge invariant). Users self-delete
 //   via /account.
@@ -39,13 +41,18 @@ export type AuthEnv = EmailEnv &
 //   role/banned — bypassing the set-role/ban guards AND the audit trail.
 // - revoke-user-session(s): session-revocation UI is cut; ban (audited)
 //   covers the emergency.
-const BLOCKED_ADMIN_PATHS = new Set([
-  "/admin/remove-user",
-  "/admin/create-user",
-  "/admin/update-user",
-  "/admin/set-user-password",
-  "/admin/revoke-user-session",
-  "/admin/revoke-user-sessions",
+const ALLOWED_ADMIN_PATHS = new Set([
+  // read-only
+  "/admin/list-users",
+  "/admin/get-user",
+  "/admin/list-user-sessions",
+  "/admin/has-permission",
+  // audited mutations (hooks.after below)
+  "/admin/set-role",
+  "/admin/ban-user",
+  "/admin/unban-user",
+  "/admin/impersonate-user",
+  "/admin/stop-impersonating",
 ]);
 
 // Mutations whose TARGET must not be a platform admin (blocks the
@@ -167,12 +174,19 @@ export function createAuth(db: Db, env: AuthEnv) {
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         if (!ctx.path.startsWith("/admin/")) return;
-        if (BLOCKED_ADMIN_PATHS.has(ctx.path)) {
+        if (!ALLOWED_ADMIN_PATHS.has(ctx.path)) {
           throw new APIError("FORBIDDEN", {
             message: "This admin endpoint is disabled (ADR 0016).",
           });
         }
         if (!TARGET_GUARDED_ADMIN_PATHS.has(ctx.path)) return;
+        // The guards below only matter for callers the endpoint would let
+        // through. Running them first would leak an oracle: an
+        // unauthenticated or non-admin caller probing userIds could tell
+        // platform admins apart by the distinctive 403 — so anyone else
+        // falls through to the endpoint's own 401/403 instead.
+        const session = await getSessionFromCtx(ctx);
+        if (!session || !isPlatformAdmin(session.user, env)) return;
         // Keep the role model binary ("user" | "admin"): a compound role like
         // "admin,user" would read as admin to the plugin's split(",") checks
         // but not to isPlatformAdmin's exact match — a hidden-admin hole.
@@ -184,19 +198,23 @@ export function createAuth(db: Db, env: AuthEnv) {
             });
           }
         }
-        const targetId: unknown = ctx.body?.userId;
-        if (typeof targetId !== "string" || targetId.length === 0) {
+        // Mirror the endpoint schemas' z.coerce.string() so a coercible
+        // non-string target can't slip past the guard while the endpoint
+        // still acts on the coerced id.
+        const rawTargetId: unknown = ctx.body?.userId;
+        const targetId = rawTargetId == null ? "" : String(rawTargetId);
+        if (targetId.length === 0) {
           return; // the endpoint's own body schema 400s it
         }
         // Self set-role/ban is a lockout footgun (demote/ban yourself, lose
         // the only admin). The plugin only 400s self-ban; block both here.
-        if (SELF_GUARDED_ADMIN_PATHS.has(ctx.path)) {
-          const session = await getSessionFromCtx(ctx);
-          if (session && session.user.id === targetId) {
-            throw new APIError("FORBIDDEN", {
-              message: "You cannot change your own platform role or ban yourself.",
-            });
-          }
+        if (
+          SELF_GUARDED_ADMIN_PATHS.has(ctx.path) &&
+          session.user.id === targetId
+        ) {
+          throw new APIError("FORBIDDEN", {
+            message: "You cannot change your own platform role or ban yourself.",
+          });
         }
         // Admin-on-admin actions are blocked outright: impersonating, banning,
         // or demoting another platform admin is a privilege-escalation /

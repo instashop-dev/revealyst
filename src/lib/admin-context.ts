@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { redirect } from "next/navigation";
 import { appContext, type AppContext } from "./api-context";
-import { ApiError } from "./api-impl";
+import { respondWith } from "./api-route";
 
 // Platform-admin gate helpers (ADR 0016). Two choke points, used everywhere:
 // requireAdminContext() for pages/layouts under /admin, handleAdminApi() for
@@ -48,15 +48,5 @@ export async function handleAdminApi(
   if (!ctx.isPlatformAdmin || ctx.session.session.impersonatedBy) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
-  try {
-    return NextResponse.json(await fn(ctx));
-  } catch (error) {
-    if (error instanceof ApiError) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: error.status },
-      );
-    }
-    throw error;
-  }
+  return respondWith(fn, ctx);
 }

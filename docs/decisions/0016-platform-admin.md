@@ -50,6 +50,13 @@ this ADR records the contract-touching decisions.
      (view-only admin), `update-user`'s generic `data` payload could set
      `role`/`banned` (bypassing the guards below and the audit trail), and
      ban — which is audited — covers the session-revocation emergency.
+     Enforcement is a fail-closed **allowlist** of permitted `/admin/*`
+     endpoints, not a denylist — a better-auth upgrade that adds or renames
+     an admin mutation ships blocked, never unguarded/unaudited.
+   - **Guards run only for authenticated platform-admin callers** — anyone
+     else falls through to the endpoint's own 401/403, so the distinctive
+     guard errors can't be used by unauthenticated or non-admin callers as
+     an oracle to enumerate which user ids are platform admins.
    - **Admin-on-admin is blocked**: impersonate/ban/set-role 403 when the
      target is a platform admin (either power source). Combined with
      impersonating sessions being rejected at every `/admin` gate, this kills
