@@ -24,7 +24,7 @@ import { pushBatch } from "./push";
 import { trailingWindow } from "./window";
 
 const AGENT_VERSION = "0.1.0";
-const DEFAULT_API = "https://revealyst.thapi.workers.dev";
+const DEFAULT_API = "https://app.revealyst.com";
 const DEFAULT_DAYS = 30;
 
 function fail(message: string): never {

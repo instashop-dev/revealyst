@@ -1,0 +1,129 @@
+import { describe, expect, it } from "vitest";
+import {
+  APP_HOST,
+  APP_ORIGIN,
+  MARKETING_HOST,
+  MARKETING_ORIGIN,
+  classifyPath,
+  resolveRedirect,
+  toMarketingOrigin,
+} from "../src/lib/domains";
+
+describe("classifyPath", () => {
+  it("classifies (app) group + flat authed routes as app", () => {
+    for (const p of [
+      "/dashboard",
+      "/dashboard/anything",
+      "/teams",
+      "/people",
+      "/connections",
+      "/members",
+      "/reconcile",
+      "/billing",
+      "/compliance",
+      "/playbook",
+      "/sign-in",
+      "/onboarding",
+      "/invite/tok_123",
+    ]) {
+      expect(classifyPath(p)).toBe("app");
+    }
+  });
+
+  it("classifies landing, legal, and share cards as marketing", () => {
+    expect(classifyPath("/")).toBe("marketing");
+    expect(classifyPath("/legal")).toBe("marketing");
+    expect(classifyPath("/legal/terms")).toBe("marketing");
+    expect(classifyPath("/legal/privacy")).toBe("marketing");
+    expect(classifyPath("/s/abc123")).toBe("marketing");
+  });
+
+  it("only matches app prefixes at a path boundary", () => {
+    // Not "/people" — a different route that merely shares the prefix.
+    expect(classifyPath("/peoplesearch")).toBe("neutral");
+    expect(classifyPath("/billings")).toBe("neutral");
+  });
+
+  it("treats api, assets, and metadata routes as neutral (checked first)", () => {
+    expect(classifyPath("/api/auth/callback/github")).toBe("neutral");
+    expect(classifyPath("/api/webhooks/paddle")).toBe("neutral");
+    expect(classifyPath("/health")).toBe("neutral");
+    expect(classifyPath("/_next/static/chunk.js")).toBe("neutral");
+    expect(classifyPath("/favicon.ico")).toBe("neutral");
+    expect(classifyPath("/robots.txt")).toBe("neutral");
+    expect(classifyPath("/sitemap.xml")).toBe("neutral");
+    expect(classifyPath("/opengraph-image")).toBe("neutral");
+    // A metadata route under a marketing path must stay neutral so social
+    // scrapers get it on whichever host they asked — never a 308.
+    expect(classifyPath("/s/abc123/opengraph-image")).toBe("neutral");
+  });
+});
+
+describe("resolveRedirect", () => {
+  it("sends app paths on the marketing host to the app host", () => {
+    expect(
+      resolveRedirect(MARKETING_HOST, "GET", "/dashboard", "?tab=x"),
+    ).toBe(`${APP_ORIGIN}/dashboard?tab=x`);
+    expect(resolveRedirect(MARKETING_HOST, "GET", "/sign-in", "")).toBe(
+      `${APP_ORIGIN}/sign-in`,
+    );
+  });
+
+  it("sends marketing paths on the app host to the marketing host", () => {
+    expect(resolveRedirect(APP_HOST, "GET", "/", "")).toBe(
+      `${MARKETING_ORIGIN}/`,
+    );
+    expect(resolveRedirect(APP_HOST, "GET", "/legal/terms", "")).toBe(
+      `${MARKETING_ORIGIN}/legal/terms`,
+    );
+    expect(resolveRedirect(APP_HOST, "GET", "/s/abc", "")).toBe(
+      `${MARKETING_ORIGIN}/s/abc`,
+    );
+  });
+
+  it("preserves HEAD alongside GET", () => {
+    expect(resolveRedirect(MARKETING_HOST, "HEAD", "/dashboard", "")).toBe(
+      `${APP_ORIGIN}/dashboard`,
+    );
+  });
+
+  it("never redirects a non-safe method (no cross-host POST replay)", () => {
+    expect(resolveRedirect(MARKETING_HOST, "POST", "/dashboard", "")).toBeNull();
+    expect(resolveRedirect(APP_HOST, "PUT", "/", "")).toBeNull();
+  });
+
+  it("does not redirect when already on the canonical host", () => {
+    expect(resolveRedirect(APP_HOST, "GET", "/dashboard", "")).toBeNull();
+    expect(resolveRedirect(MARKETING_HOST, "GET", "/", "")).toBeNull();
+  });
+
+  it("does not redirect neutral paths on either host", () => {
+    expect(
+      resolveRedirect(MARKETING_HOST, "GET", "/api/health", ""),
+    ).toBeNull();
+    expect(
+      resolveRedirect(APP_HOST, "GET", "/s/abc/opengraph-image", ""),
+    ).toBeNull();
+  });
+
+  it("passes through any non-custom host (workers.dev, localhost, self-ref)", () => {
+    expect(
+      resolveRedirect("revealyst.thapi.workers.dev", "GET", "/dashboard", ""),
+    ).toBeNull();
+    expect(resolveRedirect("localhost", "GET", "/", "")).toBeNull();
+  });
+});
+
+describe("toMarketingOrigin", () => {
+  it("rewrites the app-host origin to the marketing origin", () => {
+    expect(toMarketingOrigin(APP_ORIGIN)).toBe(MARKETING_ORIGIN);
+  });
+
+  it("leaves any other origin unchanged (dev localhost, marketing host)", () => {
+    expect(toMarketingOrigin("http://localhost:3000")).toBe(
+      "http://localhost:3000",
+    );
+    expect(toMarketingOrigin(MARKETING_ORIGIN)).toBe(MARKETING_ORIGIN);
+    expect(toMarketingOrigin("not a url")).toBe("not a url");
+  });
+});

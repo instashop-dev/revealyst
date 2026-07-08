@@ -22,6 +22,7 @@ import { processPollMessage } from "./poller/process";
 import { sendInBatches } from "./poller/queue";
 import { retryDelaySeconds, RetryableConnectorError } from "./poller/run";
 import { previousDay } from "./scoring";
+import { resolveRedirect } from "./lib/domains";
 
 // Matches the second entry in wrangler.jsonc "triggers".crons — the nightly
 // score recompute (W1-F). The */5 tick keeps the W0-B heartbeat + purge.
@@ -44,7 +45,22 @@ function safePaddleConfig(env: CloudflareEnv): PaddleServerConfig | undefined {
 const DLQ_QUEUE_NAME = "revealyst-poll-dlq";
 
 export default {
-  fetch: openNextHandler.fetch,
+  // Host split (src/lib/domains.ts): keep each custom domain to its own
+  // surface — app paths land on app.revealyst.com, marketing paths on
+  // revealyst.com — before handing off to OpenNext. Only GET/HEAD on the two
+  // custom domains ever redirect; workers.dev, the OpenNext self-reference
+  // subrequest, /api/*, and assets pass straight through.
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const target = resolveRedirect(
+      url.hostname,
+      request.method,
+      url.pathname,
+      url.search,
+    );
+    if (target) return Response.redirect(target, 308);
+    return openNextHandler.fetch!(request, env, ctx);
+  },
 
   // Cron Trigger (every 5 min): heartbeat + raw purge (W0-B/C), then W1-D
   // connector dispatch — one queue message per due connection (regular

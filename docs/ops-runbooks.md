@@ -129,7 +129,7 @@ storms) before scaling `max_batch_size`.
   poller pipeline is stuck (cron → queue → consumer), not the DB.
 - **[founder]** Point an external monitor (UptimeRobot / Better Stack /
   Cloudflare Health Checks) at
-  `https://revealyst.thapi.workers.dev/api/health`, interval ≥ 60 s,
+  `https://app.revealyst.com/api/health`, interval ≥ 60 s,
   alert on 2 consecutive failures. Cold-start note: only a **brand-new
   environment** (empty `poll_heartbeats` table) legitimately 503s until its
   first cron tick (≤ 5 min); ordinary redeploys keep their heartbeat

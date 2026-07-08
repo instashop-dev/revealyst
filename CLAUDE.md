@@ -20,6 +20,17 @@ contracts. Every session auto-loads this file — it is the interface between ag
   the manual `Deploy` GitHub workflow (migrations → queue → deploy → Worker-secret
   sync from repo secrets); CI uploads a preview version per PR. Founder infra steps
   + local no-credential dev loop (`npm run dev:db`): `docs/infra.md`.
+- **Custom domains (host split, `docs/infra.md` §6):** ONE Worker, two custom
+  domains — **`app.revealyst.com`** is the app + Better Auth origin (`BETTER_AUTH_URL`,
+  GitHub OAuth callback, Paddle Default-Payment-Link/webhook all point here);
+  **`revealyst.com`** is the public marketing site (landing today; docs/blog later)
+  and the canonical home of public share cards. The split is enforced in `src/worker.ts`
+  by a GET/HEAD host redirect from `src/lib/domains.ts` (the single source of truth for
+  the two origins + path classification) — `/api/*`, assets, `workers.dev`, and the
+  OpenNext self-reference subrequest pass through untouched. `src/lib/auth.ts` sets
+  `trustedOrigins` to both hosts; share URLs are minted on the marketing host
+  (`toMarketingOrigin`, `src/components/share-score-button.tsx`). `workers.dev` stays
+  live during migration (its 301 is deferred).
 - Windows dev machine: OpenNext builds use webpack, not Turbopack (adapter's chunk
   patching breaks on Win — see `open-next.config.ts`); DB/auth clients are created
   per request, never cached at module scope (Workers cancel cross-request I/O).

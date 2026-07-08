@@ -59,7 +59,7 @@ New, under `src/components/docs/` (+ layout/manifest):
 ## 5. SEO
 
 - Per-doc `export const metadata = { title, description, alternates: { canonical } }` in each `page.mdx`.
-- Add `metadataBase: new URL("https://revealyst.thapi.workers.dev")` to `src/app/layout.tsx` (site-wide benefit; currently absent).
+- Add `metadataBase: new URL("https://revealyst.com")` to `src/app/layout.tsx` (site-wide benefit; currently absent). The marketing/docs canonical origin is `revealyst.com`; the app lives on `app.revealyst.com` (host split — `docs/infra.md` §6, `src/lib/domains.ts`).
 - New `src/app/sitemap.ts`: static routes + `DOCS_FLAT`. New `src/app/robots.ts`: allow all; disallow `/api/`, `/onboarding`, `/invite`, `/s/`, and `(app)` paths; point at the sitemap.
 - One `src/app/docs/opengraph-image.tsx` via `next/og` ImageResponse — **text-only, no external fonts** (Workers constraint, same as existing OG images) — inherited by all docs routes.
 
