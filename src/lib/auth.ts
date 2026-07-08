@@ -42,7 +42,7 @@ export function createAuth(db: Db, env: AuthEnv) {
       enabled: true,
       // Signup requires a confirmed email: sign-in throws 403
       // EMAIL_NOT_VERIFIED until the address is verified. Existing users are
-      // backfilled to verified by migration 0017 so this doesn't lock them out.
+      // backfilled to verified by migration 0018 so this doesn't lock them out.
       requireEmailVerification: true,
       // A password reset is often an account-recovery action (the user
       // suspects their credential leaked) — revoke any other live sessions so
@@ -53,7 +53,7 @@ export function createAuth(db: Db, env: AuthEnv) {
       // catches and only logs a thrown error — it never reaches the client,
       // even though sendEmail() throws on a real SES failure. A failed send
       // here is therefore silent: the caller sees success. Known limitation
-      // (ADR 0014); mitigate by keeping SES healthy, not by relying on this
+      // (ADR 0015); mitigate by keeping SES healthy, not by relying on this
       // throw to surface anything.
       sendResetPassword: async ({ user, url }) => {
         await sendEmail(env, {
@@ -85,7 +85,7 @@ export function createAuth(db: Db, env: AuthEnv) {
     user: {
       deleteUser: {
         enabled: true,
-        // Gates + tears down the user's personal org-of-one (ADR 0014).
+        // Gates + tears down the user's personal org-of-one (ADR 0015).
         // Fires on the immediate path (no sendDeleteAccountVerification
         // configured): with a password for credential accounts, or — for
         // OAuth-only accounts with no password — on a fresh session (Better

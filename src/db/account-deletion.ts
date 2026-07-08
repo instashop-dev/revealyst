@@ -24,7 +24,7 @@ import {
 } from "./schema";
 import { subscriptionsForOrg } from "./subscriptions";
 
-// Account deletion teardown (ADR 0014). Lives in the schema zone beside
+// Account deletion teardown (ADR 0015). Lives in the schema zone beside
 // org-scope.ts — it does raw multi-table deletes, which the org-scope guard
 // (scripts/check-org-scope.mjs) only permits inside src/db/**. Kept OUT of the
 // frozen forOrg public API to limit frozen-surface churn; invoked from Better

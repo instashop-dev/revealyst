@@ -205,11 +205,18 @@ describe("E2E: signup → connect → ingest → normalize → score", () => {
 
     const definitions = await scoped.scores.definitions();
     const adoption = definitions.find(
-      (d) => d.slug === "adoption" && d.status === "active",
+      (d) => d.slug === "adoption" && d.status === "active" && d.subjectLevel === "team",
     );
     expect(adoption).toBeDefined();
     adoptionDefinitionId = adoption!.id;
-    expect(adoption!.subjectLevel).toBe("team");
+    // ADR 0014: `orgId` is a personal org (ensureOrgOfOne signup), which also
+    // gets org-scoped PERSON-level clones of the team presets seeded at
+    // signup — this is the shipped fix for personal-org dashboards, not
+    // something to strip out for this test's benefit.
+    const personAdoption = definitions.find(
+      (d) => d.slug === "adoption" && d.status === "active" && d.subjectLevel === "person",
+    );
+    expect(personAdoption).toBeDefined();
 
     // Run the SAME entrypoint the nightly/post-backfill recompute uses (no
     // hand-rolled evaluation in the test) — this proves the production
@@ -225,7 +232,12 @@ describe("E2E: signup → connect → ingest → normalize → score", () => {
     // never lands here), so every one of its components is omitted and it
     // evaluates to null — absence of data is never scored as 0, per-component
     // as well as whole-definition (src/scoring/evaluate.ts).
-    expect(summary.resultsWritten).toBe(2);
+    // Written at BOTH subject levels (team + the ADR-0014 person clone):
+    // team-adoption, team-fluency, person-adoption, person-fluency = 4.
+    // Dev One is the team's only member and its only exclusive subject, so
+    // the person-level rows consume the identical rows the team-level rows
+    // do and land on the identical computed value.
+    expect(summary.resultsWritten).toBe(4);
 
     const stored = await scoped.scores.results({ definitionId: adoptionDefinitionId });
     expect(stored).toHaveLength(1);
@@ -243,6 +255,16 @@ describe("E2E: signup → connect → ingest → normalize → score", () => {
     const breakdown = scoreComponentBreakdownSchema.parse(stored[0].components);
     expect(breakdown.active_days.raw).toBe(2);
     expect(breakdown.tool_coverage.raw).toBe(1);
+
+    // The person-level clone (ADR 0014) computes identically off the same
+    // exclusive-subject rows — proving the clone isn't just present, it
+    // actually scores.
+    const storedPerson = await scoped.scores.results({
+      definitionId: personAdoption!.id,
+    });
+    expect(storedPerson).toHaveLength(1);
+    expect(storedPerson[0].value).toBeCloseTo(13.3334, 4);
+    expect(storedPerson[0].personId).toBe(person.id);
 
     // Re-run (nightly + post-backfill recompute) — upsert on the frozen
     // key, still one row, same value.

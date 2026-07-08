@@ -1,0 +1,29 @@
+name: Diagnose Scores
+
+# Manual, read-only one-off (founder-triggered) — reports per-org connection
+# health, ingested metric_key coverage/day-range, and people/identities/
+# score_results counts. Uses scripts/diagnose-scores.ts. No writes. Reuses
+# the same DATABASE_URL repo secret deploy.yml already has.
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Diagnose
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL repo secret not set — nothing to do"
+            exit 1
+          fi
+          npx tsx scripts/diagnose-scores.ts

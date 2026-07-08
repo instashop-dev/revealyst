@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 // page-shell analog of handleApi's `allowOverFreeBand` (src/lib/api-route.ts).
 // /account is the one route an over-band, un-entitled user needs to reach to
 // stop being blocked at all: deleting their account. Without this exemption
-// they'd see only the paywall and could never delete (ADR 0014, review finding).
+// they'd see only the paywall and could never delete (ADR 0015, review finding).
 const PAYWALL_EXEMPT_PREFIXES = ["/account"];
 
 export default async function AppLayout({

@@ -25,6 +25,13 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { errorText, postJson } from "@/lib/client-fetch";
+import { connectApiKeyVendor } from "@/lib/connect-vendor";
+import {
+  COMING_SOON,
+  KEY_VENDORS,
+  type KeyVendor,
+} from "@/lib/vendor-connect-meta";
 
 // W2-H onboarding: sign up → connect (Anthropic key · OpenAI key · install
 // the Revealyst Agent) → the connection's first poll + cron backfill land
@@ -37,65 +44,6 @@ type InitialConnection = {
   vendor: string;
   status: "pending" | "active" | "paused" | "error";
 };
-
-/** A key-based vendor connectable in Personal mode right now. */
-type KeyVendor = {
-  vendor: "anthropic_console" | "openai";
-  label: string;
-  blurb: string;
-  placeholder: string;
-  keyHint: string;
-};
-
-const KEY_VENDORS: KeyVendor[] = [
-  {
-    vendor: "anthropic_console",
-    label: "Anthropic",
-    blurb: "Console usage + cost and Claude Code analytics.",
-    placeholder: "sk-ant-…",
-    keyHint: "Admin API key from console.anthropic.com → Settings → API keys.",
-  },
-  {
-    vendor: "openai",
-    label: "OpenAI",
-    blurb: "Personal usage + spend from your OpenAI API key.",
-    placeholder: "sk-…",
-    keyHint: "API key from platform.openai.com → API keys.",
-  },
-];
-
-// Individual Copilot/Cursor expose no personal metrics API — honest, not a
-// dead form (org connectors arrive in Team mode via W2-J).
-const COMING_SOON = [
-  { label: "GitHub Copilot", note: "Individual plans have no metrics API yet." },
-  { label: "Cursor", note: "Personal usage export is on the roadmap." },
-];
-
-async function postJson(url: string, body?: unknown) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  let payload: unknown = null;
-  try {
-    payload = await res.json();
-  } catch {
-    // no / non-JSON body
-  }
-  return { ok: res.ok, status: res.status, payload };
-}
-
-function errorText(payload: unknown, fallback: string): string {
-  if (
-    payload &&
-    typeof payload === "object" &&
-    typeof (payload as { error?: unknown }).error === "string"
-  ) {
-    return (payload as { error: string }).error;
-  }
-  return fallback;
-}
 
 /** The connection for a vendor that counts as "connected" — an errored one
  * (e.g. a rejected key at step 2) does NOT, so its card stays retryable. */
@@ -226,49 +174,26 @@ function ApiKeyConnectCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(initiallyDone);
+  // A row created by a failed attempt in THIS session — reused on retry
+  // (initialConnections only covers rows that existed at page load).
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
   async function connect(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      // 1) reuse an existing connection (retry) or create one
-      let connectionId = existingConnectionId;
-      if (!connectionId) {
-        const created = await postJson("/api/connections", {
-          vendor: vendor.vendor,
-          displayName: `My ${vendor.label}`,
-          authKind: "api_key",
-          config: {},
-        });
-        if (!created.ok) {
-          setError(
-            errorText(created.payload, `Could not connect (${created.status})`),
-          );
-          return;
-        }
-        connectionId = (
-          created.payload as { connection?: { id?: string } }
-        )?.connection?.id ?? null;
-        if (!connectionId) {
-          setError("Unexpected response creating the connection");
-          return;
-        }
-      }
-
-      // 2) store + validate the key (validate-on-save: a bad key 400s here)
-      const cred = await postJson(
-        `/api/connections/${connectionId}/credential`,
-        { kind: "api_key", value: key },
-      );
-      if (!cred.ok) {
-        setError(errorText(cred.payload, "That key was rejected"));
+      const result = await connectApiKeyVendor({
+        vendor,
+        displayName: `My ${vendor.label}`,
+        apiKey: key,
+        existingConnectionId: existingConnectionId ?? createdId,
+        onCreated: setCreatedId,
+      });
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
-
-      // 3) nudge an immediate poll (best-effort — cron also picks it up)
-      await postJson(`/api/connections/${connectionId}/poll`).catch(() => {});
-
       setDone(true);
       setKey("");
       onConnected();

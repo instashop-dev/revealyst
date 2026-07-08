@@ -1,4 +1,4 @@
-# 0014 — Account management: required email verification + account-deletion teardown
+# 0015 — Account management: required email verification + account-deletion teardown
 
 - **Status:** Accepted
 - **Date:** 2026-07-08
@@ -32,7 +32,7 @@ of the new flows touch frozen contracts, so this ADR is required (rule 1):
   mail goes through a new `src/lib/email.ts` (Amazon SES v2 over SigV4 via
   `aws4fetch` — no SMTP on Workers). No signup schema change; only new signups are
   gated.
-- **Backfill migration 0017** (`drizzle/0017_backfill-email-verified.sql`, data
+- **Backfill migration 0018** (`drizzle/0018_backfill-email-verified.sql`, data
   only): `UPDATE "user" SET email_verified = true WHERE email_verified = false`.
   Runs in Deploy before the new Worker version, so existing users stay in.
 - **Account deletion is gated + purges the org-of-one.** Better Auth
@@ -78,7 +78,7 @@ of the new flows touch frozen contracts, so this ADR is required (rule 1):
 
 ## Contracts affected
 
-- **`drizzle/**`** — additive: migration `0017_backfill-email-verified` (data-only,
+- **`drizzle/**`** — additive: migration `0018_backfill-email-verified` (data-only,
   no schema/column change; `email_verified` already exists).
 - **`src/db/org-scope.ts` public API** — **unchanged.** The deletion teardown lives
   in the new `src/db/account-deletion.ts` (schema zone, allowed by
