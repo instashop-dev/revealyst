@@ -7,6 +7,11 @@ and how our numbers compare to published industry benchmarks. It is written
 to be read by a customer, not just an engineer: if a founder or a CTO asks
 "how did you calculate this?", this is the answer.
 
+> **New here, or verifying the numbers?** For a beginner-friendly walkthrough
+> with fully worked numeric examples, see
+> [`scoring-explained.md`](scoring-explained.md); for a copy-paste tester
+> template, see [`scoring-verification-worksheet.md`](scoring-verification-worksheet.md).
+
 ## Purpose and non-goals
 
 Revealyst measures *AI adoption at the team level* — how broadly a tool is
