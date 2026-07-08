@@ -164,6 +164,7 @@ export default async function ReconcilePage() {
                   <TableHead>Account</TableHead>
                   <TableHead>Tool</TableHead>
                   <TableHead>Kind</TableHead>
+                  <TableHead>Activity</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
@@ -183,6 +184,13 @@ export default async function ReconcilePage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground capitalize">
                       {s.kind.replace(/_/g, " ")}
+                    </TableCell>
+                    <TableCell>
+                      {s.hasActivity ? (
+                        <Badge variant="default">Has data</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">No data yet</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <ReconcileSubjectDialog

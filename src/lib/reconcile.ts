@@ -27,6 +27,13 @@ export type SubjectResolution = {
   persons: PersonRef[];
   /** Shared-account signal, if the heuristics flagged this subject. */
   flag: SharedAccountFlag | null;
+  /** True if this subject has any active_day rows in the window — the
+   *  canonical presence signal every connector emits (§ normalize.ts). An
+   *  unresolved subject with no activity is a harmless stub; one WITH
+   *  activity is metric data sitting unattributed, and is surfaced first so
+   *  reconciling "the person with a name" doesn't leave the actual
+   *  data-bearing subject (often an api_key/account-kind sibling) behind. */
+  hasActivity: boolean;
 };
 
 export type ReconcileView = {
@@ -46,16 +53,26 @@ export async function buildReconcileView(
   // Fetch subjects once, then reuse them for the flag pass — otherwise
   // computeSharedAccountFlags would scan the subjects table a second time.
   const subjectRows = await scoped.subjects.list();
-  const [peopleRows, teamRows, connectionRows, flags] = await Promise.all([
-    scoped.people.list(),
-    scoped.teams.list(),
-    scoped.connections.list(),
-    computeSharedAccountFlags(scoped, {
-      from: opts.from,
-      to: opts.to,
-      subjects: subjectRows,
-    }),
-  ]);
+  const [peopleRows, teamRows, connectionRows, flags, activeDayRows] =
+    await Promise.all([
+      scoped.people.list(),
+      scoped.teams.list(),
+      scoped.connections.list(),
+      computeSharedAccountFlags(scoped, {
+        from: opts.from,
+        to: opts.to,
+        subjects: subjectRows,
+      }),
+      // active_day is the one metric every connector emits whenever a
+      // subject did anything at all — the cheapest single-query activity
+      // proxy, same convention as computeSharedAccountFlags' volumeMetricKey.
+      scoped.metrics.records({
+        metricKey: "active_day",
+        from: opts.from,
+        to: opts.to,
+      }),
+    ]);
+  const subjectsWithActivity = new Set(activeDayRows.map((r) => r.subjectId));
 
   const people: PersonRef[] = peopleRows.map((p) => ({
     id: p.id,
@@ -98,9 +115,14 @@ export async function buildReconcileView(
       vendor: vendorByConnection.get(subject.connectionId) ?? "Unknown",
       persons,
       flag: flagBySubject.get(subject.id) ?? null,
+      hasActivity: subjectsWithActivity.has(subject.id),
     };
     (persons.length === 0 ? unresolved : resolved).push(entry);
   }
+  // Active-but-unresolved subjects first — they're metric data sitting
+  // unattributed, not harmless empty stubs, so they must not get buried
+  // below more recognizably-named siblings from the same connector.
+  unresolved.sort((a, b) => Number(b.hasActivity) - Number(a.hasActivity));
 
   return {
     unresolved,
