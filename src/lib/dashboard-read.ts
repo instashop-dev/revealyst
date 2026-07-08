@@ -161,27 +161,35 @@ export async function readDashboard(
     }),
   );
 
-  const activeRows = await scope.metrics.records({
-    metricKey: "active_day",
-    from: window.from,
-    to: window.to,
-  });
+  const [activeRows, people, subjects, allIdentities] = await Promise.all([
+    scope.metrics.records({
+      metricKey: "active_day",
+      from: window.from,
+      to: window.to,
+    }),
+    scope.people.list(),
+    scope.subjects.list(),
+    scope.identities.all(),
+  ]);
+
   const activeSubjectIds = new Set(activeRows.map((row) => row.subjectId));
-  const people = await scope.people.list();
-  let activePeople = 0;
-  for (const person of people) {
-    const links = await scope.identities.forPerson(person.id);
-    if (links.some((link) => activeSubjectIds.has(link.subjectId))) {
-      activePeople += 1;
+  const personSubjectIds = new Map<string, Set<string>>();
+  const subjectsWithLinks = new Set<string>();
+  for (const link of allIdentities) {
+    if (!personSubjectIds.has(link.personId)) {
+      personSubjectIds.set(link.personId, new Set());
     }
+    personSubjectIds.get(link.personId)!.add(link.subjectId);
+    subjectsWithLinks.add(link.subjectId);
   }
 
-  const subjects = await scope.subjects.list();
-  let unresolvedSubjects = 0;
-  for (const subject of subjects) {
-    const links = await scope.identities.forSubject(subject.id);
-    if (links.length === 0) unresolvedSubjects += 1;
-  }
+  const activePeople = people.filter((p) => {
+    const subjectIds = personSubjectIds.get(p.id);
+    return subjectIds !== undefined && [...subjectIds].some((id) => activeSubjectIds.has(id));
+  }).length;
+  const unresolvedSubjects = subjects.filter(
+    (s) => !subjectsWithLinks.has(s.id),
+  ).length;
 
   return {
     scores,

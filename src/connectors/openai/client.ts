@@ -1,4 +1,5 @@
 import { RetryableConnectorError } from "../../poller/run";
+import { withTimeout } from "../http";
 import type {
   CompletionsBucket,
   CostsBucket,
@@ -36,30 +37,33 @@ async function getJson<T>(
       url.searchParams.set(key, value);
     }
   }
-  const response = await fetchFn(url.toString(), {
-    headers: {
-      authorization: `Bearer ${credential}`,
-      "user-agent": "revealyst-connector-openai/1",
-    },
+  return withTimeout("openai", async (signal) => {
+    const response = await fetchFn(url.toString(), {
+      headers: {
+        authorization: `Bearer ${credential}`,
+        "user-agent": "revealyst-connector-openai/1",
+      },
+      signal,
+    });
+    if (response.status === 429) {
+      const retryAfter = Number(response.headers.get("retry-after"));
+      throw new RetryableConnectorError(
+        "openai: 429 rate limited",
+        Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60,
+      );
+    }
+    if (response.status >= 500) {
+      throw new RetryableConnectorError(
+        `openai: ${response.status} server error`,
+        60,
+      );
+    }
+    if (!response.ok) {
+      const body = (await response.text()).slice(0, 300);
+      throw new Error(`openai: ${response.status} on ${path}: ${body}`);
+    }
+    return (await response.json()) as T;
   });
-  if (response.status === 429) {
-    const retryAfter = Number(response.headers.get("retry-after"));
-    throw new RetryableConnectorError(
-      "openai: 429 rate limited",
-      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 60,
-    );
-  }
-  if (response.status >= 500) {
-    throw new RetryableConnectorError(
-      `openai: ${response.status} server error`,
-      60,
-    );
-  }
-  if (!response.ok) {
-    const body = (await response.text()).slice(0, 300);
-    throw new Error(`openai: ${response.status} on ${path}: ${body}`);
-  }
-  return (await response.json()) as T;
 }
 
 async function paginatePages<T>(

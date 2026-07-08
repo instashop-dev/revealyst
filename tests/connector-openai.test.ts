@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { openAiConnector, openAiEntry } from "../src/connectors/openai";
-import { fetchCompletionsUsage } from "../src/connectors/openai/client";
+import { checkAdminKey, fetchCompletionsUsage } from "../src/connectors/openai/client";
 import { normalizeOpenAi, ORG_SUBJECT } from "../src/connectors/openai/normalize";
 import { ENVELOPE_KINDS, type OpenAiRaw } from "../src/connectors/openai/types";
 import { getConnector } from "../src/connectors/registry";
@@ -254,6 +254,54 @@ describe("client", () => {
     await expect(
       fetchCompletionsUsage("k", { start: "2026-06-11", end: "2026-06-11" }, unauthorized),
     ).rejects.toThrow(/401/);
+  });
+
+  it("a fetch that never resolves times out instead of hanging forever", async () => {
+    vi.useFakeTimers();
+    try {
+      const neverResolves = (() => new Promise<Response>(() => {})) as typeof fetch;
+      const validate = checkAdminKey("k", neverResolves);
+      await vi.runAllTimersAsync();
+      await expect(validate).resolves.toEqual({
+        ok: false,
+        reason: expect.stringMatching(/timed out/),
+      });
+
+      const raw = fetchCompletionsUsage(
+        "k",
+        { start: "2026-06-11", end: "2026-06-11" },
+        neverResolves,
+      );
+      const assertion = expect(raw).rejects.toSatisfy(
+        (e) => e instanceof RetryableConnectorError && /timed out/.test(e.message),
+      );
+      await vi.runAllTimersAsync();
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a response whose body never resolves also times out (not just a stalled connect)", async () => {
+    vi.useFakeTimers();
+    try {
+      const slowBody = (async () =>
+        ({
+          status: 200,
+          ok: true,
+          headers: new Headers(),
+          json: () => new Promise(() => {}),
+          text: () => new Promise(() => {}),
+        }) as unknown as Response) as typeof fetch;
+      const validate = checkAdminKey("k", slowBody);
+      await vi.runAllTimersAsync();
+      await expect(validate).resolves.toEqual({
+        ok: false,
+        reason: expect.stringMatching(/timed out/),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

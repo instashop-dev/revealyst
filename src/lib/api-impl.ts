@@ -40,14 +40,19 @@ export class ApiError extends Error {
 }
 
 export async function listTeams(scope: OrgScope) {
-  const teams = await scope.teams.list();
-  const withCounts = await Promise.all(
-    teams.map(async (team) => ({
-      id: team.id,
-      name: team.name,
-      memberCount: (await scope.teams.members(team.id)).length,
-    })),
-  );
+  const [teams, allMembers] = await Promise.all([
+    scope.teams.list(),
+    scope.teams.allMembers(),
+  ]);
+  const countByTeam = new Map<string, number>();
+  for (const m of allMembers) {
+    countByTeam.set(m.teamId, (countByTeam.get(m.teamId) ?? 0) + 1);
+  }
+  const withCounts = teams.map((team) => ({
+    id: team.id,
+    name: team.name,
+    memberCount: countByTeam.get(team.id) ?? 0,
+  }));
   return apiRoutes.teamsList.response.parse({ teams: withCounts });
 }
 
