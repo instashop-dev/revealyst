@@ -1,4 +1,6 @@
 import { Cable } from "lucide-react";
+import { AddConnectionDialog } from "@/components/add-connection-dialog";
+import { ConnectionRowActions } from "@/components/connection-row-actions";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
@@ -18,19 +20,25 @@ export const dynamic = "force-dynamic";
 export default async function ConnectionsPage() {
   const ctx = await requireAppContext();
   const connections = await ctx.scope.connections.list();
+  // Edit/delete are admin-only (ADR 0013); adding is open to all members.
+  const isAdmin = ctx.role === "admin";
 
   return (
     <>
       <PageHeader
         title="Connections"
         description="Vendor integrations and their sync health."
-      />
+      >
+        <AddConnectionDialog />
+      </PageHeader>
       {connections.length === 0 ? (
         <EmptyState
           icon={Cable}
           title="No connections yet"
-          description="Connect a vendor (Anthropic, Cursor, OpenAI, or the Claude Code local agent) to start ingesting usage metrics. Connecting arrives with the onboarding flow."
-        />
+          description="Connect a vendor (Anthropic, OpenAI, or Cursor by API key — or the Claude Code local agent via onboarding) to start ingesting usage metrics."
+        >
+          <AddConnectionDialog />
+        </EmptyState>
       ) : (
         <div className="rounded-xl border">
           <Table>
@@ -39,6 +47,7 @@ export default async function ConnectionsPage() {
                 <TableHead>Connection</TableHead>
                 <TableHead>Vendor</TableHead>
                 <TableHead>Sync status</TableHead>
+                {isAdmin && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -57,6 +66,18 @@ export default async function ConnectionsPage() {
                       lastError={connection.lastError}
                     />
                   </TableCell>
+                  {isAdmin && (
+                    <TableCell className="text-right">
+                      <ConnectionRowActions
+                        connection={{
+                          id: connection.id,
+                          vendor: connection.vendor,
+                          displayName: connection.displayName,
+                          status: connection.status,
+                        }}
+                      />
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
