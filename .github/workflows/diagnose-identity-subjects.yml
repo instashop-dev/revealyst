@@ -1,0 +1,35 @@
+name: Diagnose Identity Subjects
+
+# Manual, read-only one-off (debugging the empty-recompute-after-reconcile
+# follow-up): reports subjects/identities/metric-record subject coverage for
+# one org, to see whether a reconciled identity points at the subject that
+# actually owns the ingested metric data. Uses
+# scripts/diagnose-identity-subjects.ts. No writes. Reuses the same
+# DATABASE_URL repo secret deploy.yml already has.
+on:
+  workflow_dispatch:
+    inputs:
+      org_id:
+        description: "Org id to inspect"
+        required: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Diagnose
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL repo secret not set — nothing to do"
+            exit 1
+          fi
+          npx tsx scripts/diagnose-identity-subjects.ts "${{ inputs.org_id }}"
