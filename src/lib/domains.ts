@@ -31,7 +31,9 @@ export const APP_PATH_PREFIXES = [
   "/billing",
   "/compliance",
   "/playbook",
+  "/account",
   "/sign-in",
+  "/reset-password",
   "/onboarding",
   "/invite",
 ] as const;
