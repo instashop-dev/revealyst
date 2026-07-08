@@ -110,6 +110,42 @@ export async function ensureOrgOfOne(
         .insert(orgMembers)
         .values({ orgId, userId: user.id, role: "admin" })
         .onConflictDoNothing();
+      // ADR 0014: a personal org's dashboard (PersonalSelfView) renders only
+      // subjectLevel='person' scores, but the global presets (drizzle/0009)
+      // are team-level and a personal org has no teams — so it would never
+      // produce a score row. Clone the global team presets into org-scoped
+      // person-level definitions for this org (components identical; the
+      // globals stay the single source of truth). Idempotent via
+      // onConflictDoNothing so the signup-race loser and the per-request
+      // re-call (api-context) don't duplicate. Backfill for existing orgs is
+      // drizzle/0017; ensureOrgOfOne only creates personal orgs, so no kind
+      // guard is needed here.
+      const teamPresets = await tx
+        .select()
+        .from(scoreDefinitions)
+        .where(
+          and(
+            isNull(scoreDefinitions.orgId),
+            eq(scoreDefinitions.subjectLevel, "team"),
+            eq(scoreDefinitions.status, "active"),
+          ),
+        );
+      if (teamPresets.length > 0) {
+        await tx
+          .insert(scoreDefinitions)
+          .values(
+            teamPresets.map((d) => ({
+              orgId,
+              slug: d.slug,
+              version: d.version,
+              name: d.name,
+              subjectLevel: "person" as const,
+              components: d.components,
+              status: d.status,
+            })),
+          )
+          .onConflictDoNothing();
+      }
     }
   });
   const membership = await membershipForUser(db, user.id);
