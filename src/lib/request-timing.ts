@@ -41,10 +41,21 @@ export type RequestTimingStore = {
   flushed: boolean;
 };
 
-// One ALS instance per isolate. `Date.now()` (not `performance.now()`) for
-// the marks — millisecond resolution is plenty for a >7s incident and avoids
-// depending on a High Resolution Time seam that varies by runtime/compat flag.
-const als = new AsyncLocalStorage<RequestTimingStore>();
+// One ALS instance per ISOLATE — anchored on globalThis, NOT module scope.
+// OpenNext bundles the Next server code separately from the worker entry, so
+// this module exists TWICE in the deployed Worker; a module-scoped instance
+// gives worker.ts and appContext two different ALS objects and every stage
+// silently vanishes (observed in prod: headers carried only `total`, zero
+// stages). globalThis is the only scope both bundle copies share.
+// `Date.now()` (not `performance.now()`) for the marks — millisecond
+// resolution is plenty for a >7s incident and avoids depending on a High
+// Resolution Time seam that varies by runtime/compat flag.
+const ALS_KEY = "__revealystRequestTimingALS";
+const globalAnchor = globalThis as typeof globalThis & {
+  [ALS_KEY]?: AsyncLocalStorage<RequestTimingStore>;
+};
+const als = (globalAnchor[ALS_KEY] ??=
+  new AsyncLocalStorage<RequestTimingStore>());
 
 export function createRequestTimingStore(path: string): RequestTimingStore {
   return { start: Date.now(), stages: [], path, flushed: false };
