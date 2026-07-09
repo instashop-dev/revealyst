@@ -1,6 +1,7 @@
 import { Users } from "lucide-react";
 import type { SharedAccountFlag } from "@/lib/shared-account";
 import { Badge } from "@/components/ui/badge";
+import { InfoTip } from "@/components/info-tip";
 import {
   Card,
   CardContent,
@@ -8,13 +9,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  CONCEPT_GLOSSARY,
+  methodologyAnchor,
+  SHARED_ACCOUNT_REASON_LABELS,
+} from "@/lib/metrics-glossary";
 import { vendorLabel } from "@/lib/vendor-labels";
-
-const REASON_LABELS: Record<string, string> = {
-  round_the_clock: "round-the-clock activity",
-  concurrent_usage: "concurrent sessions",
-  volume_exceeds_team_median: "volume ≫ team median",
-};
 
 const CONFIDENCE_VARIANT: Record<string, "outline" | "secondary" | "destructive"> = {
   low: "outline",
@@ -34,7 +34,14 @@ export function SharedAccountFlags({ flags }: { flags: SharedAccountFlag[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Shared accounts</CardTitle>
+        <CardTitle className="flex items-center gap-1.5">
+          Shared accounts
+          <InfoTip
+            label={CONCEPT_GLOSSARY.sharedAccounts.plainName}
+            short={CONCEPT_GLOSSARY.sharedAccounts.shortWhat}
+            learnMoreHref={`/methodology#${methodologyAnchor("sharedAccounts")}`}
+          />
+        </CardTitle>
         <CardDescription>
           Accounts used by more than one person — adoption may be undercounted.
         </CardDescription>
@@ -69,7 +76,7 @@ export function SharedAccountFlags({ flags }: { flags: SharedAccountFlag[] }) {
                   </div>
                   <p className="pl-5 text-xs text-muted-foreground">
                     {flag.reasons
-                      .map((r) => REASON_LABELS[r] ?? r)
+                      .map((r) => SHARED_ACCOUNT_REASON_LABELS[r] ?? r)
                       .join(" · ")}
                     {flag.identityCount > 0
                       ? ` — ${flag.identityCount} linked so far`

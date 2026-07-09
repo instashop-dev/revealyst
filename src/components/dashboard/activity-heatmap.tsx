@@ -1,4 +1,5 @@
 import type { ActivityHeatmap } from "@/lib/dashboard-signals";
+import { InfoTip } from "@/components/info-tip";
 import {
   Card,
   CardContent,
@@ -8,7 +9,49 @@ import {
 } from "@/components/ui/card";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAY_NAMES = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
 const HOUR_TICKS = [0, 6, 12, 18];
+
+/** Plain-English summary of the busiest weekday, busiest UTC hour range, and
+ * the busiest single account's overlapping-session count — derived only from
+ * cells actually present in the grid (all real data; never a fabricated "no
+ * activity" claim when there is no signal at all). `peakConcurrency` is a
+ * per-subject/day max (src/lib/dashboard-signals.ts), not a team-wide
+ * simultaneity count — the copy must not imply everyone overlapped at once. */
+function summarizeHeatmap(heatmap: ActivityHeatmap): string | null {
+  if (heatmap.daysWithSignals === 0) return null;
+
+  const weekdayTotals = heatmap.grid.map((row) =>
+    row.reduce((sum, v) => sum + v, 0),
+  );
+  const hourTotals = Array.from({ length: 24 }, (_, hour) =>
+    heatmap.grid.reduce((sum, row) => sum + (row[hour] ?? 0), 0),
+  );
+  const busiestWeekday = weekdayTotals.indexOf(Math.max(...weekdayTotals));
+  const busiestHour = hourTotals.indexOf(Math.max(...hourTotals));
+  const hourRange = `${String(busiestHour).padStart(2, "0")}:00–${String(
+    (busiestHour + 1) % 24,
+  ).padStart(2, "0")}:00 UTC`;
+
+  const parts = [
+    `busiest weekday is ${WEEKDAY_NAMES[busiestWeekday]}`,
+    `busiest hour range is ${hourRange}`,
+  ];
+  if (heatmap.peakConcurrency != null) {
+    parts.push(
+      `busiest single account had ${heatmap.peakConcurrency} overlapping sessions`,
+    );
+  }
+  return `Activity heatmap: ${parts.join(", ")}.`;
+}
 
 /**
  * Weekday × hour-of-day activity heatmap from sub-daily signals. Team-level and
@@ -17,11 +60,19 @@ const HOUR_TICKS = [0, 6, 12, 18];
  */
 export function ActivityHeatmap({ heatmap }: { heatmap: ActivityHeatmap }) {
   const max = Math.max(0, ...heatmap.grid.flat());
+  const summary = summarizeHeatmap(heatmap);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Activity heatmap</CardTitle>
+        <CardTitle className="flex items-center gap-1.5">
+          Activity heatmap
+          <InfoTip
+            label="Activity heatmap"
+            short="Team-level activity by weekday and UTC hour — aggregated across everyone, never broken out per person."
+            detail="Hours are shown in UTC, not your local timezone."
+          />
+        </CardTitle>
         <CardDescription>
           When AI activity happens across the team (by weekday and UTC hour).
         </CardDescription>
@@ -33,7 +84,14 @@ export function ActivityHeatmap({ heatmap }: { heatmap: ActivityHeatmap }) {
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <div className="flex flex-col gap-1">
+            {/* The role="img" aria-label below is the sole accessible
+             * summary — an additional sr-only <p> would announce the same
+             * sentence twice to screen readers. */}
+            <div
+              className="flex flex-col gap-1"
+              role="img"
+              aria-label={summary ?? undefined}
+            >
               {heatmap.grid.map((row, weekday) => (
                 <div key={weekday} className="flex items-center gap-1">
                   <span className="w-8 shrink-0 text-xs text-muted-foreground">
@@ -78,13 +136,16 @@ export function ActivityHeatmap({ heatmap }: { heatmap: ActivityHeatmap }) {
         )}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {heatmap.peakConcurrency != null ? (
-            <span>Peak concurrency: {heatmap.peakConcurrency}</span>
+            <span>
+              Busiest single account: {heatmap.peakConcurrency} overlapping
+              sessions
+            </span>
           ) : null}
           {heatmap.daysWithoutSubDaily > 0 ? (
             <span>
-              {heatmap.daysWithoutSubDaily} subject-day
-              {heatmap.daysWithoutSubDaily === 1 ? "" : "s"} without sub-daily
-              data (not shown)
+              {heatmap.daysWithoutSubDaily} person-day
+              {heatmap.daysWithoutSubDaily === 1 ? "" : "s"} had daily totals
+              only (not shown)
             </span>
           ) : null}
         </div>

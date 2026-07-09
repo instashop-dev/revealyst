@@ -1,4 +1,5 @@
 import type { BenchmarkSummary } from "@/lib/benchmarks";
+import { InfoTip } from "@/components/info-tip";
 import {
   Card,
   CardContent,
@@ -6,14 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-
-function ordinal(n: number): string {
-  const suffix =
-    n % 100 >= 11 && n % 100 <= 13
-      ? "th"
-      : ["th", "st", "nd", "rd"][n % 10] ?? "th";
-  return `${n}${suffix}`;
-}
+import { CONCEPT_GLOSSARY, methodologyAnchor } from "@/lib/metrics-glossary";
 
 /**
  * Org vs. industry norms (§8 L4). Benchmarks are load-bearing — a score is
@@ -30,7 +24,14 @@ export function BenchmarkPanel({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Benchmark</CardTitle>
+        <CardTitle className="flex items-center gap-1.5">
+          Benchmark
+          <InfoTip
+            label={CONCEPT_GLOSSARY.benchmarks.plainName}
+            short={CONCEPT_GLOSSARY.benchmarks.shortWhat}
+            learnMoreHref={`/methodology#${methodologyAnchor("benchmarks")}`}
+          />
+        </CardTitle>
         <CardDescription>
           Your scores vs. modeled industry norms — verified published
           benchmarks will replace these as sources are confirmed.
@@ -46,7 +47,15 @@ export function BenchmarkPanel({
                 {Math.round(b.peerMedian)} median
               </span>
             </div>
-            <div className="relative h-2 w-full rounded-full bg-muted">
+            <div
+              className="relative h-2 w-full rounded-full bg-muted"
+              role="img"
+              aria-label={
+                b.orgValue == null
+                  ? `${b.label}: no score yet, peer median ${Math.round(b.peerMedian)}`
+                  : `${b.label}: your score ${Math.round(b.orgValue)} vs peer median ${Math.round(b.peerMedian)}`
+              }
+            >
               {/* peer median marker */}
               <div
                 className="absolute top-[-2px] h-3 w-0.5 bg-muted-foreground/60"
@@ -66,7 +75,7 @@ export function BenchmarkPanel({
             <p className="text-xs text-muted-foreground">
               {b.percentile == null
                 ? "No score yet."
-                : `${ordinal(Math.round(b.percentile))} percentile · ${b.source}`}
+                : `Higher than about ${Math.round(b.percentile)}% of modeled peers · ${b.source}`}
             </p>
           </div>
         ))}

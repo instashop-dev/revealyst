@@ -18,6 +18,7 @@ import type { forOrg } from "../db/org-scope";
 import type { CredentialEnv } from "../lib/credentials";
 import { addDays } from "../poller/backfill";
 import type { PollMessage } from "../poller/messages";
+import type { DefinitionRow } from "./dashboard-read";
 
 type OrgScope = ReturnType<typeof forOrg>;
 type VisibilityMode = "private" | "managed" | "full";
@@ -181,14 +182,22 @@ type ScoreResultRow = Awaited<
 >[number];
 
 /** Hydrates raw score_results rows into the frozen scoreResultSchema shape:
- * definitionId → slug/version, personId → privacy-shaped personRef. */
+ * definitionId → slug/version, personId → privacy-shaped personRef.
+ * `prefetched.definitions` lets a caller that already fetched (or already
+ * kicked off) the definitions read hand it in — array or promise, either is
+ * awaited here (await is a no-op on a plain array) — so a page compositing
+ * multiple reads in one Promise.all doesn't pay for the same definitions
+ * query twice. */
 async function hydrateScoreResults(
   scope: OrgScope,
   rows: ScoreResultRow[],
   visibilityMode: VisibilityMode,
+  prefetched?: {
+    definitions?: readonly DefinitionRow[] | Promise<readonly DefinitionRow[]>;
+  },
 ) {
   const [definitions, people] = await Promise.all([
-    scope.scores.definitions(),
+    prefetched?.definitions ?? scope.scores.definitions(),
     scope.people.list(),
   ]);
   const defById = new Map(definitions.map((d) => [d.id, d]));
@@ -266,6 +275,9 @@ export async function dashboardSummary(
   scope: OrgScope,
   visibilityMode: VisibilityMode,
   period: { from: string; to: string },
+  prefetched?: {
+    definitions?: readonly DefinitionRow[] | Promise<readonly DefinitionRow[]>;
+  },
 ) {
   const { from, to } = period;
   const [resultRows, spendRows, estimatedRows, tracked, runs] =
@@ -276,7 +288,12 @@ export async function dashboardSummary(
       scope.billing.trackedUsers({ start: from, end: to }),
       scope.connectorRuns.list({ limit: 200 }),
     ]);
-  const scores = await hydrateScoreResults(scope, resultRows, visibilityMode);
+  const scores = await hydrateScoreResults(
+    scope,
+    resultRows,
+    visibilityMode,
+    prefetched,
+  );
   return apiRoutes.dashboardSummary.response.parse({
     scores,
     spendCents: sumRecordValues(spendRows),

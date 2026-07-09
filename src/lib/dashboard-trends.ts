@@ -1,3 +1,4 @@
+import type { PeriodGrain } from "../contracts/scores";
 import type { forOrg } from "../db/org-scope";
 import {
   DASHBOARD_SLUGS,
@@ -17,6 +18,14 @@ export type ScoreTrendPoint = {
   periodStart: string;
   periodEnd: string;
   value: number;
+  /** The period grain this point was computed at (week/month/rolling_28d) —
+   * carried through so consumers can tell whether two points are actually
+   * comparable instead of guessing from a day-span heuristic. */
+  periodGrain: PeriodGrain;
+  /** The scoring definition's version at the time this point was computed —
+   * carried through so a v1→v2 definition change within the same slug is
+   * detectable, not silently blended into one trend line. */
+  definitionVersion: number;
 };
 
 export type ScoreTrend = {
@@ -44,11 +53,11 @@ export async function readScoreTrends(
       }),
     prefetched?.definitions ?? scope.scores.definitions(),
   ]);
-  const slugById = new Map(definitions.map((d) => [d.id, d.slug]));
+  const defById = new Map(definitions.map((d) => [d.id, d]));
 
   // Rows whose definition has no known slug group under `undefined` and are
   // never read below — same skip semantics as the previous hand-rolled loop.
-  const bySlug = groupBy(rows, (row) => slugById.get(row.definitionId));
+  const bySlug = groupBy(rows, (row) => defById.get(row.definitionId)?.slug);
 
   const trends: ScoreTrend[] = [];
   for (const slug of DASHBOARD_SLUGS) {
@@ -57,6 +66,8 @@ export async function readScoreTrends(
         periodStart: row.periodStart,
         periodEnd: row.periodEnd,
         value: row.value,
+        periodGrain: row.periodGrain,
+        definitionVersion: defById.get(row.definitionId)!.version,
       }))
       .sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
     if (points.length > 0) trends.push({ slug, points });

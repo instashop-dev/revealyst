@@ -1,21 +1,26 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Cable, Gauge, Info, UsersRound } from "lucide-react";
+import { Cable, Gauge, Info, TriangleAlert } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
-import { ScoreCard as TeamScoreCard } from "@/components/dashboard/score-card";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
 import { SharedAccountFlags } from "@/components/dashboard/shared-account-flags";
 import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
 import { EmptyState } from "@/components/empty-state";
+import { InfoTip } from "@/components/info-tip";
 import { PageHeader } from "@/components/page-header";
-import { ScoreCard, type ScoreComponentView } from "@/components/score-card";
+import { ScoreCard } from "@/components/scores/score-card";
+import {
+  fromDashboardScore,
+  fromPersonalScore,
+  type PersonalScore,
+} from "@/components/scores/score-card-model";
 import { ShareScoreButton } from "@/components/share-score-button";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,9 +35,23 @@ import { dashboardSummary } from "@/lib/api-impl";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
 import { readDashboardView } from "@/lib/dashboard-view";
 import { formatCents } from "@/lib/format";
+import {
+  CONCEPT_GLOSSARY,
+  methodologyAnchor,
+  SCORE_SLUGS,
+  type ScoreSlug,
+} from "@/lib/metrics-glossary";
 import { timeStage } from "@/lib/request-timing";
+import {
+  connectionAttentionInputs,
+  deriveAttention,
+  deriveDelta,
+  personDeltaResult,
+  type AttentionItem,
+  type DeltaResult,
+} from "@/lib/score-insights";
 import { vendorLabel } from "@/lib/vendor-labels";
-import { periodFor } from "@/scoring";
+import { periodFor, previousDay } from "@/scoring";
 
 export const dynamic = "force-dynamic";
 
@@ -41,65 +60,6 @@ const VISIBILITY_LABELS = {
   managed: "Managed visibility",
   full: "Full visibility",
 } as const;
-
-// The three self-view scores + their component drill-down. Component keys
-// mirror the (placeholder person-level, calibrated by W2-I) definitions; a
-// component absent from a result's breakdown renders as "not enough data"
-// (e.g. a ratio omitted for want of rows), never a fabricated 0.
-const SCORE_META = [
-  {
-    slug: "adoption",
-    title: "Adoption",
-    description: "How consistently you're using AI across your tools.",
-    components: [
-      { key: "active_days", label: "Active days" },
-      { key: "tool_coverage", label: "Tool coverage" },
-    ],
-  },
-  {
-    slug: "fluency",
-    title: "Fluency",
-    description: "Breadth, depth, and effectiveness of how you use AI.",
-    components: [
-      { key: "breadth", label: "Breadth" },
-      { key: "depth", label: "Depth" },
-      { key: "effectiveness", label: "Effectiveness" },
-    ],
-  },
-  {
-    slug: "efficiency",
-    title: "Efficiency",
-    description: "Output and engagement per dollar of AI spend.",
-    components: [
-      { key: "output_per_spend", label: "Output per $" },
-      { key: "engagement_per_spend", label: "Engagement per $" },
-    ],
-  },
-] as const;
-
-type ScoreView = {
-  value: number;
-  attribution: "person" | "key_project" | "account";
-  components: Record<string, unknown>;
-};
-
-function componentViews(
-  score: ScoreView | undefined,
-  specs: ReadonlyArray<{ key: string; label: string }>,
-): ScoreComponentView[] {
-  const comps = (score?.components ?? {}) as Record<
-    string,
-    { normalized?: number } | undefined
-  >;
-  return specs.map((s) => {
-    const n = comps[s.key]?.normalized;
-    return {
-      key: s.key,
-      label: s.label,
-      normalized: typeof n === "number" ? n : null,
-    };
-  });
-}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -111,6 +71,66 @@ function dashboardWindow(): { from: string; to: string } {
     from: new Date(now - 180 * DAY_MS).toISOString().slice(0, 10),
     to: new Date(now).toISOString().slice(0, 10),
   };
+}
+
+// ─── "Needs attention" strip — shared between the personal and team views ───
+
+function attentionActionLabel(href: string): string {
+  if (href === "/reconcile") return "Go to Reconcile";
+  if (href === "/connections") return "Go to Connections";
+  return "View";
+}
+
+function AttentionAlert({ item }: { item: AttentionItem }) {
+  const isAction = item.severity === "action";
+  return (
+    <Alert>
+      {isAction ? (
+        <TriangleAlert />
+      ) : (
+        <Info className="text-muted-foreground" />
+      )}
+      <AlertTitle className={isAction ? undefined : "text-muted-foreground"}>
+        {item.title}
+      </AlertTitle>
+      <AlertDescription>
+        <p>{item.body}</p>
+        {item.href ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-2"
+            nativeButton={false}
+            render={<Link href={item.href} />}
+          >
+            {attentionActionLabel(item.href)}
+          </Button>
+        ) : null}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/** Renders `deriveAttention`'s output as one Alert per item, ordered as
+ * returned (action severity first, then info, each impact-ranked). Renders
+ * nothing when there is nothing to surface — never an empty section shell. */
+function AttentionSection({ items }: { items: AttentionItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-2">
+      {items.map((item, i) => (
+        <AttentionAlert key={`${item.severity}-${i}-${item.title}`} item={item} />
+      ))}
+    </div>
+  );
+}
+
+function SectionHeading({ children }: { children: ReactNode }) {
+  return (
+    <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+      {children}
+    </h2>
+  );
 }
 
 export default async function DashboardPage() {
@@ -128,47 +148,126 @@ export default async function DashboardPage() {
   }
 
   if (ctx.org.kind === "personal") {
-    return <PersonalSelfView ctx={ctx} />;
+    return <PersonalSelfView ctx={ctx} connections={connections} />;
   }
   return <TeamOverview ctx={ctx} connections={connections} />;
 }
 
-async function PersonalSelfView({ ctx }: { ctx: AppContext }) {
+async function PersonalSelfView({
+  ctx,
+  connections,
+}: {
+  ctx: AppContext;
+  connections: Awaited<ReturnType<AppContext["scope"]["connections"]["list"]>>;
+}) {
   const today = new Date().toISOString().slice(0, 10);
   const period = periodFor("month", today);
+  const prevPeriod = periodFor("month", previousDay(period.periodStart));
   // Independent reads (one Postgres round trip each on Workers→Hyperdrive→
-  // Neon) — gathered concurrently rather than run one after another.
-  const [summary, benchmarks] = await timeStage("pageData", () =>
-    Promise.all([
-      dashboardSummary(ctx.scope, ctx.org.visibilityMode, {
-        from: period.periodStart,
-        to: period.periodEnd,
-      }),
-      // Personal self-view compares against the "overall" segment — an
-      // enterprise/smb norm is not this solo user's peer group.
-      listBenchmarks(ctx.db, { status: "verified", segment: "overall" }),
-    ]),
+  // Neon) — gathered concurrently rather than run one after another. The
+  // previous-period score read is separate from `dashboardSummary`'s window
+  // (which stays the current month, feeding "Spend this month") — it exists
+  // purely to compute a same-definition-version delta, never to widen what
+  // spend is summed over.
+  // Kicked off once, then handed to BOTH `dashboardSummary` (which otherwise
+  // fetches its own definitions internally, via hydrateScoreResults) and this
+  // Promise.all directly — one definitions query per page load, not two,
+  // while staying at round-trip depth 1 (dashboardSummary awaits the same
+  // in-flight promise rather than starting a second query).
+  const definitionsPromise = ctx.scope.scores.definitions();
+  const [summary, verifiedBenchmarks, definitions, prevScores] = await timeStage(
+    "pageData",
+    () =>
+      Promise.all([
+        dashboardSummary(
+          ctx.scope,
+          ctx.org.visibilityMode,
+          { from: period.periodStart, to: period.periodEnd },
+          { definitions: definitionsPromise },
+        ),
+        // Personal self-view compares against the "overall" segment — an
+        // enterprise/smb norm is not this solo user's peer group.
+        listBenchmarks(ctx.db, { status: "verified", segment: "overall" }),
+        definitionsPromise,
+        // Person-level only — this read exists purely to compute a
+        // same-definition-version personal delta, so team/org-level rows
+        // (which `personDeltaResult` would filter out in JS anyway) are
+        // never fetched from Postgres in the first place.
+        ctx.scope.scores.results({
+          from: prevPeriod.periodStart,
+          to: prevPeriod.periodEnd,
+          subjectLevel: "person",
+        }),
+      ]),
   );
-  const scores = new Map(
+  const scores = new Map<string, PersonalScore>(
     summary.scores
       .filter((s) => s.subjectLevel === "person" && s.periodGrain === "month")
-      .map((s) => [s.definitionSlug, s as unknown as ScoreView]),
+      .map((s) => [s.definitionSlug, s]),
   );
   const monthLabel = new Date(`${period.periodStart}T00:00:00Z`).toLocaleDateString(
     "en-US",
     { month: "long", year: "numeric", timeZone: "UTC" },
   );
+  const prevMonthLabel = new Date(
+    `${prevPeriod.periodStart}T00:00:00Z`,
+  ).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
+
+  const deltas = new Map<ScoreSlug, DeltaResult | null>(
+    SCORE_SLUGS.map((slug) => {
+      const score = scores.get(slug);
+      return [
+        slug,
+        personDeltaResult({
+          currentValue: score?.value ?? null,
+          currentVersion: score?.definitionVersion,
+          prevRows: prevScores,
+          definitions,
+          slug,
+          grain: "month",
+          previousPeriodLabel: prevMonthLabel,
+        }),
+      ];
+    }),
+  );
+
   // Share the headline (fluency) score, and only once it's actually computed —
   // a share link to a "still computing" card isn't worth minting.
   const fluencyComputed = scores.has("fluency");
   const personId =
     summary.scores.find((s) => s.person)?.person?.id ?? null;
 
+  const scoreDrops = SCORE_SLUGS.map((slug) => ({ slug, d: deltas.get(slug) }))
+    .filter(
+      (x): x is { slug: ScoreSlug; d: Extract<DeltaResult, { kind: "delta" }> } =>
+        x.d?.kind === "delta",
+    )
+    .map((x) => ({ slug: x.slug, delta: x.d.delta }));
+  // The identity-link callout is admin-gated the same way /reconcile itself
+  // is — a non-admin member can't act on it, so it's never surfaced to them
+  // (rather than shown and then dead-ending). It's further gated on having no
+  // computed score yet (old behavior) — once scores are computing, the
+  // unresolved-usage callout would just be noise alongside real numbers.
+  // Both guards are shaped as raw facts and gated INSIDE deriveAttention now
+  // (not by this call site's ternary) — see deriveAttention's unresolvedUsage
+  // doc comment for why.
+  const attentionItems = deriveAttention({
+    connections: connectionAttentionInputs(connections),
+    unresolvedUsage: {
+      count: summary.unresolvedSubjects,
+      viewerIsAdmin: ctx.role === "admin",
+      scoresExist: scores.size > 0,
+    },
+    gaps: summary.gaps,
+    sharedAccountCount: 0,
+    scoreDrops,
+  });
+
   return (
     <>
       <PageHeader
         title="Your AI self-view"
-        description={`${monthLabel} · adoption, fluency, and efficiency from your connected tools.`}
+        description={`${monthLabel} — three scores from your connected tools. Tap the info icon next to any number for a plain-English explanation.`}
       >
         {fluencyComputed && personId && (
           <ShareScoreButton
@@ -178,6 +277,22 @@ async function PersonalSelfView({ ctx }: { ctx: AppContext }) {
           />
         )}
       </PageHeader>
+
+      <AttentionSection items={attentionItems} />
+
+      <div className="grid gap-4 md:grid-cols-3">
+        {SCORE_SLUGS.map((slug) => (
+          <ScoreCard
+            key={slug}
+            data={fromPersonalScore({
+              slug,
+              score: scores.get(slug) ?? null,
+              definitions,
+              delta: deltas.get(slug) ?? null,
+            })}
+          />
+        ))}
+      </div>
 
       <Card>
         <CardHeader>
@@ -198,72 +313,31 @@ async function PersonalSelfView({ ctx }: { ctx: AppContext }) {
               <span className="font-heading text-2xl font-semibold tabular-nums text-muted-foreground">
                 {formatCents(summary.spendCentsEstimated)}
               </span>
-              <span className="text-xs text-muted-foreground">
-                Estimated (Claude Code, agent-derived)
+              {/* spend_cents_estimated is currently only ever agent-derived
+               * from Claude Code local logs (docs/connector-facts.md §5) —
+               * naming the vendor here, rather than a bare "Estimated", is a
+               * real fact about the only source that can produce this
+               * number today, not an invented specificity. */}
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                Estimated · Claude Code (agent-derived)
+                <InfoTip
+                  label="Estimated spend"
+                  short={CONCEPT_GLOSSARY.estimatedSpend.shortWhat}
+                  learnMoreHref={`/methodology#${methodologyAnchor("estimatedSpend")}`}
+                />
               </span>
             </div>
           )}
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {SCORE_META.map((meta) => {
-          const score = scores.get(meta.slug);
-          return (
-            <ScoreCard
-              key={meta.slug}
-              title={meta.title}
-              description={meta.description}
-              value={score ? score.value : null}
-              attribution={score?.attribution}
-              components={componentViews(score, meta.components)}
-            />
-          );
-        })}
-      </div>
-
-      {/* None of the three scores has ever computed, and there's ingested
-          data sitting unlinked — the near-certain cause is that no `people`
-          row exists yet for this org's usage subjects (nothing auto-creates
-          one; /reconcile's "Create person" is the sanctioned manual path).
-          Admin-gated like /reconcile itself — a non-admin member can't act
-          on this, so don't show a dead-end link. */}
-      {scores.size === 0 && summary.unresolvedSubjects > 0 && ctx.role === "admin" && (
-        <Alert>
-          <UsersRound />
-          <AlertTitle>Scores need an identity link</AlertTitle>
-          <AlertDescription>
-            <p>
-              We&apos;re seeing usage data, but it isn&apos;t linked to a
-              tracked person yet, so Adoption, Fluency, and Efficiency
-              can&apos;t compute. Resolve it once in Reconcile.
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="mt-2"
-              nativeButton={false}
-              render={<Link href="/reconcile" />}
-            >
-              Go to Reconcile
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {summary.gaps.length > 0 && (
-        <Alert>
-          <Info />
-          <AlertTitle>How complete is this?</AlertTitle>
-          <AlertDescription>
-            <ul className="list-disc pl-4">
-              {summary.gaps.map((gap, i) => (
-                <li key={`${gap.kind}-${i}`}>{gap.detail ?? gap.kind}</li>
-              ))}
-            </ul>
-          </AlertDescription>
-        </Alert>
-      )}
+      {/* J1: the modeled-norms comparison panel (BenchmarkPanel) is
+       * deliberately NOT rendered here. A single person vs. an org-modeled
+       * peer curve is an unsupported comparison, and it previously sat right
+       * above the verified-benchmarks card explaining "we don't show
+       * unverified figures" — a direct contradiction. The team dashboard
+       * keeps the panel; its own copy discloses the modeled-estimate
+       * provenance (see CONCEPT_GLOSSARY.benchmarks). */}
 
       <Card>
         <CardHeader>
@@ -273,14 +347,14 @@ async function PersonalSelfView({ ctx }: { ctx: AppContext }) {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {benchmarks.length === 0 ? (
+          {verifiedBenchmarks.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Published benchmarks are being verified against primary sources
               and will appear here — we don&apos;t show unverified figures.
             </p>
           ) : (
             <ul className="flex flex-col gap-3 text-sm">
-              {benchmarks.map((b) => (
+              {verifiedBenchmarks.map((b) => (
                 <li key={b.id} className="flex items-center justify-between gap-4">
                   <span className="min-w-0">
                     <span className="font-medium capitalize">{b.scoreSlug}</span>
@@ -328,8 +402,16 @@ async function TeamOverview({
       connections,
     }),
   );
-  const { summary, benchmarks, heatmap, coverage, trends, segments, sharedAccounts } =
-    view;
+  const {
+    summary,
+    benchmarks,
+    heatmap,
+    coverage,
+    trends,
+    segments,
+    sharedAccounts,
+    definitions,
+  } = view;
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
   const fluency = latest.get("fluency") ?? null;
@@ -345,127 +427,187 @@ async function TeamOverview({
       </>
     ) : undefined;
 
+  const trendsBySlug = new Map(trends.map((t) => [t.slug, t]));
+  const deltas = new Map<ScoreSlug, DeltaResult>(
+    SCORE_SLUGS.map((slug) => [
+      slug,
+      deriveDelta(trendsBySlug.get(slug)?.points ?? []),
+    ]),
+  );
+  const scoreDrops = SCORE_SLUGS.map((slug) => ({ slug, d: deltas.get(slug)! }))
+    .filter(
+      (x): x is { slug: ScoreSlug; d: Extract<DeltaResult, { kind: "delta" }> } =>
+        x.d.kind === "delta",
+    )
+    .map((x) => ({ slug: x.slug, delta: x.d.delta }));
+  // Team's needs-attention strip is deliberately narrower than the personal
+  // view's: shared-account count, errored connections, and score drops only
+  // (no gaps/unresolved-subjects reads here — the composed team view doesn't
+  // fetch connector_runs, and adding that read is out of scope for this
+  // strip; the identity-link callout stays personal/admin-only).
+  const attentionItems = deriveAttention({
+    connections: connectionAttentionInputs(connections),
+    gaps: [],
+    sharedAccountCount: sharedAccounts.length,
+    scoreDrops,
+  });
+
   return (
     <>
       <PageHeader
         title="Overview"
-        description="Who's using AI, how well, and what it costs — across your tools."
+        description="Who's using AI, how well, and what it costs — across your tools. Tap the info icon next to any number for a plain-English explanation."
       />
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Workspace</CardTitle>
-            <CardDescription>Team workspace.</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">Organization</span>
-              <span className="truncate font-medium">{ctx.org.name}</span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">Active people</span>
-              <span className="tabular-nums font-medium">
-                {summary.activePeople}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-muted-foreground">Privacy mode</span>
-              <span className="text-right">
-                {VISIBILITY_LABELS[ctx.org.visibilityMode]}
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Connections</CardTitle>
-            <CardDescription>
-              Vendor integrations feeding your metrics.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm">
-            {connections.length === 0 ? (
-              <p className="text-muted-foreground">
-                No connections yet. Metrics start flowing once the first vendor
-                is connected.
-              </p>
-            ) : (
-              connections.slice(0, 4).map((connection) => (
-                <div
-                  key={connection.id}
-                  className="flex items-center justify-between gap-2"
-                >
-                  <span className="min-w-0 truncate">
-                    {connection.displayName}
-                    <span className="text-muted-foreground">
-                      {" "}
-                      · {vendorLabel(connection.vendor)}
-                    </span>
-                  </span>
-                  <SyncStatusBadge
-                    status={connection.status}
-                    lastSuccessAt={connection.lastSuccessAt}
-                    lastError={connection.lastError}
-                  />
-                </div>
-              ))
-            )}
-            <div>
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link href="/connections" />}
-              >
-                <Cable data-icon="inline-start" />
-                {connections.length === 0
-                  ? "View connections"
-                  : "Manage connections"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+
+      <AttentionSection items={attentionItems} />
+
       {hasScores ? (
         <>
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
-            <TeamScoreCard
-              title="Adoption"
-              description="Breadth and consistency of AI use."
-              score={adoption}
-            />
-            <TeamScoreCard
-              title="Fluency"
-              description="Breadth · depth · effectiveness."
-              score={fluency}
-            />
-            <TeamScoreCard
-              title="Efficiency"
-              description="Value signals per unit of spend."
-              score={efficiency}
-              footer={spendFooter}
-            />
-            <BenchmarkPanel benchmarks={benchmarks} />
-          </div>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ActivityHeatmap heatmap={heatmap} />
-            <div className="grid gap-4">
-              <ToolCoveragePanel coverage={coverage} />
-              <ScoreTrend trends={trends} />
+          <section className="flex flex-col gap-3">
+            <SectionHeading>Scores &amp; benchmark</SectionHeading>
+            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+              <ScoreCard
+                data={fromDashboardScore({
+                  slug: "adoption",
+                  score: adoption,
+                  definitions,
+                  delta: deltas.get("adoption"),
+                })}
+              />
+              <ScoreCard
+                data={fromDashboardScore({
+                  slug: "fluency",
+                  score: fluency,
+                  definitions,
+                  delta: deltas.get("fluency"),
+                })}
+              />
+              <ScoreCard
+                data={fromDashboardScore({
+                  slug: "efficiency",
+                  score: efficiency,
+                  definitions,
+                  delta: deltas.get("efficiency"),
+                  footer: spendFooter,
+                })}
+              />
+              <BenchmarkPanel benchmarks={benchmarks} />
             </div>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <SegmentBreakdown distribution={segments} />
-            <SharedAccountFlags flags={sharedAccounts} />
-          </div>
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <SectionHeading>Activity</SectionHeading>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <ActivityHeatmap heatmap={heatmap} />
+              <div className="grid gap-4">
+                <ToolCoveragePanel coverage={coverage} />
+                <ScoreTrend trends={trends} />
+              </div>
+            </div>
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <SectionHeading>People</SectionHeading>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <SegmentBreakdown distribution={segments} />
+              <SharedAccountFlags flags={sharedAccounts} />
+            </div>
+          </section>
         </>
       ) : (
         <EmptyState
           icon={Gauge}
           title="No scores yet"
           description="Adoption, Fluency, and Efficiency scores appear after your first connection syncs data. Nothing here is estimated — scores only ever come from real, attributed metrics."
-        />
+        >
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<Link href="/methodology" />}
+          >
+            How scores work
+          </Button>
+        </EmptyState>
       )}
+
+      <section className="flex flex-col gap-3">
+        <SectionHeading>Setup</SectionHeading>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Workspace</CardTitle>
+              <CardDescription>Team workspace.</CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Organization</span>
+                <span className="truncate font-medium">{ctx.org.name}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Active people</span>
+                <span className="tabular-nums font-medium">
+                  {summary.activePeople}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Privacy mode</span>
+                <span className="text-right">
+                  {VISIBILITY_LABELS[ctx.org.visibilityMode]}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Connections</CardTitle>
+              <CardDescription>
+                Vendor integrations feeding your metrics.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 text-sm">
+              {connections.length === 0 ? (
+                <p className="text-muted-foreground">
+                  No connections yet. Metrics start flowing once the first vendor
+                  is connected.
+                </p>
+              ) : (
+                connections.slice(0, 4).map((connection) => (
+                  <div
+                    key={connection.id}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span className="min-w-0 truncate">
+                      {connection.displayName}
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {vendorLabel(connection.vendor)}
+                      </span>
+                    </span>
+                    <SyncStatusBadge
+                      status={connection.status}
+                      lastSuccessAt={connection.lastSuccessAt}
+                      lastError={connection.lastError}
+                    />
+                  </div>
+                ))
+              )}
+              <div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  nativeButton={false}
+                  render={<Link href="/connections" />}
+                >
+                  <Cable data-icon="inline-start" />
+                  {connections.length === 0
+                    ? "View connections"
+                    : "Manage connections"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
     </>
   );
 }
