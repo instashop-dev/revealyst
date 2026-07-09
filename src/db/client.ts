@@ -10,7 +10,11 @@ import * as schema from "./schema";
 // for why: it lets Better Auth's drizzleAdapter (src/lib/auth.ts,
 // `experimental.joins: true`) collapse getSession's two sequential
 // round-trips (session by token, then user by id) into one SQL join.
-const fullSchema = { ...schema, ...authRelations };
+// Exported so tests that build their own PGlite drizzle instance (and call
+// createAuth against it) use the exact same schema+relations wiring — a
+// hand-copied spread that drifts would silently re-open the join-fallback
+// path in tests while prod behaves differently.
+export const fullSchema = { ...schema, ...authRelations };
 
 export type Db = PostgresJsDatabase<typeof fullSchema>;
 

@@ -24,8 +24,8 @@ import { retryDelaySeconds, RetryableConnectorError } from "./poller/run";
 import { previousDay } from "./scoring";
 import { resolveRedirect } from "./lib/domains";
 import {
+  createRequestTimingStore,
   formatServerTiming,
-  readRequestTiming,
   runWithRequestTiming,
 } from "./lib/request-timing";
 
@@ -66,49 +66,65 @@ export default {
     if (target) return Response.redirect(target, 308);
 
     // Request-lifecycle instrumentation (incident: authenticated pages >7s
-    // in prod). One AsyncLocalStorage store per request, entered here (the
-    // outermost seam) so every `timeStage` call nested anywhere downstream —
-    // api-context.ts, the (app) layout, dashboard/page.tsx, the opt-in db
-    // probe — shares one collector, however deep the RSC render goes.
-    // Always on: Server-Timing is standard, low-risk (stage names + ms
-    // durations only, no query text/user data), and cheap (object alloc +
-    // an ALS.run per request).
-    const workerStart = Date.now();
-    const response = await runWithRequestTiming(() =>
+    // in prod). One AsyncLocalStorage store per instrumented request, entered
+    // here (the outermost seam) so every `timeStage` call nested anywhere
+    // downstream — api-context.ts, the (app) layout, dashboard/page.tsx, the
+    // opt-in db probe — shares one collector, however deep the RSC render
+    // goes. Server-Timing is standard and low-risk: stage names + ms
+    // durations only, no query text/user data.
+    //
+    // Instrument only documents, /api/*, and RSC soft-navigations (Next sends
+    // an `RSC` header with `Accept: */*` on client-side nav — the dominant
+    // way returning users reach slow pages). Assets and anything else pass
+    // through UNTOUCHED: no ALS wrap, no header clone, no Response
+    // reconstruction — which also keeps 101/WebSocket upgrade responses
+    // intact (a reconstructed Response drops the webSocket pair).
+    const accept = request.headers.get("accept") ?? "";
+    const instrument =
+      accept.includes("text/html") ||
+      url.pathname.startsWith("/api/") ||
+      request.headers.has("rsc");
+    if (!instrument) {
+      return openNextHandler.fetch!(request, env, ctx);
+    }
+
+    const store = createRequestTimingStore(url.pathname);
+    const response = await runWithRequestTiming(store, () =>
       openNextHandler.fetch!(request, env, ctx),
     );
-    const workerDur = Date.now() - workerStart;
-    const timing = readRequestTiming();
-    const stages = timing?.stages ?? [];
+    // Defense in depth: never reconstruct an upgrade response (the WHATWG
+    // Response constructor can't carry Cloudflare's webSocket pair).
+    if (
+      response.status === 101 ||
+      (response as Response & { webSocket?: unknown }).webSocket
+    ) {
+      return response;
+    }
 
+    // `store.start` is the single source of truth for the total — the same
+    // clock `timeStage` records against.
+    const total = Date.now() - store.start;
     const responseHeaders = new Headers(response.headers);
     responseHeaders.append(
       "Server-Timing",
-      formatServerTiming(stages, workerDur),
+      formatServerTiming(store.stages, total),
     );
-    const timedResponse = new Response(response.body, {
+    // Summary line for wrangler tail / Workers Logs. For streamed pages
+    // (routes with loading.tsx), stages inside a Suspense boundary resolve
+    // AFTER this point — `store.flushed` makes `timeStage` log those late
+    // stages individually, so the heaviest stage of a slow page is never
+    // silently dropped from the logs (the header can't be amended after
+    // flush; that's fundamental to HTTP).
+    console.log(
+      JSON.stringify({ path: url.pathname, total, stages: store.stages }),
+    );
+    store.flushed = true;
+
+    return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
       headers: responseHeaders,
     });
-
-    // Log only for document/API requests — asset responses (JS/CSS/images)
-    // would otherwise flood wrangler tail / Workers Logs with noise for
-    // every request the incident doesn't care about.
-    const accept = request.headers.get("accept") ?? "";
-    const isDocumentOrApi =
-      accept.includes("text/html") || url.pathname.startsWith("/api/");
-    if (isDocumentOrApi) {
-      console.log(
-        JSON.stringify({
-          path: url.pathname,
-          total: workerDur,
-          stages,
-        }),
-      );
-    }
-
-    return timedResponse;
   },
 
   // Cron Trigger (every 5 min): heartbeat + raw purge (W0-B/C), then W1-D
