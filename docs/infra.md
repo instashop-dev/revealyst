@@ -137,3 +137,71 @@ retire later via a Redirect Rule, then optionally `"workers_dev": false`);
 `www.revealyst.com` redirect rule; `robots.ts`/`metadataBase` (marketing SEO
 work). The agent CLI default API is now `https://app.revealyst.com`
 (`packages/revealyst-agent/src/cli.ts`; `--api` override unchanged).
+
+## 7. Amazon SES (unblocks: signup email verification + password reset; account management, ADR 0015)
+Account signup now requires a confirmed email (`requireEmailVerification: true`,
+`src/lib/auth.ts`) and forgot-password sends a reset link — both go through
+`src/lib/email.ts`, which calls Amazon SES v2's `SendEmail` action over a
+SigV4-signed HTTPS request (`aws4fetch`; no SMTP on Workers). Without SES
+configured, `sendEmail()` silently no-ops — new signups get stuck at "check your
+inbox" forever, since sandbox/unconfigured SES never actually sends. The Deploy
+workflow already syncs all four env vars below as Worker secrets (see its
+"Sync Worker secrets" step); only the AWS + DNS + GitHub-secrets side remains.
+
+1. **[founder] Create the SES domain identity.** AWS Console → SES → us-east-1
+   → Verified identities → Create identity → Domain → `revealyst.com` (the
+   marketing/apex domain — matches `EMAIL_FROM`'s default,
+   `"Revealyst <noreply@revealyst.com>"`, not `app.revealyst.com`). Enable
+   **Easy DKIM** (SES-managed keypair — simplest option, no BYODKIM).
+2. **[founder] Add the DNS records SES gives you, in Cloudflare DNS** (the
+   `revealyst.com` zone — same zone as §6's custom-domain records). SES
+   provides 3 CNAME records for DKIM; add each as **DNS only** (grey-clouded,
+   not proxied — Cloudflare's orange-cloud proxy breaks DKIM's CNAME chain).
+   Optionally add the SES-suggested MAIL FROM / SPF TXT record too for
+   deliverability (not required to exit sandbox).
+3. **[founder] Wait for verification** (Console shows "Verified" on the
+   identity — usually minutes, since DNS is already on Cloudflare's edge).
+4. **[founder] Create an IAM user for programmatic sending** (IAM → Users →
+   Create user, e.g. `revealyst-ses-sender`, no console access, access-key
+   credential type). Attach an inline least-privilege policy — not
+   `AmazonSESFullAccess` — scoped to exactly what `email.ts` calls:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": "ses:SendEmail",
+       "Resource": "*",
+       "Condition": {
+         "StringEquals": { "ses:FromAddress": "noreply@revealyst.com" }
+       }
+     }]
+   }
+   ```
+   Save the generated **Access Key ID** and **Secret Access Key** — shown once.
+5. **[founder] Request SES production access** (Console → SES → Account
+   dashboard → "Request production access"). Sandbox mode only sends to
+   SES-verified individual addresses, so with `requireEmailVerification: true`
+   live, sandbox means real signups can never verify. Use case: transactional
+   password reset + signup email verification for a B2B SaaS app. AWS review
+   is typically same-day to ~24h — **start this step first**, everything else
+   can happen while it's pending.
+6. **[founder] Populate the four repo secrets** (Settings → Secrets and
+   variables → Actions → New repository secret — `deploy.yml` already reads
+   these):
+   - `SES_ACCESS_KEY_ID` — from step 4
+   - `SES_SECRET_ACCESS_KEY` — from step 4
+   - `SES_REGION` — `us-east-1`
+   - `EMAIL_FROM` — `Revealyst <noreply@revealyst.com>`
+7. **[founder] Confirm production access was granted** (Console → SES →
+   Account dashboard no longer shows "Sandbox").
+8. Re-run the **Deploy** workflow — applies the `email_verified` backfill
+   migration (so existing users aren't locked out by the new requirement) and
+   syncs the four secrets above to the Worker in the same run. Verify: sign up
+   with a real address → confirm the verification email arrives → click it →
+   land in the app.
+
+If mail doesn't arrive after deploying, check Worker logs (`wrangler tail`) for
+`[email] SES not configured` (a secret didn't sync — re-check step 6) or a
+thrown `SES send failed: ...` (SES rejected the request — check the identity is
+verified and production access is active).
