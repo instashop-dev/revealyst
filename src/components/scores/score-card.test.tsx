@@ -17,6 +17,7 @@ function baseData(overrides: Partial<ScoreCardData> = {}): ScoreCardData {
       {
         key: "breadth",
         label: "Breadth",
+        kind: "plain",
         omitted: false,
         raw: 5,
         normalized: 62.5,
@@ -27,6 +28,7 @@ function baseData(overrides: Partial<ScoreCardData> = {}): ScoreCardData {
       {
         key: "effectiveness",
         label: "Effectiveness",
+        kind: "ratio",
         omitted: true,
         weight: 0.34,
         calcSimple: "Divides accepted by offered suggestions.",
@@ -49,7 +51,10 @@ describe("ScoreCard", () => {
     render(<ScoreCard data={baseData({ value: null })} />);
 
     expect(
-      screen.getByText("Computing from your connected data — check back shortly."),
+      screen.getByText(/Not enough data yet/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/appears once your connected tools report the data it needs/),
     ).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /how scores work/i });
     expect(link).toHaveAttribute("href", "/methodology#fluency");
@@ -90,7 +95,7 @@ describe("ScoreCard", () => {
     expect(screen.getByText("Not comparable to last period")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "About Why not comparable" }));
     expect(
-      await screen.findByText(/covered a different number of days/i),
+      await screen.findByText(/different kind of period \(for example weekly vs monthly\)/i),
     ).toBeInTheDocument();
   });
 
@@ -121,14 +126,70 @@ describe("ScoreCard", () => {
     expect(await screen.findByText("Not enough data yet")).toBeInTheDocument();
   });
 
-  it("shows the attribution badge only when attribution is present and not 'person'", () => {
+  it("shows the attribution badge (with a visible not-per-person qualifier) only when attribution is present and not 'person'", () => {
     const { rerender } = render(
       <ScoreCard data={baseData({ attribution: "account" })} />,
     );
-    expect(screen.getByText("Account-level")).toBeInTheDocument();
+    expect(screen.getByText(/Account-level/)).toBeInTheDocument();
+    expect(screen.getByText(/not per-person/)).toBeInTheDocument();
 
     rerender(<ScoreCard data={baseData({ attribution: "person" })} />);
-    expect(screen.queryByText("Account-level")).not.toBeInTheDocument();
-    expect(screen.queryByText("Per-person")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Account-level/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Per-person/)).not.toBeInTheDocument();
+  });
+
+  it("collapsed card shows an always-visible 'N of M parts measured' chip when a component is omitted", () => {
+    render(<ScoreCard data={baseData()} />);
+    // Visible without expanding the collapsible — baseData has 1 measured,
+    // 1 omitted, of 2 total components.
+    expect(screen.getByText("1 of 2 parts measured")).toBeInTheDocument();
+  });
+
+  it("does not show the parts-measured chip when nothing is omitted", () => {
+    render(
+      <ScoreCard
+        data={baseData({
+          componentRows: [
+            {
+              key: "breadth",
+              label: "Breadth",
+              kind: "plain",
+              omitted: false,
+              raw: 5,
+              normalized: 62.5,
+              weight: 1,
+              contribution: 62.5,
+              calcSimple: "Counts distinct features used.",
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.queryByText(/parts measured/)).not.toBeInTheDocument();
+  });
+
+  it("appends 'The breakdown shows what's driving this.' only when there are component rows", () => {
+    const withRows = render(<ScoreCard data={baseData()} />);
+    expect(
+      withRows.getByText(/The breakdown shows what's driving this\./),
+    ).toBeInTheDocument();
+    withRows.unmount();
+
+    const withoutRows = render(
+      <ScoreCard data={baseData({ componentRows: [] })} />,
+    );
+    expect(
+      withoutRows.queryByText(/The breakdown shows what's driving this\./),
+    ).not.toBeInTheDocument();
+  });
+
+  it("guidance is slug-aware, not Adoption-shaped for every score", () => {
+    render(
+      <ScoreCard
+        data={baseData({ slug: "efficiency", value: 92, componentRows: [] })}
+      />,
+    );
+    expect(screen.getByText(/relative to spend/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Usage is broad and consistent/i)).not.toBeInTheDocument();
   });
 });

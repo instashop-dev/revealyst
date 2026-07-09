@@ -32,7 +32,6 @@ import {
 import { listBenchmarks } from "@/db/benchmarks";
 import { requireAppContext, type AppContext } from "@/lib/api-context";
 import { dashboardSummary } from "@/lib/api-impl";
-import { resolveBenchmarkSource } from "@/lib/benchmarks";
 import type { DefinitionRow, ScoreRow } from "@/lib/dashboard-read";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
 import { readDashboardView } from "@/lib/dashboard-view";
@@ -286,13 +285,21 @@ async function PersonalSelfView({
     .map((x) => ({ slug: x.slug, delta: x.d.delta }));
   // The identity-link callout is admin-gated the same way /reconcile itself
   // is — a non-admin member can't act on it, so it's never surfaced to them
-  // (rather than shown and then dead-ending).
+  // (rather than shown and then dead-ending). It's further gated on having no
+  // computed score yet (old behavior) — once scores are computing, the
+  // unresolved-usage callout would just be noise alongside real numbers.
   const attentionItems = deriveAttention({
-    erroredConnections: connections
-      .filter((c) => c.status === "error")
-      .map((c) => ({ id: c.id, vendor: c.vendor })),
+    connections: connections
+      .filter((c) => c.status === "error" || c.status === "paused")
+      .map((c) => ({
+        id: c.id,
+        label: vendorLabel(c.vendor),
+        status: c.status as "error" | "paused",
+      })),
     unresolvedSubjects:
-      ctx.role === "admin" ? summary.unresolvedSubjects : undefined,
+      ctx.role === "admin" && scores.size === 0
+        ? summary.unresolvedSubjects
+        : undefined,
     gaps: summary.gaps,
     sharedAccountCount: 0,
     scoreDrops,
@@ -302,7 +309,7 @@ async function PersonalSelfView({
     <>
       <PageHeader
         title="Your AI self-view"
-        description={`${monthLabel} — three scores from your connected tools. The ⓘ on anything explains how it's measured.`}
+        description={`${monthLabel} — three scores from your connected tools. Tap the info icon next to any number for a plain-English explanation.`}
       >
         {fluencyComputed && personId && (
           <ShareScoreButton
@@ -348,8 +355,13 @@ async function PersonalSelfView({
               <span className="font-heading text-2xl font-semibold tabular-nums text-muted-foreground">
                 {formatCents(summary.spendCentsEstimated)}
               </span>
+              {/* spend_cents_estimated is currently only ever agent-derived
+               * from Claude Code local logs (docs/connector-facts.md §5) —
+               * naming the vendor here, rather than a bare "Estimated", is a
+               * real fact about the only source that can produce this
+               * number today, not an invented specificity. */}
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                Estimated
+                Estimated · Claude Code (agent-derived)
                 <InfoTip
                   label="Estimated spend"
                   short={CONCEPT_GLOSSARY.estimatedSpend.shortWhat}
@@ -361,14 +373,13 @@ async function PersonalSelfView({
         </CardContent>
       </Card>
 
-      <BenchmarkPanel
-        benchmarks={resolveBenchmarkSource().forScores(
-          SCORE_SLUGS.map((slug) => ({
-            slug,
-            value: scores.get(slug)?.value ?? null,
-          })),
-        )}
-      />
+      {/* J1: the modeled-norms comparison panel (BenchmarkPanel) is
+       * deliberately NOT rendered here. A single person vs. an org-modeled
+       * peer curve is an unsupported comparison, and it previously sat right
+       * above the verified-benchmarks card explaining "we don't show
+       * unverified figures" — a direct contradiction. The team dashboard
+       * keeps the panel; its own copy discloses the modeled-estimate
+       * provenance (see CONCEPT_GLOSSARY.benchmarks). */}
 
       <Card>
         <CardHeader>
@@ -477,9 +488,13 @@ async function TeamOverview({
   // fetch connector_runs, and adding that read is out of scope for this
   // strip; the identity-link callout stays personal/admin-only).
   const attentionItems = deriveAttention({
-    erroredConnections: connections
-      .filter((c) => c.status === "error")
-      .map((c) => ({ id: c.id, vendor: c.vendor })),
+    connections: connections
+      .filter((c) => c.status === "error" || c.status === "paused")
+      .map((c) => ({
+        id: c.id,
+        label: vendorLabel(c.vendor),
+        status: c.status as "error" | "paused",
+      })),
     gaps: [],
     sharedAccountCount: sharedAccounts.length,
     scoreDrops,
@@ -489,7 +504,7 @@ async function TeamOverview({
     <>
       <PageHeader
         title="Overview"
-        description="Who's using AI, how well, and what it costs — across your tools. The ⓘ on anything explains how it's measured."
+        description="Who's using AI, how well, and what it costs — across your tools. Tap the info icon next to any number for a plain-English explanation."
       />
 
       <AttentionSection items={attentionItems} />
@@ -497,7 +512,7 @@ async function TeamOverview({
       {hasScores ? (
         <>
           <section className="flex flex-col gap-3">
-            <SectionHeading>Scores</SectionHeading>
+            <SectionHeading>Scores &amp; benchmark</SectionHeading>
             <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
               <ScoreCard
                 data={fromDashboardScore({
@@ -564,7 +579,7 @@ async function TeamOverview({
       )}
 
       <section className="flex flex-col gap-3">
-        <SectionHeading>Workspace</SectionHeading>
+        <SectionHeading>Setup</SectionHeading>
         <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>

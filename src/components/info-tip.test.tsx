@@ -60,7 +60,7 @@ describe("InfoTip", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "About Fluency" }));
 
-    const link = await screen.findByRole("link", { name: /how we calculate this/i });
+    const link = await screen.findByRole("link", { name: /how scores work/i });
     expect(link).toHaveAttribute("href", "/docs/scores/fluency");
   });
 
@@ -70,6 +70,6 @@ describe("InfoTip", () => {
     fireEvent.click(screen.getByRole("button", { name: "About Fluency" }));
     await screen.findByText("How consistently you use AI tools.");
 
-    expect(screen.queryByRole("link", { name: /how we calculate this/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /how scores work/i })).not.toBeInTheDocument();
   });
 });

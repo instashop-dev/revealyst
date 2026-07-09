@@ -9,14 +9,6 @@ import {
 } from "@/components/ui/card";
 import { CONCEPT_GLOSSARY, methodologyAnchor } from "@/lib/metrics-glossary";
 
-function ordinal(n: number): string {
-  const suffix =
-    n % 100 >= 11 && n % 100 <= 13
-      ? "th"
-      : ["th", "st", "nd", "rd"][n % 10] ?? "th";
-  return `${n}${suffix}`;
-}
-
 /**
  * Org vs. industry norms (§8 L4). Benchmarks are load-bearing — a score is
  * meaningless without comparison. Sources are cited inline so the number is
@@ -83,7 +75,7 @@ export function BenchmarkPanel({
             <p className="text-xs text-muted-foreground">
               {b.percentile == null
                 ? "No score yet."
-                : `${ordinal(Math.round(b.percentile))} percentile · ${b.source}`}
+                : `Higher than about ${Math.round(b.percentile)}% of modeled peers · ${b.source}`}
             </p>
           </div>
         ))}

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ScoreComponent } from "../src/contracts/scores";
 import type { ScoreTrendPoint } from "../src/lib/dashboard-trends";
+import { SCORE_SLUGS } from "../src/lib/metrics-glossary";
 import {
   deriveAttention,
   deriveDelta,
   formatComponentDetail,
+  formatDelta,
   interpretScore,
   personDelta,
 } from "../src/lib/score-insights";
@@ -203,28 +205,93 @@ describe("personDelta", () => {
 
 describe("interpretScore", () => {
   it("bands at 0", () => {
-    expect(interpretScore(0).tone).toBe("low");
+    expect(interpretScore(0, "adoption").tone).toBe("low");
   });
 
   it("bands at the low/building boundary (39 vs 40)", () => {
-    expect(interpretScore(39).tone).toBe("low");
-    expect(interpretScore(40).tone).toBe("building");
+    expect(interpretScore(39, "adoption").tone).toBe("low");
+    expect(interpretScore(40, "adoption").tone).toBe("building");
   });
 
   it("bands at the building/strong boundary (69 vs 70)", () => {
-    expect(interpretScore(69).tone).toBe("building");
-    expect(interpretScore(70).tone).toBe("strong");
+    expect(interpretScore(69, "adoption").tone).toBe("building");
+    expect(interpretScore(70, "adoption").tone).toBe("strong");
   });
 
   it("bands at 100", () => {
-    expect(interpretScore(100).tone).toBe("strong");
+    expect(interpretScore(100, "adoption").tone).toBe("strong");
+  });
+
+  it("guidance is slug-specific — the same value reads differently per score", () => {
+    const adoption = interpretScore(92, "adoption").guidance;
+    const fluency = interpretScore(92, "fluency").guidance;
+    const efficiency = interpretScore(92, "efficiency").guidance;
+    expect(adoption).not.toBe(fluency);
+    expect(fluency).not.toBe(efficiency);
+    expect(adoption).not.toBe(efficiency);
+  });
+
+  it("efficiency guidance frames itself relative to spend, not usage alone", () => {
+    expect(interpretScore(10, "efficiency").guidance).toMatch(/spend/i);
+    expect(interpretScore(92, "efficiency").guidance).toMatch(/spend/i);
+  });
+
+  it("no guidance string references a layout element like 'the breakdown below'", () => {
+    for (const slug of SCORE_SLUGS) {
+      for (const v of [0, 39, 40, 69, 70, 100]) {
+        expect(interpretScore(v, slug).guidance).not.toMatch(/breakdown below/i);
+      }
+    }
   });
 
   it("guidance text never states a benchmark/threshold as fact", () => {
     const banned = /industry (average|standard|benchmark)|top.quartile|percentile|typical (teams|orgs) score/i;
-    for (const v of [0, 39, 40, 69, 70, 100]) {
-      expect(banned.test(interpretScore(v).guidance)).toBe(false);
+    for (const slug of SCORE_SLUGS) {
+      for (const v of [0, 39, 40, 69, 70, 100]) {
+        expect(banned.test(interpretScore(v, slug).guidance)).toBe(false);
+      }
     }
+  });
+});
+
+describe("formatDelta", () => {
+  function delta(value: number, previousPeriodLabel = "May 1–31") {
+    return {
+      kind: "delta" as const,
+      current: 0,
+      previous: 0,
+      delta: value,
+      previousPeriodLabel,
+    };
+  }
+
+  it("positive delta rounds and signs the text, direction 'up'", () => {
+    const result = formatDelta(delta(6.4));
+    expect(result).toMatchObject({ text: "+6", direction: "up" });
+    expect(result.srText).toMatch(/increased by 6 points/i);
+  });
+
+  it("negative delta rounds and signs the text, direction 'down'", () => {
+    const result = formatDelta(delta(-4.2));
+    expect(result).toMatchObject({ text: "-4", direction: "down" });
+    expect(result.srText).toMatch(/decreased by 4 points/i);
+  });
+
+  it("rounds to zero → direction 'none', text 'no change' (never a '+0' up-arrow)", () => {
+    const result = formatDelta(delta(0.3));
+    expect(result.direction).toBe("none");
+    expect(result.text).toBe("no change");
+    expect(result.text).not.toMatch(/^\+/);
+  });
+
+  it("srText is a full sentence mentioning the previous period", () => {
+    expect(formatDelta(delta(6)).srText).toMatch(/previous period/i);
+    expect(formatDelta(delta(0)).srText).toMatch(/previous period/i);
+  });
+
+  it("singular point for a 1-point delta", () => {
+    expect(formatDelta(delta(1)).srText).toMatch(/1 point\b/);
+    expect(formatDelta(delta(1)).srText).not.toMatch(/1 points/);
   });
 });
 
@@ -268,13 +335,29 @@ describe("formatComponentDetail", () => {
       expect(rows.every((r) => r.omitted)).toBe(true);
     }
   });
+
+  it("tags each row with its component kind (plain vs ratio)", () => {
+    const ratioComponent: ScoreComponent = {
+      key: "effectiveness",
+      ratio: {
+        numerator: { metric: "suggestions_accepted", aggregation: "sum" },
+        denominator: { metric: "suggestions_offered", aggregation: "sum" },
+      },
+      weight: 0.34,
+      normalization: { min: 0, max: 0.5 },
+    };
+    const rows = formatComponentDetail([...components, ratioComponent], null);
+    expect(rows.find((r) => r.key === "active_days")?.kind).toBe("plain");
+    expect(rows.find((r) => r.key === "tool_coverage")?.kind).toBe("plain");
+    expect(rows.find((r) => r.key === "effectiveness")?.kind).toBe("ratio");
+  });
 });
 
 describe("deriveAttention", () => {
   it("empty input → []", () => {
     expect(
       deriveAttention({
-        erroredConnections: [],
+        connections: [],
         gaps: [],
         sharedAccountCount: 0,
         scoreDrops: [],
@@ -284,7 +367,7 @@ describe("deriveAttention", () => {
 
   it("orders action items before info items", () => {
     const items = deriveAttention({
-      erroredConnections: [{ id: "c1", vendor: "cursor" }],
+      connections: [{ id: "c1", label: "Cursor", status: "error" }],
       gaps: [{ kind: "sub_daily_unavailable" }],
       sharedAccountCount: 2,
       scoreDrops: [{ slug: "fluency", delta: -20 }],
@@ -295,9 +378,35 @@ describe("deriveAttention", () => {
     expect(lastActionIndex).toBeLessThan(firstInfoIndex);
   });
 
+  it("an errored connection renders the caller-provided label, not a raw slug", () => {
+    const items = deriveAttention({
+      connections: [{ id: "c1", label: "GitHub Copilot", status: "error" }],
+      gaps: [],
+      sharedAccountCount: 0,
+      scoreDrops: [],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].severity).toBe("action");
+    expect(items[0].title).toBe("GitHub Copilot connection needs attention");
+    expect(items[0].body).toContain("GitHub Copilot");
+  });
+
+  it("a paused connection renders as an info item, not action, and links to /connections", () => {
+    const items = deriveAttention({
+      connections: [{ id: "c1", label: "Cursor", status: "paused" }],
+      gaps: [],
+      sharedAccountCount: 0,
+      scoreDrops: [],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].severity).toBe("info");
+    expect(items[0].href).toBe("/connections");
+    expect(items[0].body).toMatch(/Syncing is paused for Cursor/);
+  });
+
   it("a score drop below the meaningful threshold is not surfaced", () => {
     const items = deriveAttention({
-      erroredConnections: [],
+      connections: [],
       gaps: [],
       sharedAccountCount: 0,
       scoreDrops: [{ slug: "adoption", delta: -3 }],
@@ -307,7 +416,7 @@ describe("deriveAttention", () => {
 
   it("only the single largest same-grain drop is surfaced when several qualify", () => {
     const items = deriveAttention({
-      erroredConnections: [],
+      connections: [],
       gaps: [],
       sharedAccountCount: 0,
       scoreDrops: [
@@ -317,11 +426,12 @@ describe("deriveAttention", () => {
     });
     expect(items).toHaveLength(1);
     expect(items[0].title).toMatch(/Fluency/);
+    expect(items[0].body).toMatch(/previous period of the same kind/);
   });
 
   it("unresolvedSubjects > 0 produces an action item; omitted/0 produces none", () => {
     const withUnresolved = deriveAttention({
-      erroredConnections: [],
+      connections: [],
       unresolvedSubjects: 3,
       gaps: [],
       sharedAccountCount: 0,
@@ -329,9 +439,11 @@ describe("deriveAttention", () => {
     });
     expect(withUnresolved).toHaveLength(1);
     expect(withUnresolved[0].severity).toBe("action");
+    expect(withUnresolved[0].body).toMatch(/aren't linked to a person yet/);
+    expect(withUnresolved[0].body).toMatch(/Adoption, Fluency, and Efficiency can't compute/);
 
     const withoutUnresolved = deriveAttention({
-      erroredConnections: [],
+      connections: [],
       unresolvedSubjects: 0,
       gaps: [],
       sharedAccountCount: 0,
@@ -340,16 +452,32 @@ describe("deriveAttention", () => {
     expect(withoutUnresolved).toEqual([]);
   });
 
-  it("gaps are deduplicated by kind", () => {
+  it("an exact repeat (same kind, same detail) is deduplicated", () => {
     const items = deriveAttention({
-      erroredConnections: [],
+      connections: [],
       gaps: [
         { kind: "sub_daily_unavailable", detail: "Copilot" },
-        { kind: "sub_daily_unavailable", detail: "Copilot again" },
+        { kind: "sub_daily_unavailable", detail: "Copilot" },
       ],
       sharedAccountCount: 0,
       scoreDrops: [],
     });
     expect(items).toHaveLength(1);
+  });
+
+  it("same kind, different detail: both are kept — no detail is silently dropped", () => {
+    const items = deriveAttention({
+      connections: [],
+      gaps: [
+        { kind: "sub_daily_unavailable", detail: "Copilot" },
+        { kind: "sub_daily_unavailable", detail: "OpenAI" },
+      ],
+      sharedAccountCount: 0,
+      scoreDrops: [],
+    });
+    expect(items).toHaveLength(2);
+    expect(items.map((i) => i.body)).toEqual(
+      expect.arrayContaining([expect.stringContaining("Copilot"), expect.stringContaining("OpenAI")]),
+    );
   });
 });

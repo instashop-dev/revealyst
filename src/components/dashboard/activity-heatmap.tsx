@@ -21,9 +21,11 @@ const WEEKDAY_NAMES = [
 const HOUR_TICKS = [0, 6, 12, 18];
 
 /** Plain-English summary of the busiest weekday, busiest UTC hour range, and
- * peak concurrency — derived only from cells actually present in the grid
- * (all real data; never a fabricated "no activity" claim when there is no
- * signal at all). */
+ * the busiest single account's overlapping-session count — derived only from
+ * cells actually present in the grid (all real data; never a fabricated "no
+ * activity" claim when there is no signal at all). `peakConcurrency` is a
+ * per-subject/day max (src/lib/dashboard-signals.ts), not a team-wide
+ * simultaneity count — the copy must not imply everyone overlapped at once. */
 function summarizeHeatmap(heatmap: ActivityHeatmap): string | null {
   if (heatmap.daysWithSignals === 0) return null;
 
@@ -44,7 +46,9 @@ function summarizeHeatmap(heatmap: ActivityHeatmap): string | null {
     `busiest hour range is ${hourRange}`,
   ];
   if (heatmap.peakConcurrency != null) {
-    parts.push(`peak concurrency of ${heatmap.peakConcurrency}`);
+    parts.push(
+      `busiest single account had ${heatmap.peakConcurrency} overlapping sessions`,
+    );
   }
   return `Activity heatmap: ${parts.join(", ")}.`;
 }
@@ -80,7 +84,9 @@ export function ActivityHeatmap({ heatmap }: { heatmap: ActivityHeatmap }) {
           </p>
         ) : (
           <div className="overflow-x-auto">
-            {summary ? <p className="sr-only">{summary}</p> : null}
+            {/* The role="img" aria-label below is the sole accessible
+             * summary — an additional sr-only <p> would announce the same
+             * sentence twice to screen readers. */}
             <div
               className="flex flex-col gap-1"
               role="img"
@@ -130,13 +136,16 @@ export function ActivityHeatmap({ heatmap }: { heatmap: ActivityHeatmap }) {
         )}
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {heatmap.peakConcurrency != null ? (
-            <span>Peak concurrency: {heatmap.peakConcurrency}</span>
+            <span>
+              Busiest single account: {heatmap.peakConcurrency} overlapping
+              sessions
+            </span>
           ) : null}
           {heatmap.daysWithoutSubDaily > 0 ? (
             <span>
-              {heatmap.daysWithoutSubDaily} subject-day
-              {heatmap.daysWithoutSubDaily === 1 ? "" : "s"} without sub-daily
-              data (not shown)
+              {heatmap.daysWithoutSubDaily} person-day
+              {heatmap.daysWithoutSubDaily === 1 ? "" : "s"} had daily totals
+              only (not shown)
             </span>
           ) : null}
         </div>

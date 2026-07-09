@@ -128,15 +128,32 @@ export function fromPersonalScore(args: CommonArgs & {
   score: PersonalScore | null;
 }): ScoreCardData {
   let breakdown: Record<string, unknown> | null = null;
+  // A malformed breakdown alongside a real (non-null) score value is a
+  // different case from "no score yet": showing a real headline number next
+  // to a full row of "omitted" components would read as self-contradictory
+  // (invariant b — the honesty story has to be coherent, not just each part
+  // individually honest). When the value is present but the breakdown can't
+  // be parsed, drop the component list entirely rather than render every
+  // component as omitted; a null score still yields the normal
+  // every-component-omitted skeleton via `formatComponentDetail`.
+  // `PersonalScore.value` is a plain `number` (never null) whenever `score`
+  // itself is present — a stored score row always has a computed value — so
+  // a parse failure here always co-occurs with a real headline value.
+  let malformedWithValue = false;
   if (args.score) {
     const parsed = scoreComponentBreakdownSchema.safeParse(args.score.components);
-    breakdown = parsed.success ? parsed.data : null;
+    if (parsed.success) {
+      breakdown = parsed.data;
+    } else {
+      malformedWithValue = true;
+    }
   }
-  return baseCardData({
+  const data = baseCardData({
     ...args,
     value: args.score ? args.score.value : null,
     attribution: args.score?.attribution ?? null,
     definitionVersion: args.score?.definitionVersion,
     breakdown,
   });
+  return malformedWithValue ? { ...data, componentRows: [] } : data;
 }

@@ -34,7 +34,7 @@ import { authClient } from "@/lib/auth-client";
 
 const NAV_ITEMS = [
   { title: "Overview", href: "/dashboard", icon: LayoutDashboard },
-  { title: "Methodology", href: "/methodology", icon: BookOpenText },
+  { title: "How scores work", href: "/methodology", icon: BookOpenText },
   { title: "Teams", href: "/teams", icon: UsersRound },
   { title: "People", href: "/people", icon: UserRound },
   { title: "Connections", href: "/connections", icon: Cable },

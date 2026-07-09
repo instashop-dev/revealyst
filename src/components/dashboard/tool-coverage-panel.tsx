@@ -35,7 +35,7 @@ export function ToolCoveragePanel({ coverage }: { coverage: ToolCoverage }) {
           Tool coverage
           <InfoTip
             label="Tool coverage"
-            short="Which of your connected tools' features were detected in use at least once in this period."
+            short="Which of your connected tools' features were detected in use at least once in the last 6 months."
           />
         </CardTitle>
         <CardDescription>Connected AI tools and features in use.</CardDescription>

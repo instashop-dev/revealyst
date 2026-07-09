@@ -142,6 +142,13 @@ describe("METRIC_REFERENCE ≡ metric_catalog seed (drizzle/0007)", () => {
       expect(seedKeys.has(key), `METRIC_REFERENCE has an extra key '${key}' not in the seed`).toBe(true);
     }
   });
+
+  it("every METRIC_REFERENCE entry has a non-empty beginner-friendly 'plain' description", () => {
+    for (const [key, entry] of Object.entries(METRIC_REFERENCE)) {
+      expect(entry.plain, `METRIC_REFERENCE.${key}.plain is missing`).toBeTruthy();
+      expect(entry.plain.trim().length, `METRIC_REFERENCE.${key}.plain is empty`).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("methodologyAnchor", () => {

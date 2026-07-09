@@ -1,5 +1,5 @@
 import type { ScoreTrend, ScoreTrendPoint } from "@/lib/dashboard-trends";
-import { deriveDelta } from "@/lib/score-insights";
+import { deriveDelta, formatDelta } from "@/lib/score-insights";
 import {
   Card,
   CardContent,
@@ -54,9 +54,13 @@ function Sparkline({
 function TrendDelta({ points }: { points: ScoreTrendPoint[] }) {
   const result = deriveDelta(points);
   if (result.kind !== "delta") return null;
-  const up = result.delta > 0;
-  const down = result.delta < 0;
-  if (!up && !down) return null;
+  const { direction, srText } = formatDelta(result);
+  // No change → nothing to point at here; the sparkline itself already shows
+  // a flat line, and rendering "no change" text on a tiny trend row would be
+  // more noise than signal.
+  if (direction === "none") return null;
+  const up = direction === "up";
+  const magnitude = Math.abs(Math.round(result.delta));
   return (
     <span
       className={
@@ -64,7 +68,10 @@ function TrendDelta({ points }: { points: ScoreTrendPoint[] }) {
         (up ? "text-primary" : "text-destructive")
       }
     >
-      {up ? "▲" : "▼"} {Math.abs(result.delta)}
+      <span aria-hidden="true">
+        {up ? "▲" : "▼"} {magnitude}
+      </span>
+      <span className="sr-only">{srText}</span>
     </span>
   );
 }

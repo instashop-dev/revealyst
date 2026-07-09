@@ -52,105 +52,130 @@ export const SCORE_SLUGS: readonly ScoreSlug[] = [
 
 // ─── Metric catalog reference (mirrors drizzle/0007_seed-metric-catalog.sql verbatim) ───
 
-export const METRIC_REFERENCE: Record<string, { name: string; description: string }> = {
+export const METRIC_REFERENCE: Record<
+  string,
+  { name: string; description: string; plain: string }
+> = {
   active_day: {
     name: "Active day",
     description:
       "Subject had any activity on this UTC day (value 1). Engaged days and DAU/WAU/MAU are query-time aggregations over this flag — never stored as separate facts.",
+    plain: "Whether you used any AI tool at all on a given day.",
   },
   sessions: {
     name: "Sessions",
     description:
       "Distinct sessions per day. Gap on GitHub Copilot IDE (CLI only) and OpenAI (no session concept); synthesized from event timestamps on Cursor.",
+    plain: "How many separate times you opened an AI tool in a day.",
   },
   prompts: {
     name: "Prompts / messages",
     description:
       "User-initiated prompts or messages per day (interaction counts; API request counts where that is all the vendor exposes).",
+    plain: "How many messages or requests you sent to an AI tool in a day.",
   },
   tokens_input: {
     name: "Input tokens",
     description: "Uncached input tokens per day.",
+    plain: "How much text you sent into an AI model in a day.",
   },
   tokens_output: {
     name: "Output tokens",
     description: "Output tokens per day.",
+    plain: "How much text an AI model sent back to you in a day.",
   },
   tokens_cache_read: {
     name: "Cache-read tokens",
     description: "Cache-read input tokens per day.",
+    plain: "How much previously-sent text an AI model reused from its cache in a day.",
   },
   tokens_cache_write: {
     name: "Cache-write tokens",
     description: "Cache-creation input tokens per day.",
+    plain: "How much new text was stored in an AI model's cache in a day.",
   },
   spend_cents: {
     name: "Spend",
     description:
       "Vendor-authoritative cost in USD cents (cost reports / billing APIs). Never mixed with estimates — see spend_cents_estimated.",
+    plain: "The actual dollar amount billed for AI usage in a day, straight from the vendor.",
   },
   spend_cents_estimated: {
     name: "Estimated spend",
     description:
       "Derived spend in USD cents (tokens x price list, or vendor per-user estimates). Labeled estimated by key; UI must not present it as billing truth.",
+    plain: "A rough dollar estimate of AI usage cost for a day, calculated rather than billed.",
   },
   model_requests: {
     name: "Requests by model",
     description: "Requests per day per model (dim = model).",
+    plain: "How many requests went to each specific AI model in a day.",
   },
   model_tokens: {
     name: "Tokens by model",
     description: "Total tokens per day per model (dim = model).",
+    plain: "How much text was processed by each specific AI model in a day.",
   },
   suggestions_offered: {
     name: "Suggestions offered",
     description: "Completion-funnel denominator: suggestions / generations shown per day.",
+    plain: "How many AI code or text suggestions were shown to you in a day.",
   },
   suggestions_accepted: {
     name: "Suggestions accepted",
     description:
       "Completion-funnel numerator: suggestions accepted per day. Acceptance rate is computed, never stored.",
+    plain: "How many of those AI suggestions you actually accepted in a day.",
   },
   edit_actions_accepted: {
     name: "Edit actions accepted",
     description:
       "Agent/edit tool actions accepted per day (Claude tool_actions, Cursor tab funnel).",
+    plain: "How many AI-proposed edits you accepted in a day.",
   },
   edit_actions_rejected: {
     name: "Edit actions rejected",
     description: "Agent/edit tool actions rejected per day.",
+    plain: "How many AI-proposed edits you turned down in a day.",
   },
   retries: {
     name: "Retries",
     description:
       "Retried requests per day. Documented gap on most vendors — rows are simply absent (never fabricated).",
+    plain: "How many AI requests had to be retried in a day.",
   },
   feature_used: {
     name: "Feature used",
     description:
       "Feature engaged on this day (value 1; dim = feature, e.g. chat_panel, mcp, subagents).",
+    plain: "Which specific AI feature (like chat or autocomplete) you used on a given day.",
   },
   commits: {
     name: "Commits",
     description:
       "Commits attributed to AI tooling per day (vendor-reported, e.g. commits_by_claude_code).",
+    plain: "How many code commits were credited to AI assistance in a day.",
   },
   pull_requests: {
     name: "Pull requests",
     description: "Pull requests attributed to AI tooling per day (vendor-reported).",
+    plain: "How many pull requests were credited to AI assistance in a day.",
   },
   lines_added: {
     name: "Lines added",
     description: "Lines of code added per day (vendor-reported).",
+    plain: "How many lines of code were added with AI help in a day.",
   },
   lines_removed: {
     name: "Lines removed",
     description: "Lines of code removed per day (vendor-reported).",
+    plain: "How many lines of code were removed with AI help in a day.",
   },
   lines_suggested: {
     name: "Lines suggested",
     description:
       "Lines of code suggested per day (completion funnel; LoC acceptance ratio is computed, never stored).",
+    plain: "How many lines of code an AI tool suggested in a day.",
   },
 };
 
@@ -191,7 +216,7 @@ export function describeCalculation(
       case "active_days":
         return {
           simple: `Counts the days you ${metricVerbPhrase(component.metric)}, scaled so ${normalization.max} or more days in the period reads as 100.`,
-          detailed: `Counts the distinct calendar days with at least one "${name}" row (unioned across everyone on the team), then scales that count linearly from ${normalization.min} days (0) to ${normalization.max} days (100), clamped at both ends. This component is ${weightPct}% of the score.`,
+          detailed: `Counts the distinct calendar days with at least one "${name}" row (combined across everyone this score covers), then scales that count linearly from ${normalization.min} days (0) to ${normalization.max} days (100), clamped at both ends. This component is ${weightPct}% of the score.`,
         };
       case "distinct_dims":
         return {
@@ -285,8 +310,8 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     slug: "adoption",
     plainName: "Adoption",
     shortWhat:
-      "How many days people used AI tools, and how many different tools or features they reached for.",
-    what: "Adoption combines two signals: how many distinct days your team had any AI activity, and how many different tools or features got used at least once. It is a breadth-and-consistency measure, not a quality measure.",
+      "How many days you (or your team) used AI tools, and how many different tools or features got reached for.",
+    what: "Adoption combines two signals: how many distinct days you (or your team) had any AI activity, and how many different tools or features got used at least once. It is a breadth-and-consistency measure, not a quality measure.",
     whyItMatters:
       "Before you can ask whether AI use is effective, you need to know it's actually happening — Adoption is the baseline read on how broadly and how regularly your tools are being reached for.",
     howCalculatedSimple:
@@ -298,7 +323,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     howToInterpret:
       "A higher Adoption score means AI use is broader and more consistent across the period — read a low score as an opportunity to build a habit or connect more tools, not as a judgment on any one person.",
     example:
-      "A team active on 15 of the last 20 tracked days, using 4 of the 6 tracked feature areas, would score roughly (15/20)×100×0.5 + (4/6)×100×0.5 ≈ 71.",
+      "Being active on 15 of the last 20 tracked days, and using 4 of the 6 tracked feature areas, would score roughly (15/20)×100×0.5 + (4/6)×100×0.5 ≈ 71.",
     misconception:
       "Adoption is not a completeness score — a perfect 100 just means both components hit their scaling ceilings, not that every possible AI feature is in use.",
     relatedKeys: ["fluency", "active_days", "tool_coverage"],
@@ -307,15 +332,15 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
         key: "active_days",
         plainName: "Active days",
         shortWhat: describeCalculation(ADOPTION_ACTIVE_DAYS).simple,
-        what: "The number of distinct calendar days in the period where anyone on the team had any recorded AI activity, from the 'Active day' signal.",
+        what: "The number of distinct calendar days in the period where you (or anyone this score covers) had any recorded AI activity, from the 'Active day' signal.",
         whyItMatters:
           "Consistent day-to-day use tends to build more durable habits than sporadic bursts, so this is the 'how regularly' half of Adoption.",
         howCalculatedSimple: describeCalculation(ADOPTION_ACTIVE_DAYS).simple,
         howCalculatedDetailed: describeCalculation(ADOPTION_ACTIVE_DAYS).detailed,
-        included: "Any UTC calendar day with at least one 'Active day' row from a connected tool, for anyone on the team.",
+        included: "Any UTC calendar day with at least one 'Active day' row from a connected tool, for anyone this score covers.",
         excluded: "Days before a tool was connected, or from a tool that has not synced yet.",
         howToInterpret:
-          "A day counts once even if five people were active that day — this component measures calendar-day coverage for the team, not total activity volume.",
+          "A day counts once even if several people were active that day — this component measures calendar-day coverage, not total activity volume.",
         example: "13 active days out of a possible 20 scores (13/20)×100 = 65 on this component before weighting.",
         misconception:
           "This component reads the exact same underlying 'Active day' signal as Fluency's Depth component, with the exact same 0–20 scaling — they are not independent measurements, just the same data feeding two different scores.",
@@ -334,7 +359,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
         excluded:
           "Tools that do not report per-feature detail cannot add to this component (they simply do not contribute — the component still reads whatever other tools do report).",
         howToInterpret:
-          "A low tool-coverage score alongside a high active-days score often means the team leans on one tool or feature heavily rather than exploring others — neither pattern is inherently good or bad on its own.",
+          "A low tool-coverage score alongside a high active-days score often means usage leans on one tool or feature heavily rather than exploring others — neither pattern is inherently good or bad on its own.",
         example: "3 of 6 tracked feature areas used scores (3/6)×100 = 50 on this component before weighting.",
         misconception:
           "This component reads the same underlying 'Feature used' signal as Fluency's Breadth component, just with a lower scaling ceiling (6 here vs 8 for Breadth) — they are not two independent measurements of different behavior.",
@@ -346,10 +371,10 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     key: "fluency",
     slug: "fluency",
     plainName: "Fluency",
-    shortWhat: "How broadly, how deeply, and how effectively your team uses AI tools, in one blended score.",
+    shortWhat: "How broadly, how deeply, and how effectively you (or your team) use AI tools, in one blended score.",
     what: "Fluency blends three components: Breadth (how many distinct features get used), Depth (how many days had any activity), and Effectiveness (how often AI suggestions actually get accepted).",
     whyItMatters:
-      "Adoption alone does not tell you if AI use is actually working — Fluency adds an effectiveness signal on top of breadth and depth so a team that uses AI a lot but rejects most suggestions does not look identical to one whose suggestions are landing.",
+      "Adoption alone does not tell you if AI use is actually working — Fluency adds an effectiveness signal on top of breadth and depth, so using AI a lot but rejecting most suggestions does not look identical to use whose suggestions are landing.",
     howCalculatedSimple:
       "Breadth is about a third of the score, Depth about a third, and Effectiveness a bit more than a third — the weights are 0.33 / 0.33 / 0.34, not an even three-way split.",
     howCalculatedDetailed:
@@ -360,7 +385,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     howToInterpret:
       "A high Fluency score means AI use is broad, regular, and its suggestions are landing — a lower score points at which of the three (breadth, depth, or effectiveness) is holding it back, via the component breakdown.",
     example:
-      "A team with 6 of 8 features used, 18 of 20 active days, and a 0.3 acceptance ratio would score roughly (6/8)×100×0.33 + (18/20)×100×0.33 + (0.3/0.5)×100×0.34 ≈ 75.",
+      "Using 6 of 8 features, being active 18 of 20 days, and a 0.3 acceptance ratio would score roughly (6/8)×100×0.33 + (18/20)×100×0.33 + (0.3/0.5)×100×0.34 ≈ 75.",
     misconception:
       "The three weights are 0.33 / 0.33 / 0.34, not an even three-way split — Effectiveness carries a hair more weight than the other two.",
     relatedKeys: ["adoption", "breadth", "depth", "effectiveness"],
@@ -371,7 +396,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
         shortWhat: describeCalculation(FLUENCY_BREADTH).simple,
         what: "Distinct feature areas used at least once in the period — the same 'Feature used' signal as Adoption's Tool coverage, scaled to a wider ceiling.",
         whyItMatters:
-          "Wider feature use is a sign of a team exploring more of what its AI tools can do, rather than staying in one narrow lane.",
+          "Wider feature use is a sign of exploring more of what your AI tools can do, rather than staying in one narrow lane.",
         howCalculatedSimple: describeCalculation(FLUENCY_BREADTH).simple,
         howCalculatedDetailed: describeCalculation(FLUENCY_BREADTH).detailed,
         included: "Distinct feature-area tags seen at least once, from any connected tool that reports them.",
@@ -392,7 +417,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
           "Depth is the 'how regularly' half of Fluency, mirroring the role Active days plays in Adoption.",
         howCalculatedSimple: describeCalculation(FLUENCY_DEPTH).simple,
         howCalculatedDetailed: describeCalculation(FLUENCY_DEPTH).detailed,
-        included: "Any UTC calendar day with at least one 'Active day' row from a connected tool, for anyone on the team.",
+        included: "Any UTC calendar day with at least one 'Active day' row from a connected tool, for anyone this score covers.",
         excluded: "Days before a tool was connected, or from a tool that has not synced yet.",
         howToInterpret:
           "Because Depth and Adoption's Active days share both the underlying signal and the scaling range, they will always move together — Depth is not an independent read on regularity.",
@@ -405,7 +430,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
         key: "effectiveness",
         plainName: "Effectiveness",
         shortWhat: describeCalculation(FLUENCY_EFFECTIVENESS).simple,
-        what: "Suggestions accepted divided by suggestions offered, across every connected tool that reports both — an acceptance rate.",
+        what: "Suggestions accepted divided by suggestions offered, summed across your connected tools — an acceptance rate.",
         whyItMatters:
           "Breadth and Depth tell you AI is being used; Effectiveness tells you whether what it is suggesting is actually useful enough to keep.",
         howCalculatedSimple: describeCalculation(FLUENCY_EFFECTIVENESS).simple,
@@ -427,52 +452,53 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     slug: "efficiency",
     plainName: "Efficiency",
     shortWhat: "Output and engagement per dollar of AI spend, blended into one score.",
-    what: "Efficiency blends two components: Output per spend (suggestions accepted per cent spent) and Engagement per spend (active days per cent spent).",
+    what: "Efficiency blends two components: Output per spend (suggestions accepted per cent of billed spend) and Engagement per spend (active days per cent of billed spend).",
     whyItMatters:
       "Spend without context does not tell you if AI is paying for itself — pairing accepted-output and engagement against spend gives a rough read on value per dollar.",
     howCalculatedSimple: "Half the score is Output per spend, half is Engagement per spend.",
     howCalculatedDetailed:
-      "Two components, each 50%: Output per spend (accepted suggestions ÷ spend in cents, scaled to 100 at a ratio of 0.2 or higher) and Engagement per spend (active days ÷ spend in cents, scaled to 100 at a ratio of 0.01 or higher). Both are only computed when spend data exists for the period — a ratio needs data on both sides.",
-    included: "Spend and, respectively, suggestion-acceptance or active-day data from connected tools.",
-    excluded: "Tools with no spend data recorded (vendor-authoritative or estimated) cannot feed either component for that tool's usage.",
+      "Two components, each 50%: Output per spend (accepted suggestions ÷ billed spend in cents, scaled to 100 at a ratio of 0.2 or higher) and Engagement per spend (active days ÷ billed spend in cents, scaled to 100 at a ratio of 0.01 or higher). Both use vendor-authoritative billed spend only — never estimated spend — and are only computed when that billed-spend data exists for the period, since a ratio needs data on both sides.",
+    included: "Billed, vendor-authoritative spend and, respectively, suggestion-acceptance or active-day data from connected tools.",
+    excluded:
+      "A tool that only reports estimated spend (never a vendor bill) contributes nothing to either denominator, the same as a tool with no spend data at all. If no connected tool has billed spend for the period, both components are omitted entirely.",
     howToInterpret:
-      "A higher Efficiency score means more accepted output and more active engagement per dollar — read it alongside Adoption and Fluency, since a small, highly engaged user base can score higher here than a larger but less engaged one.",
+      "A higher Efficiency score means more accepted output and more active engagement per dollar of billed spend — read it alongside Adoption and Fluency, since a small, highly engaged user base can score higher here than a larger but less engaged one.",
     example:
-      "1,200 accepted suggestions against $50 (5,000 cents) of spend is a ratio of 0.24, which clamps to 100 on Output per spend before weighting.",
+      "1,200 accepted suggestions against $50 (5,000 cents) of billed spend is a ratio of 0.24, which clamps to 100 on Output per spend before weighting.",
     misconception:
-      "Efficiency uses whichever spend figure was recorded for the period — if that is the estimated spend (for tools billed only by a computed estimate), the ratio inherits that estimate's uncertainty; it is not automatically the vendor-authoritative figure.",
+      "Efficiency's denominator is always billed, vendor-authoritative spend (spend_cents) — estimated spend is a separate figure shown alongside it and never feeds either ratio, no matter how confident the estimate is.",
     relatedKeys: ["output_per_spend", "engagement_per_spend"],
     components: {
       output_per_spend: {
         key: "output_per_spend",
         plainName: "Output per spend",
         shortWhat: describeCalculation(EFFICIENCY_OUTPUT_PER_SPEND).simple,
-        what: "Suggestions accepted, divided by spend in cents, over the period — how much accepted output you are getting per dollar.",
+        what: "Suggestions accepted, divided by billed spend in cents, over the period — how much accepted output you are getting per dollar billed.",
         whyItMatters:
-          "This is the closest Efficiency comes to a direct 'value for spend' read: accepted suggestions per dollar spent.",
+          "This is the closest Efficiency comes to a direct 'value for spend' read: accepted suggestions per dollar billed.",
         howCalculatedSimple: describeCalculation(EFFICIENCY_OUTPUT_PER_SPEND).simple,
         howCalculatedDetailed: describeCalculation(EFFICIENCY_OUTPUT_PER_SPEND).detailed,
-        included: "Accepted-suggestion and spend rows from connected tools that report both.",
+        included: "Accepted-suggestion and billed-spend rows from connected tools that report both.",
         excluded:
-          "Tools with no spend rows recorded contribute nothing to the denominator — this component is left out entirely when either side is missing, never floored to 0.",
+          "Tools with no billed-spend rows recorded — including tools that only report an estimated figure — contribute nothing to the denominator; this component is left out entirely when either side is missing, never floored to 0.",
         howToInterpret:
-          "A higher score means more accepted output per dollar of spend — a low score can mean either low acceptance or high spend, so check Effectiveness and the spend figures alongside it.",
-        example: "600 accepted suggestions against 5,000 cents of spend is a ratio of 0.12, scoring (0.12/0.2)×100 = 60 before weighting.",
+          "A higher score means more accepted output per dollar billed — a low score can mean either low acceptance or high spend, so check Effectiveness and the spend figures alongside it.",
+        example: "600 accepted suggestions against 5,000 cents of billed spend is a ratio of 0.12, scoring (0.12/0.2)×100 = 60 before weighting.",
         misconception:
-          "This ratio is never itself stored — spend and acceptance counts are stored, and Revealyst divides them fresh every time this component is computed.",
+          "This ratio is never itself stored — billed spend and acceptance counts are stored, and Revealyst divides them fresh every time this component is computed.",
         relatedKeys: ["engagement_per_spend", "effectiveness"],
       },
       engagement_per_spend: {
         key: "engagement_per_spend",
         plainName: "Engagement per spend",
         shortWhat: describeCalculation(EFFICIENCY_ENGAGEMENT_PER_SPEND).simple,
-        what: "Active days, divided by spend in cents, over the period — how much day-to-day engagement you are getting per dollar.",
+        what: "Active days, divided by billed spend in cents, over the period — how much day-to-day engagement you are getting per dollar billed.",
         whyItMatters:
-          "Pairs the same 'how regularly' signal used elsewhere against spend, so a highly engaged but low-spend team is recognized alongside a big spender.",
+          "Pairs the same 'how regularly' signal used elsewhere against spend, so highly engaged but low-spend usage is recognized alongside a big spender.",
         howCalculatedSimple: describeCalculation(EFFICIENCY_ENGAGEMENT_PER_SPEND).simple,
         howCalculatedDetailed: describeCalculation(EFFICIENCY_ENGAGEMENT_PER_SPEND).detailed,
-        included: "Active-day and spend rows from connected tools that report both.",
-        excluded: "Tools with no spend rows recorded contribute nothing to the denominator — this component is left out entirely when either side is missing.",
+        included: "Active-day and billed-spend rows from connected tools that report both.",
+        excluded: "Tools with no billed-spend rows recorded — including tools that only report an estimated figure — contribute nothing to the denominator; this component is left out entirely when either side is missing.",
         howToInterpret:
           "A high score here paired with a low Adoption score usually means spend is unusually low relative to a small but consistently active group, not that engagement is unusually high in absolute terms.",
         example: "12 active days against 5,000 cents of spend is a ratio of 0.0024, scoring (0.0024/0.01)×100 = 24 before weighting.",
@@ -565,20 +591,20 @@ export const CONCEPT_GLOSSARY: Record<
   benchmarks: {
     key: "benchmarks",
     plainName: "Benchmarks",
-    shortWhat: "Published reference figures from outside sources, shown next to your scores for context.",
-    what: "Benchmarks are externally published figures — not calculated from your data — that Revealyst displays alongside your own scores so you have some outside context. They only appear once verified against a primary source.",
+    shortWhat: "Two different things: a modeled-estimate comparison panel, and a separate list of only verified published figures.",
+    what: "Revealyst shows benchmarks in two places, and they are not the same claim. The comparison panel next to your scores shows MODELED estimates — Revealyst's own approximation, derived from public commentary rather than a primary source — and every row labels which source it was modeled from. The separate 'Benchmarks' list is stricter: it shows only rows marked verified against a primary source, and nothing else.",
     whyItMatters:
-      "A raw score is hard to read in isolation. Comparing it to a published reference point, even a rough one, helps you judge whether a number is worth a closer look.",
-    howCalculatedSimple: "Not calculated — sourced. Each benchmark row is a value or range pulled from a named, verified external source.",
+      "A raw score is hard to read in isolation, and a rough modeled estimate is still useful context — but only if it is honestly labeled as modeled rather than presented as an authoritative outside figure.",
+    howCalculatedSimple: "Not calculated from your data — sourced. The comparison panel is a modeled estimate; the 'Benchmarks' list only ever holds verified figures.",
     howCalculatedDetailed:
-      "Revealyst only shows a benchmark once it is marked verified against a primary source; every row records where it came from (sourceName) so you can check it yourself. Nothing here is derived from your organization's own metric_records.",
-    included: "Only benchmark rows marked verified against a primary source.",
+      "The comparison panel's rows come from a small set of modeled peer curves, each with a `source` string describing where the estimate was modeled from — Revealyst has not independently verified these against a primary source yet. Verified published benchmarks will replace them, row by row, as sources are confirmed. The separate 'Benchmarks' list card only ever shows rows an admin has explicitly marked verified. Neither is derived from your organization's own metric_records.",
+    included: "The comparison panel: every modeled peer row, labeled with its source. The 'Benchmarks' list: only rows marked verified against a primary source.",
     excluded:
-      "Any figure Revealyst has not been able to verify — a note that benchmarks are still being verified is shown instead of a guess.",
+      "The 'Benchmarks' list excludes any figure Revealyst has not been able to verify — a note that benchmarks are still being verified is shown instead of a guess.",
     howToInterpret:
-      "Use a benchmark as one data point, not a target — organizations differ enormously in tooling, team size, and how long they've been rolling AI tools out.",
+      "Treat the comparison panel as a rough, labeled estimate, not a target — organizations differ enormously in tooling, team size, and how long they've been rolling AI tools out. Treat the 'Benchmarks' list as the more trustworthy of the two, once it has entries.",
     misconception:
-      "A missing benchmark for your score type does not mean your score is unusual — it means Revealyst has not verified a source for that comparison yet.",
+      "The comparison panel next to your scores is not itself a verified figure, even though it looks similar to one — it is a modeled estimate until a row is confirmed against a primary source and moved to the verified 'Benchmarks' list.",
   },
   segments: {
     key: "segments",
@@ -610,7 +636,7 @@ export const CONCEPT_GLOSSARY: Record<
     howToInterpret:
       "A gap means 'this specific thing is not visible to us right now', not 'the score is wrong' — a score can still be trustworthy even with an unrelated gap present.",
     misconception:
-      "A missing (omitted) score component is a different thing from a component that scored 0 — 0 means Revealyst measured real activity and it came out to zero; an omitted component means there was not enough data on at least one side to compute it honestly. Never read the two the same way.",
+      "A missing (omitted) score component is a different thing from a component that scored 0, but the difference depends on the component. For rate-style parts, missing data on either side means the part is left out — never shown as 0. For plain counts, 0 means no activity rows were recorded in the period, which can also mean a tool hasn't synced that signal yet — not necessarily that nothing happened.",
     relatedKeys: ["oauth_actors_missing", "telemetry_only_users_in_totals", "sub_daily_unavailable"],
   },
   sharedAccounts: {
@@ -623,7 +649,7 @@ export const CONCEPT_GLOSSARY: Record<
     howCalculatedSimple:
       "Looks for round-the-clock activity, overlapping sessions, or usage several times the team's typical level, and flags the account if it sees one or more of those patterns.",
     howCalculatedDetailed:
-      "Round-the-clock and concurrent-session signals come from intra-day activity data, when the vendor provides it; the volume signal compares an account's usage to the median of the rest of the team's accounts, only once there are enough other accounts to make a median meaningful. A vendor that cannot provide intra-day data simply cannot trigger the first two signals for that account — it is not guessed.",
+      "Round-the-clock and concurrent-session signals come from intra-day activity data, when the vendor provides it; the volume signal compares an account's activity volume to the median of the team's typical (non-flagged) accounts, and only once enough accounts exist for a median to be meaningful. A vendor that cannot provide intra-day data simply cannot trigger the first two signals for that account — it is not guessed.",
     included: "Accounts whose usage pattern triggered at least one of the three signals.",
     excluded: "Accounts with no triggering pattern are simply absent from the list — never shown as an explicit 'not shared'.",
     howToInterpret:

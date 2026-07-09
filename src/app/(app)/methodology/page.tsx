@@ -11,6 +11,7 @@ import {
 import {
   Table,
   TableBody,
+  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -273,6 +274,10 @@ export default function MethodologyPage() {
             feeds them.
           </p>
           <Table>
+            <TableCaption>
+              All raw signals Revealyst can collect, in plain language and in
+              exact technical terms.
+            </TableCaption>
             <TableHeader>
               <TableRow>
                 <TableHead>Metric</TableHead>
@@ -290,7 +295,8 @@ export default function MethodologyPage() {
                     {metric.name}
                   </TableCell>
                   <TableCell className="whitespace-normal text-muted-foreground">
-                    {metric.description}
+                    <p>{metric.plain}</p>
+                    <p className="mt-1 text-xs">{metric.description}</p>
                   </TableCell>
                 </TableRow>
               ))}

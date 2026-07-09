@@ -70,6 +70,39 @@ export function deriveDelta(points: readonly ScoreTrendPoint[]): DeltaResult {
   };
 }
 
+export type FormattedDelta = {
+  text: string;
+  direction: "up" | "down" | "none";
+  srText: string;
+};
+
+/**
+ * Formats an already-narrowed `{ kind: "delta" }` result into display text —
+ * integer-rounded signed magnitude ("+6"/"-4"), an accessible direction, and
+ * a full-sentence screen-reader string. A round-to-zero delta is direction
+ * "none" with text "no change" — NEVER an up-arrow "+0", which would claim a
+ * change that didn't happen. Callers with a full `DeltaResult` narrow to this
+ * kind first (the "first"/"notComparable" kinds render their own copy, not a
+ * magnitude). "Previous period" phrasing is used consistently here — never
+ * "prior period of the same length".
+ */
+export function formatDelta(
+  delta: Extract<DeltaResult, { kind: "delta" }>,
+): FormattedDelta {
+  const rounded = Math.round(delta.delta);
+  const direction: FormattedDelta["direction"] =
+    rounded > 0 ? "up" : rounded < 0 ? "down" : "none";
+  const text =
+    direction === "none" ? "no change" : `${rounded > 0 ? "+" : ""}${rounded}`;
+  const srText =
+    direction === "none"
+      ? `Score is unchanged versus the previous period (${delta.previousPeriodLabel}).`
+      : `Score ${direction === "up" ? "increased" : "decreased"} by ${Math.abs(rounded)} point${
+          Math.abs(rounded) === 1 ? "" : "s"
+        } versus the previous period (${delta.previousPeriodLabel}).`;
+  return { text, direction, srText };
+}
+
 // ─── Person-level delta ───
 
 /**
@@ -108,29 +141,41 @@ export function personDelta(
 export type ScoreTone = "low" | "building" | "strong";
 
 /**
- * Presentational reading bands over the 0–100 score range — a rounded
- * three-way split (0–39 / 40–69 / 70–100), NOT derived from any benchmark,
- * dataset, or "typical" org. Guidance text is framing only; it never states
- * a threshold or comparison as fact (invariant b).
+ * Per-slug guidance text, keyed by the same rounded three-way split
+ * (0–39 / 40–69 / 70–100) used for every score — NOT derived from any
+ * benchmark, dataset, or "typical" org. Each string only claims what that
+ * particular score measures (a slug-blind guidance string previously
+ * rendered Adoption-shaped claims — "usage is broad and consistent" — under
+ * Efficiency and Fluency scores too, which is a different signal for each).
+ * Guidance is framing only; it never states a threshold or comparison as
+ * fact (invariant b), and it never references the component breakdown UI —
+ * the card adds that sentence itself, only when there is a breakdown to
+ * point at (see score-card.tsx).
  */
-export function interpretScore(value: number): { tone: ScoreTone; guidance: string } {
-  if (value < 40) {
-    return {
-      tone: "low",
-      guidance:
-        "There's room to build a more regular habit here — the component breakdown below shows which part is lowest.",
-    };
-  }
-  if (value < 70) {
-    return {
-      tone: "building",
-      guidance: "A habit is forming — look for ways to broaden which tools or features get used.",
-    };
-  }
-  return {
-    tone: "strong",
-    guidance: "Usage is broad and consistent across the period — keep an eye on the component breakdown for anything trending down.",
-  };
+const INTERPRET_GUIDANCE: Record<ScoreSlug, Record<ScoreTone, string>> = {
+  adoption: {
+    low: "There's room to build a more regular habit here, or to reach for more of what's connected.",
+    building: "A habit is forming — look for ways to use AI more consistently or broaden which tools or features get used.",
+    strong: "Usage is broad and consistent across the period.",
+  },
+  fluency: {
+    low: "Breadth, depth, or how often suggestions get accepted all have room to grow here.",
+    building: "Fluency is developing — usage is broadening, or suggestions are starting to land more often.",
+    strong: "Usage is broad, regular, and suggestions are landing well.",
+  },
+  efficiency: {
+    low: "Value per dollar is low relative to spend right now — that can mean low usage, but it can also mean spend is high relative to usage, so check the spend figures alongside it.",
+    building: "Value per dollar is building relative to spend — usage and spend are starting to balance out.",
+    strong: "Value per dollar is strong relative to spend — accepted output and engagement are high for what's being spent.",
+  },
+};
+
+export function interpretScore(
+  value: number,
+  slug: ScoreSlug,
+): { tone: ScoreTone; guidance: string } {
+  const tone: ScoreTone = value < 40 ? "low" : value < 70 ? "building" : "strong";
+  return { tone, guidance: INTERPRET_GUIDANCE[slug][tone] };
 }
 
 // ─── Component detail rows ───
@@ -138,6 +183,10 @@ export function interpretScore(value: number): { tone: ScoreTone; guidance: stri
 export type ComponentDetailRow = {
   key: string;
   label: string;
+  /** "ratio" components are omitted (never floored to 0) when either side has
+   * no rows; "plain" components floor to 0 on no rows (both intentional —
+   * see src/scoring/evaluate.ts and CLAUDE.md's scoring engine rule). */
+  kind: "ratio" | "plain";
   omitted: boolean;
   raw?: number;
   normalized?: number;
@@ -173,11 +222,13 @@ export function formatComponentDetail(
   return defComponents.map((component) => {
     const label = componentLabel(component.key);
     const calcSimple = describeCalculation(component).simple;
+    const kind: ComponentDetailRow["kind"] = "metric" in component ? "plain" : "ratio";
     const entry = breakdown?.[component.key];
     if (isBreakdownEntry(entry)) {
       return {
         key: component.key,
         label,
+        kind,
         omitted: false,
         raw: entry.raw,
         normalized: entry.normalized,
@@ -189,6 +240,7 @@ export function formatComponentDetail(
     return {
       key: component.key,
       label,
+      kind,
       omitted: true,
       weight: component.weight,
       calcSimple,
@@ -221,7 +273,11 @@ type ScoredAttentionItem = AttentionItem & { impact: number };
  * `MEANINGFUL_SCORE_DROP`; smaller drops are noise at this altitude.
  */
 export function deriveAttention(input: {
-  erroredConnections: { id: string; vendor: string }[];
+  /** Caller passes a display label (e.g. `vendorLabel(c.vendor)`), never the
+   * raw vendor slug — this function must not interpolate an internal slug
+   * into user-facing copy. "paused" connections surface as an "info" item
+   * (syncing is intentionally stopped, not broken); "error" stays "action". */
+  connections: { id: string; label: string; status: "error" | "paused" }[];
   unresolvedSubjects?: number;
   gaps: { kind: string; detail?: string }[];
   sharedAccountCount: number;
@@ -229,14 +285,24 @@ export function deriveAttention(input: {
 }): AttentionItem[] {
   const items: ScoredAttentionItem[] = [];
 
-  for (const connection of input.erroredConnections) {
-    items.push({
-      severity: "action",
-      title: `${connection.vendor} connection needs attention`,
-      body: `The ${connection.vendor} connection has been failing to sync — its numbers may be stale until it's reconnected.`,
-      href: "/connections",
-      impact: 100,
-    });
+  for (const connection of input.connections) {
+    if (connection.status === "error") {
+      items.push({
+        severity: "action",
+        title: `${connection.label} connection needs attention`,
+        body: `The ${connection.label} connection has been failing to sync — its numbers may be stale until it's reconnected.`,
+        href: "/connections",
+        impact: 100,
+      });
+    } else {
+      items.push({
+        severity: "info",
+        title: `${connection.label} connection paused`,
+        body: `Syncing is paused for ${connection.label} — data stops updating until it's resumed.`,
+        href: "/connections",
+        impact: 6,
+      });
+    }
   }
 
   const unresolved = input.unresolvedSubjects ?? 0;
@@ -244,16 +310,20 @@ export function deriveAttention(input: {
     items.push({
       severity: "action",
       title: "Unresolved usage found",
-      body: `${unresolved} account${unresolved === 1 ? "" : "s"} from your tools ${unresolved === 1 ? "is" : "are"} not linked to a person yet, so ${unresolved === 1 ? "it isn't" : "they aren't"} counted as active people.`,
+      body: `${unresolved} account${unresolved === 1 ? "" : "s"} from your tools ${unresolved === 1 ? "isn't" : "aren't"} linked to a person yet, so Adoption, Fluency, and Efficiency can't compute for ${unresolved === 1 ? "it" : "them"}.`,
       href: "/reconcile",
       impact: 50 + unresolved,
     });
   }
 
-  const seenGapKinds = new Set<string>();
+  // Deduped by kind+detail, not kind alone — two vendors hitting the same
+  // gap kind with different details are both real, distinct facts; only an
+  // exact repeat (same kind, same detail) collapses to one item.
+  const seenGapKeys = new Set<string>();
   for (const gap of input.gaps) {
-    if (seenGapKinds.has(gap.kind)) continue;
-    seenGapKinds.add(gap.kind);
+    const dedupeKey = `${gap.kind}::${gap.detail ?? ""}`;
+    if (seenGapKeys.has(dedupeKey)) continue;
+    seenGapKeys.add(dedupeKey);
     const meta = HONESTY_GAP_GLOSSARY[gap.kind as HonestyGapKind] as
       | { label: string; shortWhat: string }
       | undefined;
@@ -280,11 +350,12 @@ export function deriveAttention(input: {
     .sort((a, b) => a.delta - b.delta)[0];
   if (biggestDrop) {
     const label = biggestDrop.slug[0].toUpperCase() + biggestDrop.slug.slice(1);
+    const roundedDrop = Math.round(Math.abs(biggestDrop.delta));
     items.push({
       severity: "info",
       title: `${label} dropped`,
-      body: `${label} fell ${Math.abs(biggestDrop.delta)} points versus the prior period of the same length.`,
-      impact: Math.abs(biggestDrop.delta),
+      body: `${label} fell ${roundedDrop} point${roundedDrop === 1 ? "" : "s"} versus the previous period of the same kind.`,
+      impact: roundedDrop,
     });
   }
 

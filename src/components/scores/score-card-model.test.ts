@@ -199,14 +199,15 @@ describe("fromPersonalScore", () => {
     expect(breadth?.normalized).toBe(12.5);
   });
 
-  it("a malformed components record degrades to every component omitted, never throws", () => {
+  it("a malformed components record alongside a real value yields an empty breakdown, never throws, never a self-contradictory all-omitted row set", () => {
     const data = fromPersonalScore({
       slug: "fluency",
       score: personalScore({ components: { breadth: { normalized: "not-a-number" } } }),
       definitions: [FLUENCY_V1],
     });
 
-    expect(data.componentRows.every((r) => r.omitted)).toBe(true);
+    expect(data.value).toBe(9.075);
+    expect(data.componentRows).toEqual([]);
   });
 
   it("null score renders the computing state", () => {

@@ -5,6 +5,7 @@ import { ChevronDown } from "lucide-react";
 import type { AttributionLevel } from "@/contracts/attribution";
 import { ATTRIBUTION_GLOSSARY } from "@/lib/metrics-glossary";
 import {
+  formatDelta,
   interpretScore,
   type ComponentDetailRow,
   type DeltaResult,
@@ -63,7 +64,7 @@ function DeltaChip({ delta, title }: { delta: DeltaResult; title: string }) {
   if (delta.kind === "notComparable") {
     const reason =
       delta.reason === "grain"
-        ? "The previous period covered a different number of days, so comparing the two directly could be misleading."
+        ? "The previous period covers a different kind of period (for example weekly vs monthly), so comparing the two directly could be misleading."
         : "The score definition changed since the previous period, so comparing the two directly could be misleading.";
     return (
       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -72,8 +73,18 @@ function DeltaChip({ delta, title }: { delta: DeltaResult; title: string }) {
       </span>
     );
   }
-  const rounded = Math.round(delta.delta);
-  const up = rounded >= 0;
+  const { text, direction, srText } = formatDelta(delta);
+  if (direction === "none") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+        No change vs previous period
+        <span className="sr-only">
+          {title}: {srText}
+        </span>
+      </span>
+    );
+  }
+  const up = direction === "up";
   return (
     <span
       className={cn(
@@ -83,16 +94,23 @@ function DeltaChip({ delta, title }: { delta: DeltaResult; title: string }) {
     >
       <span aria-hidden="true">{up ? "▲" : "▼"}</span>
       <span aria-hidden="true">
-        {up ? "+" : ""}
-        {rounded} vs {delta.previousPeriodLabel}
+        {text} vs {delta.previousPeriodLabel}
       </span>
       <span className="sr-only">
-        {title} {up ? "increased" : "decreased"} by {Math.abs(rounded)} point
-        {Math.abs(rounded) === 1 ? "" : "s"} versus the previous period (
-        {delta.previousPeriodLabel}).
+        {title}: {srText}
       </span>
     </span>
   );
+}
+
+/** The omitted-row explanation differs by component shape (invariant b — the
+ * honesty story is different for each): a ratio needs both of its inputs
+ * measured and is never floored to 0, while a plain count simply has no rows
+ * recorded yet. */
+function omittedReason(kind: ComponentDetailRow["kind"]): string {
+  return kind === "ratio"
+    ? "This rate needs both of its inputs measured. Missing data is never counted as zero."
+    : "No data recorded for this yet.";
 }
 
 function ComponentRow({ row }: { row: ComponentDetailRow }) {
@@ -112,8 +130,8 @@ function ComponentRow({ row }: { row: ComponentDetailRow }) {
           </span>
           <span className="text-xs text-muted-foreground">Not enough data yet</span>
           <InfoTip
-            label="Why this is missing"
-            short="This part needs both of its inputs measured. Missing data is never counted as zero."
+            label={`why ${row.label} is missing`}
+            short={omittedReason(row.kind)}
           />
         </div>
       ) : (
@@ -186,7 +204,7 @@ export function ScoreCard({ data }: { data: ScoreCardData }) {
             <div className="flex items-center gap-2">
               {attribution ? (
                 <Badge variant="outline" className="gap-1 pr-1.5">
-                  {ATTRIBUTION_GLOSSARY[attribution].label}
+                  {ATTRIBUTION_GLOSSARY[attribution].label} — not per-person
                   <InfoTip
                     label={ATTRIBUTION_GLOSSARY[attribution].label}
                     short={ATTRIBUTION_GLOSSARY[attribution].shortWhat}
@@ -212,14 +230,25 @@ export function ScoreCard({ data }: { data: ScoreCardData }) {
               {data.delta ? <DeltaChip delta={data.delta} title={data.title} /> : null}
             </div>
             <ScoreMeter value={data.value as number} label={`${data.title} score`} />
+            {data.componentRows.length > 0 &&
+            data.componentRows.some((row) => row.omitted) ? (
+              <span className="text-xs text-muted-foreground">
+                {data.componentRows.filter((row) => !row.omitted).length} of{" "}
+                {data.componentRows.length} parts measured
+              </span>
+            ) : null}
             <p className="text-sm text-muted-foreground">
-              {interpretScore(data.value as number).guidance}
+              {interpretScore(data.value as number, data.slug).guidance}
+              {data.componentRows.length > 0
+                ? " The breakdown shows what's driving this."
+                : ""}
             </p>
           </div>
         ) : (
           <div className="flex flex-col gap-1">
             <p className="text-sm text-muted-foreground">
-              Computing from your connected data — check back shortly.
+              Not enough data yet — this score appears once your connected
+              tools report the data it needs.
             </p>
             <Link
               href={data.methodologyHref}

@@ -24,7 +24,19 @@ export function SyncStatusBadge({
     if (!lastError) return badge;
     return (
       <Tooltip>
-        <TooltipTrigger render={<span className="inline-block" />}>
+        {/* A bare <span> trigger is keyboard-unreachable — lastError would be
+         * inaccessible without a mouse. Base UI's default Tooltip.Trigger
+         * renders a <button> and opens on focus as well as hover; render a
+         * focusable button here (matching ui/badge.tsx's focus-visible
+         * idiom) instead of overriding it with a non-interactive span. */}
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="inline-flex rounded-full focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            />
+          }
+        >
           {badge}
         </TooltipTrigger>
         <TooltipContent>{lastError}</TooltipContent>
