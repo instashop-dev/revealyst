@@ -205,3 +205,51 @@ If mail doesn't arrive after deploying, check Worker logs (`wrangler tail`) for
 `[email] SES not configured` (a secret didn't sync — re-check step 6) or a
 thrown `SES send failed: ...` (SES rejected the request — check the identity is
 verified and production access is active).
+
+## 8. Performance & latency observability (7s incident, 2026-07-09; PRs #125–#127)
+
+**The incident in one line:** authenticated pages took >7s while everything
+else was fast, because ONLY authenticated requests touch Postgres (a no-cookie
+`getSession` returns before any query), and the per-round-trip DB cost — not
+the query count — dominated: `/api/health` (one query) measured 560–900ms TTFB
+before the fixes.
+
+**What shipped:**
+- PR #125: dashboard 99 → 12 queries, sequential depth 4 → 1 (bulk reads +
+  one flat `Promise.all` in `readDashboardView`; ADR 0017 `metrics.allSignals`).
+- PR #126: `fetch_types: false` (`src/db/client.ts` — kills a per-connection
+  pg_catalog introspection round-trip), **Smart Placement** (`wrangler.jsonc`),
+  Better Auth session lookup 2 queries → 1 JOIN (`src/db/auth-relations.ts` +
+  top-level `experimental.joins`), and always-on `Server-Timing`
+  instrumentation (`src/lib/request-timing.ts`, entered in `src/worker.ts`).
+- PR #127: the request-timing ALS must be a `globalThis` singleton — OpenNext
+  bundles src twice (worker entry vs Next server), so module-scoped singletons
+  silently split into two instances. Also staged the health route's DB ping.
+
+**How to read latency now:**
+- `curl -s -o /dev/null -D - https://app.revealyst.com/api/health` →
+  `Server-Timing: db;dur=<ms>, total;dur=<ms>`. `db` = connection setup + one
+  query through the standard `createDb` path — the unauthenticated gauge for
+  Hyperdrive/Neon round-trip health. Warm baseline after the fixes: total
+  ≈ 175–190ms worker-side.
+- Authenticated document / `/api/*` / RSC-navigation responses carry
+  `Server-Timing: session;dur=…, orgContext;dur=…, access;dur=…,
+  pageData;dur=…, total;dur=…` (browser devtools → Network → Timing tab), and
+  one JSON summary line per request in Workers Logs / `wrangler tail`. Stages
+  that resolve after the streaming shell flush (Suspense/loading.tsx routes)
+  appear as separate `lateStage` log lines — the header can't be amended after
+  flush.
+- `Cf-Placement: remote-<colo>` response header = Smart Placement active.
+  After a deploy, placement takes time to settle; intermittent ~2.5s transit
+  spikes (worker-side `total` staying ~180ms) during that window are
+  placement routing, not app regressions. DB-free pages pay ~200–300ms
+  baseline transit under placement — accepted trade for collapsing the
+  authenticated path's sequential DB round-trips.
+- Optional deeper probe: set Worker env `REQUEST_TIMING_DB_PROBE=1` to add a
+  `dbConnectProbe` stage (a timed `select 1` at context creation). Off by
+  default — it costs one extra query per request.
+
+**Escalation order if authenticated pages regress again:** check
+`Server-Timing` stages on a slow request (which stage grew?) → check
+`/api/health` `db` stage (per-op DB cost?) → check `Cf-Placement` (placement
+churn?) → only then profile app code (`tests/perf/` query-count benchmark).
