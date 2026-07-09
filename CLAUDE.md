@@ -79,6 +79,43 @@ contracts. Every session auto-loads this file — it is the interface between ag
   pages/API get session + `forOrg` scope ONLY via `src/lib/api-context.ts`
   (`appContext`/`requireAppContext`) — never call `createDb` in a page/route.
 
+## Performance & request-lifecycle observability (7s incident, PRs #125–#127)
+- **Perf model:** on Workers → Hyperdrive → Neon, PER-ROUND-TRIP cost dominates
+  authenticated TTFB, and ONLY authenticated requests touch Postgres at all
+  (no-cookie `getSession` returns before any query) — so "authenticated pages
+  slow, everything else fast" means DB-layer cost, not app code. Reduce
+  sequential query STAGES first (see `readDashboardView`'s single flat
+  `Promise.all` + prefetched-params pattern), then per-op cost.
+- **Gauges:** `curl -sD - https://app.revealyst.com/api/health` →
+  `Server-Timing: db;dur=` = connection setup + one query (unauthenticated DB
+  probe). Authenticated docs//api//RSC responses carry
+  `Server-Timing: session/orgContext/access/pageData/total` (devtools →
+  Network). `tests/perf/authenticated-page-queries.test.ts` (run with
+  `--reporter=verbose`) counts queries + sequential depth on PGlite.
+- **Instrumentation seam:** `src/lib/request-timing.ts` (`timeStage`, ALS
+  collector entered in `src/worker.ts`). Streamed (Suspense) stages log as
+  late-stage JSON lines (headers already flushed); assets/WebSocket upgrades
+  pass through untouched. **OpenNext bundles src twice** (worker entry vs Next
+  server) — any request-scoped singleton MUST anchor on `globalThis`, or the
+  two module copies get separate instances (shipped the header with zero
+  stages; fixed in #127).
+- **DB client (`src/db/client.ts`):** `fetch_types: false` (postgres.js
+  otherwise pays a pg_catalog introspection round-trip on every request's
+  fresh connection). `wrangler.jsonc` has Smart Placement on — collapses
+  per-query WAN RTTs; DB-free pages pay ~200-300ms transit and placement takes
+  a while to settle after deploy (watch the `Cf-Placement` response header;
+  intermittent ~2.5s transit spikes during settling are placement, not app).
+- **Better Auth perf config:** `experimental: { joins: true }` is a TOP-LEVEL
+  `betterAuth()` option — inside `drizzleAdapter`'s options it is silently
+  ignored. The join path needs drizzle `relations()` (`src/db/auth-relations.ts`,
+  deliberately OUTSIDE frozen `schema.ts`) spread into `drizzle()`'s schema
+  (`fullSchema`, exported from `db/client.ts` — tests that build their own
+  PGlite db + `createAuth` must import it). A model reachable via `join` but
+  missing its relation THROWS at query-build time (no soft fallback) — wire
+  user↔sessions/accounts too, not just session→user. `session.cookieCache`
+  stays OFF (tripwire in `auth.ts` — admin ban/impersonation gates must be
+  re-audited before enabling).
+
 ## Operating model — rules 1–7 (from the execution plan)
 1. **Contracts before fan-out.** No W1+ workstream starts until W0-C is frozen.
    Post-freeze changes require an ADR (`/adr`) + re-sync of affected workstreams.
@@ -248,6 +285,12 @@ only by mechanism review). Also: base-nova `Card` draws its outline with
   And if a recovery PR develops conflicts with main, don't push the resolution
   to the open PR (merge-race drops it) — resolve on a fresh branch and
   recreate the PR with the resolution in its creation-time HEAD.
+- **Shared-checkout hazard:** concurrent agent sessions drive this ONE physical
+  checkout and can switch branches/HEAD under you mid-task (observed: reflog
+  hopping across 5 branches while agents worked; uncommitted edits survive a
+  checkout but not a reset). Verify `git branch --show-current` immediately
+  before staging/committing, stage explicit paths (never `git add -A` — foreign
+  in-progress edits share the tree), and commit+push early to make work durable.
 - Flaky, not broken: an occasional `[vitest-pool]: Worker exited unexpectedly`
   (Windows fork crash) and a rare pseudonym-collision in `tests/api-impl.test.ts`
   are known transient flakes — rerun before treating either as a regression.
