@@ -81,15 +81,19 @@ export default function TermsPage() {
         with their Buyer Protection policies.
       </p>
       <p>
-        We offer refunds in line with Paddle&rsquo;s refund guidelines. If you
-        believe a charge was made in error, or if you are unsatisfied with
-        your purchase, you may request a refund within the applicable time
-        window set by Paddle. Refund eligibility may vary depending on the
+        We offer refunds in line with Paddle&rsquo;s refund guidelines,
+        including their standard <strong>14-day refund window</strong>. If
+        you believe a charge was made in error, or if you are unsatisfied
+        with your purchase, you may request a refund within 14 days of the
+        original transaction. Refund eligibility may vary depending on the
         specific product, subscription term, and usage conditions.
       </p>
       <p>Please note:</p>
       <ul>
-        <li>Refunds are not guaranteed in all cases.</li>
+        <li>
+          Refund requests made after the 14-day window are not guaranteed
+          and are considered at Paddle&rsquo;s discretion.
+        </li>
         <li>
           Paddle may assess eligibility based on factors such as usage, time
           since purchase, or potential misuse.
