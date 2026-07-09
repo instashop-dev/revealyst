@@ -5,6 +5,7 @@ import {
   readDashboard,
   readToolCoverage,
   type DashboardData,
+  type DefinitionRow,
   type ToolCoverage,
 } from "./dashboard-read";
 import {
@@ -33,6 +34,15 @@ export type DashboardView = {
   trends: ScoreTrend[];
   segments: SegmentDistribution;
   sharedAccounts: SharedAccountFlag[];
+  /** The global score-definition presets (metrics-UX redesign) — component
+   * shapes/weights/normalization for the glossary's describeCalculation().
+   * Already fetched below for trends/segments/summary; threading it onto the
+   * view is additive (zero new queries). `assertTeamOnlyPseudonymized`
+   * (src/lib/visibility.ts) only audits summary.scores[].person, segments'
+   * members, and sharedAccounts' externalId — score_definitions rows are
+   * global presets with no person data, so adding this field does not
+   * change what that privacy predicate needs to inspect. */
+  definitions: DefinitionRow[];
 };
 
 export async function readDashboardView(
@@ -151,5 +161,5 @@ export async function readDashboardView(
     { slug: "efficiency", value: latest.get("efficiency")?.value ?? null },
   ]);
 
-  return { summary, benchmarks, heatmap, coverage, trends, segments, sharedAccounts };
+  return { summary, benchmarks, heatmap, coverage, trends, segments, sharedAccounts, definitions };
 }
