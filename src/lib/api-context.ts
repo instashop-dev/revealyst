@@ -2,12 +2,13 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { createDb, type Db } from "@/db/client";
+import { createDb, probeDbConnection, type Db } from "@/db/client";
 import { orgContextForUser } from "@/db/org-context";
 import { ensureOrgOfOne, forOrg } from "@/db/org-scope";
 import { isPlatformAdmin } from "@/lib/admin-access";
 import { createAuth, type AuthEnv } from "@/lib/auth";
 import type { CredentialEnv } from "@/lib/credentials";
+import { timeStage } from "@/lib/request-timing";
 
 /**
  * Request-scoped context for authenticated pages and API routes: one db
@@ -23,8 +24,14 @@ import type { CredentialEnv } from "@/lib/credentials";
 export const appContext = cache(async () => {
   const { env } = getCloudflareContext();
   const db = createDb(env);
+  // Opt-in only (REQUEST_TIMING_DB_PROBE=1) — see probeDbConnection's doc
+  // comment. No-ops (and adds no await-visible delay) when unset.
+  await probeDbConnection(db, env);
   const auth = createAuth(db, env as AuthEnv);
-  const session = await auth.api.getSession({ headers: await headers() });
+  const requestHeaders = await headers();
+  const session = await timeStage("session", () =>
+    auth.api.getSession({ headers: requestHeaders }),
+  );
   if (!session) {
     return null;
   }
@@ -36,11 +43,14 @@ export const appContext = cache(async () => {
   // here is a strict superset of what ensureOrgOfOne's existence check
   // needs, so this preserves self-heal semantics while saving a DB
   // round-trip on every warm request.
-  let orgContext = await orgContextForUser(db, session.user.id);
-  if (!orgContext) {
-    await ensureOrgOfOne(db, session.user);
-    orgContext = await orgContextForUser(db, session.user.id);
-  }
+  let orgContext = await timeStage("orgContext", async () => {
+    let ctx = await orgContextForUser(db, session.user.id);
+    if (!ctx) {
+      await ensureOrgOfOne(db, session.user);
+      ctx = await orgContextForUser(db, session.user.id);
+    }
+    return ctx;
+  });
   if (!orgContext) {
     return null;
   }

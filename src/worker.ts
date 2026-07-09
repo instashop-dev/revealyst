@@ -23,6 +23,11 @@ import { sendInBatches } from "./poller/queue";
 import { retryDelaySeconds, RetryableConnectorError } from "./poller/run";
 import { previousDay } from "./scoring";
 import { resolveRedirect } from "./lib/domains";
+import {
+  formatServerTiming,
+  readRequestTiming,
+  runWithRequestTiming,
+} from "./lib/request-timing";
 
 // Matches the second entry in wrangler.jsonc "triggers".crons — the nightly
 // score recompute (W1-F). The */5 tick keeps the W0-B heartbeat + purge.
@@ -59,7 +64,51 @@ export default {
       url.search,
     );
     if (target) return Response.redirect(target, 308);
-    return openNextHandler.fetch!(request, env, ctx);
+
+    // Request-lifecycle instrumentation (incident: authenticated pages >7s
+    // in prod). One AsyncLocalStorage store per request, entered here (the
+    // outermost seam) so every `timeStage` call nested anywhere downstream —
+    // api-context.ts, the (app) layout, dashboard/page.tsx, the opt-in db
+    // probe — shares one collector, however deep the RSC render goes.
+    // Always on: Server-Timing is standard, low-risk (stage names + ms
+    // durations only, no query text/user data), and cheap (object alloc +
+    // an ALS.run per request).
+    const workerStart = Date.now();
+    const response = await runWithRequestTiming(() =>
+      openNextHandler.fetch!(request, env, ctx),
+    );
+    const workerDur = Date.now() - workerStart;
+    const timing = readRequestTiming();
+    const stages = timing?.stages ?? [];
+
+    const responseHeaders = new Headers(response.headers);
+    responseHeaders.append(
+      "Server-Timing",
+      formatServerTiming(stages, workerDur),
+    );
+    const timedResponse = new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: responseHeaders,
+    });
+
+    // Log only for document/API requests — asset responses (JS/CSS/images)
+    // would otherwise flood wrangler tail / Workers Logs with noise for
+    // every request the incident doesn't care about.
+    const accept = request.headers.get("accept") ?? "";
+    const isDocumentOrApi =
+      accept.includes("text/html") || url.pathname.startsWith("/api/");
+    if (isDocumentOrApi) {
+      console.log(
+        JSON.stringify({
+          path: url.pathname,
+          total: workerDur,
+          stages,
+        }),
+      );
+    }
+
+    return timedResponse;
   },
 
   // Cron Trigger (every 5 min): heartbeat + raw purge (W0-B/C), then W1-D

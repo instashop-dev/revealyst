@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeAll, describe, expect, it } from "vitest";
+import * as authRelations from "../src/db/auth-relations";
 import type { Db } from "../src/db/client";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
@@ -27,7 +28,11 @@ let db: Db;
 let auth: Auth;
 
 beforeAll(async () => {
-  const pgliteDb = drizzle(new PGlite(), { schema });
+  // { ...schema, ...authRelations } mirrors src/db/client.ts's fullSchema:
+  // db.query.session/user must exist for the drizzleAdapter's
+  // experimental.joins session lookup to actually join instead of falling
+  // back to two sequential queries.
+  const pgliteDb = drizzle(new PGlite(), { schema: { ...schema, ...authRelations } });
   await migrate(pgliteDb, { migrationsFolder: "./drizzle" });
   db = pgliteDb as unknown as Db;
   auth = createAuth(db, BASE_ENV);

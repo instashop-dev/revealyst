@@ -1,8 +1,18 @@
+import { sql } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { timeStage } from "../lib/request-timing";
+import * as authRelations from "./auth-relations";
 import * as schema from "./schema";
 
-export type Db = PostgresJsDatabase<typeof schema>;
+// Relations are spread in alongside the (frozen) table schema so
+// `db.query.session`/`db.query.user` exist — see src/db/auth-relations.ts
+// for why: it lets Better Auth's drizzleAdapter (src/lib/auth.ts,
+// `experimental.joins: true`) collapse getSession's two sequential
+// round-trips (session by token, then user by id) into one SQL join.
+const fullSchema = { ...schema, ...authRelations };
+
+export type Db = PostgresJsDatabase<typeof fullSchema>;
 
 type DbEnv = {
   HYPERDRIVE?: Hyperdrive;
@@ -37,7 +47,42 @@ export function createDb(env: DbEnv): Db {
     prepare: false,
     connect_timeout: 10,
     idle_timeout: 20,
+    // postgres.js defaults fetch_types:true, which issues a pg_catalog
+    // type-introspection query on first use of every new connection — and
+    // Workers open a new connection per request (max: 1, no cross-request
+    // reuse), so every request was paying that extra round trip on top of
+    // its real queries. Cloudflare's Hyperdrive docs recommend disabling it.
+    // Safe here: fetch_types only affects parsing of CUSTOM/extension
+    // (composite/domain) Postgres types, which this schema has none of —
+    // pgEnum columns (src/db/schema.ts) serialize as plain text either way,
+    // and the one array column (subjectDaySignals.hours, smallint[]) uses a
+    // built-in array type postgres.js already knows how to parse without
+    // introspection.
+    fetch_types: false,
     ...(wantsTls ? { ssl: {} } : {}),
   });
-  return drizzle(client, { schema });
+  return drizzle(client, { schema: fullSchema });
+}
+
+/**
+ * Request-lifecycle instrumentation (opt-in, off by default): times a
+ * trivial `select 1` on a just-created connection to isolate connect+TLS+
+ * Neon-wake latency from the cost of the first real query. Unconditionally
+ * running an extra round trip on every request would itself violate the
+ * near-zero-overhead goal of request timing, so this only runs when
+ * `REQUEST_TIMING_DB_PROBE=1` is set (env var / Worker secret / .dev.vars).
+ * Kept as an explicit call the caller awaits (src/lib/api-context.ts
+ * `appContext`) rather than fired-and-forgotten inside `createDb`, so the
+ * "dbConnectProbe" stage reliably lands in the response's Server-Timing
+ * header instead of racing it — and so `createDb` itself stays synchronous
+ * for its other (cron/queue) call sites in src/worker.ts.
+ */
+export async function probeDbConnection(
+  db: Db,
+  env: { REQUEST_TIMING_DB_PROBE?: string },
+): Promise<void> {
+  if (env.REQUEST_TIMING_DB_PROBE !== "1") return;
+  await timeStage("dbConnectProbe", async () => {
+    await db.execute(sql`select 1`);
+  });
 }

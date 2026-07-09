@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { lowestAttribution } from "../../src/contracts/attribution";
 import { metricRecordInputSchema } from "../../src/contracts/metrics";
 import { scoreComponentBreakdownSchema } from "../../src/contracts/scores";
+import * as authRelations from "../../src/db/auth-relations";
 import type { Db } from "../../src/db/client";
 import { forOrg, membershipForUser } from "../../src/db/org-scope";
 import * as schema from "../../src/db/schema";
@@ -35,7 +36,9 @@ let orgId: string; // the org under test
 let rivalOrgId: string; // must never see the other org's data
 
 beforeAll(async () => {
-  const pgliteDb = drizzle(new PGlite(), { schema });
+  // { ...schema, ...authRelations } mirrors src/db/client.ts's fullSchema —
+  // see src/db/auth-relations.ts for why db.query.session/user must exist.
+  const pgliteDb = drizzle(new PGlite(), { schema: { ...schema, ...authRelations } });
   await migrate(pgliteDb, { migrationsFolder: "./drizzle" });
   db = pgliteDb as unknown as Db;
 

@@ -7,6 +7,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { computeAccess } from "@/lib/access";
 import { requireAppContext } from "@/lib/api-context";
 import { resolvePaddleClientConfig, type PaddleEnv } from "@/lib/paddle";
+import { timeStage } from "@/lib/request-timing";
 
 // Authenticated pages can't prerender: session + Cloudflare env exist only
 // at request time.
@@ -43,7 +44,9 @@ export default async function AppLayout({
   // limit sees the upgrade paywall in place of the whole app. Enforced here,
   // the single shell every app page renders through, so no page can forget it —
   // and the same computeAccess gates the JSON APIs in handleApi.
-  const access = await computeAccess(ctx.db, ctx.scope, ctx.org);
+  const access = await timeStage("access", () =>
+    computeAccess(ctx.db, ctx.scope, ctx.org),
+  );
   if (access.blocked && !paywallExempt) {
     let clientConfig: { clientToken: string; environment: "sandbox" | "production" } | null =
       null;
