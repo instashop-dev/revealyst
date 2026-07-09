@@ -1,6 +1,7 @@
 import { latestHeartbeatAt } from "@/db/system";
 import { getApiContext } from "@/lib/api-context";
 import { evaluateHealth } from "@/lib/health";
+import { timeStage } from "@/lib/request-timing";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,10 @@ export async function GET() {
   try {
     const { db } = getApiContext();
     // This query doubles as the DB ping — if it resolves, the DB is reachable.
-    latestHeartbeat = await latestHeartbeatAt(db);
+    // timeStage("db") makes /api/health an unauthenticated probe of the full
+    // per-request DB cost (connection setup + one query) in Server-Timing —
+    // the incident gauge for Hyperdrive/Neon round-trip latency.
+    latestHeartbeat = await timeStage("db", () => latestHeartbeatAt(db));
     dbOk = true;
   } catch {
     dbOk = false;
