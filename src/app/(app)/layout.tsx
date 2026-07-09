@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { AppSidebar } from "@/components/app-sidebar";
+import { ImpersonationBanner } from "@/components/admin/impersonation-banner";
 import { SiteHeader } from "@/components/site-header";
 import { UpgradePaywall } from "@/components/upgrade-paywall";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -27,6 +28,17 @@ export default async function AppLayout({
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 
+  // Platform-admin impersonation (ADR 0016, PR5/Feature 6): a persistent
+  // banner must stay visible for the whole authenticated shell, including
+  // the paywall branch below — an impersonated user whose org is over the
+  // free band must still be able to end impersonation.
+  const impersonating = ctx.session.session.impersonatedBy
+    ? {
+        name: ctx.session.user.name ?? ctx.session.user.email,
+        userId: ctx.session.user.id,
+      }
+    : null;
+
   // Free-band paywall (PR4): an un-entitled workspace over the tracked-user
   // limit sees the upgrade paywall in place of the whole app. Enforced here,
   // the single shell every app page renders through, so no page can forget it —
@@ -41,12 +53,20 @@ export default async function AppLayout({
       clientConfig = null;
     }
     return (
-      <UpgradePaywall
-        trackedUsers={access.trackedUsers}
-        limit={access.limit}
-        canUpgrade={ctx.role === "admin"}
-        clientConfig={clientConfig}
-      />
+      <>
+        {impersonating && (
+          <ImpersonationBanner
+            name={impersonating.name}
+            impersonatedUserId={impersonating.userId}
+          />
+        )}
+        <UpgradePaywall
+          trackedUsers={access.trackedUsers}
+          limit={access.limit}
+          canUpgrade={ctx.role === "admin"}
+          clientConfig={clientConfig}
+        />
+      </>
     );
   }
 
@@ -59,6 +79,12 @@ export default async function AppLayout({
         isPlatformAdmin={ctx.isPlatformAdmin}
       />
       <SidebarInset>
+        {impersonating && (
+          <ImpersonationBanner
+            name={impersonating.name}
+            impersonatedUserId={impersonating.userId}
+          />
+        )}
         <SiteHeader />
         <div className="flex flex-1 flex-col gap-6 p-6">{children}</div>
       </SidebarInset>
