@@ -591,6 +591,9 @@ export async function pollConnection(
       start: addDays(today, -entry.connector.capabilities.restatementWindowDays),
       end: today,
     },
+    // On-demand polls exist to show fresh numbers — chain a recompute after
+    // the ingest lands so scores don't stay stale until the nightly cron.
+    recompute: true,
   });
   return apiRoutes.connectionsPoll.response.parse({ ok: true });
 }

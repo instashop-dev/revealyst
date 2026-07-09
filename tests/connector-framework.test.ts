@@ -322,6 +322,110 @@ describe("connector-poll pipeline", () => {
     expect(rows.map((r) => r.dim).sort()).toEqual(["feature=composer"]);
   });
 
+  it("recompute flag: a successful poll chains one score-recompute anchored at previousDay", async () => {
+    const conn = await newConnection();
+    const { entry } = makeFake();
+    const window: DateWindow = { start: "2026-06-11", end: "2026-06-13" };
+    const sent: PollMessage[] = [];
+    await processPollMessage(
+      db,
+      {
+        kind: "connector-poll",
+        orgId,
+        connectionId: conn.id,
+        window,
+        recompute: true,
+      },
+      makeDeps(entry, sent),
+    );
+    // Enqueued from the consumer AFTER the ingest committed — ordering by
+    // construction — and anchored like the nightly tick so the score rows'
+    // period bounds coincide (idempotent upsert).
+    expect(sent).toEqual([
+      { kind: "score-recompute", orgId, day: "2026-06-12" },
+    ]);
+  });
+
+  it("recompute flag: a failed recompute enqueue never rethrows (the ingest already committed)", async () => {
+    const conn = await newConnection();
+    const { entry } = makeFake();
+    const window: DateWindow = { start: "2026-06-13", end: "2026-06-13" };
+    const deps = makeDeps(entry, []);
+    deps.send = async () => {
+      throw new Error("queue hiccup");
+    };
+    // Must resolve, not reject — rethrowing would retry the whole poll
+    // message and re-hit the vendor just to retry a one-line enqueue.
+    await processPollMessage(
+      db,
+      {
+        kind: "connector-poll",
+        orgId,
+        connectionId: conn.id,
+        window,
+        recompute: true,
+      },
+      deps,
+    );
+    const run = await forOrg(db, orgId).connectorRuns.latest(conn.id);
+    expect(run?.status).toBe("success");
+  });
+
+  it("recompute flag absent: the cron poll path chains nothing (nightly owns it)", async () => {
+    const conn = await newConnection();
+    const { entry } = makeFake();
+    const window: DateWindow = { start: "2026-06-11", end: "2026-06-13" };
+    const sent: PollMessage[] = [];
+    await processPollMessage(
+      db,
+      { kind: "connector-poll", orgId, connectionId: conn.id, window },
+      makeDeps(entry, sent),
+    );
+    expect(sent).toHaveLength(0);
+  });
+
+  it("recompute flag: no recompute when the run skips (paused) or fails permanently", async () => {
+    const scoped = forOrg(db, orgId);
+    const window: DateWindow = { start: "2026-06-13", end: "2026-06-13" };
+
+    const paused = await newConnection();
+    await scoped.connections.setStatus(paused.id, "paused");
+    const { entry } = makeFake();
+    const sentPaused: PollMessage[] = [];
+    await processPollMessage(
+      db,
+      {
+        kind: "connector-poll",
+        orgId,
+        connectionId: paused.id,
+        window,
+        recompute: true,
+      },
+      makeDeps(entry, sentPaused),
+    );
+    expect(sentPaused).toHaveLength(0);
+
+    const failing = await newConnection();
+    const { entry: failEntry } = makeFake({
+      pollError: () => new Error("401 bad key"),
+    });
+    const sentFailed: PollMessage[] = [];
+    await processPollMessage(
+      db,
+      {
+        kind: "connector-poll",
+        orgId,
+        connectionId: failing.id,
+        window,
+        recompute: true,
+      },
+      makeDeps(failEntry, sentFailed),
+    );
+    // Permanent failure ingested nothing — recomputing would only reprint
+    // stale numbers; the nightly tick still covers it.
+    expect(sentFailed).toHaveLength(0);
+  });
+
   it("a retryable vendor error propagates for queue retry and logs the attempt", async () => {
     const conn = await newConnection();
     const { entry } = makeFake({

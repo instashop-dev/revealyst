@@ -1,8 +1,13 @@
 import { Cable } from "lucide-react";
+// Populate the connector registry under plain `next dev` too (the worker
+// entrypoint does this in production) — canSync below reads it.
+import "@/connectors";
+import { getConnector } from "@/connectors/registry";
 import { AddConnectionDialog } from "@/components/add-connection-dialog";
 import { ConnectionRowActions } from "@/components/connection-row-actions";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { SyncAllButton, SyncNowButton } from "@/components/sync-buttons";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
 import {
   Table,
@@ -21,7 +26,18 @@ export default async function ConnectionsPage() {
   const ctx = await requireAppContext();
   const connections = await ctx.scope.connections.list();
   // Edit/delete are admin-only (ADR 0013); adding is open to all members.
+  // Sync now/all is open to all members too — the poll route isn't
+  // admin-only (the connect flow already fires it for any member).
   const isAdmin = ctx.role === "admin";
+  // Syncable = a vendor we can actually poll (the local agent pushes, it
+  // isn't polled) in a pollable state: pending has no credential yet and
+  // a paused connection's run would just skip itself.
+  const canSync = (c: (typeof connections)[number]) =>
+    !!getConnector(c.vendor) && (c.status === "active" || c.status === "error");
+  const syncableIds = connections.filter(canSync).map((c) => c.id);
+  // The trailing column exists only when it has something to hold — admins
+  // always (manage menu), members only when at least one row is syncable.
+  const showActions = isAdmin || syncableIds.length > 0;
 
   return (
     <>
@@ -29,6 +45,7 @@ export default async function ConnectionsPage() {
         title="Connections"
         description="Vendor integrations and their sync health."
       >
+        {syncableIds.length > 0 && <SyncAllButton connectionIds={syncableIds} />}
         <AddConnectionDialog />
       </PageHeader>
       {connections.length === 0 ? (
@@ -47,7 +64,7 @@ export default async function ConnectionsPage() {
                 <TableHead>Connection</TableHead>
                 <TableHead>Vendor</TableHead>
                 <TableHead>Sync status</TableHead>
-                {isAdmin && <TableHead className="w-10" />}
+                {showActions && <TableHead className="w-24" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -66,16 +83,28 @@ export default async function ConnectionsPage() {
                       lastError={connection.lastError}
                     />
                   </TableCell>
-                  {isAdmin && (
+                  {showActions && (
                     <TableCell className="text-right">
-                      <ConnectionRowActions
-                        connection={{
-                          id: connection.id,
-                          vendor: connection.vendor,
-                          displayName: connection.displayName,
-                          status: connection.status,
-                        }}
-                      />
+                      <div className="flex items-center justify-end gap-1">
+                        {canSync(connection) && (
+                          <SyncNowButton
+                            connection={{
+                              id: connection.id,
+                              displayName: connection.displayName,
+                            }}
+                          />
+                        )}
+                        {isAdmin && (
+                          <ConnectionRowActions
+                            connection={{
+                              id: connection.id,
+                              vendor: connection.vendor,
+                              displayName: connection.displayName,
+                              status: connection.status,
+                            }}
+                          />
+                        )}
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>

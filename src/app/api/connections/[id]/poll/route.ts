@@ -1,3 +1,7 @@
+// Populate the connector registry in THIS route's module graph — api-impl
+// only imports the registry, and under plain `next dev` (no worker.ts) a
+// route served before any page would otherwise find it empty and 400.
+import "@/connectors";
 import { pollConnection } from "@/lib/api-impl";
 import { handleApi } from "@/lib/api-route";
 
