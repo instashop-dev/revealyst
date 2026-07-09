@@ -9,12 +9,14 @@ import {
   HONESTY_GAP_GLOSSARY,
   methodologyAnchor,
   METRIC_REFERENCE,
+  resolveGlossaryKey,
   SCORE_GLOSSARY,
   SCORE_SLUGS,
   SHARED_ACCOUNT_REASON_LABELS,
   type HonestyGapKind,
 } from "../src/lib/metrics-glossary";
 import type { SharedAccountReason } from "../src/lib/shared-account/heuristics";
+import { BANNED_PHRASING } from "./helpers/banned-phrasing";
 
 // Completeness tripwires for the plain-English glossary: every live preset
 // component, every HonestyGap kind, every attribution level, every
@@ -42,9 +44,6 @@ const SHARED_ACCOUNT_REASONS: SharedAccountReason[] = [
   "concurrent_usage",
   "volume_exceeds_team_median",
 ];
-
-const BANNED_PHRASING =
-  /industry (average|standard|benchmark)|top.quartile|percentile|typical (teams|orgs) score/i;
 
 describe("SCORE_GLOSSARY ≡ live preset components (drizzle/0009 seed)", () => {
   const rowPattern =
@@ -151,13 +150,19 @@ describe("METRIC_REFERENCE ≡ metric_catalog seed (drizzle/0007)", () => {
   });
 });
 
+// The two ad-hoc anchor ids the methodology page mints directly (not sourced
+// from any glossary map) — "When data is incomplete" and "Metrics
+// reference" section headings (src/app/(app)/methodology/page.tsx).
+const PAGE_ONLY_ANCHOR_KEYS = ["honestyGaps", "metricsReference"];
+
 describe("methodologyAnchor", () => {
-  it("is unique across every score, component, concept, and metric key", () => {
+  it("is unique across every score, component, concept, metric, and page-only key", () => {
     const keys: string[] = [
       ...SCORE_SLUGS,
       ...SCORE_SLUGS.flatMap((slug) => Object.keys(SCORE_GLOSSARY[slug].components)),
       ...Object.keys(CONCEPT_GLOSSARY),
       ...Object.keys(METRIC_REFERENCE),
+      ...PAGE_ONLY_ANCHOR_KEYS,
     ];
     const anchors = keys.map(methodologyAnchor);
     expect(new Set(anchors).size).toBe(anchors.length);
@@ -176,6 +181,12 @@ describe("banned-phrasing guard (invariant b: no invented benchmarks)", () => {
     for (const slug of SCORE_SLUGS) {
       const score = SCORE_GLOSSARY[slug];
       strings.push({ where: `SCORE_GLOSSARY.${slug}.howToInterpret`, text: score.howToInterpret });
+      for (const tone of ["low", "building", "strong"] as const) {
+        strings.push({
+          where: `SCORE_GLOSSARY.${slug}.interpretBands.${tone}`,
+          text: score.interpretBands[tone],
+        });
+      }
       for (const [key, component] of Object.entries(score.components)) {
         strings.push({
           where: `SCORE_GLOSSARY.${slug}.components.${key}.howToInterpret`,
@@ -189,9 +200,68 @@ describe("banned-phrasing guard (invariant b: no invented benchmarks)", () => {
     return strings;
   }
 
-  it("no howToInterpret string states a benchmark/threshold as fact", () => {
+  it("no howToInterpret/interpretBands string states a benchmark/threshold as fact", () => {
     for (const { where, text } of collectInterpretStrings()) {
       expect(BANNED_PHRASING.test(text), `${where} matches banned phrasing: "${text}"`).toBe(false);
+    }
+  });
+});
+
+describe("SCORE_GLOSSARY.interpretBands completeness", () => {
+  it("every score has non-empty low/building/strong band guidance", () => {
+    for (const slug of SCORE_SLUGS) {
+      const bands = SCORE_GLOSSARY[slug].interpretBands;
+      for (const tone of ["low", "building", "strong"] as const) {
+        expect(bands[tone], `SCORE_GLOSSARY.${slug}.interpretBands.${tone} is missing`).toBeTruthy();
+      }
+    }
+  });
+});
+
+describe("resolveGlossaryKey / relatedKeys resolvability", () => {
+  // The known-anchors set: every key relatedKeys is allowed to point at —
+  // score slugs, every score's component keys, concept keys, honesty-gap
+  // kinds, and shared-account reasons (mirrors what the methodology page
+  // actually renders an anchor id for).
+  const knownAnchorKeys = new Set<string>([
+    ...SCORE_SLUGS,
+    ...SCORE_SLUGS.flatMap((slug) => Object.keys(SCORE_GLOSSARY[slug].components)),
+    ...Object.keys(CONCEPT_GLOSSARY),
+    ...HONESTY_GAP_KINDS,
+    ...SHARED_ACCOUNT_REASONS,
+  ]);
+
+  function collectRelatedKeys(): { where: string; relatedKeys: string[] }[] {
+    const entries: { where: string; relatedKeys: string[] }[] = [];
+    for (const slug of SCORE_SLUGS) {
+      const score = SCORE_GLOSSARY[slug];
+      entries.push({ where: `SCORE_GLOSSARY.${slug}`, relatedKeys: score.relatedKeys ?? [] });
+      for (const [key, component] of Object.entries(score.components)) {
+        entries.push({
+          where: `SCORE_GLOSSARY.${slug}.components.${key}`,
+          relatedKeys: component.relatedKeys ?? [],
+        });
+      }
+    }
+    for (const [key, concept] of Object.entries(CONCEPT_GLOSSARY)) {
+      entries.push({ where: `CONCEPT_GLOSSARY.${key}`, relatedKeys: concept.relatedKeys ?? [] });
+    }
+    return entries;
+  }
+
+  it("every relatedKeys member is in the known-anchors set", () => {
+    for (const { where, relatedKeys } of collectRelatedKeys()) {
+      for (const key of relatedKeys) {
+        expect(knownAnchorKeys.has(key), `${where}.relatedKeys has unknown key '${key}'`).toBe(true);
+      }
+    }
+  });
+
+  it("every relatedKeys member resolves via resolveGlossaryKey (renders a real 'See also' link)", () => {
+    for (const { where, relatedKeys } of collectRelatedKeys()) {
+      for (const key of relatedKeys) {
+        expect(resolveGlossaryKey(key), `${where}.relatedKeys '${key}' does not resolve`).toBeDefined();
+      }
     }
   });
 });

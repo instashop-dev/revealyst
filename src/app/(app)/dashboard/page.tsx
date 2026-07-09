@@ -32,7 +32,6 @@ import {
 import { listBenchmarks } from "@/db/benchmarks";
 import { requireAppContext, type AppContext } from "@/lib/api-context";
 import { dashboardSummary } from "@/lib/api-impl";
-import type { DefinitionRow, ScoreRow } from "@/lib/dashboard-read";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
 import { readDashboardView } from "@/lib/dashboard-view";
 import { formatCents } from "@/lib/format";
@@ -44,9 +43,10 @@ import {
 } from "@/lib/metrics-glossary";
 import { timeStage } from "@/lib/request-timing";
 import {
+  connectionAttentionInputs,
   deriveAttention,
   deriveDelta,
-  personDelta,
+  personDeltaResult,
   type AttentionItem,
   type DeltaResult,
 } from "@/lib/score-insights";
@@ -153,60 +153,6 @@ export default async function DashboardPage() {
   return <TeamOverview ctx={ctx} connections={connections} />;
 }
 
-/**
- * Wraps `personDelta`'s honest present/absent value into the richer
- * `DeltaResult` the score card renders, and adds the one thing `personDelta`
- * itself doesn't check: whether the previous period's row was scored against
- * the SAME definition version as the current one. `personDelta` matches any
- * version of a slug's definition (its `defIds` spans every version), so a
- * mid-period definition bump would otherwise get silently diffed as if it
- * were the same measurement — re-derive which row it matched (same filter,
- * mirrored here) purely to read that row's definition version back out.
- */
-function personalScoreDelta(
-  currentValue: number | null,
-  currentVersion: number | undefined,
-  prevRows: readonly ScoreRow[],
-  definitions: readonly DefinitionRow[],
-  slug: ScoreSlug,
-  previousPeriodLabel: string,
-): DeltaResult | null {
-  if (currentValue === null) return null;
-  const previous = personDelta(prevRows, definitions, slug, "month");
-  if (previous === null) return { kind: "first" };
-
-  const defIds = new Set(
-    definitions.filter((d) => d.slug === slug).map((d) => d.id),
-  );
-  const matches = prevRows.filter(
-    (row) =>
-      row.subjectLevel === "person" &&
-      row.periodGrain === "month" &&
-      defIds.has(row.definitionId),
-  );
-  const latestRow = matches.reduce((best, row) =>
-    row.periodEnd > best.periodEnd ? row : best,
-  );
-  const previousVersion = definitions.find(
-    (d) => d.id === latestRow.definitionId,
-  )?.version;
-  if (
-    currentVersion != null &&
-    previousVersion != null &&
-    previousVersion !== currentVersion
-  ) {
-    return { kind: "notComparable", reason: "definitionVersion" };
-  }
-
-  return {
-    kind: "delta",
-    current: currentValue,
-    previous,
-    delta: Math.round((currentValue - previous) * 10_000) / 10_000,
-    previousPeriodLabel,
-  };
-}
-
 async function PersonalSelfView({
   ctx,
   connections,
@@ -223,21 +169,34 @@ async function PersonalSelfView({
   // (which stays the current month, feeding "Spend this month") — it exists
   // purely to compute a same-definition-version delta, never to widen what
   // spend is summed over.
+  // Kicked off once, then handed to BOTH `dashboardSummary` (which otherwise
+  // fetches its own definitions internally, via hydrateScoreResults) and this
+  // Promise.all directly — one definitions query per page load, not two,
+  // while staying at round-trip depth 1 (dashboardSummary awaits the same
+  // in-flight promise rather than starting a second query).
+  const definitionsPromise = ctx.scope.scores.definitions();
   const [summary, verifiedBenchmarks, definitions, prevScores] = await timeStage(
     "pageData",
     () =>
       Promise.all([
-        dashboardSummary(ctx.scope, ctx.org.visibilityMode, {
-          from: period.periodStart,
-          to: period.periodEnd,
-        }),
+        dashboardSummary(
+          ctx.scope,
+          ctx.org.visibilityMode,
+          { from: period.periodStart, to: period.periodEnd },
+          { definitions: definitionsPromise },
+        ),
         // Personal self-view compares against the "overall" segment — an
         // enterprise/smb norm is not this solo user's peer group.
         listBenchmarks(ctx.db, { status: "verified", segment: "overall" }),
-        ctx.scope.scores.definitions(),
+        definitionsPromise,
+        // Person-level only — this read exists purely to compute a
+        // same-definition-version personal delta, so team/org-level rows
+        // (which `personDeltaResult` would filter out in JS anyway) are
+        // never fetched from Postgres in the first place.
         ctx.scope.scores.results({
           from: prevPeriod.periodStart,
           to: prevPeriod.periodEnd,
+          subjectLevel: "person",
         }),
       ]),
   );
@@ -259,14 +218,15 @@ async function PersonalSelfView({
       const score = scores.get(slug);
       return [
         slug,
-        personalScoreDelta(
-          score?.value ?? null,
-          score?.definitionVersion,
-          prevScores,
+        personDeltaResult({
+          currentValue: score?.value ?? null,
+          currentVersion: score?.definitionVersion,
+          prevRows: prevScores,
           definitions,
           slug,
-          prevMonthLabel,
-        ),
+          grain: "month",
+          previousPeriodLabel: prevMonthLabel,
+        }),
       ];
     }),
   );
@@ -288,18 +248,16 @@ async function PersonalSelfView({
   // (rather than shown and then dead-ending). It's further gated on having no
   // computed score yet (old behavior) — once scores are computing, the
   // unresolved-usage callout would just be noise alongside real numbers.
+  // Both guards are shaped as raw facts and gated INSIDE deriveAttention now
+  // (not by this call site's ternary) — see deriveAttention's unresolvedUsage
+  // doc comment for why.
   const attentionItems = deriveAttention({
-    connections: connections
-      .filter((c) => c.status === "error" || c.status === "paused")
-      .map((c) => ({
-        id: c.id,
-        label: vendorLabel(c.vendor),
-        status: c.status as "error" | "paused",
-      })),
-    unresolvedSubjects:
-      ctx.role === "admin" && scores.size === 0
-        ? summary.unresolvedSubjects
-        : undefined,
+    connections: connectionAttentionInputs(connections),
+    unresolvedUsage: {
+      count: summary.unresolvedSubjects,
+      viewerIsAdmin: ctx.role === "admin",
+      scoresExist: scores.size > 0,
+    },
     gaps: summary.gaps,
     sharedAccountCount: 0,
     scoreDrops,
@@ -488,13 +446,7 @@ async function TeamOverview({
   // fetch connector_runs, and adding that read is out of scope for this
   // strip; the identity-link callout stays personal/admin-only).
   const attentionItems = deriveAttention({
-    connections: connections
-      .filter((c) => c.status === "error" || c.status === "paused")
-      .map((c) => ({
-        id: c.id,
-        label: vendorLabel(c.vendor),
-        status: c.status as "error" | "paused",
-      })),
+    connections: connectionAttentionInputs(connections),
     gaps: [],
     sharedAccountCount: sharedAccounts.length,
     scoreDrops,

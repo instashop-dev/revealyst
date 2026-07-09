@@ -16,6 +16,7 @@ import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -51,8 +52,6 @@ export type ScoreCardData = {
   componentRows: ComponentDetailRow[];
   methodologyHref: string;
   footer?: ReactNode;
-  /** e.g. a share button, rendered top-right alongside the attribution badge. */
-  headerSlot?: ReactNode;
 };
 
 function DeltaChip({ delta, title }: { delta: DeltaResult; title: string }) {
@@ -200,22 +199,24 @@ export function ScoreCard({ data }: { data: ScoreCardData }) {
               learnMoreHref={data.methodologyHref}
             />
           </div>
-          {(attribution || data.headerSlot) && (
+          {attribution ? (
             <div className="flex items-center gap-2">
-              {attribution ? (
-                <Badge variant="outline" className="gap-1 pr-1.5">
-                  {ATTRIBUTION_GLOSSARY[attribution].label} — not per-person
-                  <InfoTip
-                    label={ATTRIBUTION_GLOSSARY[attribution].label}
-                    short={ATTRIBUTION_GLOSSARY[attribution].shortWhat}
-                    detail={ATTRIBUTION_GLOSSARY[attribution].caveat}
-                  />
-                </Badge>
-              ) : null}
-              {data.headerSlot}
+              <Badge variant="outline" className="gap-1 pr-1.5">
+                {ATTRIBUTION_GLOSSARY[attribution].label} — not per-person
+                <InfoTip
+                  label={ATTRIBUTION_GLOSSARY[attribution].label}
+                  short={ATTRIBUTION_GLOSSARY[attribution].shortWhat}
+                  detail={ATTRIBUTION_GLOSSARY[attribution].caveat}
+                />
+              </Badge>
             </div>
-          )}
+          ) : null}
         </div>
+        {/* Always-visible one-liner (not just via the InfoTip popover) — the
+         * two pre-redesign cards both surfaced a short description without
+         * requiring a click; the InfoTip stays for the popover's extra
+         * "how calculated" detail + methodology link, not as a replacement. */}
+        <CardDescription>{data.shortWhat}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {computed ? (
@@ -238,7 +239,12 @@ export function ScoreCard({ data }: { data: ScoreCardData }) {
               </span>
             ) : null}
             <p className="text-sm text-muted-foreground">
-              {interpretScore(data.value as number, data.slug).guidance}
+              {/* Band on the same rounded number the headline displays, not
+               * the raw value — at 39.6 the headline reads "40", so the
+               * guidance must be the 40-69 band's, not the sub-40 band's
+               * (invariant b: the card can't show a number and a
+               * contradicting story about that number in the same breath). */}
+              {interpretScore(Math.round(data.value as number), data.slug).guidance}
               {data.componentRows.length > 0
                 ? " The breakdown shows what's driving this."
                 : ""}

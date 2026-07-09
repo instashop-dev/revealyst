@@ -73,7 +73,6 @@ type CommonArgs = {
   slug: ScoreSlug;
   definitions: readonly DefinitionRow[];
   delta?: DeltaResult | null;
-  headerSlot?: ReactNode;
 };
 
 function baseCardData(
@@ -98,7 +97,6 @@ function baseCardData(
     componentRows,
     methodologyHref: `/methodology#${methodologyAnchor(args.slug)}`,
     footer: args.footer,
-    headerSlot: args.headerSlot,
   };
 }
 

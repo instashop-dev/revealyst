@@ -42,6 +42,16 @@ export type ScoreSlug = "adoption" | "fluency" | "efficiency";
 export type ScoreGlossaryEntry = GlossaryEntry & {
   slug: ScoreSlug;
   components: Record<string, GlossaryEntry>;
+  /** Per-tone reading guidance, banded by the same rounded three-way split
+   * (0–39 low / 40–69 building / 70–100 strong) src/lib/score-insights.ts's
+   * `interpretScore` uses for the score card. This is the ONE copy source
+   * for that banded framing — the methodology page renders these same three
+   * strings under "How to read it, by range" so the card and the
+   * methodology page can never tell a different story about the same score.
+   * Framing only, never a stated benchmark/threshold as fact (invariant b) —
+   * same discipline as `howToInterpret`, just split per band instead of one
+   * paragraph. */
+  interpretBands: { low: string; building: string; strong: string };
 };
 
 export const SCORE_SLUGS: readonly ScoreSlug[] = [
@@ -327,6 +337,11 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     misconception:
       "Adoption is not a completeness score — a perfect 100 just means both components hit their scaling ceilings, not that every possible AI feature is in use.",
     relatedKeys: ["fluency", "active_days", "tool_coverage"],
+    interpretBands: {
+      low: "There's room to build a more regular habit here, or to reach for more of what's connected.",
+      building: "A habit is forming — look for ways to use AI more consistently or broaden which tools or features get used.",
+      strong: "Usage is broad and consistent across the period.",
+    },
     components: {
       active_days: {
         key: "active_days",
@@ -389,6 +404,11 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     misconception:
       "The three weights are 0.33 / 0.33 / 0.34, not an even three-way split — Effectiveness carries a hair more weight than the other two.",
     relatedKeys: ["adoption", "breadth", "depth", "effectiveness"],
+    interpretBands: {
+      low: "Breadth, depth, or how often suggestions get accepted all have room to grow here.",
+      building: "Fluency is developing — usage is broadening, or suggestions are starting to land more often.",
+      strong: "Usage is broad, regular, and suggestions are landing well.",
+    },
     components: {
       breadth: {
         key: "breadth",
@@ -468,6 +488,11 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     misconception:
       "Efficiency's denominator is always billed, vendor-authoritative spend (spend_cents) — estimated spend is a separate figure shown alongside it and never feeds either ratio, no matter how confident the estimate is.",
     relatedKeys: ["output_per_spend", "engagement_per_spend"],
+    interpretBands: {
+      low: "Value per dollar is low relative to spend right now — that can mean low usage, but it can also mean spend is high relative to usage, so check the spend figures alongside it.",
+      building: "Value per dollar is building relative to spend — usage and spend are starting to balance out.",
+      strong: "Value per dollar is strong relative to spend — accepted output and engagement are high for what's being spent.",
+    },
     components: {
       output_per_spend: {
         key: "output_per_spend",
@@ -725,4 +750,48 @@ export function methodologyAnchor(key: string): string {
     .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
     .replace(/_/g, "-")
     .toLowerCase();
+}
+
+/**
+ * Resolves any `relatedKeys` entry — a score slug, a component key, a
+ * concept key, an honesty-gap kind, or a shared-account reason — to its
+ * display label and methodology anchor id. Backs the "See also" links the
+ * methodology page renders under every glossary entry that has
+ * `relatedKeys`. Returns `undefined` for an unresolvable key rather than a
+ * guessed label/anchor — a `relatedKeys` value with no real target should
+ * fail a test, not silently render a dead link (see the methodology page's
+ * known-anchors coverage assertion).
+ */
+export function resolveGlossaryKey(
+  key: string,
+): { label: string; anchor: string } | undefined {
+  if ((SCORE_SLUGS as readonly string[]).includes(key)) {
+    return {
+      label: SCORE_GLOSSARY[key as ScoreSlug].plainName,
+      anchor: methodologyAnchor(key),
+    };
+  }
+  for (const slug of SCORE_SLUGS) {
+    const component = SCORE_GLOSSARY[slug].components[key];
+    if (component) {
+      return { label: component.plainName, anchor: methodologyAnchor(key) };
+    }
+  }
+  if (key in CONCEPT_GLOSSARY) {
+    const concept = CONCEPT_GLOSSARY[key as keyof typeof CONCEPT_GLOSSARY];
+    return { label: concept.plainName, anchor: methodologyAnchor(key) };
+  }
+  if (key in HONESTY_GAP_GLOSSARY) {
+    return {
+      label: HONESTY_GAP_GLOSSARY[key as HonestyGapKind].label,
+      anchor: methodologyAnchor(key),
+    };
+  }
+  if (key in SHARED_ACCOUNT_REASON_LABELS) {
+    return {
+      label: SHARED_ACCOUNT_REASON_LABELS[key as SharedAccountReason],
+      anchor: methodologyAnchor(key),
+    };
+  }
+  return undefined;
 }

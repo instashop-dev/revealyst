@@ -22,10 +22,13 @@ import {
   CONCEPT_GLOSSARY,
   HONESTY_GAP_GLOSSARY,
   METRIC_REFERENCE,
+  resolveGlossaryKey,
   SCORE_GLOSSARY,
   SCORE_SLUGS,
+  SHARED_ACCOUNT_REASON_LABELS,
   methodologyAnchor,
   type GlossaryEntry,
+  type ScoreGlossaryEntry,
   type ScoreSlug,
 } from "@/lib/metrics-glossary";
 
@@ -125,6 +128,42 @@ function GlossaryBody({
         <p className="border-l-2 border-border pl-3 italic">{entry.example}</p>
       ) : null}
       {entry.misconception ? <Misconception text={entry.misconception} /> : null}
+      {entry.relatedKeys && entry.relatedKeys.length > 0 ? (
+        <p>
+          <span className="font-medium text-foreground">See also. </span>
+          {entry.relatedKeys.map((key, i) => {
+            const resolved = resolveGlossaryKey(key);
+            if (!resolved) return null;
+            return (
+              <span key={key}>
+                {i > 0 ? ", " : ""}
+                <Link
+                  href={`#${resolved.anchor}`}
+                  className="text-primary underline-offset-4 hover:underline"
+                >
+                  {resolved.label}
+                </Link>
+              </span>
+            );
+          })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The three `interpretBands` strings, rendered under a score's "How to read
+ * it" prose — the same copy source src/lib/score-insights.ts's
+ * `interpretScore` reads for the score card, so the card and this page can
+ * never tell a different story about the same score (see
+ * ScoreGlossaryEntry.interpretBands). */
+function InterpretBands({ entry }: { entry: ScoreGlossaryEntry }) {
+  return (
+    <div className="max-w-prose space-y-1 text-sm text-muted-foreground">
+      <p className="font-medium text-foreground">How to read it, by range.</p>
+      <p>Lower scores (0–39). {entry.interpretBands.low}</p>
+      <p>Mid-range (40–69). {entry.interpretBands.building}</p>
+      <p>Higher scores (70–100). {entry.interpretBands.strong}</p>
     </div>
   );
 }
@@ -141,6 +180,7 @@ function ScoreSection({ slug }: { slug: ScoreSlug }) {
       </CardHeader>
       <CardContent className="space-y-6">
         <GlossaryBody entry={entry} showDefinitionNote />
+        <InterpretBands entry={entry} />
         <div className="space-y-6 border-t pt-6">
           {Object.values(entry.components).map((component) => (
             <div key={component.key} className="space-y-3">
@@ -212,6 +252,21 @@ export default function MethodologyPage() {
             Shared accounts
           </SectionHeading>
           <GlossaryBody entry={CONCEPT_GLOSSARY.sharedAccounts} />
+          <dl className="grid gap-3 sm:grid-cols-3">
+            {Object.entries(SHARED_ACCOUNT_REASON_LABELS).map(([reason, label]) => (
+              <div
+                key={reason}
+                className="rounded-lg bg-card p-3 text-sm ring-1 ring-foreground/10"
+              >
+                <dt
+                  id={methodologyAnchor(reason)}
+                  className="scroll-mt-20 font-medium text-foreground"
+                >
+                  {label}
+                </dt>
+              </div>
+            ))}
+          </dl>
           <Button variant="outline" nativeButton={false} render={<Link href="/playbook" />}>
             Open the visibility-readiness playbook
           </Button>

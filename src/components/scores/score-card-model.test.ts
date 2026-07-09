@@ -154,7 +154,7 @@ describe("fromDashboardScore", () => {
     expect(data.methodologyHref).toBe("/methodology#adoption");
   });
 
-  it("passes through delta, footer, and headerSlot untouched", () => {
+  it("passes through delta and footer untouched", () => {
     const delta = { kind: "first" as const };
     const data = fromDashboardScore({
       slug: "fluency",
@@ -162,11 +162,9 @@ describe("fromDashboardScore", () => {
       definitions: [FLUENCY_V1],
       delta,
       footer: "footer-node",
-      headerSlot: "header-node",
     });
     expect(data.delta).toBe(delta);
     expect(data.footer).toBe("footer-node");
-    expect(data.headerSlot).toBe("header-node");
   });
 });
 

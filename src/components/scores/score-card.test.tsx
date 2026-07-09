@@ -192,4 +192,25 @@ describe("ScoreCard", () => {
     expect(screen.getByText(/relative to spend/i)).toBeInTheDocument();
     expect(screen.queryByText(/Usage is broad and consistent/i)).not.toBeInTheDocument();
   });
+
+  it("bands the guidance on the ROUNDED headline number, not the raw value — 39.6 displays as 40 and reads the 40-69 band", () => {
+    render(
+      <ScoreCard
+        data={baseData({ slug: "adoption", value: 39.6, componentRows: [] })}
+      />,
+    );
+    expect(screen.getByText("40")).toBeInTheDocument();
+    // Adoption's "building" (40-69) band copy — see SCORE_GLOSSARY.adoption
+    // .interpretBands.building in src/lib/metrics-glossary.ts. The raw value
+    // 39.6 falls in the "low" (<40) band; asserting this text proves the
+    // card banded on the displayed "40", not the underlying 39.6.
+    expect(screen.getByText(/A habit is forming/i)).toBeInTheDocument();
+  });
+
+  it("shortWhat is always visible as a CardDescription, without opening the InfoTip popover", () => {
+    render(<ScoreCard data={baseData()} />);
+    expect(
+      screen.getByText("How broadly, deeply, and effectively your team uses AI tools."),
+    ).toBeInTheDocument();
+  });
 });

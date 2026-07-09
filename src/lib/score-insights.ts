@@ -6,9 +6,11 @@ import {
   componentLabel,
   describeCalculation,
   HONESTY_GAP_GLOSSARY,
+  SCORE_GLOSSARY,
   type HonestyGapKind,
   type ScoreSlug,
 } from "./metrics-glossary";
+import { vendorLabel } from "./vendor-labels";
 
 // Pure derivation helpers for the metrics-UX redesign (score deltas,
 // per-person deltas, reading bands, component-detail rows, and the
@@ -89,7 +91,11 @@ export type FormattedDelta = {
 export function formatDelta(
   delta: Extract<DeltaResult, { kind: "delta" }>,
 ): FormattedDelta {
-  const rounded = Math.round(delta.delta);
+  // Symmetric half-away-from-zero rounding, NOT Math.round directly:
+  // Math.round(-0.5) is -0 (JS rounds .5 toward +Infinity), which would make
+  // a -0.5 delta render as "no change" while +0.5 renders "▲ +1" — an
+  // asymmetric honesty bug, not just a cosmetic one.
+  const rounded = Math.sign(delta.delta) * Math.round(Math.abs(delta.delta));
   const direction: FormattedDelta["direction"] =
     rounded > 0 ? "up" : rounded < 0 ? "down" : "none";
   const text =
@@ -106,34 +112,67 @@ export function formatDelta(
 // ─── Person-level delta ───
 
 /**
- * The latest person-level score for `slug`/`grain` among `prevRows` (rows
- * from the PREVIOUS period only — the caller fetches that window). Returns
- * `null` when absent, never 0 — absence of a prior score is not "no change",
- * it's "nothing to compare against" (same honesty rule the engine applies to
- * missing metric rows).
+ * The personal self-view's delta mechanism: compares a person's current
+ * score value against the latest person-level row for the same slug/grain
+ * among `prevRows` (rows from the PREVIOUS period only — the caller fetches
+ * that window), narrowed into the same `DeltaResult` shape `deriveDelta`
+ * produces for the team dashboard's trend-based delta.
+ *
+ * `currentValue === null` → `null` (no delta to show at all — never a
+ * fabricated comparison). No prior row among `prevRows` → `{ kind: "first" }`
+ * (never 0 — absence of a prior score is not "no change", it's "nothing to
+ * compare against", same honesty rule the engine applies to missing metric
+ * rows). Otherwise the matched row's definition version is checked against
+ * `currentVersion`: any mismatch, OR the matched row's definition being
+ * unresolvable (a dangling `definitionId`), OR `currentVersion` itself being
+ * `undefined` all fail SAFE into `{ kind: "notComparable", reason:
+ * "definitionVersion" }` — a dangling/unknown version must never silently
+ * produce a delta as if it were a same-definition comparison.
  */
-export function personDelta(
-  prevRows: readonly ScoreRow[],
-  definitions: readonly DefinitionRow[],
-  slug: ScoreSlug,
-  grain: PeriodGrain,
-): number | null {
+export function personDeltaResult(args: {
+  currentValue: number | null;
+  currentVersion: number | undefined;
+  prevRows: readonly ScoreRow[];
+  definitions: readonly DefinitionRow[];
+  slug: ScoreSlug;
+  grain: PeriodGrain;
+  previousPeriodLabel: string;
+}): DeltaResult | null {
+  if (args.currentValue === null) {
+    return null;
+  }
   const defIds = new Set(
-    definitions.filter((d) => d.slug === slug).map((d) => d.id),
+    args.definitions.filter((d) => d.slug === args.slug).map((d) => d.id),
   );
-  const matches = prevRows.filter(
+  const matches = args.prevRows.filter(
     (row) =>
       row.subjectLevel === "person" &&
-      row.periodGrain === grain &&
+      row.periodGrain === args.grain &&
       defIds.has(row.definitionId),
   );
   if (matches.length === 0) {
-    return null;
+    return { kind: "first" };
   }
   const latest = matches.reduce((best, row) =>
     row.periodEnd > best.periodEnd ? row : best,
   );
-  return latest.value;
+  const previousVersion = args.definitions.find(
+    (d) => d.id === latest.definitionId,
+  )?.version;
+  if (
+    args.currentVersion === undefined ||
+    previousVersion === undefined ||
+    previousVersion !== args.currentVersion
+  ) {
+    return { kind: "notComparable", reason: "definitionVersion" };
+  }
+  return {
+    kind: "delta",
+    current: args.currentValue,
+    previous: latest.value,
+    delta: round4(args.currentValue - latest.value),
+    previousPeriodLabel: args.previousPeriodLabel,
+  };
 }
 
 // ─── Reading bands ───
@@ -141,41 +180,23 @@ export function personDelta(
 export type ScoreTone = "low" | "building" | "strong";
 
 /**
- * Per-slug guidance text, keyed by the same rounded three-way split
+ * Per-slug guidance text lives in the glossary now (`SCORE_GLOSSARY[slug]
+ * .interpretBands`, src/lib/metrics-glossary.ts) — one copy source shared by
+ * this card-facing helper AND the methodology page's "How to read it, by
+ * range" lines, so the two surfaces can't drift into telling different
+ * stories about the same score. Banded by the same rounded three-way split
  * (0–39 / 40–69 / 70–100) used for every score — NOT derived from any
- * benchmark, dataset, or "typical" org. Each string only claims what that
- * particular score measures (a slug-blind guidance string previously
- * rendered Adoption-shaped claims — "usage is broad and consistent" — under
- * Efficiency and Fluency scores too, which is a different signal for each).
- * Guidance is framing only; it never states a threshold or comparison as
- * fact (invariant b), and it never references the component breakdown UI —
- * the card adds that sentence itself, only when there is a breakdown to
- * point at (see score-card.tsx).
+ * benchmark, dataset, or "typical" org. Guidance is framing only; it never
+ * states a threshold or comparison as fact (invariant b), and it never
+ * references the component breakdown UI — the card adds that sentence
+ * itself, only when there is a breakdown to point at (see score-card.tsx).
  */
-const INTERPRET_GUIDANCE: Record<ScoreSlug, Record<ScoreTone, string>> = {
-  adoption: {
-    low: "There's room to build a more regular habit here, or to reach for more of what's connected.",
-    building: "A habit is forming — look for ways to use AI more consistently or broaden which tools or features get used.",
-    strong: "Usage is broad and consistent across the period.",
-  },
-  fluency: {
-    low: "Breadth, depth, or how often suggestions get accepted all have room to grow here.",
-    building: "Fluency is developing — usage is broadening, or suggestions are starting to land more often.",
-    strong: "Usage is broad, regular, and suggestions are landing well.",
-  },
-  efficiency: {
-    low: "Value per dollar is low relative to spend right now — that can mean low usage, but it can also mean spend is high relative to usage, so check the spend figures alongside it.",
-    building: "Value per dollar is building relative to spend — usage and spend are starting to balance out.",
-    strong: "Value per dollar is strong relative to spend — accepted output and engagement are high for what's being spent.",
-  },
-};
-
 export function interpretScore(
   value: number,
   slug: ScoreSlug,
 ): { tone: ScoreTone; guidance: string } {
   const tone: ScoreTone = value < 40 ? "low" : value < 70 ? "building" : "strong";
-  return { tone, guidance: INTERPRET_GUIDANCE[slug][tone] };
+  return { tone, guidance: SCORE_GLOSSARY[slug].interpretBands[tone] };
 }
 
 // ─── Component detail rows ───
@@ -265,6 +286,26 @@ const MEANINGFUL_SCORE_DROP = 10;
 
 type ScoredAttentionItem = AttentionItem & { impact: number };
 
+export type AttentionConnection = { label: string; status: "error" | "paused" };
+
+/**
+ * Shapes a raw connections list into `deriveAttention`'s `connections`
+ * input — the identical `.filter(status is error/paused).map(...)` chain
+ * both dashboard/page.tsx call sites (personal self-view and team overview)
+ * used to repeat verbatim. `id` is dropped from the output shape: neither
+ * this function nor `deriveAttention` ever read it, only `label`/`status`.
+ */
+export function connectionAttentionInputs(
+  connections: { vendor: string; status: string; id: string }[],
+): AttentionConnection[] {
+  return connections
+    .filter((c) => c.status === "error" || c.status === "paused")
+    .map((c) => ({
+      label: vendorLabel(c.vendor),
+      status: c.status as "error" | "paused",
+    }));
+}
+
 /**
  * Builds the "what needs attention" list from dashboard-view inputs. Ordered
  * by severity (`action` before `info`), then by a presentational impact
@@ -273,12 +314,19 @@ type ScoredAttentionItem = AttentionItem & { impact: number };
  * `MEANINGFUL_SCORE_DROP`; smaller drops are noise at this altitude.
  */
 export function deriveAttention(input: {
-  /** Caller passes a display label (e.g. `vendorLabel(c.vendor)`), never the
-   * raw vendor slug — this function must not interpolate an internal slug
-   * into user-facing copy. "paused" connections surface as an "info" item
-   * (syncing is intentionally stopped, not broken); "error" stays "action". */
-  connections: { id: string; label: string; status: "error" | "paused" }[];
-  unresolvedSubjects?: number;
+  /** Caller passes a display label (e.g. via `connectionAttentionInputs`),
+   * never the raw vendor slug — this function must not interpolate an
+   * internal slug into user-facing copy. "paused" connections surface as an
+   * "info" item (syncing is intentionally stopped, not broken); "error"
+   * stays "action". */
+  connections: AttentionConnection[];
+  /** The unresolved-usage/reconcile callout's gate lives IN HERE, not in how
+   * the caller shapes its input — see CLAUDE.md's gate-check finding
+   * pattern ("a new call site forgot a guard its siblings already had").
+   * Passing the raw facts and gating centrally means a future caller can't
+   * silently ship the callout without the admin-only, no-scores-yet guard
+   * simply by forgetting to replicate the ternary a sibling call site used. */
+  unresolvedUsage?: { count: number; viewerIsAdmin: boolean; scoresExist: boolean };
   gaps: { kind: string; detail?: string }[];
   sharedAccountCount: number;
   scoreDrops: { slug: ScoreSlug; delta: number }[];
@@ -305,14 +353,19 @@ export function deriveAttention(input: {
     }
   }
 
-  const unresolved = input.unresolvedSubjects ?? 0;
-  if (unresolved > 0) {
+  const unresolved = input.unresolvedUsage;
+  if (
+    unresolved &&
+    unresolved.count > 0 &&
+    unresolved.viewerIsAdmin &&
+    !unresolved.scoresExist
+  ) {
     items.push({
       severity: "action",
       title: "Unresolved usage found",
-      body: `${unresolved} account${unresolved === 1 ? "" : "s"} from your tools ${unresolved === 1 ? "isn't" : "aren't"} linked to a person yet, so Adoption, Fluency, and Efficiency can't compute for ${unresolved === 1 ? "it" : "them"}.`,
+      body: `${unresolved.count} account${unresolved.count === 1 ? "" : "s"} from your tools ${unresolved.count === 1 ? "isn't" : "aren't"} linked to a person yet, so Adoption, Fluency, and Efficiency can't compute for ${unresolved.count === 1 ? "it" : "them"}.`,
       href: "/reconcile",
-      impact: 50 + unresolved,
+      impact: 50 + unresolved.count,
     });
   }
 

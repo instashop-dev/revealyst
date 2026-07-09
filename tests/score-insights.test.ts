@@ -3,13 +3,15 @@ import type { ScoreComponent } from "../src/contracts/scores";
 import type { ScoreTrendPoint } from "../src/lib/dashboard-trends";
 import { SCORE_SLUGS } from "../src/lib/metrics-glossary";
 import {
+  connectionAttentionInputs,
   deriveAttention,
   deriveDelta,
   formatComponentDetail,
   formatDelta,
   interpretScore,
-  personDelta,
+  personDeltaResult,
 } from "../src/lib/score-insights";
+import { BANNED_PHRASING } from "./helpers/banned-phrasing";
 
 // Pure-function suite: no DB, no I/O.
 
@@ -97,7 +99,7 @@ describe("deriveDelta", () => {
   });
 });
 
-describe("personDelta", () => {
+describe("personDeltaResult", () => {
   type Row = {
     id: string;
     orgId: string;
@@ -136,12 +138,12 @@ describe("personDelta", () => {
     status: "active" | "draft" | "retired";
     createdAt: Date;
   };
-  function def(id: string, slug: string): Def {
+  function def(id: string, slug: string, version = 1): Def {
     return {
       id,
       orgId: null,
       slug,
-      version: 1,
+      version,
       name: slug,
       subjectLevel: "person",
       components: [],
@@ -151,13 +153,20 @@ describe("personDelta", () => {
   }
   const defs: Def[] = [def("def-adoption-1", "adoption"), def("def-fluency-1", "fluency")];
 
-  it("no prior row → null (never 0)", () => {
-    const result = personDelta([], defs, "adoption", "month");
+  it("currentValue null → null (never a fabricated comparison)", () => {
+    const result = personDeltaResult({
+      currentValue: null,
+      currentVersion: 1,
+      prevRows: [],
+      definitions: defs,
+      slug: "adoption",
+      grain: "month",
+      previousPeriodLabel: "May 2026",
+    });
     expect(result).toBeNull();
-    expect(result).not.toBe(0);
   });
 
-  it("no matching definition/grain among prior rows → null", () => {
+  it("no prior row (or no matching definition/grain among prior rows) → first (never 0)", () => {
     const rows: Row[] = [
       row({
         definitionId: "def-fluency-1",
@@ -168,10 +177,95 @@ describe("personDelta", () => {
         value: 55,
       }),
     ];
-    expect(personDelta(rows, defs, "adoption", "month")).toBeNull();
+    const result = personDeltaResult({
+      currentValue: 70,
+      currentVersion: 1,
+      prevRows: rows,
+      definitions: defs,
+      slug: "adoption",
+      grain: "month",
+      previousPeriodLabel: "May 2026",
+    });
+    expect(result).toEqual({ kind: "first" });
   });
 
-  it("returns the latest matching row's value", () => {
+  it("currentVersion undefined → notComparable (fails safe, never silently diffed)", () => {
+    const rows: Row[] = [
+      row({
+        definitionId: "def-adoption-1",
+        subjectLevel: "person",
+        periodGrain: "month",
+        periodStart: "2026-05-01",
+        periodEnd: "2026-05-31",
+        value: 65,
+      }),
+    ];
+    const result = personDeltaResult({
+      currentValue: 70,
+      currentVersion: undefined,
+      prevRows: rows,
+      definitions: defs,
+      slug: "adoption",
+      grain: "month",
+      previousPeriodLabel: "May 2026",
+    });
+    expect(result).toEqual({ kind: "notComparable", reason: "definitionVersion" });
+  });
+
+  it("matched row's definition version differs from currentVersion → notComparable", () => {
+    const rows: Row[] = [
+      row({
+        definitionId: "def-adoption-1", // version 1
+        subjectLevel: "person",
+        periodGrain: "month",
+        periodStart: "2026-05-01",
+        periodEnd: "2026-05-31",
+        value: 65,
+      }),
+    ];
+    const result = personDeltaResult({
+      currentValue: 70,
+      currentVersion: 2,
+      prevRows: rows,
+      definitions: defs,
+      slug: "adoption",
+      grain: "month",
+      previousPeriodLabel: "May 2026",
+    });
+    expect(result).toEqual({ kind: "notComparable", reason: "definitionVersion" });
+  });
+
+  it("a prior row referencing an unknown definitionId (dangling — not among this slug's known versions) is excluded from matching, never silently diffed into a fabricated delta", () => {
+    const rows: Row[] = [
+      row({
+        definitionId: "def-deleted", // not present in `defs` at all
+        subjectLevel: "person",
+        periodGrain: "month",
+        periodStart: "2026-05-01",
+        periodEnd: "2026-05-31",
+        value: 65,
+      }),
+    ];
+    const result = personDeltaResult({
+      currentValue: 70,
+      currentVersion: 1,
+      prevRows: rows,
+      definitions: defs,
+      slug: "adoption",
+      grain: "month",
+      previousPeriodLabel: "May 2026",
+    });
+    // Falls out of the match set entirely (there is no known version of this
+    // slug with that id), so it's treated the same as "no prior row" —
+    // "first", never a fabricated comparison. The internal
+    // `previousVersion === undefined` guard inside personDeltaResult exists
+    // as defense-in-depth for the same failure mode should a future refactor
+    // change how matches are found; this test documents the currently
+    // reachable path to that same never-fabricate-a-delta outcome.
+    expect(result).toEqual({ kind: "first" });
+  });
+
+  it("happy path: same definition version → a delta against the latest matching row (team-level rows never match)", () => {
     const rows: Row[] = [
       row({
         definitionId: "def-adoption-1",
@@ -199,7 +293,22 @@ describe("personDelta", () => {
         value: 999,
       }),
     ];
-    expect(personDelta(rows, defs, "adoption", "month")).toBe(65);
+    const result = personDeltaResult({
+      currentValue: 70,
+      currentVersion: 1,
+      prevRows: rows,
+      definitions: defs,
+      slug: "adoption",
+      grain: "month",
+      previousPeriodLabel: "May 2026",
+    });
+    expect(result).toEqual({
+      kind: "delta",
+      current: 70,
+      previous: 65,
+      delta: 5,
+      previousPeriodLabel: "May 2026",
+    });
   });
 });
 
@@ -245,10 +354,9 @@ describe("interpretScore", () => {
   });
 
   it("guidance text never states a benchmark/threshold as fact", () => {
-    const banned = /industry (average|standard|benchmark)|top.quartile|percentile|typical (teams|orgs) score/i;
     for (const slug of SCORE_SLUGS) {
       for (const v of [0, 39, 40, 69, 70, 100]) {
-        expect(banned.test(interpretScore(v, slug).guidance)).toBe(false);
+        expect(BANNED_PHRASING.test(interpretScore(v, slug).guidance)).toBe(false);
       }
     }
   });
@@ -282,6 +390,28 @@ describe("formatDelta", () => {
     expect(result.direction).toBe("none");
     expect(result.text).toBe("no change");
     expect(result.text).not.toMatch(/^\+/);
+  });
+
+  it("-0.5 rounds symmetrically to -1/down, NOT '-0'/none (Math.round(-0.5) === -0 pitfall)", () => {
+    const result = formatDelta(delta(-0.5));
+    expect(result).toMatchObject({ text: "-1", direction: "down" });
+  });
+
+  it("+0.5 rounds to +1/up — the same magnitude as -0.5 rounds the other way", () => {
+    const result = formatDelta(delta(0.5));
+    expect(result).toMatchObject({ text: "+1", direction: "up" });
+  });
+
+  it("-0.4 rounds to 'no change' (below the half-point either direction)", () => {
+    const result = formatDelta(delta(-0.4));
+    expect(result.direction).toBe("none");
+    expect(result.text).toBe("no change");
+  });
+
+  it("+0.4 rounds to 'no change'", () => {
+    const result = formatDelta(delta(0.4));
+    expect(result.direction).toBe("none");
+    expect(result.text).toBe("no change");
   });
 
   it("srText is a full sentence mentioning the previous period", () => {
@@ -367,7 +497,7 @@ describe("deriveAttention", () => {
 
   it("orders action items before info items", () => {
     const items = deriveAttention({
-      connections: [{ id: "c1", label: "Cursor", status: "error" }],
+      connections: [{ label: "Cursor", status: "error" }],
       gaps: [{ kind: "sub_daily_unavailable" }],
       sharedAccountCount: 2,
       scoreDrops: [{ slug: "fluency", delta: -20 }],
@@ -380,7 +510,7 @@ describe("deriveAttention", () => {
 
   it("an errored connection renders the caller-provided label, not a raw slug", () => {
     const items = deriveAttention({
-      connections: [{ id: "c1", label: "GitHub Copilot", status: "error" }],
+      connections: [{ label: "GitHub Copilot", status: "error" }],
       gaps: [],
       sharedAccountCount: 0,
       scoreDrops: [],
@@ -393,7 +523,7 @@ describe("deriveAttention", () => {
 
   it("a paused connection renders as an info item, not action, and links to /connections", () => {
     const items = deriveAttention({
-      connections: [{ id: "c1", label: "Cursor", status: "paused" }],
+      connections: [{ label: "Cursor", status: "paused" }],
       gaps: [],
       sharedAccountCount: 0,
       scoreDrops: [],
@@ -429,27 +559,61 @@ describe("deriveAttention", () => {
     expect(items[0].body).toMatch(/previous period of the same kind/);
   });
 
-  it("unresolvedSubjects > 0 produces an action item; omitted/0 produces none", () => {
-    const withUnresolved = deriveAttention({
+  it("unresolvedUsage: count > 0, viewer is admin, no scores yet → an action item", () => {
+    const items = deriveAttention({
       connections: [],
-      unresolvedSubjects: 3,
+      unresolvedUsage: { count: 3, viewerIsAdmin: true, scoresExist: false },
       gaps: [],
       sharedAccountCount: 0,
       scoreDrops: [],
     });
-    expect(withUnresolved).toHaveLength(1);
-    expect(withUnresolved[0].severity).toBe("action");
-    expect(withUnresolved[0].body).toMatch(/aren't linked to a person yet/);
-    expect(withUnresolved[0].body).toMatch(/Adoption, Fluency, and Efficiency can't compute/);
+    expect(items).toHaveLength(1);
+    expect(items[0].severity).toBe("action");
+    expect(items[0].body).toMatch(/aren't linked to a person yet/);
+    expect(items[0].body).toMatch(/Adoption, Fluency, and Efficiency can't compute/);
+  });
 
-    const withoutUnresolved = deriveAttention({
+  it("unresolvedUsage: count 0 → nothing, even for an admin viewer with no scores", () => {
+    const items = deriveAttention({
       connections: [],
-      unresolvedSubjects: 0,
+      unresolvedUsage: { count: 0, viewerIsAdmin: true, scoresExist: false },
       gaps: [],
       sharedAccountCount: 0,
       scoreDrops: [],
     });
-    expect(withoutUnresolved).toEqual([]);
+    expect(items).toEqual([]);
+  });
+
+  it("unresolvedUsage: gated INSIDE deriveAttention — a non-admin viewer never sees the callout, even with a positive count and no scores", () => {
+    const items = deriveAttention({
+      connections: [],
+      unresolvedUsage: { count: 3, viewerIsAdmin: false, scoresExist: false },
+      gaps: [],
+      sharedAccountCount: 0,
+      scoreDrops: [],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("unresolvedUsage: gated INSIDE deriveAttention — once scores exist, the callout stops even with a positive count and an admin viewer", () => {
+    const items = deriveAttention({
+      connections: [],
+      unresolvedUsage: { count: 3, viewerIsAdmin: true, scoresExist: true },
+      gaps: [],
+      sharedAccountCount: 0,
+      scoreDrops: [],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("omitted unresolvedUsage → nothing", () => {
+    const items = deriveAttention({
+      connections: [],
+      gaps: [],
+      sharedAccountCount: 0,
+      scoreDrops: [],
+    });
+    expect(items).toEqual([]);
   });
 
   it("an exact repeat (same kind, same detail) is deduplicated", () => {
@@ -479,5 +643,24 @@ describe("deriveAttention", () => {
     expect(items.map((i) => i.body)).toEqual(
       expect.arrayContaining([expect.stringContaining("Copilot"), expect.stringContaining("OpenAI")]),
     );
+  });
+});
+
+describe("connectionAttentionInputs", () => {
+  it("keeps only error/paused connections, maps to a vendor label, and drops id", () => {
+    const result = connectionAttentionInputs([
+      { id: "c1", vendor: "cursor", status: "error" },
+      { id: "c2", vendor: "github_copilot", status: "active" },
+      { id: "c3", vendor: "openai", status: "paused" },
+    ]);
+    expect(result).toEqual([
+      { label: "Cursor", status: "error" },
+      { label: "OpenAI", status: "paused" },
+    ]);
+    expect(result.every((c) => !("id" in c))).toBe(true);
+  });
+
+  it("empty input → []", () => {
+    expect(connectionAttentionInputs([])).toEqual([]);
   });
 });

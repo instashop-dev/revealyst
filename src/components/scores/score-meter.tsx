@@ -11,8 +11,8 @@ import { cn } from "@/lib/utils"
 // node_modules/@base-ui/react/meter/root/MeterRoot.js, @base-ui/react
 // 1.6.0) and MeterIndicator sizes itself from the value automatically, so
 // this wrapper only needs to supply the visual track/fill classes that
-// match the existing div-meter look in dashboard/score-card.tsx and
-// score-card.tsx (h-2 / h-1.5 rounded track, rounded primary fill).
+// match the existing div-meter look in score-card.tsx (h-2 / h-1.5 rounded
+// track, rounded primary fill).
 
 const sizeClasses = {
   sm: "h-1.5",

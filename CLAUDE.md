@@ -37,9 +37,11 @@ contracts. Every session auto-loads this file — it is the interface between ag
 - `npm run dev` (plain Next dev) needs `.dev.vars`'s `BETTER_AUTH_URL` set to
   `http://localhost:3000`, not the `wrangler dev` default of `:8787` — mismatch
   fails sign-up/sign-in with "Invalid origin" 403.
-- Vitest resolves `@/` only under tsc/Next, NOT at test runtime — code imported
-  by tests (`src/lib`, `src/db`) must use RELATIVE value imports (`../db/x`);
-  `@/` is fine only in route files (vitest never runs them).
+- `vitest.config.ts` now maps `@` → `./src` (added for component tests under
+  `src/components/**/*.test.tsx`), so Vitest DOES resolve `@/` at test runtime.
+  The historical relative-import convention in `src/lib`/`src/db` (`../db/x`)
+  remains the house style for lib-to-lib imports, but it is no longer
+  load-bearing for test resolution.
 - `next dev` hits a LOCAL Postgres, not Neon: `createDb` prefers the HYPERDRIVE
   binding, whose wrangler `localConnectionString` is `127.0.0.1:5432` — run
   `npm run dev:db` (PGlite socket) first. That socket's postgres.js
