@@ -2,8 +2,7 @@ import Link from "next/link";
 
 // Public, unauthenticated legal pages (outside the (app) auth shell) — the
 // linkable Terms/Privacy URLs that self-serve signup and Paddle MoR onboarding
-// (W3-M) require. Static content only. These are W3-N DRAFTS pending the human
-// legal pass (docs/approvals.md); the banner makes that unmistakable.
+// (W3-M) require. Static content only.
 
 export default function LegalLayout({
   children,
@@ -28,15 +27,6 @@ export default function LegalLayout({
             Privacy
           </Link>
         </nav>
-      </div>
-
-      <div
-        role="note"
-        className="mb-8 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-200"
-      >
-        <strong>Draft — pending legal review.</strong> This document is a
-        working template awaiting a qualified legal pass. It is not yet
-        binding and may change. Do not rely on it as final.
       </div>
 
       <article className="[&_a]:font-medium [&_a]:text-primary [&_a]:underline [&_h1]:mb-2 [&_h1]:font-heading [&_h1]:text-3xl [&_h1]:font-semibold [&_h1]:tracking-tight [&_h2]:mt-8 [&_h2]:mb-3 [&_h2]:text-lg [&_h2]:font-semibold [&_li]:mb-1 [&_p]:mb-4 [&_p]:text-sm [&_p]:leading-relaxed [&_p]:text-muted-foreground [&_ul]:mb-4 [&_ul]:ml-5 [&_ul]:list-disc [&_ul]:text-sm [&_ul]:text-muted-foreground">

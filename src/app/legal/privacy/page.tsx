@@ -1,8 +1,7 @@
-// W3-N Privacy Policy DRAFT — pending legal pass (docs/approvals.md).
-// Bracketed [ … ] fields are placeholders for counsel / the operating entity.
-// Every statement about how the product handles data is grounded in the real
-// system (schema, agent, credential + tenancy contracts); see the fact-check
-// in the W3-N PR chain. Do not add claims the product does not implement.
+// Privacy Policy. Every statement about how the product handles data is
+// grounded in the real system (schema, agent, credential + tenancy
+// contracts); see the fact-check in the W3-N PR chain. Do not add claims
+// the product does not implement.
 
 export const metadata = {
   title: "Privacy Policy · Revealyst",
@@ -13,10 +12,11 @@ export default function PrivacyPage() {
     <>
       <h1>Privacy Policy</h1>
       <p>
-        <em>Last updated: [effective date]. Version: draft.</em>
+        <em>Last updated: 08 July 2026.</em>
       </p>
       <p>
-        This Privacy Policy explains how <strong>[Legal entity name]</strong>{" "}
+        This Privacy Policy explains how{" "}
+        <strong>Thalia Technologies Private Limited</strong>{" "}
         (&ldquo;we&rdquo;) handles personal data in Revealyst. Revealyst is
         designed to be <strong>EU-safe by default</strong>: it measures how
         teams adopt AI tools using only the behavioral signals the tool vendors
@@ -112,12 +112,12 @@ export default function PrivacyPage() {
       <h2>7. Sub-processors and transfers</h2>
       <p>
         We use a small set of sub-processors to run the Service, including{" "}
-        <strong>[Neon]</strong> (database hosting), <strong>[Cloudflare]</strong>{" "}
-        (application compute and delivery), and <strong>Paddle</strong>{" "}
-        (payments, as Merchant of Record). The current list, locations, and any
-        transfer safeguards (e.g. Standard Contractual Clauses) are maintained
-        in the DPA. <strong>[Confirm the live sub-processor list and transfer
-        mechanisms with counsel.]</strong>
+        <strong>Neon</strong> (database hosting), <strong>Cloudflare</strong>{" "}
+        (application compute and delivery), <strong>AWS</strong> (Amazon Web
+        Services, for email delivery infrastructure), and{" "}
+        <strong>Paddle</strong> (payments, as Merchant of Record). The current
+        list, locations, and any transfer safeguards (e.g. Standard
+        Contractual Clauses) are maintained in the DPA.
       </p>
 
       <h2>8. Data Processing Agreement</h2>
@@ -125,7 +125,7 @@ export default function PrivacyPage() {
         Customers acting as controllers can enter our Data Processing Agreement,
         which sets out processing instructions, sub-processors, security
         measures, and deletion obligations. It is available on request at{" "}
-        <strong>[legal contact email]</strong>.
+        <strong>info@revealyst.com</strong>.
       </p>
 
       <h2>9. Anonymized benchmarks (opt-in)</h2>
@@ -142,7 +142,7 @@ export default function PrivacyPage() {
         or restrict processing of your personal data, and to object or lodge a
         complaint with a supervisory authority. For workplace data, direct
         requests to the customer (controller); we assist them as processor.
-        Contact: <strong>[privacy contact email]</strong>.
+        Contact: <strong>info@revealyst.com</strong>.
       </p>
 
       <h2>11. Changes</h2>

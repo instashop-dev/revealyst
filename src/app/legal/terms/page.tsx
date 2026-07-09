@@ -1,7 +1,6 @@
-// W3-N Terms of Service DRAFT — pending legal pass (docs/approvals.md).
-// Bracketed [ … ] fields are placeholders for counsel / the operating entity.
-// Product-behavior statements are grounded in the real system (Product Spec §7);
-// commercial terms are grounded in the W3-M Paddle-as-MoR model.
+// Terms of Service. Product-behavior statements are grounded in the real
+// system (Product Spec §7); commercial terms are grounded in the W3-M
+// Paddle-as-MoR model.
 
 import { FREE_TRACKED_USER_LIMIT } from "@/lib/entitlements";
 
@@ -14,13 +13,14 @@ export default function TermsPage() {
     <>
       <h1>Terms of Service</h1>
       <p>
-        <em>Last updated: [effective date]. Version: draft.</em>
+        <em>Last updated: 08 July 2026.</em>
       </p>
       <p>
         These Terms of Service (&ldquo;Terms&rdquo;) govern your access to and
         use of Revealyst (the &ldquo;Service&rdquo;), operated by{" "}
-        <strong>[Legal entity name]</strong> (&ldquo;we&rdquo;,
-        &ldquo;us&rdquo;). By creating an account or using the Service you agree
+        <strong>Thalia Technologies Private Limited</strong>{" "}
+        (&ldquo;we&rdquo;, &ldquo;us&rdquo;). By creating an account or using
+        the Service you agree
         to these Terms. If you use the Service on behalf of an organization, you
         represent that you are authorized to bind that organization.
       </p>
@@ -74,7 +74,33 @@ export default function TermsPage() {
         pricing is applied as a discount and is publicly sunset-dated.
       </p>
 
-      <h2>4. Connected accounts and credentials</h2>
+      <h2>4. Refunds</h2>
+      <p>
+        Our company uses Paddle as our Merchant of Record for all payments.
+        All transactions are processed securely through Paddle in accordance
+        with their Buyer Protection policies.
+      </p>
+      <p>
+        We offer refunds in line with Paddle&rsquo;s refund guidelines. If you
+        believe a charge was made in error, or if you are unsatisfied with
+        your purchase, you may request a refund within the applicable time
+        window set by Paddle. Refund eligibility may vary depending on the
+        specific product, subscription term, and usage conditions.
+      </p>
+      <p>Please note:</p>
+      <ul>
+        <li>Refunds are not guaranteed in all cases.</li>
+        <li>
+          Paddle may assess eligibility based on factors such as usage, time
+          since purchase, or potential misuse.
+        </li>
+        <li>
+          Approved refunds will be issued by Paddle to the original payment
+          method.
+        </li>
+      </ul>
+
+      <h2>5. Connected accounts and credentials</h2>
       <p>
         To use the Service you provide credentials (such as vendor API keys or
         an installed app). We use them solely to read your usage data and never
@@ -84,7 +110,7 @@ export default function TermsPage() {
         Service. You may disconnect an account at any time.
       </p>
 
-      <h2>5. Acceptable use</h2>
+      <h2>6. Acceptable use</h2>
       <p>You agree not to:</p>
       <ul>
         <li>use the Service to monitor individuals unlawfully, or in breach of
@@ -98,7 +124,7 @@ export default function TermsPage() {
         <li>resell or provide the Service to third parties except as permitted.</li>
       </ul>
 
-      <h2>6. Data</h2>
+      <h2>7. Data</h2>
       <p>
         Our handling of personal data is described in the{" "}
         <a href="/legal/privacy">Privacy Policy</a>. For customers acting as a
@@ -108,16 +134,19 @@ export default function TermsPage() {
         of your data; we retain aggregated, non-identifying operational metrics.
       </p>
 
-      <h2>7. Availability, warranties, and liability</h2>
+      <h2>8. Availability, warranties, and liability</h2>
       <p>
         The Service is provided on an &ldquo;as is&rdquo; and &ldquo;as
         available&rdquo; basis. To the maximum extent permitted by law, we
         disclaim implied warranties, and our aggregate liability is limited as
-        set out here: <strong>[liability cap — counsel to set]</strong>. Nothing
-        limits liability that cannot be limited by law.
+        set out here: <strong>if liability is found on the part of the
+        Company, it will be limited to the amount paid for the products
+        and/or services, and under no circumstances will there be
+        consequential or punitive damages</strong>. Nothing limits liability
+        that cannot be limited by law.
       </p>
 
-      <h2>8. Termination</h2>
+      <h2>9. Termination</h2>
       <p>
         You may stop using the Service and cancel your subscription at any time
         through the customer portal. We may suspend or terminate access for
@@ -125,17 +154,17 @@ export default function TermsPage() {
         data in accordance with the Privacy Policy and DPA.
       </p>
 
-      <h2>9. Changes</h2>
+      <h2>10. Changes</h2>
       <p>
         We may update these Terms; material changes will be notified in advance.
         Continued use after changes take effect constitutes acceptance.
       </p>
 
-      <h2>10. Governing law and contact</h2>
+      <h2>11. Governing law and contact</h2>
       <p>
         These Terms are governed by the laws of{" "}
-        <strong>[governing jurisdiction — counsel to set]</strong>. Questions:{" "}
-        <strong>[legal contact email]</strong>.
+        <strong>Mumbai, India</strong>. Questions:{" "}
+        <strong>info@revealyst.com</strong>.
       </p>
     </>
   );
