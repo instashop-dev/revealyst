@@ -3,6 +3,7 @@ import {
   asc,
   desc,
   eq,
+  gte,
   ilike,
   inArray,
   isNotNull,
@@ -89,21 +90,25 @@ export async function platformStats(db: Db): Promise<PlatformStats> {
   const thirtyDaysAgo = new Date(Date.now() - THIRTY_DAYS_MS);
 
   const [
-    [userStats],
+    [totalUserRow],
+    [last30dRow],
     orgKindRows,
     recentSignups,
     connectionStatusRows,
     connectorFailureRows,
     subscriptionStatusRows,
   ] = await Promise.all([
-    // One pass over `user` for both counts (FILTER, not two scans) — same
-    // idiom scripts/launch-metrics.ts uses for invitesAccepted.
+    // Two typed counts rather than one `count(*) filter (where …)` pass: a
+    // raw JS Date interpolated into a `sql` fragment bypasses the column's
+    // timestamptz driver-encoder, which postgres.js/Hyperdrive rejects at
+    // runtime (PGlite tolerated it in tests). `gte(user.createdAt, …)` routes
+    // the Date through the column encoder — the same typed form platformAuditList
+    // uses for its cursor. The extra count over `user` is trivially cheap.
+    db.select({ count: sql<number>`count(*)::int` }).from(user),
     db
-      .select({
-        total: sql<number>`count(*)::int`,
-        last30d: sql<number>`count(*) filter (where ${user.createdAt} >= ${thirtyDaysAgo})::int`,
-      })
-      .from(user),
+      .select({ count: sql<number>`count(*)::int` })
+      .from(user)
+      .where(gte(user.createdAt, thirtyDaysAgo)),
     db
       .select({ kind: orgs.kind, count: sql<number>`count(*)::int` })
       .from(orgs)
@@ -172,9 +177,9 @@ export async function platformStats(db: Db): Promise<PlatformStats> {
   }
 
   return {
-    totalUsers: userStats?.total ?? 0,
+    totalUsers: totalUserRow?.count ?? 0,
     orgCountsByKind,
-    signupsLast30Days: userStats?.last30d ?? 0,
+    signupsLast30Days: last30dRow?.count ?? 0,
     recentSignups,
     connectionsByStatus: toStatusRecord(connectionStatusRows),
     recentConnectorFailures: connectorFailureRows,
