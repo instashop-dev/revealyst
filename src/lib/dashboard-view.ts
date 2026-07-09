@@ -39,15 +39,109 @@ export async function readDashboardView(
   scope: OrgScope,
   visibilityMode: VisibilityMode,
   window: { from: string; to: string },
+  prefetched?: {
+    /** e.g. dashboard/page.tsx's own `connections.list()` fetch (needed
+     * there for the Connections panel / personal-mode onboarding gate) —
+     * pass to avoid a redundant query here too. */
+    connections?: Awaited<ReturnType<OrgScope["connections"]["list"]>>;
+  },
 ): Promise<DashboardView> {
+  // EVERY DB read the composed view needs, in ONE Promise.all — round-trip
+  // depth 1 on Workers→Hyperdrive→Neon (verified by tests/perf/
+  // authenticated-page-queries.test.ts). The unfiltered scores.results is a
+  // superset spanning every subjectLevel; the team/person subsets the
+  // trends/segments modules used to re-query are exact JS filters of it
+  // (split in one pass below). subjects/identities are shared between
+  // readDashboard and the shared-account source; signalRows between the
+  // heatmap and the shared-account detector. Fetch timing/dedup only — no
+  // aggregation logic changed.
+  const [
+    rawScores,
+    definitions,
+    people,
+    connections,
+    signalRows,
+    subjects,
+    identities,
+    spendRecords,
+    spendEstimatedRecords,
+    activeDayRecords,
+    featureRecords,
+    volumeRecords,
+  ] = await Promise.all([
+    scope.scores.results({ from: window.from, to: window.to }),
+    scope.scores.definitions(),
+    scope.people.list(),
+    prefetched?.connections ?? scope.connections.list(),
+    scope.metrics.allSignals({ from: window.from, to: window.to }),
+    scope.subjects.list(),
+    scope.identities.all(),
+    scope.metrics.records({
+      metricKey: "spend_cents",
+      from: window.from,
+      to: window.to,
+    }),
+    scope.metrics.records({
+      metricKey: "spend_cents_estimated",
+      from: window.from,
+      to: window.to,
+    }),
+    scope.metrics.records({
+      metricKey: "active_day",
+      from: window.from,
+      to: window.to,
+    }),
+    scope.metrics.records({
+      metricKey: "feature_used",
+      from: window.from,
+      to: window.to,
+    }),
+    // The shared-account detector's volume metric (its default key).
+    scope.metrics.records({
+      metricKey: "tokens_input",
+      from: window.from,
+      to: window.to,
+    }),
+  ]);
+
+  // One pass over the superset: the exact splits trends (team) and segments
+  // (person) would otherwise re-query with a subjectLevel filter.
+  const teamLevelRows: typeof rawScores = [];
+  const personLevelRows: typeof rawScores = [];
+  for (const row of rawScores) {
+    if (row.subjectLevel === "team") teamLevelRows.push(row);
+    else if (row.subjectLevel === "person") personLevelRows.push(row);
+  }
+
+  // Downstream modules run on the pre-fetched rows only — zero further
+  // queries (each module still fetches for itself when called standalone).
   const [summary, heatmap, coverage, trends, segments, sharedAccounts] =
     await Promise.all([
-      readDashboard(scope, visibilityMode, window),
-      readActivityHeatmap(scope, window),
-      readToolCoverage(scope, window),
-      readScoreTrends(scope, window),
-      resolveSegmentSource().forOrg(scope, visibilityMode, window),
-      resolveSharedAccountSource().flags(scope, visibilityMode, window),
+      readDashboard(scope, visibilityMode, window, {
+        rawScores,
+        definitions,
+        people,
+        spendRecords,
+        spendEstimatedRecords,
+        activeDayRecords,
+        subjects,
+        identities,
+      }),
+      readActivityHeatmap(scope, window, { signalRows }),
+      readToolCoverage(scope, window, { connections, featureRecords }),
+      readScoreTrends(scope, window, { rows: teamLevelRows, definitions }),
+      resolveSegmentSource().forOrg(scope, visibilityMode, window, {
+        rows: personLevelRows,
+        definitions,
+        people,
+      }),
+      resolveSharedAccountSource().flags(scope, visibilityMode, window, {
+        connections,
+        signalRows,
+        subjects,
+        identities,
+        volumeRecords,
+      }),
     ]);
 
   const latest = latestTeamScoresBySlug(summary.scores);

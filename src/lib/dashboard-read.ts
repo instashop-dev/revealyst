@@ -4,6 +4,7 @@ import {
   type ScoreComponentBreakdown,
 } from "../contracts/scores";
 import type { forOrg } from "../db/org-scope";
+import { groupBy } from "./utils";
 import { toPersonRef, type PersonLike, type VisibilityMode } from "./visibility";
 
 // Read/aggregate core for the team dashboard (W2-L). Pure functions over the
@@ -13,8 +14,11 @@ import { toPersonRef, type PersonLike, type VisibilityMode } from "./visibility"
 // so UI and API cannot drift.
 
 type OrgScope = ReturnType<typeof forOrg>;
-type ScoreRow = Awaited<ReturnType<OrgScope["scores"]["results"]>>[number];
-type DefinitionRow = Awaited<ReturnType<OrgScope["scores"]["definitions"]>>[number];
+export type ScoreRow = Awaited<ReturnType<OrgScope["scores"]["results"]>>[number];
+export type DefinitionRow = Awaited<ReturnType<OrgScope["scores"]["definitions"]>>[number];
+export type MetricRecordRow = Awaited<ReturnType<OrgScope["metrics"]["records"]>>[number];
+export type SubjectRow = Awaited<ReturnType<OrgScope["subjects"]["list"]>>[number];
+export type IdentityRow = Awaited<ReturnType<OrgScope["identities"]["all"]>>[number];
 
 /** The mapped, contract-valid score the dashboard renders. The frozen
  * `scoreResultSchema` types `components` as an opaque record; the dashboard
@@ -27,16 +31,6 @@ export type DashboardScore = Omit<
 /** The three org-level preset cards, in display order. */
 export const DASHBOARD_SLUGS = ["adoption", "fluency", "efficiency"] as const;
 export type DashboardSlug = (typeof DASHBOARD_SLUGS)[number];
-
-async function definitionIndex(scope: OrgScope): Promise<Map<string, DefinitionRow>> {
-  const defs = await scope.scores.definitions();
-  return new Map(defs.map((d) => [d.id, d]));
-}
-
-async function peopleIndex(scope: OrgScope): Promise<Map<string, PersonLike>> {
-  const people = await scope.people.list();
-  return new Map(people.map((p) => [p.id, p]));
-}
 
 /**
  * Maps one raw score_results row into the frozen `scoreResultSchema` shape.
@@ -95,19 +89,6 @@ function mapScoreRow(
   };
 }
 
-/** Maps a batch of raw rows, resolving definitions and people once. */
-export async function mapScoreResults(
-  scope: OrgScope,
-  rows: ScoreRow[],
-  visibilityMode: VisibilityMode,
-): Promise<DashboardScore[]> {
-  const [defs, people] = await Promise.all([
-    definitionIndex(scope),
-    peopleIndex(scope),
-  ]);
-  return rows.map((row) => mapScoreRow(row, defs, people, visibilityMode));
-}
-
 function sumValue(rows: { value: number }[]): number {
   return rows.reduce((total, row) => total + row.value, 0);
 }
@@ -125,68 +106,92 @@ export type DashboardData = {
   unresolvedSubjects: number;
 };
 
+/** Pre-fetched inputs `readDashboard` can reuse instead of re-querying — all
+ * optional, all fall back to the original per-function query when omitted
+ * (standalone callers keep working unchanged; dashboard-view.ts supplies
+ * everything so its whole render is one round-trip deep). */
+export type DashboardReadPrefetched = {
+  /** Unfiltered `scope.scores.results({from,to})` — a superset spanning
+   * every subjectLevel, shared with dashboard-trends/segments so it's read
+   * once per render (dashboard-view.ts) instead of three times. */
+  rawScores?: ScoreRow[];
+  definitions?: DefinitionRow[];
+  people?: PersonLike[];
+  /** metric_records for metricKey "spend_cents" over the window. */
+  spendRecords?: MetricRecordRow[];
+  /** metric_records for metricKey "spend_cents_estimated" over the window. */
+  spendEstimatedRecords?: MetricRecordRow[];
+  /** metric_records for metricKey "active_day" over the window. */
+  activeDayRecords?: MetricRecordRow[];
+  subjects?: SubjectRow[];
+  identities?: IdentityRow[];
+};
+
 /**
  * Reads and aggregates the org-level dashboard over one window, through the
  * org-scoped repository only. Spend metrics are summed (estimated kept separate
  * — honesty, not blended). Never re-derives scores; renders score_results as-is.
+ *
+ * Every read here is independent of every other — they're gathered in one
+ * Promise.all (fetch timing only; no aggregation logic changed) rather than
+ * five sequential round trips.
  */
 export async function readDashboard(
   scope: OrgScope,
   visibilityMode: VisibilityMode,
   window: { from: string; to: string },
+  prefetched?: DashboardReadPrefetched,
 ): Promise<DashboardData> {
-  const rawScores = await scope.scores.results({
-    from: window.from,
-    to: window.to,
-  });
+  const [rawScores, definitionRows, peopleRows, spendRecords, spendCentsEstimatedRecords, activeRows, subjects, allIdentities] =
+    await Promise.all([
+      prefetched?.rawScores ??
+        scope.scores.results({ from: window.from, to: window.to }),
+      prefetched?.definitions ?? scope.scores.definitions(),
+      prefetched?.people ?? scope.people.list(),
+      prefetched?.spendRecords ??
+        scope.metrics.records({
+          metricKey: "spend_cents",
+          from: window.from,
+          to: window.to,
+        }),
+      prefetched?.spendEstimatedRecords ??
+        scope.metrics.records({
+          metricKey: "spend_cents_estimated",
+          from: window.from,
+          to: window.to,
+        }),
+      prefetched?.activeDayRecords ??
+        scope.metrics.records({
+          metricKey: "active_day",
+          from: window.from,
+          to: window.to,
+        }),
+      prefetched?.subjects ?? scope.subjects.list(),
+      prefetched?.identities ?? scope.identities.all(),
+    ]);
+
+  const defs = new Map(definitionRows.map((d) => [d.id, d]));
+  const people = new Map(peopleRows.map((p) => [p.id, p]));
+
   // The team dashboard is team/org-level by construction. Person-level scores
   // are the opt-in individual self-view's concern (W2-H) and are never surfaced
   // here — so the private default is team-only pseudonymised structurally, not
   // by after-the-fact stripping. Person scores still feed segment counts.
   const teamScores = rawScores.filter((row) => row.subjectLevel !== "person");
-  const scores = await mapScoreResults(scope, teamScores, visibilityMode);
+  const scores = teamScores.map((row) => mapScoreRow(row, defs, people, visibilityMode));
 
-  const spendCents = sumValue(
-    await scope.metrics.records({
-      metricKey: "spend_cents",
-      from: window.from,
-      to: window.to,
-    }),
-  );
-  const spendCentsEstimated = sumValue(
-    await scope.metrics.records({
-      metricKey: "spend_cents_estimated",
-      from: window.from,
-      to: window.to,
-    }),
-  );
-
-  const [activeRows, people, subjects, allIdentities] = await Promise.all([
-    scope.metrics.records({
-      metricKey: "active_day",
-      from: window.from,
-      to: window.to,
-    }),
-    scope.people.list(),
-    scope.subjects.list(),
-    scope.identities.all(),
-  ]);
+  const spendCents = sumValue(spendRecords);
+  const spendCentsEstimated = sumValue(spendCentsEstimatedRecords);
 
   const activeSubjectIds = new Set(activeRows.map((row) => row.subjectId));
-  const personSubjectIds = new Map<string, Set<string>>();
-  const subjectsWithLinks = new Set<string>();
-  for (const link of allIdentities) {
-    if (!personSubjectIds.has(link.personId)) {
-      personSubjectIds.set(link.personId, new Set());
-    }
-    personSubjectIds.get(link.personId)!.add(link.subjectId);
-    subjectsWithLinks.add(link.subjectId);
-  }
+  const linksByPerson = groupBy(allIdentities, (link) => link.personId);
+  const subjectsWithLinks = new Set(allIdentities.map((link) => link.subjectId));
 
-  const activePeople = people.filter((p) => {
-    const subjectIds = personSubjectIds.get(p.id);
-    return subjectIds !== undefined && [...subjectIds].some((id) => activeSubjectIds.has(id));
-  }).length;
+  const activePeople = peopleRows.filter((p) =>
+    (linksByPerson.get(p.id) ?? []).some((link) =>
+      activeSubjectIds.has(link.subjectId),
+    ),
+  ).length;
   const unresolvedSubjects = subjects.filter(
     (s) => !subjectsWithLinks.has(s.id),
   ).length;
@@ -216,14 +221,20 @@ export type ToolCoverage = {
 export async function readToolCoverage(
   scope: OrgScope,
   window: { from: string; to: string },
+  prefetched?: {
+    connections?: Awaited<ReturnType<OrgScope["connections"]["list"]>>;
+    /** metric_records for metricKey "feature_used" over the window. */
+    featureRecords?: MetricRecordRow[];
+  },
 ): Promise<ToolCoverage> {
   const [connections, featureRows] = await Promise.all([
-    scope.connections.list(),
-    scope.metrics.records({
-      metricKey: "feature_used",
-      from: window.from,
-      to: window.to,
-    }),
+    prefetched?.connections ?? scope.connections.list(),
+    prefetched?.featureRecords ??
+      scope.metrics.records({
+        metricKey: "feature_used",
+        from: window.from,
+        to: window.to,
+      }),
   ]);
   const features = [...new Set(featureRows.map((row) => row.dim))]
     .filter((dim) => dim.length > 0)

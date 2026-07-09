@@ -75,19 +75,26 @@ export async function putTeamMembers(
   teamId: string,
   personIds: string[],
 ) {
-  const team = (await scope.teams.list()).find((t) => t.id === teamId);
+  const [teams, orgPeople, currentMembers] = await Promise.all([
+    scope.teams.list(),
+    scope.people.list(),
+    scope.teams.members(teamId),
+  ]);
+  const team = teams.find((t) => t.id === teamId);
   if (!team) {
     throw new ApiError(404, "team not found");
   }
   const requested = new Set(personIds);
+  const orgPersonIds = new Set(orgPeople.map((p) => p.id));
   for (const personId of requested) {
-    if (!(await scope.people.get(personId))) {
+    if (!orgPersonIds.has(personId)) {
       throw new ApiError(400, `person ${personId} not in this org`);
     }
   }
-  const current = new Set(
-    (await scope.teams.members(teamId)).map((m) => m.personId),
-  );
+  const current = new Set(currentMembers.map((m) => m.personId));
+  // Writes stay sequential (adds, then removes): a failed add must abort the
+  // batch before any remove commits, so a request that reports failure never
+  // leaves someone silently dropped from the team.
   for (const personId of requested) {
     if (!current.has(personId)) {
       await scope.teams.addMember(teamId, personId);

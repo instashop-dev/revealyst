@@ -4,6 +4,7 @@
 // page component so it can be unit-tested against fixtures.
 
 import type { forOrg } from "../db/org-scope";
+import { groupBy } from "./utils";
 import { vendorLabel } from "./vendor-labels";
 import { computeSharedAccountFlags } from "./shared-account/query";
 import type { SharedAccountFlag } from "./shared-account/heuristics";
@@ -50,18 +51,19 @@ export async function buildReconcileView(
   scoped: Scoped,
   opts: { from: string; to: string },
 ): Promise<ReconcileView> {
-  // Fetch subjects once, then reuse them for the flag pass — otherwise
-  // computeSharedAccountFlags would scan the subjects table a second time.
-  const subjectRows = await scoped.subjects.list();
-  const [peopleRows, teamRows, connectionRows, flags, activeDayRows] =
+  // All independent reads in one Promise.all. The flag pass needs no subject
+  // list anymore — computeSharedAccountFlags reads org-wide signals via the
+  // bulk `metrics.allSignals` (ADR 0017); `subjectRows` here feeds only the
+  // resolved/unresolved loop below.
+  const [subjectRows, peopleRows, teamRows, connectionRows, flags, activeDayRows, identityRows] =
     await Promise.all([
+      scoped.subjects.list(),
       scoped.people.list(),
       scoped.teams.list(),
       scoped.connections.list(),
       computeSharedAccountFlags(scoped, {
         from: opts.from,
         to: opts.to,
-        subjects: subjectRows,
       }),
       // active_day is the one metric every connector emits whenever a
       // subject did anything at all — the cheapest single-query activity
@@ -71,6 +73,8 @@ export async function buildReconcileView(
         from: opts.from,
         to: opts.to,
       }),
+      // One bulk identities.all() read (ADR 0014), grouped in JS below.
+      scoped.identities.all(),
     ]);
   const subjectsWithActivity = new Set(activeDayRows.map((r) => r.subjectId));
 
@@ -85,27 +89,17 @@ export async function buildReconcileView(
   );
   const flagBySubject = new Map(flags.map((f) => [f.subjectId, f]));
 
-  // subjectId → resolved persons, built by unioning forPerson over all people
-  // (the frozen surface has no bulk identities reader — a deferred ADR). Reads
-  // are independent, so gather them concurrently.
-  const identityRows = await Promise.all(
-    peopleRows.map((person) => scoped.identities.forPerson(person.id)),
-  );
-  const personsBySubject = new Map<string, PersonRef[]>();
-  for (const rows of identityRows) {
-    for (const row of rows) {
-      const person = personById.get(row.personId);
-      if (!person) continue;
-      const list = personsBySubject.get(row.subjectId) ?? [];
-      list.push(person);
-      personsBySubject.set(row.subjectId, list);
-    }
-  }
+  // subjectId → identity links, grouped in JS from the bulk read above —
+  // the same pattern dashboard-read.ts uses, avoiding a per-person round
+  // trip. Links to an unknown person are skipped (same as before).
+  const linksBySubject = groupBy(identityRows, (row) => row.subjectId);
 
   const unresolved: SubjectResolution[] = [];
   const resolved: SubjectResolution[] = [];
   for (const subject of subjectRows) {
-    const persons = personsBySubject.get(subject.id) ?? [];
+    const persons = (linksBySubject.get(subject.id) ?? [])
+      .map((row) => personById.get(row.personId))
+      .filter((p): p is PersonRef => p !== undefined);
     const entry: SubjectResolution = {
       subjectId: subject.id,
       kind: subject.kind,

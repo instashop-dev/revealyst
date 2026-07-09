@@ -1,4 +1,5 @@
 import type { forOrg } from "../../db/org-scope";
+import { groupBy } from "../utils";
 import type { VisibilityMode } from "../visibility";
 import type {
   SharedAccountConfidence,
@@ -40,18 +41,45 @@ export interface SharedAccountSource {
     scope: OrgScope,
     visibilityMode: VisibilityMode,
     window: { from: string; to: string },
+    prefetched?: {
+      /** e.g. dashboard-view.ts's single per-render `connections.list()`
+       * fetch — pass to avoid a redundant query. */
+      connections?: Awaited<ReturnType<OrgScope["connections"]["list"]>>;
+      /** e.g. dashboard-view.ts's single per-render `metrics.allSignals`
+       * fetch, shared with the activity heatmap — pass to avoid a
+       * redundant query. */
+      signalRows?: Awaited<ReturnType<OrgScope["metrics"]["allSignals"]>>;
+      /** e.g. dashboard-view.ts's single per-render `subjects.list()`
+       * fetch, shared with readDashboard — pass to avoid a redundant query. */
+      subjects?: Awaited<ReturnType<OrgScope["subjects"]["list"]>>;
+      /** e.g. dashboard-view.ts's single per-render `identities.all()`
+       * fetch, shared with readDashboard — pass to avoid a redundant query. */
+      identities?: Awaited<ReturnType<OrgScope["identities"]["all"]>>;
+      /** Pre-fetched metric_records for the detector's volume metric
+       * (tokens_input — the default; this path never overrides it). */
+      volumeRecords?: Awaited<ReturnType<OrgScope["metrics"]["records"]>>;
+    },
   ): Promise<SharedAccountFlag[]>;
 }
 
 const w2kSharedAccountSource: SharedAccountSource = {
-  async flags(scope, visibilityMode, window) {
-    const [detected, subjects, connections] = await Promise.all([
-      computeSharedAccountFlags(scope, { from: window.from, to: window.to }),
-      scope.subjects.list(),
-      scope.connections.list(),
+  async flags(scope, visibilityMode, window, prefetched) {
+    const [detected, subjects, connections, allIdentities] = await Promise.all([
+      computeSharedAccountFlags(scope, {
+        from: window.from,
+        to: window.to,
+        signalRows: prefetched?.signalRows,
+        volumeRecords: prefetched?.volumeRecords,
+      }),
+      prefetched?.subjects ?? scope.subjects.list(),
+      prefetched?.connections ?? scope.connections.list(),
+      // Bulk identity reader (ADR 0014) instead of a per-flag
+      // `identities.forSubject` fan-out — grouped by subjectId below.
+      prefetched?.identities ?? scope.identities.all(),
     ]);
     const subjectById = new Map(subjects.map((s) => [s.id, s]));
     const vendorByConnection = new Map(connections.map((c) => [c.id, c.vendor]));
+    const identitiesBySubject = groupBy(allIdentities, (link) => link.subjectId);
 
     const enriched: SharedAccountFlag[] = [];
     for (const flag of detected) {
@@ -59,7 +87,7 @@ const w2kSharedAccountSource: SharedAccountSource = {
       // The detector saw a subject id we can't resolve to a row — skip it
       // rather than render a flag with no account identity.
       if (!subject) continue;
-      const links = await scope.identities.forSubject(flag.subjectId);
+      const links = identitiesBySubject.get(flag.subjectId) ?? [];
       enriched.push({
         subjectId: flag.subjectId,
         externalId: visibilityMode === "private" ? null : subject.externalId,

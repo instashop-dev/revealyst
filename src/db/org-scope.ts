@@ -1146,6 +1146,32 @@ export function forOrg(db: Db, orgId: string) {
           )
           .orderBy(subjectDaySignals.day);
       },
+
+      /**
+       * Org-wide batch read (ADR 0017): all subject_day_signals rows for
+       * the org in the window, same column set and shape per row as
+       * `signals()`. Lets callers that need every subject's signals for a
+       * window (dashboard heatmap, shared-account flags) load them in one
+       * query instead of one-per-subject, then group by subjectId in JS.
+       * Additive only — `signals()` is unchanged.
+       */
+      async allSignals(filter: { from: string; to: string }) {
+        return db
+          .select()
+          .from(subjectDaySignals)
+          .where(
+            and(
+              eq(subjectDaySignals.orgId, orgId),
+              gte(subjectDaySignals.day, filter.from),
+              lte(subjectDaySignals.day, filter.to),
+            ),
+          )
+          .orderBy(
+            subjectDaySignals.orgId,
+            subjectDaySignals.subjectId,
+            subjectDaySignals.day,
+          );
+      },
     },
 
     raw: {
@@ -1361,26 +1387,30 @@ export function forOrg(db: Db, orgId: string) {
        * org-scoped inputs, so DB and pure paths cannot diverge.
        */
       async trackedUsers(period: BillingPeriod) {
-        const activeSubjectDays = await db
-          .selectDistinct({
-            subjectId: metricRecords.subjectId,
-            day: metricRecords.day,
-          })
-          .from(metricRecords)
-          .where(
-            and(
-              eq(metricRecords.orgId, orgId),
-              gte(metricRecords.day, period.start),
-              lte(metricRecords.day, period.end),
+        // activeSubjectDays and identityRows hit unrelated tables with no
+        // data dependency between them — run in parallel (ADR 0017).
+        const [activeSubjectDays, identityRows] = await Promise.all([
+          db
+            .selectDistinct({
+              subjectId: metricRecords.subjectId,
+              day: metricRecords.day,
+            })
+            .from(metricRecords)
+            .where(
+              and(
+                eq(metricRecords.orgId, orgId),
+                gte(metricRecords.day, period.start),
+                lte(metricRecords.day, period.end),
+              ),
             ),
-          );
-        const identityRows = await db
-          .select({
-            subjectId: identities.subjectId,
-            personId: identities.personId,
-          })
-          .from(identities)
-          .where(eq(identities.orgId, orgId));
+          db
+            .select({
+              subjectId: identities.subjectId,
+              personId: identities.personId,
+            })
+            .from(identities)
+            .where(eq(identities.orgId, orgId)),
+        ]);
         return countTrackedUsers({
           identities: identityRows,
           activeSubjectDays,

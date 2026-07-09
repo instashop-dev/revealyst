@@ -1,5 +1,6 @@
 import type { forOrg } from "../db/org-scope";
-import { toPersonRef, type PersonRef, type VisibilityMode } from "./visibility";
+import type { DefinitionRow, ScoreRow } from "./dashboard-read";
+import { toPersonRef, type PersonLike, type PersonRef, type VisibilityMode } from "./visibility";
 
 type OrgScope = ReturnType<typeof forOrg>;
 
@@ -50,6 +51,14 @@ export interface SegmentSource {
     scope: OrgScope,
     visibilityMode: VisibilityMode,
     window: { from: string; to: string },
+    prefetched?: {
+      /** The exact subjectLevel:"person" subset — pass the JS-filtered
+       * slice of dashboard-view.ts's single unfiltered `scores.results`
+       * fetch to avoid a redundant query. */
+      rows?: ScoreRow[];
+      definitions?: DefinitionRow[];
+      people?: PersonLike[];
+    },
   ): Promise<SegmentDistribution>;
 }
 
@@ -58,15 +67,16 @@ export function resolveSegmentSource(): SegmentSource {
 }
 
 const fixtureSegmentSource: SegmentSource = {
-  async forOrg(scope, visibilityMode, window) {
+  async forOrg(scope, visibilityMode, window, prefetched) {
     const [rawScores, definitions, people] = await Promise.all([
-      scope.scores.results({
-        subjectLevel: "person",
-        from: window.from,
-        to: window.to,
-      }),
-      scope.scores.definitions(),
-      scope.people.list(),
+      prefetched?.rows ??
+        scope.scores.results({
+          subjectLevel: "person",
+          from: window.from,
+          to: window.to,
+        }),
+      prefetched?.definitions ?? scope.scores.definitions(),
+      prefetched?.people ?? scope.people.list(),
     ]);
     const adoptionDefIds = new Set(
       definitions.filter((d) => d.slug === "adoption").map((d) => d.id),

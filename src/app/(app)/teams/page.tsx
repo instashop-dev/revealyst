@@ -12,25 +12,27 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireAppContext } from "@/lib/api-context";
+import { groupBy } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function TeamsPage() {
   const ctx = await requireAppContext();
   const isAdmin = ctx.role === "admin";
-  const teams = await ctx.scope.teams.list();
-  const withMembers = await Promise.all(
-    teams.map(async (team) => ({
-      ...team,
-      memberIds: (await ctx.scope.teams.members(team.id)).map(
-        (m) => m.personId,
-      ),
-    })),
-  );
+  const [teams, allMembers, peopleRows] = await Promise.all([
+    ctx.scope.teams.list(),
+    ctx.scope.teams.allMembers(),
+    ctx.scope.people.list(),
+  ]);
+  const membersByTeam = groupBy(allMembers, (m) => m.teamId);
+  const withMembers = teams.map((team) => ({
+    ...team,
+    memberIds: (membersByTeam.get(team.id) ?? []).map((m) => m.personId),
+  }));
   // Same §7 gating as the frozen personRef shape: names only leave the
   // server when the org's visibility mode permits.
   const showNames = ctx.org.visibilityMode !== "private";
-  const people = (await ctx.scope.people.list()).map((person) => ({
+  const people = peopleRows.map((person) => ({
     id: person.id,
     pseudonym: person.pseudonym,
     displayName: showNames ? (person.displayName ?? null) : null,
