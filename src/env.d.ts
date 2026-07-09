@@ -16,4 +16,8 @@ interface CloudflareEnv {
   // window (src/lib/credentials.ts).
   CREDENTIAL_KEK_CURRENT?: string;
   CREDENTIAL_KEK_PREVIOUS?: string;
+  // Request-lifecycle instrumentation (src/lib/request-timing.ts): opt-in
+  // `select 1` connect-latency probe, off by default (extra query otherwise
+  // violates the near-zero-overhead goal of the timing itself).
+  REQUEST_TIMING_DB_PROBE?: string;
 }

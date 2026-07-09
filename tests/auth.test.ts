@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { fullSchema } from "../src/db/client";
 import type { Db } from "../src/db/client";
 import { ensureOrgOfOne, membershipForUser } from "../src/db/org-scope";
 import { createAuth, type Auth } from "../src/lib/auth";
@@ -37,7 +38,10 @@ let db: Db;
 let auth: Auth;
 
 beforeAll(async () => {
-  const pgliteDb = drizzle(new PGlite(), { schema });
+  // fullSchema (src/db/client.ts) = tables + auth relations, so
+  // db.query.session/user exist for the drizzleAdapter's experimental.joins
+  // session lookup to join instead of falling back to two queries.
+  const pgliteDb = drizzle(new PGlite(), { schema: fullSchema });
   await migrate(pgliteDb, { migrationsFolder: "./drizzle" });
   db = pgliteDb as unknown as Db;
   auth = createAuth(db, {

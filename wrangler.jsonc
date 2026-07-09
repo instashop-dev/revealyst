@@ -9,6 +9,12 @@
 		"nodejs_compat",
 		"global_fetch_strictly_public"
 	],
+	// Authenticated requests make several sequential DB round-trips
+	// (Hyperdrive → Neon) per request; Smart Placement runs the Worker near
+	// Hyperdrive/Neon instead of at the requester's edge, collapsing those
+	// per-query WAN RTTs into local ones — Cloudflare's documented remedy for
+	// exactly this "chatty backend" pattern.
+	"placement": { "mode": "smart" },
 	"assets": {
 		"directory": ".open-next/assets",
 		"binding": "ASSETS"

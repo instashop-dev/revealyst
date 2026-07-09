@@ -30,6 +30,7 @@ import { dashboardSummary } from "@/lib/api-impl";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
 import { readDashboardView } from "@/lib/dashboard-view";
 import { formatCents } from "@/lib/format";
+import { timeStage } from "@/lib/request-timing";
 import { vendorLabel } from "@/lib/vendor-labels";
 import { periodFor } from "@/scoring";
 
@@ -137,15 +138,17 @@ async function PersonalSelfView({ ctx }: { ctx: AppContext }) {
   const period = periodFor("month", today);
   // Independent reads (one Postgres round trip each on Workers→Hyperdrive→
   // Neon) — gathered concurrently rather than run one after another.
-  const [summary, benchmarks] = await Promise.all([
-    dashboardSummary(ctx.scope, ctx.org.visibilityMode, {
-      from: period.periodStart,
-      to: period.periodEnd,
-    }),
-    // Personal self-view compares against the "overall" segment — an
-    // enterprise/smb norm is not this solo user's peer group.
-    listBenchmarks(ctx.db, { status: "verified", segment: "overall" }),
-  ]);
+  const [summary, benchmarks] = await timeStage("pageData", () =>
+    Promise.all([
+      dashboardSummary(ctx.scope, ctx.org.visibilityMode, {
+        from: period.periodStart,
+        to: period.periodEnd,
+      }),
+      // Personal self-view compares against the "overall" segment — an
+      // enterprise/smb norm is not this solo user's peer group.
+      listBenchmarks(ctx.db, { status: "verified", segment: "overall" }),
+    ]),
+  );
   const scores = new Map(
     summary.scores
       .filter((s) => s.subjectLevel === "person" && s.periodGrain === "month")
@@ -320,11 +323,10 @@ async function TeamOverview({
   ctx: AppContext;
   connections: Awaited<ReturnType<AppContext["scope"]["connections"]["list"]>>;
 }) {
-  const view = await readDashboardView(
-    ctx.scope,
-    ctx.org.visibilityMode,
-    dashboardWindow(),
-    { connections },
+  const view = await timeStage("pageData", () =>
+    readDashboardView(ctx.scope, ctx.org.visibilityMode, dashboardWindow(), {
+      connections,
+    }),
   );
   const { summary, benchmarks, heatmap, coverage, trends, segments, sharedAccounts } =
     view;

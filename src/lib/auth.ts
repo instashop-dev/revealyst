@@ -89,6 +89,18 @@ export function createAuth(db: Db, env: AuthEnv) {
     // during or after the domain cutover — see src/lib/domains.ts.
     trustedOrigins: [APP_ORIGIN, MARKETING_ORIGIN],
     database: drizzleAdapter(db, { provider: "pg" }),
+    // Collapses getSession's session-then-user lookup (better-auth
+    // internal-adapter findSession -> findOne join:{user:true}) into a
+    // single db.query.session.findFirst({ with: { user: true } }) SQL join
+    // instead of two sequential round-trips. This is a top-level betterAuth
+    // option (NOT a drizzleAdapter config field — the adapter reads
+    // `options.experimental?.joins` off the full BetterAuthOptions it's
+    // invoked with, per @better-auth/drizzle-adapter/dist/index.mjs). Also
+    // requires drizzle relations() for the session/user tables, wired into
+    // the schema passed to drizzle() in src/db/client.ts
+    // (src/db/auth-relations.ts) — without them the adapter falls back to
+    // the old two-query path and logs "Falling back to regular query".
+    experimental: { joins: true },
     emailAndPassword: {
       enabled: true,
       // Signup requires a confirmed email: sign-in throws 403
