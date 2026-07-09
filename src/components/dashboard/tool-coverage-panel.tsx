@@ -1,5 +1,6 @@
 import type { ToolCoverage } from "@/lib/dashboard-read";
 import { Badge } from "@/components/ui/badge";
+import { InfoTip } from "@/components/info-tip";
 import {
   Card,
   CardContent,
@@ -30,7 +31,13 @@ export function ToolCoveragePanel({ coverage }: { coverage: ToolCoverage }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tool coverage</CardTitle>
+        <CardTitle className="flex items-center gap-1.5">
+          Tool coverage
+          <InfoTip
+            label="Tool coverage"
+            short="Which of your connected tools' features were detected in use at least once in this period."
+          />
+        </CardTitle>
         <CardDescription>Connected AI tools and features in use.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 text-sm">
@@ -69,13 +76,15 @@ export function ToolCoveragePanel({ coverage }: { coverage: ToolCoverage }) {
               No feature-level activity recorded yet.
             </p>
           ) : (
-            <div className="flex flex-wrap gap-1">
+            <ul className="flex flex-wrap gap-1">
               {coverage.features.map((feature) => (
-                <Badge key={feature} variant="secondary" className="capitalize">
-                  {featureLabel(feature)}
-                </Badge>
+                <li key={feature}>
+                  <Badge variant="secondary" className="capitalize">
+                    {featureLabel(feature)}
+                  </Badge>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </div>
       </CardContent>

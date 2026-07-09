@@ -1,5 +1,6 @@
 import type { SegmentDistribution } from "@/lib/segments";
 import { Badge } from "@/components/ui/badge";
+import { InfoTip } from "@/components/info-tip";
 import {
   Card,
   CardContent,
@@ -7,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { CONCEPT_GLOSSARY } from "@/lib/metrics-glossary";
 
 /**
  * User segmentation (§8), team-level and count-first. In the private default
@@ -23,7 +25,13 @@ export function SegmentBreakdown({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Segments</CardTitle>
+        <CardTitle className="flex items-center gap-1.5">
+          Segments
+          <InfoTip
+            label={CONCEPT_GLOSSARY.segments.plainName}
+            short={CONCEPT_GLOSSARY.segments.shortWhat}
+          />
+        </CardTitle>
         <CardDescription>
           How the team splits across AI-adoption maturity.
         </CardDescription>
@@ -45,13 +53,15 @@ export function SegmentBreakdown({
                   </span>
                 </div>
                 {segment.members.length > 0 ? (
-                  <div className="flex flex-wrap gap-1">
+                  <ul className="flex flex-wrap gap-1">
                     {segment.members.map((member) => (
-                      <Badge key={member.id} variant="secondary">
-                        {member.displayName ?? member.pseudonym}
-                      </Badge>
+                      <li key={member.id}>
+                        <Badge variant="secondary">
+                          {member.displayName ?? member.pseudonym}
+                        </Badge>
+                      </li>
                     ))}
-                  </div>
+                  </ul>
                 ) : null}
               </li>
             ))}

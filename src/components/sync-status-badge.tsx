@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatRelativeTime } from "@/lib/format";
 
 type SyncStatus = "pending" | "active" | "paused" | "error";
@@ -19,10 +20,15 @@ export function SyncStatusBadge({
   lastError?: string | null;
 }) {
   if (status === "error") {
+    const badge = <Badge variant="destructive">Sync error</Badge>;
+    if (!lastError) return badge;
     return (
-      <Badge variant="destructive" title={lastError ?? undefined}>
-        Sync error
-      </Badge>
+      <Tooltip>
+        <TooltipTrigger render={<span className="inline-block" />}>
+          {badge}
+        </TooltipTrigger>
+        <TooltipContent>{lastError}</TooltipContent>
+      </Tooltip>
     );
   }
   if (status === "paused") {

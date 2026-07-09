@@ -23,16 +23,10 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireAppContext } from "@/lib/api-context";
+import { SHARED_ACCOUNT_REASON_LABELS as REASON_LABELS } from "@/lib/metrics-glossary";
 import { buildReconcileView, type SubjectResolution } from "@/lib/reconcile";
-import type { SharedAccountReason } from "@/lib/shared-account/heuristics";
 
 export const dynamic = "force-dynamic";
-
-const REASON_LABELS: Record<SharedAccountReason, string> = {
-  round_the_clock: "Round-the-clock activity",
-  concurrent_usage: "Concurrent sessions",
-  volume_exceeds_team_median: "Volume ≫ team median",
-};
 
 const CONFIDENCE_VARIANT = {
   high: "destructive",

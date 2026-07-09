@@ -14,8 +14,6 @@ import {
 // per-person deltas, reading bands, component-detail rows, and the
 // "what needs attention" list). No React, no I/O.
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 function round4(n: number): number {
   return Math.round(n * 10_000) / 10_000;
 }
@@ -26,13 +24,6 @@ export type DeltaResult =
   | { kind: "delta"; current: number; previous: number; delta: number; previousPeriodLabel: string }
   | { kind: "first" }
   | { kind: "notComparable"; reason: "grain" | "definitionVersion" };
-
-/** Whole-day span between a trend point's periodStart/periodEnd (inclusive). */
-function daySpan(point: ScoreTrendPoint): number {
-  const start = new Date(`${point.periodStart}T00:00:00.000Z`).getTime();
-  const end = new Date(`${point.periodEnd}T00:00:00.000Z`).getTime();
-  return Math.round((end - start) / DAY_MS);
-}
 
 function periodLabel(point: ScoreTrendPoint): string {
   const fmt = (day: string) =>
@@ -50,19 +41,12 @@ function periodLabel(point: ScoreTrendPoint): string {
  * Compares the last two points of one score's trend (chronological — the
  * caller passes a single ScoreTrend's `points`, already one slug).
  *
- * KNOWN LIMITATION: `ScoreTrendPoint` (src/lib/dashboard-trends.ts) exposes
- * only `periodStart`/`periodEnd`/`value` — it carries neither `periodGrain`
- * nor `definitionVersion`. "Same periodGrain" is therefore approximated by
- * requiring the last two points to span the same number of days (week is
- * always 7, rolling_28d is always 28, month varies 28–31 — a day-span
- * mismatch reliably catches a grain change; a month-to-month comparison with
- * different day counts in the two months is the one false positive this
- * approximation can produce, and it fails safe into `notComparable`).
- * "Same definition version" cannot be checked at all from this point shape —
- * a v1→v2 definition change within the same slug would NOT be caught here.
- * `reason: "definitionVersion"` is therefore never emitted by this
- * implementation; it exists in `DeltaResult` for a future point shape that
- * carries the version.
+ * `ScoreTrendPoint` (src/lib/dashboard-trends.ts) carries `periodGrain` and
+ * `definitionVersion` straight from the stored score_results/definition
+ * rows, so comparability is an exact check, not a heuristic: a grain change
+ * (week vs. month vs. rolling_28d) or a definition-version change within the
+ * same slug both fail safe into `notComparable` rather than being diffed as
+ * if they were the same measurement.
  */
 export function deriveDelta(points: readonly ScoreTrendPoint[]): DeltaResult {
   if (points.length < 2) {
@@ -71,8 +55,11 @@ export function deriveDelta(points: readonly ScoreTrendPoint[]): DeltaResult {
   const sorted = [...points].sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
   const previous = sorted[sorted.length - 2];
   const current = sorted[sorted.length - 1];
-  if (daySpan(previous) !== daySpan(current)) {
+  if (previous.periodGrain !== current.periodGrain) {
     return { kind: "notComparable", reason: "grain" };
+  }
+  if (previous.definitionVersion !== current.definitionVersion) {
+    return { kind: "notComparable", reason: "definitionVersion" };
   }
   return {
     kind: "delta",

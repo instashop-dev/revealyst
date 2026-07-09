@@ -11,8 +11,14 @@ import {
 
 // Pure-function suite: no DB, no I/O.
 
-function point(periodStart: string, periodEnd: string, value: number): ScoreTrendPoint {
-  return { periodStart, periodEnd, value };
+function point(
+  periodStart: string,
+  periodEnd: string,
+  value: number,
+  periodGrain: ScoreTrendPoint["periodGrain"] = "week",
+  definitionVersion = 1,
+): ScoreTrendPoint {
+  return { periodStart, periodEnd, value, periodGrain, definitionVersion };
 }
 
 describe("deriveDelta", () => {
@@ -59,13 +65,33 @@ describe("deriveDelta", () => {
     expect(result).toMatchObject({ kind: "delta", current: 90, previous: 60, delta: 30 });
   });
 
-  it("grain mismatch (different day-spans) → notComparable", () => {
-    // A week-grain point (7 days) followed by a rolling_28d point (28 days).
+  it("grain mismatch → notComparable(\"grain\")", () => {
     const result = deriveDelta([
-      point("2026-06-08", "2026-06-14", 50), // 7-day span
-      point("2026-06-01", "2026-06-28", 60), // 28-day span
+      point("2026-06-08", "2026-06-14", 50, "week"),
+      point("2026-06-01", "2026-06-28", 60, "rolling_28d"),
     ]);
     expect(result).toEqual({ kind: "notComparable", reason: "grain" });
+  });
+
+  it("definition-version mismatch (same grain) → notComparable(\"definitionVersion\")", () => {
+    const result = deriveDelta([
+      point("2026-05-01", "2026-05-31", 50, "month", 1),
+      point("2026-06-01", "2026-06-30", 60, "month", 2),
+    ]);
+    expect(result).toEqual({ kind: "notComparable", reason: "definitionVersion" });
+  });
+
+  it("different-length months, same grain and version → delta (exact comparison, not day-span)", () => {
+    const result = deriveDelta([
+      point("2026-04-01", "2026-04-30", 55, "month"), // 30-day month
+      point("2026-05-01", "2026-05-31", 62, "month"), // 31-day month
+    ]);
+    expect(result.kind).toBe("delta");
+    if (result.kind === "delta") {
+      expect(result.current).toBe(62);
+      expect(result.previous).toBe(55);
+      expect(result.delta).toBe(7);
+    }
   });
 });
 
