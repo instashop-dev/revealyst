@@ -264,6 +264,9 @@ describe("pollConnection (frozen connectionsPoll)", () => {
       orgId,
       connectionId: connection.id,
       window: { start: "2026-06-13", end: "2026-06-15" },
+      // On-demand polls chain a score-recompute after the ingest lands so
+      // the dashboard shows the fresh sync without waiting for the nightly.
+      recompute: true,
     });
   });
 

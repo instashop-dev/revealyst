@@ -15,6 +15,7 @@ import type { Db } from "../db/client";
 import { forOrg, type SubjectDescriptor } from "../db/org-scope";
 import type { CredentialEnv } from "../lib/credentials";
 import type { PaddleServerConfig } from "../lib/paddle";
+import { previousDay } from "../scoring";
 import { addDays, chunkForCursor } from "./backfill";
 import type {
   ConnectorBackfillMessage,
@@ -103,7 +104,35 @@ export async function runConnectorPoll(
   message: ConnectorPollMessage,
   deps: PollDeps,
 ): Promise<void> {
-  await executeRun(db, message, "poll", message.window, deps);
+  const outcome = await executeRun(db, message, "poll", message.window, deps);
+  // On-demand polls (message.recompute) chain a score-recompute so the
+  // dashboard reflects the fresh ingest without waiting for the nightly
+  // cron. Enqueued only after a SUCCESSFUL run commits — ordering by
+  // construction. Anchored at previousDay of the CONSUMER's clock (exactly
+  // the nightly tick's anchor), not the enqueue-time window, so a retry
+  // that crosses UTC midnight still lands on the nightly period bounds and
+  // the upsert stays idempotent with it. A transient failure retries this
+  // whole message (flag intact), so the recompute still fires after the
+  // eventual success. Best-effort like the delete route's enqueue: the
+  // ingest already committed, so a failed send must NOT rethrow (the queue
+  // would re-poll the vendor just to retry this one-liner) — a lost message
+  // self-heals at the next nightly recompute.
+  if (message.recompute && outcome === "success") {
+    const today = (deps.now ?? (() => new Date()))().toISOString().slice(0, 10);
+    try {
+      await deps.send({
+        kind: "score-recompute",
+        orgId: message.orgId,
+        day: previousDay(today),
+      });
+    } catch (error) {
+      console.warn(
+        `score-recompute enqueue after poll failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 }
 
 /** Delay before a paused connection's backfill chunk re-checks (ADR 0006). */

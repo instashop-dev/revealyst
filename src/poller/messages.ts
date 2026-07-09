@@ -21,6 +21,10 @@ export type PollMessage =
       orgId: string;
       connectionId: string;
       window: DateWindow;
+      /** Chain a score-recompute after the ingest lands (manual "Sync now"
+       * and the connect-flow poll — cron polls leave it unset and rely on
+       * the nightly recompute). Consumer-side so ordering is guaranteed. */
+      recompute?: boolean;
     }
   | {
       // One backfill CHUNK: processes [cursorStart, cursorStart+chunkDays-1]
