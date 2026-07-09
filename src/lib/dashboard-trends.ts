@@ -1,5 +1,10 @@
 import type { forOrg } from "../db/org-scope";
-import { DASHBOARD_SLUGS } from "./dashboard-read";
+import {
+  DASHBOARD_SLUGS,
+  type DefinitionRow,
+  type ScoreRow,
+} from "./dashboard-read";
+import { groupBy } from "./utils";
 
 type OrgScope = ReturnType<typeof forOrg>;
 
@@ -22,35 +27,38 @@ export type ScoreTrend = {
 export async function readScoreTrends(
   scope: OrgScope,
   window: { from: string; to: string },
+  prefetched?: {
+    /** The exact subjectLevel:"team" subset — pass the JS-filtered slice of
+     * dashboard-view.ts's single unfiltered `scores.results` fetch to avoid
+     * a redundant query. */
+    rows?: ScoreRow[];
+    definitions?: DefinitionRow[];
+  },
 ): Promise<ScoreTrend[]> {
   const [rows, definitions] = await Promise.all([
-    scope.scores.results({
-      from: window.from,
-      to: window.to,
-      subjectLevel: "team",
-    }),
-    scope.scores.definitions(),
+    prefetched?.rows ??
+      scope.scores.results({
+        from: window.from,
+        to: window.to,
+        subjectLevel: "team",
+      }),
+    prefetched?.definitions ?? scope.scores.definitions(),
   ]);
   const slugById = new Map(definitions.map((d) => [d.id, d.slug]));
 
-  const bySlug = new Map<string, ScoreTrendPoint[]>();
-  for (const row of rows) {
-    const slug = slugById.get(row.definitionId);
-    if (!slug) continue;
-    const points = bySlug.get(slug) ?? [];
-    points.push({
-      periodStart: row.periodStart,
-      periodEnd: row.periodEnd,
-      value: row.value,
-    });
-    bySlug.set(slug, points);
-  }
+  // Rows whose definition has no known slug group under `undefined` and are
+  // never read below — same skip semantics as the previous hand-rolled loop.
+  const bySlug = groupBy(rows, (row) => slugById.get(row.definitionId));
 
   const trends: ScoreTrend[] = [];
   for (const slug of DASHBOARD_SLUGS) {
-    const points = (bySlug.get(slug) ?? []).sort((a, b) =>
-      a.periodEnd.localeCompare(b.periodEnd),
-    );
+    const points: ScoreTrendPoint[] = (bySlug.get(slug) ?? [])
+      .map((row) => ({
+        periodStart: row.periodStart,
+        periodEnd: row.periodEnd,
+        value: row.value,
+      }))
+      .sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
     if (points.length > 0) trends.push({ slug, points });
   }
   return trends;

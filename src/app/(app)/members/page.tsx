@@ -30,8 +30,10 @@ export default async function MembersPage() {
   if (ctx.role !== "admin") {
     redirect("/dashboard");
   }
-  const members = await orgMembersList(ctx.db, ctx.org.id);
-  const pending = await invitesForOrg(ctx.db, ctx.org.id).listPending();
+  const [members, pending] = await Promise.all([
+    orgMembersList(ctx.db, ctx.org.id),
+    invitesForOrg(ctx.db, ctx.org.id).listPending(),
+  ]);
 
   return (
     <>

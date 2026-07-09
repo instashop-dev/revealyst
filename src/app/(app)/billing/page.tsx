@@ -24,11 +24,11 @@ export default async function BillingPage() {
     redirect("/dashboard");
   }
 
-  const entitlement = await subscriptionsForOrg(ctx.db, ctx.org.id).current();
   // Same window the paywall enforces on, so the displayed count matches.
-  const { trackedPersonIds } = await ctx.scope.billing.trackedUsers(
-    trailing30dPeriod(),
-  );
+  const [entitlement, { trackedPersonIds }] = await Promise.all([
+    subscriptionsForOrg(ctx.db, ctx.org.id).current(),
+    ctx.scope.billing.trackedUsers(trailing30dPeriod()),
+  ]);
   const trackedCount = trackedPersonIds.length;
 
   // Client-safe Paddle config; absent in an unconfigured env — degrade to a

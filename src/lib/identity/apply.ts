@@ -1,6 +1,6 @@
 // DB apply path for W2-K email-match resolution. Composes the pure
 // proposeEmailMatches with the frozen forOrg surface (subjects.list,
-// people.list, identities.forPerson/link) — it adds NO new query surface to
+// people.list, identities.all/link) — it adds NO new query surface to
 // src/db/org-scope.ts (that is a frozen contract).
 
 import type { forOrg } from "../../db/org-scope";
@@ -24,19 +24,14 @@ export async function applyEmailMatches(
     scoped.people.list(),
   ]);
 
-  // Every identity row's personId is one of this org's people, so unioning
-  // forPerson over all people yields every already-resolved subject — via
-  // the existing surface, no bulk-identity reader needed. Fetched
-  // concurrently: the frozen forOrg surface has no bulk identities.list(),
-  // and this reconcile path must not pay N serial round-trips (a bulk reader
-  // is a deferred ADR — see PR notes). Reads only, so order is irrelevant.
-  const identityRows = await Promise.all(
-    peopleRows.map((person) => scoped.identities.forPerson(person.id)),
+  // Every identity row's subjectId marks an already-resolved subject. One
+  // bulk identities.all() read (org-scope.ts:961-966, ADR 0014) instead of
+  // unioning forPerson over every person — avoids N serial/concurrent round
+  // trips for what is otherwise a single-query read.
+  const identityRows = await scoped.identities.all();
+  const alreadyResolvedSubjectIds = new Set<string>(
+    identityRows.map((row) => row.subjectId),
   );
-  const alreadyResolvedSubjectIds = new Set<string>();
-  for (const rows of identityRows) {
-    for (const row of rows) alreadyResolvedSubjectIds.add(row.subjectId);
-  }
 
   const result = proposeEmailMatches({
     subjects: subjectRows.map((s) => ({

@@ -28,10 +28,19 @@ export const appContext = cache(async () => {
   if (!session) {
     return null;
   }
-  // Self-heals a user whose signup-time org bootstrap failed (the auth
-  // `after` hook runs post-commit and can't be rolled back into signup).
-  await ensureOrgOfOne(db, session.user);
-  const orgContext = await orgContextForUser(db, session.user.id);
+  // Try the org context first — the common case resolves in one read and
+  // skips the self-heal round-trip entirely. Only fall back to
+  // ensureOrgOfOne (self-heals a user whose signup-time org bootstrap
+  // failed — the auth `after` hook runs post-commit and can't be rolled
+  // back into signup) when no org context resolves, then re-check: a miss
+  // here is a strict superset of what ensureOrgOfOne's existence check
+  // needs, so this preserves self-heal semantics while saving a DB
+  // round-trip on every warm request.
+  let orgContext = await orgContextForUser(db, session.user.id);
+  if (!orgContext) {
+    await ensureOrgOfOne(db, session.user);
+    orgContext = await orgContextForUser(db, session.user.id);
+  }
   if (!orgContext) {
     return null;
   }

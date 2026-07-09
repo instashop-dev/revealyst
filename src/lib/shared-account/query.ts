@@ -1,7 +1,8 @@
-// DB query path for W2-K shared-account detection. Reads an org's subjects,
-// a volume metric, and the intra-day signals through the frozen forOrg
-// surface, then runs the pure detectSharedAccounts. Adds NO new query
-// surface to src/db/org-scope.ts (a frozen contract).
+// DB query path for W2-K shared-account detection. Reads an org's volume
+// metric and its intra-day signals through the frozen forOrg surface, then
+// runs the pure detectSharedAccounts. Adds NO new query surface to
+// src/db/org-scope.ts (a frozen contract) — signals come from ADR 0017's
+// `metrics.allSignals` bulk reader, added there under that ADR.
 
 import type { forOrg } from "../../db/org-scope";
 import {
@@ -17,9 +18,8 @@ type Scoped = ReturnType<typeof forOrg>;
  * Computes shared-account flags for one time window. Volume is the summed
  * value of `volumeMetricKey` (default tokens_input) per subject over the
  * window — a magnitude proxy; the team median is derived from it inside the
- * heuristic. Signals are read per subject: the frozen surface has no bulk
- * subject_day_signals reader (a bulk reader is a deferred ADR — see PR
- * notes), so the reads are gathered concurrently rather than run serially.
+ * heuristic. Signals are read with ONE org-wide `metrics.allSignals` call
+ * (ADR 0017) instead of fanning out one `metrics.signals` query per subject.
  */
 export async function computeSharedAccountFlags(
   scoped: Scoped,
@@ -28,20 +28,27 @@ export async function computeSharedAccountFlags(
     to: string;
     volumeMetricKey?: string;
     config?: Partial<SharedAccountConfig>;
-    /** Pre-fetched org subjects — pass to avoid a redundant subjects.list()
-     *  when the caller already has them (e.g. the reconcile page). */
-    subjects?: Awaited<ReturnType<Scoped["subjects"]["list"]>>;
+    /** Pre-fetched org-wide signal rows (e.g. dashboard-view.ts's single
+     *  fetch, shared with the activity heatmap) — pass to avoid a
+     *  redundant `allSignals` call when the caller already has them. */
+    signalRows?: Awaited<ReturnType<Scoped["metrics"]["allSignals"]>>;
+    /** Pre-fetched metric_records for `volumeMetricKey` over the window —
+     *  MUST be the rows for that exact key (the default is tokens_input);
+     *  pass only when the caller fetched them itself (dashboard-view.ts). */
+    volumeRecords?: Awaited<ReturnType<Scoped["metrics"]["records"]>>;
   },
 ): Promise<SharedAccountFlag[]> {
   const volumeMetricKey = opts.volumeMetricKey ?? "tokens_input";
 
-  const [subjectRows, volumeRecords] = await Promise.all([
-    opts.subjects ?? scoped.subjects.list(),
-    scoped.metrics.records({
-      metricKey: volumeMetricKey,
-      from: opts.from,
-      to: opts.to,
-    }),
+  const [volumeRecords, signalRows] = await Promise.all([
+    opts.volumeRecords ??
+      scoped.metrics.records({
+        metricKey: volumeMetricKey,
+        from: opts.from,
+        to: opts.to,
+      }),
+    opts.signalRows ??
+      scoped.metrics.allSignals({ from: opts.from, to: opts.to }),
   ]);
 
   const volumeBySubject = new Map<string, number>();
@@ -52,19 +59,10 @@ export async function computeSharedAccountFlags(
     );
   }
 
-  const signalRowsPerSubject = await Promise.all(
-    subjectRows.map((subject) =>
-      scoped.metrics.signals({
-        subjectId: subject.id,
-        from: opts.from,
-        to: opts.to,
-      }),
-    ),
-  );
   // subject_day_signals rows are structurally a superset of SubjectDaySignal,
   // so they pass straight through — detectSharedAccounts reads only the four
   // fields it needs.
-  const signals: SubjectDaySignal[] = signalRowsPerSubject.flat();
+  const signals: SubjectDaySignal[] = signalRows;
 
   return detectSharedAccounts({
     signals,

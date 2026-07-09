@@ -57,6 +57,11 @@ export async function connectApiKeyVendor(opts: {
     return { ok: false, error: errorText(cred.payload, "That key was rejected") };
   }
 
-  await postJson(`/api/connections/${connectionId}/poll`).catch(() => {});
+  // Fire-and-forget: this module only runs in the browser (imported solely
+  // by "use client" components — onboarding-wizard.tsx,
+  // add-connection-dialog.tsx), so there is no Workers cross-request-I/O
+  // cancellation risk in awaiting it, but the caller doesn't need the poll's
+  // result to proceed — the sync itself is a best-effort nudge.
+  postJson(`/api/connections/${connectionId}/poll`).catch(() => {});
   return { ok: true, connectionId };
 }
