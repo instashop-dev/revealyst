@@ -24,7 +24,13 @@ import { BANNED_PHRASING } from "./helpers/banned-phrasing";
 // entry — so a new preset/vendor/gap kind can't silently ship without copy.
 
 const PRESET_SEED = readFileSync("drizzle/0009_seed-score-presets.sql", "utf8");
-const CATALOG_SEED = readFileSync("drizzle/0007_seed-metric-catalog.sql", "utf8");
+// The metric catalog seed spans the original W0-C seed (0007) plus the V1.5
+// agentic + credits additions (0022, ADR 0022) — the glossary must mirror the
+// FULL catalog, not just the frozen slice.
+const CATALOG_SEED =
+  readFileSync("drizzle/0007_seed-metric-catalog.sql", "utf8") +
+  "\n" +
+  readFileSync("drizzle/0022_seed-agentic-and-credits-metrics.sql", "utf8");
 
 // All 6 HonestyGap kinds (src/contracts/connector.ts) — no runtime array is
 // exported for this type, so the exhaustive list is hand-mirrored here.
@@ -122,8 +128,8 @@ describe("METRIC_REFERENCE ≡ metric_catalog seed (drizzle/0007)", () => {
     description: m[3],
   }));
 
-  it("parses all 22 catalog rows from the seed", () => {
-    expect(rows.length).toBe(22);
+  it("parses all 26 catalog rows from the seed (22 W0-C + 4 V1.5 agentic/credits)", () => {
+    expect(rows.length).toBe(26);
   });
 
   it("METRIC_REFERENCE has every seeded key with verbatim name + description", () => {

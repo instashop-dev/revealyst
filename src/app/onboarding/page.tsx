@@ -1,5 +1,9 @@
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { requireAppContext } from "@/lib/api-context";
+import {
+  type CopilotAppEnv,
+  readCopilotAppConfig,
+} from "@/lib/github-app-config";
 
 // Standalone authed route (root layout, no sidebar) — a focused connect flow.
 // New personal orgs land here from the dashboard until they connect a source.
@@ -17,6 +21,11 @@ export default async function OnboardingPage() {
           vendor: c.vendor,
           status: c.status,
         }))}
+        // Render-time env gate (ADR 0022): Copilot's GitHub App connect is
+        // offered only when the App secrets exist on this deployment.
+        copilotAvailable={
+          readCopilotAppConfig(ctx.env as unknown as CopilotAppEnv) !== null
+        }
       />
     </main>
   );

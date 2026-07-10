@@ -76,6 +76,17 @@ function normalizeDailyUsage(rows: CursorDailyUsageRow[]): NormalizedBatch {
       row.cmdkUsages;
     acc.add(subject, attribution, "prompts", day, "", prompts);
 
+    // Agentic metrics (§8.3): agentRequests is a genuine agent-mode request
+    // count. It also rides in `prompts` (an agent request IS a prompt) — no
+    // within-family double count, as agent_requests lives in the `agentic`
+    // family. agent_active is the cross-vendor agentic-adoption flag; it fires
+    // only on real agent activity (never fabricated). Cursor has no
+    // agent-session concept → no agent_sessions row (honest gap).
+    acc.add(subject, attribution, "agent_requests", day, "", row.agentRequests);
+    if (row.agentRequests > 0) {
+      acc.add(subject, attribution, "agent_active", day, "", 1, "max");
+    }
+
     // Apply accept/reject (edit actions) and Tab suggestions are distinct
     // acceptance signals — keep them separate, don't conflate.
     acc.add(subject, attribution, "edit_actions_accepted", day, "", row.totalAccepts);

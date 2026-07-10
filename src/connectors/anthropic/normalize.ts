@@ -176,6 +176,14 @@ function normalizeClaudeCode(records: ClaudeCodeRecord[]): NormalizedBatch {
     const core = record.core_metrics;
     acc.add(subject, attribution, "active_day", day, "", 1, "max");
     acc.add(subject, attribution, "sessions", day, "", core.num_sessions);
+
+    // Agentic metrics (§8.3): Claude Code is inherently agent-mediated, so its
+    // sessions ARE agent sessions (emitted under the `agentic` family too — no
+    // within-family double count) and every Claude Code day is agentic
+    // activity. agent_requests is a documented gap for this surface (no
+    // request count — connector-facts §3) → never fabricated.
+    acc.add(subject, attribution, "agent_sessions", day, "", core.num_sessions);
+    acc.add(subject, attribution, "agent_active", day, "", 1, "max");
     acc.add(subject, attribution, "commits", day, "", core.commits_by_claude_code);
     acc.add(subject, attribution, "pull_requests", day, "", core.pull_requests_by_claude_code);
     acc.add(subject, attribution, "lines_added", day, "", core.lines_of_code.added);

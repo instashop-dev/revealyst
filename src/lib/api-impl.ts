@@ -587,8 +587,10 @@ export async function deleteConnection(scope: OrgScope, connectionId: string) {
  * validateAuth so onboarding gets immediate feedback on a bad key. A rejected
  * key marks the connection errored (surfaced in the connections list) and
  * 400s; the write itself already happened (write-only, no read-back), so a
- * later re-PUT overwrites. Vendors with no shipped connector (Copilot/Cursor,
- * or the local agent's device_token) skip validation.
+ * later re-PUT overwrites. Vendors with no shipped connector (the local
+ * agent's device_token) skip validation. Copilot credentials are normally
+ * established by the GitHub App install callback, not this route; a manual
+ * PUT of a `github_app_private_key` blob still validates via the connector.
  */
 export async function putConnectionCredential(
   scope: OrgScope,
@@ -667,6 +669,76 @@ export async function putConnectionCredential(
     }
   }
   return apiRoutes.connectionCredentialPut.response.parse({ ok: true });
+}
+
+/**
+ * Completes a GitHub App install for the Copilot connector (W4-T): creates
+ * the connection (authKind github_app; org login + app/installation ids in
+ * non-secret config) and stores the App auth material as the
+ * `github_app_private_key` credential — a JSON blob { appId, installationId,
+ * privateKeyPem } the connector reads via ctx.credential. The private key is
+ * SOURCED from the GH_COPILOT_APP_PRIVATE_KEY Worker secret by the callback
+ * route (one app) and passed in here; it is stored envelope-encrypted,
+ * AAD-bound to (org, connection, kind), never in config.
+ *
+ * Returns the created connection. Idempotency across a re-install is handled
+ * by the caller (it reuses an existing github_copilot connection for the same
+ * installation id rather than minting a duplicate).
+ */
+export async function completeGithubCopilotInstall(
+  scope: OrgScope,
+  env: CredentialEnv,
+  input: {
+    orgLogin: string;
+    installationId: string;
+    appId: string;
+    privateKeyPem: string;
+    scopeKind?: "org" | "enterprise";
+    /** The org member who completed the install — audited like the sibling
+     * create/store-credential paths (ADR 0010). */
+    actorUserId?: string;
+  },
+) {
+  const mode = input.scopeKind === "enterprise" ? "enterprise" : "org";
+  const connection = await scope.connections.create({
+    vendor: "github_copilot",
+    displayName: `GitHub Copilot (${input.orgLogin})`,
+    authKind: "github_app",
+    config:
+      mode === "enterprise"
+        ? { mode, enterprise: input.orgLogin, appId: input.appId, installationId: input.installationId }
+        : { mode, org: input.orgLogin, appId: input.appId, installationId: input.installationId },
+  });
+  await scope.connections.storeCredential(
+    connection.id,
+    "github_app_private_key",
+    JSON.stringify({
+      appId: input.appId,
+      installationId: input.installationId,
+      privateKeyPem: input.privateKeyPem,
+    }),
+    env,
+  );
+  // Same audit trail the POST /api/connections + credential-PUT routes write
+  // (ADR 0010) — the App-install path must not be an audit blind spot. Kind
+  // only, never the key material.
+  if (input.actorUserId) {
+    await scope.auditLog.record({
+      actorUserId: input.actorUserId,
+      action: "connection.create",
+      targetKind: "connection",
+      targetId: connection.id,
+      metadata: { vendor: "github_copilot", via: "github_app_install" },
+    });
+    await scope.auditLog.record({
+      actorUserId: input.actorUserId,
+      action: "connection.store_credential",
+      targetKind: "connection",
+      targetId: connection.id,
+      metadata: { kind: "github_app_private_key" },
+    });
+  }
+  return connection;
 }
 
 /**
