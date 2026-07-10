@@ -36,6 +36,11 @@ const CANONICAL_KEYS = [
   "lines_added",
   "lines_removed",
   "lines_suggested",
+  // V1.5 agentic + credits additions (ADR 0018 / migration 0020).
+  "agent_sessions",
+  "agent_requests",
+  "agent_active",
+  "ai_credits",
 ];
 
 let db: Db;

@@ -25,10 +25,12 @@ import {
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { GithubAppConnectCard } from "@/components/github-app-connect-card";
 import { errorText, postJson } from "@/lib/client-fetch";
 import { connectApiKeyVendor } from "@/lib/connect-vendor";
 import {
   COMING_SOON,
+  GITHUB_APP_VENDORS,
   KEY_VENDORS,
   type KeyVendor,
 } from "@/lib/vendor-connect-meta";
@@ -117,6 +119,14 @@ export function OnboardingWizard({
           )}
           onConnected={() => markConnected("claude_code_local")}
         />
+
+        {GITHUB_APP_VENDORS.map((v) => (
+          <GithubAppConnectCard
+            key={v.vendor}
+            vendor={v}
+            connected={Boolean(usableConnection(initialConnections, v.vendor))}
+          />
+        ))}
 
         {COMING_SOON.map((c) => (
           <Card key={c.label} className="opacity-70">

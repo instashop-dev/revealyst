@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 // precisely because of that, and THIS test is its drift guard).
 import "../src/connectors";
 import { getConnector, registeredVendors } from "../src/connectors/registry";
-import { KEY_VENDORS } from "../src/lib/vendor-connect-meta";
+import { GITHUB_APP_VENDORS, KEY_VENDORS } from "../src/lib/vendor-connect-meta";
 
 // Vendors with a shipped connector that the key-based connect UI must NOT
 // offer, with the reason. Adding a connector to the registry without either
@@ -13,7 +13,8 @@ import { KEY_VENDORS } from "../src/lib/vendor-connect-meta";
 // connect surface.
 const INTENTIONALLY_NOT_IN_CONNECT_UI: Record<string, string> = {
   // (none today — claude_code_local pairs via device token in onboarding
-  // and has no registered connector; Copilot has no connector yet)
+  // and has no registered connector; Copilot connects via GitHub App, so it
+  // is offered through GITHUB_APP_VENDORS rather than KEY_VENDORS.)
 };
 
 describe("vendor-connect-meta ↔ connector registry drift guard", () => {
@@ -26,8 +27,20 @@ describe("vendor-connect-meta ↔ connector registry drift guard", () => {
     }
   });
 
+  it("every GITHUB_APP_VENDORS entry has a shipped, registered connector", () => {
+    for (const v of GITHUB_APP_VENDORS) {
+      expect(
+        getConnector(v.vendor),
+        `${v.vendor} is offered as a GitHub-App connect but has no registered connector`,
+      ).toBeDefined();
+    }
+  });
+
   it("every registered connector is offered in the connect UI or explicitly excused", () => {
-    const offered = new Set<string>(KEY_VENDORS.map((v) => v.vendor));
+    const offered = new Set<string>([
+      ...KEY_VENDORS.map((v) => v.vendor),
+      ...GITHUB_APP_VENDORS.map((v) => v.vendor),
+    ]);
     for (const vendor of registeredVendors()) {
       const excused = vendor in INTENTIONALLY_NOT_IN_CONNECT_UI;
       expect(

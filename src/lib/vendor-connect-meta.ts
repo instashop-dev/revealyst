@@ -45,7 +45,34 @@ export const KEY_VENDORS: KeyVendor[] = [
   },
 ];
 
-// Individual Copilot exposes no metrics API — honest, not a dead form.
-export const COMING_SOON = [
-  { label: "GitHub Copilot", note: "Individual plans have no metrics API yet." },
+/** A vendor connected via a GitHub App install redirect (not a key paste).
+ * The "Connect" button links to `setupPath`, which starts the App install and
+ * returns to the callback that creates the connection (W4-T). */
+export type GithubAppVendor = {
+  vendor: "github_copilot";
+  label: string;
+  blurb: string;
+  /** Route that begins the GitHub App install (a plain <a>, never <Link> —
+   * it 30x's to github.com). */
+  setupPath: string;
+  /** Honest plan/permission requirement copy (never over-promised). */
+  requirements: string;
+};
+
+export const GITHUB_APP_VENDORS: GithubAppVendor[] = [
+  {
+    vendor: "github_copilot",
+    label: "GitHub Copilot",
+    blurb:
+      "Org usage metrics via the Revealyst GitHub App — per-user daily activity, acceptance, agent usage, and AI Credits (org daily grain; no hour-by-hour signal).",
+    setupPath: "/api/integrations/github/setup",
+    requirements:
+      "Copilot Business or Enterprise with the “Copilot usage metrics” policy on. An org owner installs the read-only Revealyst GitHub App; individual plans get spend context only, not usage metrics.",
+  },
 ];
+
+// Everything key-based or GitHub-App-based now has a connect path; nothing is
+// "coming soon" on the connect surface today. (Individual Copilot usage
+// metrics still don't exist as an API — that honesty lives in the GitHub App
+// requirements copy above, not a dead card.)
+export const COMING_SOON: { label: string; note: string }[] = [];

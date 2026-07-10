@@ -6,9 +6,11 @@ import { getConnector } from "@/connectors/registry";
 import { AddConnectionDialog } from "@/components/add-connection-dialog";
 import { ConnectionRowActions } from "@/components/connection-row-actions";
 import { EmptyState } from "@/components/empty-state";
+import { GithubAppConnectCard } from "@/components/github-app-connect-card";
 import { PageHeader } from "@/components/page-header";
 import { SyncAllButton, SyncNowButton } from "@/components/sync-buttons";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
+import { Alert, AlertTitle } from "@/components/ui/alert";
 import {
   Table,
   TableBody,
@@ -18,13 +20,53 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { requireAppContext } from "@/lib/api-context";
+import { GITHUB_APP_VENDORS } from "@/lib/vendor-connect-meta";
 import { vendorLabel } from "@/lib/vendor-labels";
 
 export const dynamic = "force-dynamic";
 
-export default async function ConnectionsPage() {
+/** Honest feedback for the GitHub App connect redirect — the setup/callback
+ * routes bounce back here with a reason, so the "Connect via GitHub App"
+ * button is never a silent dead-end (including the current founder-gated
+ * "not configured" state before the App secrets are synced). */
+function copilotConnectBanner(
+  params: Record<string, string | string[] | undefined>,
+): { variant: "default" | "destructive"; message: string } | null {
+  if (params.connected === "github_copilot") {
+    return {
+      variant: "default",
+      message: params.reused
+        ? "GitHub Copilot is already connected for that installation."
+        : "GitHub Copilot connected. First metrics will land on the next sync.",
+    };
+  }
+  if (params.copilot_pending) {
+    return {
+      variant: "default",
+      message:
+        "Almost there — a GitHub organization owner still needs to approve the Revealyst app installation.",
+    };
+  }
+  const error = typeof params.copilot_error === "string" ? params.copilot_error : null;
+  if (!error) return null;
+  const messages: Record<string, string> = {
+    not_configured:
+      "GitHub Copilot isn't available on this deployment yet — the GitHub App credentials are still being set up.",
+    state: "That Copilot connect request expired or didn't match. Please start again.",
+    install_lookup: "We couldn't read your GitHub installation. Please try connecting again.",
+    create_failed: "Something went wrong finishing the connection. Please try again.",
+  };
+  return { variant: "destructive", message: messages[error] ?? "Couldn't connect GitHub Copilot. Please try again." };
+}
+
+export default async function ConnectionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const ctx = await requireAppContext();
   const connections = await ctx.scope.connections.list();
+  const banner = copilotConnectBanner(await searchParams);
   // Edit/delete are admin-only (ADR 0013); adding is open to all members.
   // Sync now/all is open to all members too — the poll route isn't
   // admin-only (the connect flow already fires it for any member).
@@ -48,6 +90,11 @@ export default async function ConnectionsPage() {
         {syncableIds.length > 0 && <SyncAllButton connectionIds={syncableIds} />}
         <AddConnectionDialog />
       </PageHeader>
+      {banner && (
+        <Alert variant={banner.variant} className="mb-4">
+          <AlertTitle>{banner.message}</AlertTitle>
+        </Alert>
+      )}
       {connections.length === 0 ? (
         <EmptyState
           icon={Cable}
@@ -113,6 +160,16 @@ export default async function ConnectionsPage() {
           </Table>
         </div>
       )}
+
+      <section className="mt-8 grid gap-4 sm:grid-cols-2">
+        {GITHUB_APP_VENDORS.map((v) => (
+          <GithubAppConnectCard
+            key={v.vendor}
+            vendor={v}
+            connected={connections.some((c) => c.vendor === v.vendor)}
+          />
+        ))}
+      </section>
     </>
   );
 }

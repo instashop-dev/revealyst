@@ -16,6 +16,10 @@ export const METRIC_FAMILIES = [
   "acceptance",
   "feature_usage",
   "output_shipped",
+  // V1.5 (ADR 0018 / §8.3): agent-mediated work — agent sessions, agent
+  // requests, agentic adoption. Additive; every vendor maps only the agent
+  // fields it genuinely reports (invariant b — no fabricated agent numbers).
+  "agentic",
 ] as const;
 export type MetricFamily = (typeof METRIC_FAMILIES)[number];
 
@@ -25,6 +29,10 @@ export const METRIC_UNITS = [
   "usd_cents",
   "lines",
   "flag",
+  // V1.5 (ADR 0018 / §10.1): GitHub Copilot usage-based-billing AI Credits.
+  // Credits are NOT a dollar amount — any cents conversion is derived and
+  // must land on spend_cents_estimated, never presented as billing truth.
+  "credits",
 ] as const;
 export type MetricUnit = (typeof METRIC_UNITS)[number];
 
@@ -58,6 +66,18 @@ export const CANONICAL_METRICS = {
   lines_added: { family: "output_shipped", unit: "lines", dimKind: null },
   lines_removed: { family: "output_shipped", unit: "lines", dimKind: null },
   lines_suggested: { family: "output_shipped", unit: "lines", dimKind: null },
+  // V1.5 agentic metrics (ADR 0018 / §8.3). Each source vendor maps only the
+  // agent fields it truly reports: agent_sessions from Copilot CLI sessions +
+  // Claude Code sessions; agent_requests from Cursor agentRequests + Copilot
+  // agent-mode requests; agent_active is the cross-vendor "used an agent this
+  // day" flag. Never fabricated where a vendor has no agent signal.
+  agent_sessions: { family: "agentic", unit: "count", dimKind: null },
+  agent_requests: { family: "agentic", unit: "count", dimKind: null },
+  agent_active: { family: "agentic", unit: "flag", dimKind: null },
+  // Copilot AI Credits (ADR 0018 / §10.1) — vendor-reported usage-based-billing
+  // credits, a native credits unit. NOT dollars: a cents conversion is
+  // derived/estimated (spend_cents_estimated) and labeled, never billing truth.
+  ai_credits: { family: "spend", unit: "credits", dimKind: null },
 } as const satisfies Record<string, CatalogEntry>;
 
 export type MetricKey = keyof typeof CANONICAL_METRICS;

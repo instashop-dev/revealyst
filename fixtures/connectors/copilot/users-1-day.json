@@ -1,0 +1,76 @@
+{
+  "report_day": "2026-06-19",
+  "records": [
+    {
+      "day": "2026-06-19",
+      "organization_id": 4242,
+      "user_id": 1001,
+      "user_login": "alice",
+      "ai_credits_used": 37.5,
+      "user_initiated_interaction_count": 60,
+      "code_generation_activity_count": 200,
+      "code_acceptance_activity_count": 90,
+      "loc_suggested_to_add_sum": 800,
+      "loc_added_sum": 420,
+      "loc_deleted_sum": 30,
+      "used_agent": true,
+      "used_chat": true,
+      "used_cli": true,
+      "used_copilot_coding_agent": true,
+      "used_copilot_code_review_active": true,
+      "ai_adoption_phase": { "phase_number": 3, "phase": "power", "version": "v2" },
+      "totals_by_cli": {
+        "session_count": 4,
+        "request_count": 25,
+        "prompt_count": 40,
+        "token_usage": {
+          "prompt_tokens_sum": 12000,
+          "output_tokens_sum": 4800,
+          "avg_tokens_per_request": 672
+        },
+        "last_known_cli_version": "1.9.2"
+      },
+      "totals_by_feature": [
+        { "feature": "code_completion", "user_initiated_interaction_count": 30 },
+        { "feature": "chat_panel_agent_mode", "user_initiated_interaction_count": 12 },
+        { "feature": "agent_edit", "user_initiated_interaction_count": 6 }
+      ],
+      "totals_by_ide": [{ "feature": "vscode", "user_initiated_interaction_count": 55 }],
+      "totals_by_language_model": [
+        { "model": "gpt-5-copilot", "user_initiated_interaction_count": 45 },
+        { "model": "claude-sonnet-5", "user_initiated_interaction_count": 15 }
+      ]
+    },
+    {
+      "day": "2026-06-19",
+      "organization_id": 4242,
+      "user_id": 1002,
+      "user_login": "bob",
+      "user_initiated_interaction_count": 8,
+      "code_generation_activity_count": 20,
+      "code_acceptance_activity_count": 5,
+      "used_chat": true
+    },
+    {
+      "day": "2026-06-19",
+      "organization_id": 4242,
+      "user_id": 1003,
+      "user_login": "carol",
+      "ai_credits_used": 4,
+      "user_initiated_interaction_count": 15,
+      "code_generation_activity_count": 40,
+      "code_acceptance_activity_count": 22,
+      "loc_suggested_to_add_sum": 120,
+      "loc_added_sum": 70,
+      "used_copilot_cloud_agent": true,
+      "totals_by_cli": {
+        "session_count": 2,
+        "request_count": 9,
+        "token_usage": { "prompt_tokens_sum": 3000, "output_tokens_sum": 1100 }
+      },
+      "totals_by_language_model": [
+        { "model": "claude-sonnet-5", "user_initiated_interaction_count": 15 }
+      ]
+    }
+  ]
+}
