@@ -51,15 +51,10 @@ import {
   type DeltaResult,
 } from "@/lib/score-insights";
 import { vendorLabel } from "@/lib/vendor-labels";
+import { VISIBILITY_MODE_INFO } from "@/lib/visibility-playbook";
 import { periodFor, previousDay } from "@/scoring";
 
 export const dynamic = "force-dynamic";
-
-const VISIBILITY_LABELS = {
-  private: "Private — team-level, pseudonymized",
-  managed: "Managed visibility",
-  full: "Full visibility",
-} as const;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -411,6 +406,7 @@ async function TeamOverview({
     segments,
     sharedAccounts,
     definitions,
+    gaps,
   } = view;
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
@@ -440,14 +436,14 @@ async function TeamOverview({
         x.d.kind === "delta",
     )
     .map((x) => ({ slug: x.slug, delta: x.d.delta }));
-  // Team's needs-attention strip is deliberately narrower than the personal
-  // view's: shared-account count, errored connections, and score drops only
-  // (no gaps/unresolved-subjects reads here — the composed team view doesn't
-  // fetch connector_runs, and adding that read is out of scope for this
-  // strip; the identity-link callout stays personal/admin-only).
+  // Team's needs-attention strip surfaces the SAME connector honesty gaps the
+  // personal self-view does (W4-W finding A5 — the composed team view now
+  // fetches connector_runs and threads gaps through `view.gaps`), plus
+  // shared-account count, errored connections, and score drops. The
+  // unresolved-subjects/identity-link callout stays personal/admin-only.
   const attentionItems = deriveAttention({
     connections: connectionAttentionInputs(connections),
-    gaps: [],
+    gaps,
     sharedAccountCount: sharedAccounts.length,
     scoreDrops,
   });
@@ -552,9 +548,21 @@ async function TeamOverview({
               <div className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">Privacy mode</span>
                 <span className="text-right">
-                  {VISIBILITY_LABELS[ctx.org.visibilityMode]}
+                  {VISIBILITY_MODE_INFO[ctx.org.visibilityMode].label}
                 </span>
               </div>
+              {ctx.role === "admin" && (
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    nativeButton={false}
+                    render={<Link href="/settings" />}
+                  >
+                    Workspace settings
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
           <Card>

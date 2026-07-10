@@ -18,7 +18,9 @@ export const dynamic = "force-dynamic";
 // /account is the one route an over-band, un-entitled user needs to reach to
 // stop being blocked at all: deleting their account. Without this exemption
 // they'd see only the paywall and could never delete (ADR 0015, review finding).
-const PAYWALL_EXEMPT_PREFIXES = ["/account"];
+// /settings is exempt so an admin over the band can always TIGHTEN privacy
+// (switch back to team-only) — a privacy guardrail is never-cut (ADR 0018).
+const PAYWALL_EXEMPT_PREFIXES = ["/account", "/settings"];
 
 export default async function AppLayout({
   children,

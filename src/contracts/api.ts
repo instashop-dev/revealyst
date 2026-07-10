@@ -377,6 +377,37 @@ export const apiRoutes = {
     }),
   },
 
+  // Org settings mutation (ADR 0018, W4-W): rename and/or change the
+  // visibility mode — the single most privacy-sensitive mutation in the
+  // product (§9.1). Admin-only at the handler; every changed field writes an
+  // audit_log entry. An empty patch is a 400 (a no-op "update" would fabricate
+  // audit-trail entries, same rule as connectionsUpdate). The current values
+  // are read server-side from the session's org (the frozen `me` route already
+  // exposes them), so there is no settings-read route. The response carries
+  // only the non-sensitive `org` shape `me` already returns.
+  settingsUpdate: {
+    method: "PATCH",
+    path: "/api/settings",
+    request: z
+      .object({
+        // Trimmed server-side: a whitespace-only name would otherwise pass
+        // min(1) and blank the workspace name everywhere it renders.
+        name: z.string().trim().min(1).optional(),
+        visibilityMode: z.enum(["private", "managed", "full"]).optional(),
+      })
+      .refine((patch) => Object.keys(patch).length > 0, {
+        message: "at least one field required",
+      }),
+    response: z.object({
+      org: z.object({
+        id: uuid,
+        name: z.string(),
+        kind: z.enum(["personal", "team", "system"]),
+        visibilityMode: z.enum(["private", "managed", "full"]),
+      }),
+    }),
+  },
+
   // Paddle hosted customer portal: creates a fresh authenticated session (ADR
   // 0011) and returns its links. Generated per request, never cached.
   billingPortal: {
@@ -395,4 +426,10 @@ export const apiRoutes = {
  * can't drift from the contract. */
 export type ConnectionsUpdateRequest = z.infer<
   typeof apiRoutes.connectionsUpdate.request
+>;
+
+/** ADR 0018 — the PATCH /api/settings body, derived from the frozen schema so
+ * impl layers can't drift from the contract. */
+export type SettingsUpdateRequest = z.infer<
+  typeof apiRoutes.settingsUpdate.request
 >;

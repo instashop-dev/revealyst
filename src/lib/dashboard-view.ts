@@ -13,6 +13,7 @@ import {
   type ActivityHeatmap,
 } from "./dashboard-signals";
 import { readScoreTrends, type ScoreTrend } from "./dashboard-trends";
+import { collectGaps, type CollectedGap } from "./honesty-gaps";
 import { resolveSegmentSource, type SegmentDistribution } from "./segments";
 import {
   resolveSharedAccountSource,
@@ -43,6 +44,14 @@ export type DashboardView = {
    * global presets with no person data, so adding this field does not
    * change what that privacy predicate needs to inspect. */
   definitions: DefinitionRow[];
+  /** Connector honesty gaps — degraded-attribution holes the connectors
+   * report (src/lib/honesty-gaps.ts). W4-W finding A5: the personal self-view
+   * already surfaces these in its needs-attention strip; the team view now
+   * does too (same data, same "how complete is this?" framing), so a team
+   * admin isn't shown fabricated coverage. Gaps carry only `{ kind, detail }`
+   * — no person data — so like `definitions` they do not change what
+   * `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must inspect. */
+  gaps: CollectedGap[];
 };
 
 export async function readDashboardView(
@@ -78,6 +87,7 @@ export async function readDashboardView(
     activeDayRecords,
     featureRecords,
     volumeRecords,
+    runs,
   ] = await Promise.all([
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
@@ -112,6 +122,10 @@ export async function readDashboardView(
       from: window.from,
       to: window.to,
     }),
+    // Connector honesty gaps (A5) — same read the personal self-view makes
+    // (api-impl.ts `dashboardSummary`); the recent runs carry the deduped
+    // gap set the poller wrote. Additive to the single-round-trip Promise.all.
+    scope.connectorRuns.list({ limit: 200 }),
   ]);
 
   // One pass over the superset: the exact splits trends (team) and segments
@@ -161,5 +175,15 @@ export async function readDashboardView(
     { slug: "efficiency", value: latest.get("efficiency")?.value ?? null },
   ]);
 
-  return { summary, benchmarks, heatmap, coverage, trends, segments, sharedAccounts, definitions };
+  return {
+    summary,
+    benchmarks,
+    heatmap,
+    coverage,
+    trends,
+    segments,
+    sharedAccounts,
+    definitions,
+    gaps: collectGaps(runs),
+  };
 }
