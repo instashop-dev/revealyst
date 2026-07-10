@@ -45,19 +45,24 @@ export default async function AdminUsersPage({
   const params = parseParams(await searchParams);
   const offset = (params.page - 1) * PAGE_SIZE;
 
-  const { rows, total } = await listUsersForAdmin(ctx.db, {
-    search: params.q || undefined,
-    sort: params.sort,
-    sortDir: params.dir,
-    filter: {
-      banned: params.banned,
-      platformAdmin: params.platformAdmin,
-      plan: params.plan,
-      orgKind: params.orgKind,
+  const { rows, total } = await listUsersForAdmin(
+    ctx.db,
+    {
+      search: params.q || undefined,
+      sort: params.sort,
+      sortDir: params.dir,
+      filter: {
+        banned: params.banned,
+        platformAdmin: params.platformAdmin,
+        plan: params.plan,
+        orgKind: params.orgKind,
+      },
+      limit: PAGE_SIZE,
+      offset,
     },
-    limit: PAGE_SIZE,
-    offset,
-  });
+    // Both power sources for platformAdmin — see isPlatformAdmin (ADR 0016).
+    ctx.env,
+  );
 
   return (
     <>

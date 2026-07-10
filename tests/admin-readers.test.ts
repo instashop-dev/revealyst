@@ -285,22 +285,22 @@ beforeAll(async () => {
 
 describe("listUsersForAdmin", () => {
   it("search matches email and name (case-insensitive)", async () => {
-    const byEmail = await listUsersForAdmin(db, { search: "ALICE@example" });
+    const byEmail = await listUsersForAdmin(db, { search: "ALICE@example" }, {});
     expect(byEmail.rows.map((r) => r.id)).toEqual([alice.id]);
 
-    const byName = await listUsersForAdmin(db, { search: "carol owner" });
+    const byName = await listUsersForAdmin(db, { search: "carol owner" }, {});
     expect(byName.rows.map((r) => r.id)).toEqual([carol.id]);
   });
 
   it("joins the MOST RECENT non-system membership (ADR 0004 rule)", async () => {
-    const { rows } = await listUsersForAdmin(db, { search: "multi@example" });
+    const { rows } = await listUsersForAdmin(db, { search: "multi@example" }, {});
     expect(rows).toHaveLength(1);
     expect(rows[0].orgId).toBe(orgTeam.id);
     expect(rows[0].orgKind).toBe("team");
   });
 
   it("returns 'none' plan and null org fields for a user with no org", async () => {
-    const { rows } = await listUsersForAdmin(db, { search: "dave@example" });
+    const { rows } = await listUsersForAdmin(db, { search: "dave@example" }, {});
     expect(rows).toHaveLength(1);
     expect(rows[0].orgId).toBeNull();
     expect(rows[0].orgName).toBeNull();
@@ -312,25 +312,25 @@ describe("listUsersForAdmin", () => {
   it("derives platformAdmin from user.role and plan from the entitlement", async () => {
     const { rows: aliceRows } = await listUsersForAdmin(db, {
       search: "alice@example",
-    });
+    }, {});
     expect(aliceRows[0].platformAdmin).toBe(true);
     expect(aliceRows[0].plan).toBe("active");
 
     const { rows: carolRows } = await listUsersForAdmin(db, {
       search: "carol@example",
-    });
+    }, {});
     expect(carolRows[0].platformAdmin).toBe(false);
     expect(carolRows[0].plan).toBe("free");
   });
 
   it("filters by banned", async () => {
-    const banned = await listUsersForAdmin(db, { filter: { banned: true } });
+    const banned = await listUsersForAdmin(db, { filter: { banned: true } }, {});
     expect(banned.rows.map((r) => r.id)).toEqual([carol.id]);
 
     const notBanned = await listUsersForAdmin(db, {
       filter: { banned: false },
       limit: 100,
-    });
+    }, {});
     expect(notBanned.rows.some((r) => r.id === carol.id)).toBe(false);
     expect(notBanned.rows.some((r) => r.id === alice.id)).toBe(true);
   });
@@ -338,22 +338,60 @@ describe("listUsersForAdmin", () => {
   it("filters by platformAdmin", async () => {
     const admins = await listUsersForAdmin(db, {
       filter: { platformAdmin: true },
-    });
+    }, {});
     expect(admins.rows.map((r) => r.id)).toEqual([alice.id]);
+  });
+
+  // Both power sources (ADR 0016): an ADMIN_USER_IDS bootstrap admin has
+  // role NULL (self set-role is blocked) but must classify as a platform
+  // admin everywhere the server guards do — badge, filter, and the
+  // detail-page impersonate/ban/set-role guard all read this field.
+  it("classifies ADMIN_USER_IDS bootstrap admins as platform admins", async () => {
+    const env = { ADMIN_USER_IDS: " u-bob , u-not-a-real-user " };
+
+    const { rows } = await listUsersForAdmin(db, { search: "bob@example" }, env);
+    expect(rows[0].platformAdmin).toBe(true);
+
+    const admins = await listUsersForAdmin(
+      db,
+      { filter: { platformAdmin: true }, limit: 100 },
+      env,
+    );
+    expect(admins.rows.map((r) => r.id).sort()).toEqual(
+      [alice.id, bob.id].sort(),
+    );
+
+    const nonAdmins = await listUsersForAdmin(
+      db,
+      { filter: { platformAdmin: false }, limit: 100 },
+      env,
+    );
+    const nonAdminIds = nonAdmins.rows.map((r) => r.id);
+    expect(nonAdminIds).not.toContain(alice.id);
+    expect(nonAdminIds).not.toContain(bob.id);
+    expect(nonAdminIds).toContain(carol.id);
+
+    // Drift tripwire: the SQL filter and the per-row isPlatformAdmin
+    // classification encode the same predicate — the two buckets must
+    // agree with each row's own flag and partition the full list.
+    expect(admins.rows.every((r) => r.platformAdmin)).toBe(true);
+    expect(nonAdmins.rows.every((r) => !r.platformAdmin)).toBe(true);
+    const all = await listUsersForAdmin(db, { limit: 100 }, env);
+    expect(admins.total + nonAdmins.total).toBe(all.total);
   });
 
   it("filters by orgKind", async () => {
     const team = await listUsersForAdmin(db, {
       filter: { orgKind: "team" },
       limit: 100,
-    });
+    }, {});
     expect(team.rows.every((r) => r.orgKind === "team")).toBe(true);
     expect(team.rows.some((r) => r.id === carol.id)).toBe(false);
 
     const personal = await listUsersForAdmin(db, {
       filter: { orgKind: "personal" },
       limit: 100,
-    });
+    }, {});
     expect(personal.rows.map((r) => r.id)).toEqual([carol.id]);
   });
 
@@ -361,15 +399,15 @@ describe("listUsersForAdmin", () => {
     const active = await listUsersForAdmin(db, {
       filter: { plan: "active" },
       limit: 100,
-    });
+    }, {});
     expect(active.rows.some((r) => r.id === alice.id)).toBe(true);
     expect(active.rows.some((r) => r.id === carol.id)).toBe(false);
     expect(active.rows.some((r) => r.id === dave.id)).toBe(false);
 
-    const free = await listUsersForAdmin(db, { filter: { plan: "free" } });
+    const free = await listUsersForAdmin(db, { filter: { plan: "free" } }, {});
     expect(free.rows.map((r) => r.id)).toEqual([carol.id]);
 
-    const none = await listUsersForAdmin(db, { filter: { plan: "none" } });
+    const none = await listUsersForAdmin(db, { filter: { plan: "none" } }, {});
     expect(none.rows.map((r) => r.id)).toEqual([dave.id]);
   });
 
@@ -378,12 +416,12 @@ describe("listUsersForAdmin", () => {
       sort: "name",
       sortDir: "asc",
       limit: 100,
-    });
+    }, {});
     const second = await listUsersForAdmin(db, {
       sort: "name",
       sortDir: "asc",
       limit: 100,
-    });
+    }, {});
     // Same query twice must yield the exact same order (stable tiebreak).
     expect(first.rows.map((r) => r.id)).toEqual(second.rows.map((r) => r.id));
     const names = first.rows.map((r) => r.name);
@@ -392,7 +430,7 @@ describe("listUsersForAdmin", () => {
   });
 
   it("paginates: total counts all matches, page respects limit/offset", async () => {
-    const all = await listUsersForAdmin(db, { limit: 100 });
+    const all = await listUsersForAdmin(db, { limit: 100 }, {});
     expect(all.total).toBe(all.rows.length);
     expect(all.total).toBeGreaterThanOrEqual(9); // alice/bob/carol/dave/multi + 4 extras
 
@@ -401,13 +439,13 @@ describe("listUsersForAdmin", () => {
       sortDir: "asc",
       limit: 3,
       offset: 0,
-    });
+    }, {});
     const page2 = await listUsersForAdmin(db, {
       sort: "email",
       sortDir: "asc",
       limit: 3,
       offset: 3,
-    });
+    }, {});
     expect(page1.total).toBe(all.total);
     expect(page2.total).toBe(all.total);
     expect(page1.rows).toHaveLength(3);
@@ -420,21 +458,30 @@ describe("listUsersForAdmin", () => {
   });
 
   it("clamps limit to <= 100 and defaults to 25", async () => {
-    const clamped = await listUsersForAdmin(db, { limit: 500 });
+    const clamped = await listUsersForAdmin(db, { limit: 500 }, {});
     expect(clamped.rows.length).toBeLessThanOrEqual(100);
 
-    const defaulted = await listUsersForAdmin(db, {});
+    const defaulted = await listUsersForAdmin(db, {}, {});
     expect(defaulted.rows.length).toBeLessThanOrEqual(25);
   });
 });
 
 describe("userDetailForAdmin", () => {
   it("returns null for an unknown id", async () => {
-    expect(await userDetailForAdmin(db, "00000000-0000-0000-0000-000000000000")).toBeNull();
+    expect(await userDetailForAdmin(db, "00000000-0000-0000-0000-000000000000", {})).toBeNull();
+  });
+
+  it("classifies an ADMIN_USER_IDS bootstrap admin (role NULL) as platformAdmin", async () => {
+    const env = { ADMIN_USER_IDS: "u-bob" };
+    const detail = await userDetailForAdmin(db, bob.id, env);
+    expect(detail?.platformAdmin).toBe(true);
+    // Same user without the bootstrap grant stays a regular user.
+    const plain = await userDetailForAdmin(db, bob.id, {});
+    expect(plain?.platformAdmin).toBe(false);
   });
 
   it("assembles memberships, entitlement, tracked users, connections, and actor audit", async () => {
-    const detail = await userDetailForAdmin(db, alice.id);
+    const detail = await userDetailForAdmin(db, alice.id, {});
     expect(detail).not.toBeNull();
     expect(detail?.platformAdmin).toBe(true);
     expect(detail?.banned).toBe(false);
@@ -474,7 +521,7 @@ describe("userDetailForAdmin", () => {
   });
 
   it("reflects the free entitlement and zero tracked users for a personal org", async () => {
-    const detail = await userDetailForAdmin(db, carol.id);
+    const detail = await userDetailForAdmin(db, carol.id, {});
     expect(detail?.memberships).toHaveLength(1);
     expect(detail?.memberships[0].plan).toBe("free");
     expect(detail?.memberships[0].trackedUsers).toBe(0);
@@ -483,7 +530,7 @@ describe("userDetailForAdmin", () => {
   });
 
   it("returns an empty memberships/connections shape for an orphaned user", async () => {
-    const detail = await userDetailForAdmin(db, dave.id);
+    const detail = await userDetailForAdmin(db, dave.id, {});
     expect(detail?.memberships).toEqual([]);
     expect(detail?.connections).toEqual([]);
   });

@@ -47,7 +47,11 @@ export default async function AdminUserDetailPage({
 }) {
   const ctx = await requireAdminContext();
   const { id } = await params;
-  const detail = await userDetailForAdmin(ctx.db, id);
+  // env threaded so detail.platformAdmin covers ADMIN_USER_IDS bootstrap
+  // admins too — guardDisabled below must agree with the server's
+  // hooks.before target guard (ADR 0016), or Impersonate/Ban/Role render
+  // enabled against an admin and every click 403s.
+  const detail = await userDetailForAdmin(ctx.db, id, ctx.env);
   if (!detail) {
     notFound();
   }

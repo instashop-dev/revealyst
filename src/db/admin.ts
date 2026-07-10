@@ -11,9 +11,15 @@ import {
   like,
   lt,
   ne,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm";
+import {
+  type AdminEnv,
+  isPlatformAdmin,
+  parseAdminUserIds,
+} from "../lib/admin-access";
 import { trailing30dPeriod } from "../lib/entitlements";
 import type { Db } from "./client";
 import { forOrg } from "./org-scope";
@@ -221,7 +227,9 @@ export type AdminUserRow = {
   email: string;
   createdAt: Date;
   banned: boolean;
-  /** Derived: user.role === "admin" (Better Auth admin plugin, ADR 0016). */
+  /** Derived via isPlatformAdmin — both power sources (role column +
+   * ADMIN_USER_IDS, ADR 0016), matching the server guards in
+   * src/lib/auth.ts hooks. */
   platformAdmin: boolean;
   orgId: string | null;
   orgName: string | null;
@@ -257,7 +265,11 @@ function orgPlanStatusSql() {
  * (window function, ADR 0004 "most recent membership wins" rule — same as
  * orgContextForUser) LEFT JOIN that org. Kept as one function so the two
  * queries can never drift out of sync on filters. */
-function buildUserListQuery(db: Db, params: AdminUserListParams) {
+function buildUserListQuery(
+  db: Db,
+  params: AdminUserListParams,
+  env: AdminEnv,
+) {
   const latestMembership = db.$with("admin_latest_membership").as(
     db
       .select({
@@ -289,10 +301,18 @@ function buildUserListQuery(db: Db, params: AdminUserListParams) {
     );
   }
   if (params.filter?.platformAdmin !== undefined) {
+    // Both power sources — see isPlatformAdmin (ADR 0016). A role-only
+    // filter reads as empty when all admins are env-bootstrapped (role
+    // NULL). Empty bootstrap list is safe: drizzle renders inArray(col, [])
+    // as `false` and notInArray(col, []) as `true`.
+    const bootstrapIds = parseAdminUserIds(env);
     conditions.push(
       params.filter.platformAdmin
-        ? eq(user.role, "admin")
-        : or(isNull(user.role), ne(user.role, "admin")),
+        ? or(eq(user.role, "admin"), inArray(user.id, bootstrapIds))
+        : and(
+            or(isNull(user.role), ne(user.role, "admin")),
+            notInArray(user.id, bootstrapIds),
+          ),
     );
   }
   if (params.filter?.orgKind) {
@@ -318,18 +338,22 @@ function buildUserListQuery(db: Db, params: AdminUserListParams) {
  * user → most-recent org_members (excluding the system org) → orgs; plan is
  * derived from subscriptions. `sort`/`filter` keys are validated against
  * server-side allowlists — never interpolate a raw column name from params.
- * Offset pagination (admin table, not an infinite-scroll feed).
+ * Offset pagination (admin table, not an infinite-scroll feed). `env` is
+ * required (not defaulted) so no call site can silently fall back to
+ * role-only platform-admin classification — ADMIN_USER_IDS bootstrap
+ * admins must classify identically to the server guards.
  */
 export async function listUsersForAdmin(
   db: Db,
-  params: AdminUserListParams = {},
+  params: AdminUserListParams,
+  env: AdminEnv,
 ): Promise<{ rows: AdminUserRow[]; total: number }> {
   const limit = Math.min(Math.max(params.limit ?? 25, 1), 100);
   const offset = Math.max(params.offset ?? 0, 0);
   const sortCol = USER_LIST_SORT_COLUMNS[params.sort ?? "createdAt"];
   const dir = params.sortDir === "asc" ? asc : desc;
 
-  const { latestMembership, where } = buildUserListQuery(db, params);
+  const { latestMembership, where } = buildUserListQuery(db, params, env);
   const [countRows, rows] = await Promise.all([
     db
       .with(latestMembership)
@@ -374,7 +398,7 @@ export async function listUsersForAdmin(
       email: r.email,
       createdAt: r.createdAt,
       banned: r.banned ?? false,
-      platformAdmin: r.role === "admin",
+      platformAdmin: isPlatformAdmin({ id: r.id, role: r.role }, env),
       orgId: r.orgId,
       orgName: r.orgName,
       orgKind: (r.orgKind as "personal" | "team" | null) ?? null,
@@ -430,11 +454,13 @@ const USER_DETAIL_AUDIT_LIMIT = 20;
  * (forOrg().billing.trackedUsers) helpers per membership so this can never
  * diverge from the billing paths themselves. Never selects credential
  * material — connections show status fields only. Returns null if the user
- * does not exist.
+ * does not exist. `env` is required for the same reason as
+ * listUsersForAdmin (see its doc).
  */
 export async function userDetailForAdmin(
   db: Db,
   userId: string,
+  env: AdminEnv,
 ): Promise<AdminUserDetail | null> {
   const [row] = await db
     .select({
@@ -521,7 +547,7 @@ export async function userDetailForAdmin(
     name: row.name,
     email: row.email,
     createdAt: row.createdAt,
-    platformAdmin: row.role === "admin",
+    platformAdmin: isPlatformAdmin(row, env),
     banned: row.banned ?? false,
     banReason: row.banReason,
     banExpires: row.banExpires,
