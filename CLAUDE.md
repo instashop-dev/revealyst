@@ -16,7 +16,8 @@ contracts. Every session auto-loads this file — it is the interface between ag
 - Polling via **Cron Triggers → Queues** (one queue message per connection).
 - Single database, `org_id` on every row. **Personal mode = an org of one** —
   identical machinery to Team.
-- **Production (live since W0-B, now behind the custom domains):** deploy via
+- **Production (live since W0-B):** https://app.revealyst.com +
+  https://revealyst.com (legacy revealyst.thapi.workers.dev redirects) — deploy via
   the manual `Deploy` GitHub workflow (migrations → queue → deploy → Worker-secret
   sync from repo secrets); CI uploads a preview version per PR. Founder infra steps
   + local no-credential dev loop (`npm run dev:db`): `docs/infra.md`.
@@ -30,10 +31,11 @@ contracts. Every session auto-loads this file — it is the interface between ag
   self-reference subrequest pass through untouched on the custom domains.
   `src/lib/auth.ts` sets `trustedOrigins` to both hosts; share URLs are minted on
   the marketing host (`toMarketingOrigin`, `src/components/share-score-button.tsx`).
-  The legacy `revealyst.thapi.workers.dev` host 308s GET/HEAD to canonical hosts
-  (`WORKERS_DEV_HOST`) and needs `workers_dev: true` kept explicit in
-  wrangler.jsonc — adding custom-domain routes silently disabled the subdomain
-  (edge 404 "error code: 1042", Worker never invoked) until 2026-07-10.
+  The legacy `revealyst.thapi.workers.dev` host 308s GET/HEAD page requests to
+  canonical hosts (`WORKERS_DEV_HOST`; neutral paths + non-safe methods still
+  serve in place) and needs `workers_dev: true` kept explicit in wrangler.jsonc —
+  adding custom-domain routes silently disabled the subdomain (edge 404 "error
+  code: 1042", Worker never invoked) until 2026-07-10.
 - Windows dev machine: OpenNext builds use webpack, not Turbopack (adapter's chunk
   patching breaks on Win — see `open-next.config.ts`); DB/auth clients are created
   per request, never cached at module scope (Workers cancel cross-request I/O).

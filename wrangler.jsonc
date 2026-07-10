@@ -41,8 +41,9 @@
 	// default" was wrong) — Cloudflare's edge then answered every
 	// revealyst.thapi.workers.dev request with 404 "error code: 1042" WITHOUT
 	// invoking the Worker, breaking all pre-cutover links. With the subdomain
-	// re-enabled, src/worker.ts 308s legacy-host GET/HEAD to the canonical
-	// hosts (WORKERS_DEV_HOST in src/lib/domains.ts) and serves other methods.
+	// re-enabled, src/worker.ts 308s legacy-host GET/HEAD page requests to the
+	// canonical hosts (WORKERS_DEV_HOST in src/lib/domains.ts) and serves
+	// neutral paths (API, metadata) and non-GET/HEAD methods in place.
 	"workers_dev": true,
 	// Poller architecture: Cron Trigger enqueues one message per connection;
 	// the queue consumer polls and writes. W0-B runs the no-op heartbeat.

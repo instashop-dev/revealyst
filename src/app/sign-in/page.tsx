@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { AlertCircle, MailCheck } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -44,7 +44,12 @@ function describeAuthRedirectError(code: string): string {
     case "email_not_found":
       return "GitHub didn't share an email address for your account. Add a public email on GitHub or sign in with email and password.";
     default:
-      return `Sign-in failed (${code}). Please try again.`;
+      // ?error= is attacker-influenceable (anyone can craft the link), so
+      // only echo it when it looks like a machine code — never free text
+      // inside our own trusted error UI.
+      return /^[a-z0-9_-]{1,40}$/i.test(code)
+        ? `Sign-in failed (${code}). Please try again.`
+        : "Sign-in failed. Please try again.";
   }
 }
 
@@ -63,9 +68,18 @@ function SignInForm() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(() =>
+  const [error, setError] = useState<string | null>(
     redirectErrorCode ? describeAuthRedirectError(redirectErrorCode) : null,
   );
+  // The code was consumed into state above — strip it from the URL so a
+  // bookmarked/shared /sign-in link doesn't re-show a stale OAuth error to
+  // every future visitor (?next= is preserved for the round-trip).
+  useEffect(() => {
+    if (!redirectErrorCode) return;
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("error");
+    router.replace(params.size > 0 ? `/sign-in?${params}` : "/sign-in");
+  }, [redirectErrorCode, router, searchParams]);
   // A success/info panel (verification sent, reset link sent).
   const [info, setInfo] = useState<string | null>(null);
   // Set when sign-in is blocked on an unverified email — enables the resend.
@@ -275,6 +289,11 @@ function SignInForm() {
                   authClient.signIn.social({
                     provider: "github",
                     callbackURL: next,
+                    // On callback failure, land back here WITH the pending
+                    // ?next= — otherwise an invite/deep-link round-trip is
+                    // silently dropped and the retry strands the user on the
+                    // dashboard. Better Auth appends &error=<code> to this.
+                    errorCallbackURL: `/sign-in?next=${encodeURIComponent(next)}`,
                   })
                 }
               >

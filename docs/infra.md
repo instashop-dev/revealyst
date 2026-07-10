@@ -100,10 +100,12 @@ ONE Worker, two custom domains: **`app.revealyst.com`** = app + Better Auth
 origin; **`revealyst.com`** = public marketing site + canonical share cards.
 The split is enforced in code by a GET/HEAD host redirect in `src/worker.ts`
 (logic in `src/lib/domains.ts` — the single source of truth for both origins
-and path classification). `/api/*`, assets, and the OpenNext self-reference
-subrequest pass through untouched on the custom domains. The legacy
-`revealyst.thapi.workers.dev` host 308s GET/HEAD to the canonical hosts
-(`WORKERS_DEV_HOST` in domains.ts) and serves other methods in place.
+and path classification). `/api/*`, assets, neutral metadata routes, and the
+OpenNext self-reference subrequest pass through untouched on every host. The
+legacy `revealyst.thapi.workers.dev` host 308s GET/HEAD *page* requests to
+the canonical hosts (`WORKERS_DEV_HOST` in domains.ts); its API GETs,
+metadata routes, and non-safe methods are served in place so old monitors,
+scrapers, and CLIs keep working.
 
 Roll out in two deploys so the live `workers.dev` URL never breaks.
 
@@ -139,10 +141,11 @@ custom-domain `routes` made wrangler auto-disable the workers.dev subdomain —
 Cloudflare's edge answered every `revealyst.thapi.workers.dev` request with
 404 `error code: 1042` *without invoking the Worker*, so "kept live for old
 links/CLIs" silently stopped being true at the cutover. Fixed by an explicit
-`"workers_dev": true` in wrangler.jsonc plus the in-worker GET/HEAD 308 to
-the canonical hosts (`WORKERS_DEV_HOST`, `src/lib/domains.ts`); non-safe
-methods (old webhook/CLI POSTs) are served in place, never replayed
-cross-host.
+`"workers_dev": true` in wrangler.jsonc plus the in-worker GET/HEAD 308 of
+page requests to the canonical hosts (`WORKERS_DEV_HOST`,
+`src/lib/domains.ts`); neutral paths (API GETs, metadata images) and
+non-safe methods (old webhook/CLI POSTs) are served in place — a cross-host
+redirect would blank scraper unfurls and strip Authorization headers.
 
 **Still deferred:** `www.revealyst.com` redirect rule; `robots.ts`/
 `metadataBase` (marketing SEO work). The agent CLI default API is now

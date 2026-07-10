@@ -17,12 +17,15 @@ export const APP_ORIGIN = `https://${APP_HOST}`;
 export const MARKETING_ORIGIN = `https://${MARKETING_HOST}`;
 
 // The legacy production hostname (live from W0-B until the custom-domain
-// cutover). Old links, share cards, and CLIs may still point here, so
-// GET/HEAD requests 308 to the canonical host for their surface (neutral
-// paths go to the app host — it is the API/auth origin). EXACT match only:
-// CI preview versions (`<version>-revealyst.thapi.workers.dev`) keep serving
-// in place, and non-safe methods (old webhook/CLI POSTs) are served rather
-// than replayed cross-host. Requires `workers_dev: true` in wrangler.jsonc —
+// cutover). Old links and share cards may still point here, so GET/HEAD
+// requests for app/marketing pages 308 to their canonical host. Neutral
+// paths (API, metadata images, robots) are still SERVED here — same scraper
+// rationale as isNeutralPath, plus old API GETs (health monitors, the
+// Server-Timing gauge) must keep resolving, and a cross-host redirect makes
+// fetch/curl strip Authorization headers. EXACT match only: CI preview
+// versions (`<version>-revealyst.thapi.workers.dev`) keep serving in place,
+// and non-safe methods (old webhook/CLI POSTs) are served rather than
+// replayed cross-host. Requires `workers_dev: true` in wrangler.jsonc —
 // adding custom-domain routes made wrangler disable the subdomain entirely
 // (Cloudflare edge answered 404 "error code: 1042" without invoking the
 // Worker), which is what actually broke old links after the cutover.
@@ -96,10 +99,14 @@ const CANONICAL_HOST: Record<Exclude<Surface, "neutral">, string> = {
 
 /**
  * Absolute URL to move a request to its surface's canonical host, or null to
- * serve it as-is. Only acts on safe methods (GET/HEAD) and only when the
- * incoming host is one of our two custom domains — so workers.dev, the OpenNext
- * self-reference subrequest, and localhost dev all pass straight through, and a
- * POST / server action is never replayed cross-host.
+ * serve it as-is. Only acts on safe methods (GET/HEAD) — a POST / server
+ * action is never replayed cross-host — and only on known hosts: the two
+ * custom domains swap surfaces between each other, and the legacy
+ * WORKERS_DEV_HOST moves app/marketing pages to their canonical host
+ * (docs/infra.md §6 — the migration end-state deferred at the cutover).
+ * Neutral paths never redirect on ANY host, and unknown hosts (localhost
+ * dev, CI preview versions, the OpenNext self-reference subrequest) pass
+ * straight through.
  */
 export function resolveRedirect(
   host: string,
@@ -108,19 +115,16 @@ export function resolveRedirect(
   search: string,
 ): string | null {
   if (method !== "GET" && method !== "HEAD") return null;
-  // Legacy host: move everything (neutral paths included) to its canonical
-  // home — the migration end-state deferred at the cutover (docs/infra.md §6).
-  if (host === WORKERS_DEV_HOST) {
-    const target =
-      CANONICAL_HOST[classifyPath(pathname) === "marketing" ? "marketing" : "app"];
-    return `https://${target}${pathname}${search}`;
-  }
-  if (host !== APP_HOST && host !== MARKETING_HOST) return null;
   const surface = classifyPath(pathname);
   if (surface === "neutral") return null;
-  const target = CANONICAL_HOST[surface];
-  if (host === target) return null;
-  return `https://${target}${pathname}${search}`;
+  const canonicalOrigin =
+    surface === "marketing" ? MARKETING_ORIGIN : APP_ORIGIN;
+  if (host === WORKERS_DEV_HOST) {
+    return `${canonicalOrigin}${pathname}${search}`;
+  }
+  if (host !== APP_HOST && host !== MARKETING_HOST) return null;
+  if (host === CANONICAL_HOST[surface]) return null;
+  return `${canonicalOrigin}${pathname}${search}`;
 }
 
 /**

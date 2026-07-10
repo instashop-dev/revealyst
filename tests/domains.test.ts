@@ -126,7 +126,7 @@ describe("resolveRedirect", () => {
     ).toBeNull();
   });
 
-  it("moves the legacy workers.dev host to the canonical host per surface", () => {
+  it("moves legacy workers.dev pages to the canonical host per surface", () => {
     expect(
       resolveRedirect(WORKERS_DEV_HOST, "GET", "/dashboard", "?tab=x"),
     ).toBe(`${APP_ORIGIN}/dashboard?tab=x`);
@@ -136,11 +136,16 @@ describe("resolveRedirect", () => {
     expect(resolveRedirect(WORKERS_DEV_HOST, "GET", "/", "")).toBe(
       `${MARKETING_ORIGIN}/`,
     );
-    // Neutral paths (API, metadata) get a canonical home too — the app host
-    // is the API/auth origin.
-    expect(resolveRedirect(WORKERS_DEV_HOST, "GET", "/api/health", "")).toBe(
-      `${APP_ORIGIN}/api/health`,
-    );
+    // Neutral paths keep SERVING on the legacy host: old API GETs (health
+    // monitors, authed clients whose Authorization a cross-host redirect
+    // would strip) and metadata routes scrapers fetch without following 308s
+    // (same rationale as isNeutralPath).
+    expect(
+      resolveRedirect(WORKERS_DEV_HOST, "GET", "/api/health", ""),
+    ).toBeNull();
+    expect(
+      resolveRedirect(WORKERS_DEV_HOST, "GET", "/s/abc/opengraph-image", ""),
+    ).toBeNull();
     // Non-safe methods are served in place, never replayed cross-host.
     expect(
       resolveRedirect(WORKERS_DEV_HOST, "POST", "/api/agent/ingest", ""),
