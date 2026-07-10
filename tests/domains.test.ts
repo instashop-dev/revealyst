@@ -4,6 +4,7 @@ import {
   APP_ORIGIN,
   MARKETING_HOST,
   MARKETING_ORIGIN,
+  WORKERS_DEV_HOST,
   classifyPath,
   resolveRedirect,
   toMarketingOrigin,
@@ -112,11 +113,38 @@ describe("resolveRedirect", () => {
     ).toBeNull();
   });
 
-  it("passes through any non-custom host (workers.dev, localhost, self-ref)", () => {
-    expect(
-      resolveRedirect("revealyst.thapi.workers.dev", "GET", "/dashboard", ""),
-    ).toBeNull();
+  it("passes through any unknown host (localhost, previews, self-ref)", () => {
     expect(resolveRedirect("localhost", "GET", "/", "")).toBeNull();
+    // CI preview versions are NOT the legacy host — exact match only.
+    expect(
+      resolveRedirect(
+        "abc123-revealyst.thapi.workers.dev",
+        "GET",
+        "/dashboard",
+        "",
+      ),
+    ).toBeNull();
+  });
+
+  it("moves the legacy workers.dev host to the canonical host per surface", () => {
+    expect(
+      resolveRedirect(WORKERS_DEV_HOST, "GET", "/dashboard", "?tab=x"),
+    ).toBe(`${APP_ORIGIN}/dashboard?tab=x`);
+    expect(resolveRedirect(WORKERS_DEV_HOST, "GET", "/s/abc", "")).toBe(
+      `${MARKETING_ORIGIN}/s/abc`,
+    );
+    expect(resolveRedirect(WORKERS_DEV_HOST, "GET", "/", "")).toBe(
+      `${MARKETING_ORIGIN}/`,
+    );
+    // Neutral paths (API, metadata) get a canonical home too — the app host
+    // is the API/auth origin.
+    expect(resolveRedirect(WORKERS_DEV_HOST, "GET", "/api/health", "")).toBe(
+      `${APP_ORIGIN}/api/health`,
+    );
+    // Non-safe methods are served in place, never replayed cross-host.
+    expect(
+      resolveRedirect(WORKERS_DEV_HOST, "POST", "/api/agent/ingest", ""),
+    ).toBeNull();
   });
 });
 

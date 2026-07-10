@@ -100,8 +100,10 @@ ONE Worker, two custom domains: **`app.revealyst.com`** = app + Better Auth
 origin; **`revealyst.com`** = public marketing site + canonical share cards.
 The split is enforced in code by a GET/HEAD host redirect in `src/worker.ts`
 (logic in `src/lib/domains.ts` — the single source of truth for both origins
-and path classification). `/api/*`, assets, `workers.dev`, and the OpenNext
-self-reference subrequest pass through untouched.
+and path classification). `/api/*`, assets, and the OpenNext self-reference
+subrequest pass through untouched on the custom domains. The legacy
+`revealyst.thapi.workers.dev` host 308s GET/HEAD to the canonical hosts
+(`WORKERS_DEV_HOST` in domains.ts) and serves other methods in place.
 
 Roll out in two deploys so the live `workers.dev` URL never breaks.
 
@@ -132,11 +134,20 @@ Roll out in two deploys so the live `workers.dev` URL never breaks.
    landing on `revealyst.com`, and a share link that reads
    `https://revealyst.com/s/<token>`.
 
-**Deferred:** `workers.dev` → canonical 301 (kept live for old links/CLIs;
-retire later via a Redirect Rule, then optionally `"workers_dev": false`);
-`www.revealyst.com` redirect rule; `robots.ts`/`metadataBase` (marketing SEO
-work). The agent CLI default API is now `https://app.revealyst.com`
-(`packages/revealyst-agent/src/cli.ts`; `--api` override unchanged).
+**workers.dev redirect (was deferred; shipped 2026-07-10):** adding the
+custom-domain `routes` made wrangler auto-disable the workers.dev subdomain —
+Cloudflare's edge answered every `revealyst.thapi.workers.dev` request with
+404 `error code: 1042` *without invoking the Worker*, so "kept live for old
+links/CLIs" silently stopped being true at the cutover. Fixed by an explicit
+`"workers_dev": true` in wrangler.jsonc plus the in-worker GET/HEAD 308 to
+the canonical hosts (`WORKERS_DEV_HOST`, `src/lib/domains.ts`); non-safe
+methods (old webhook/CLI POSTs) are served in place, never replayed
+cross-host.
+
+**Still deferred:** `www.revealyst.com` redirect rule; `robots.ts`/
+`metadataBase` (marketing SEO work). The agent CLI default API is now
+`https://app.revealyst.com` (`packages/revealyst-agent/src/cli.ts`; `--api`
+override unchanged).
 
 ## 7. Amazon SES (unblocks: signup email verification + password reset; account management, ADR 0015)
 Account signup now requires a confirmed email (`requireEmailVerification: true`,

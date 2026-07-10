@@ -16,6 +16,18 @@ export const MARKETING_HOST = "revealyst.com";
 export const APP_ORIGIN = `https://${APP_HOST}`;
 export const MARKETING_ORIGIN = `https://${MARKETING_HOST}`;
 
+// The legacy production hostname (live from W0-B until the custom-domain
+// cutover). Old links, share cards, and CLIs may still point here, so
+// GET/HEAD requests 308 to the canonical host for their surface (neutral
+// paths go to the app host — it is the API/auth origin). EXACT match only:
+// CI preview versions (`<version>-revealyst.thapi.workers.dev`) keep serving
+// in place, and non-safe methods (old webhook/CLI POSTs) are served rather
+// than replayed cross-host. Requires `workers_dev: true` in wrangler.jsonc —
+// adding custom-domain routes made wrangler disable the subdomain entirely
+// (Cloudflare edge answered 404 "error code: 1042" without invoking the
+// Worker), which is what actually broke old links after the cutover.
+export const WORKERS_DEV_HOST = "revealyst.thapi.workers.dev";
+
 export type Surface = "app" | "marketing" | "neutral";
 
 // Path prefixes owned by the authenticated app surface: the (app) route group
@@ -96,6 +108,13 @@ export function resolveRedirect(
   search: string,
 ): string | null {
   if (method !== "GET" && method !== "HEAD") return null;
+  // Legacy host: move everything (neutral paths included) to its canonical
+  // home — the migration end-state deferred at the cutover (docs/infra.md §6).
+  if (host === WORKERS_DEV_HOST) {
+    const target =
+      CANONICAL_HOST[classifyPath(pathname) === "marketing" ? "marketing" : "app"];
+    return `https://${target}${pathname}${search}`;
+  }
   if (host !== APP_HOST && host !== MARKETING_HOST) return null;
   const surface = classifyPath(pathname);
   if (surface === "neutral") return null;

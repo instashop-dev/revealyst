@@ -29,6 +29,25 @@ export default function SignInPage() {
   );
 }
 
+// OAuth-redirect failures land here as /sign-in?error=<code> (Better Auth's
+// onAPIError.errorURL, src/lib/auth.ts). Map the machine codes a user can
+// realistically hit to a sentence; anything else shows generically WITH the
+// code, so a report like the 2026-07-09 state_not_found incident carries its
+// diagnostic on-screen instead of dying invisibly on the marketing root.
+function describeAuthRedirectError(code: string): string {
+  switch (code) {
+    case "access_denied":
+      return "GitHub sign-in was cancelled. You can try again.";
+    case "state_not_found":
+    case "state_mismatch":
+      return "GitHub sign-in took too long or was interrupted — please try again.";
+    case "email_not_found":
+      return "GitHub didn't share an email address for your account. Add a public email on GitHub or sign in with email and password.";
+    default:
+      return `Sign-in failed (${code}). Please try again.`;
+  }
+}
+
 function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -39,11 +58,14 @@ function SignInForm() {
     rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
       ? rawNext
       : "/dashboard";
+  const redirectErrorCode = searchParams.get("error");
   const [mode, setMode] = useState<Mode>("sign-in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() =>
+    redirectErrorCode ? describeAuthRedirectError(redirectErrorCode) : null,
+  );
   // A success/info panel (verification sent, reset link sent).
   const [info, setInfo] = useState<string | null>(null);
   // Set when sign-in is blocked on an unverified email — enables the resend.
