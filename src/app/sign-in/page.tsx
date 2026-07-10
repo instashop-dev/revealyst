@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { authClient } from "@/lib/auth-client";
+import { describeAuthRedirectError, splitNextError } from "./error-codes";
 
 type Mode = "sign-in" | "sign-up" | "forgot";
 
@@ -29,41 +30,22 @@ export default function SignInPage() {
   );
 }
 
-// OAuth-redirect failures land here as /sign-in?error=<code> (Better Auth's
-// onAPIError.errorURL, src/lib/auth.ts). Map the machine codes a user can
-// realistically hit to a sentence; anything else shows generically WITH the
-// code, so a report like the 2026-07-09 state_not_found incident carries its
-// diagnostic on-screen instead of dying invisibly on the marketing root.
-function describeAuthRedirectError(code: string): string {
-  switch (code) {
-    case "access_denied":
-      return "GitHub sign-in was cancelled. You can try again.";
-    case "state_not_found":
-    case "state_mismatch":
-      return "GitHub sign-in took too long or was interrupted — please try again.";
-    case "email_not_found":
-      return "GitHub didn't share an email address for your account. Add a public email on GitHub or sign in with email and password.";
-    default:
-      // ?error= is attacker-influenceable (anyone can craft the link), so
-      // only echo it when it looks like a machine code — never free text
-      // inside our own trusted error UI.
-      return /^[a-z0-9_-]{1,40}$/i.test(code)
-        ? `Sign-in failed (${code}). Please try again.`
-        : "Sign-in failed. Please try again.";
-  }
-}
-
 function SignInForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   // Post-auth destination (e.g. an invite link round-trip). Same-origin
   // paths only — anything else falls back to the dashboard.
   const rawNext = searchParams.get("next");
-  const next =
+  const validatedNext =
     rawNext && rawNext.startsWith("/") && !rawNext.startsWith("//")
       ? rawNext
       : "/dashboard";
-  const redirectErrorCode = searchParams.get("error");
+  // A failure code arrives either top-level (?error=, OAuth callbacks) or
+  // embedded in the destination's own query (email-verification links —
+  // see src/app/sign-in/error-codes.ts). Strip it from `next` so the
+  // post-sign-in landing is clean.
+  const { next, error: nestedErrorCode } = splitNextError(validatedNext);
+  const redirectErrorCode = searchParams.get("error") ?? nestedErrorCode;
   const [mode, setMode] = useState<Mode>("sign-in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -71,15 +53,17 @@ function SignInForm() {
   const [error, setError] = useState<string | null>(
     redirectErrorCode ? describeAuthRedirectError(redirectErrorCode) : null,
   );
-  // The code was consumed into state above — strip it from the URL so a
-  // bookmarked/shared /sign-in link doesn't re-show a stale OAuth error to
-  // every future visitor (?next= is preserved for the round-trip).
+  // The code was consumed into state above — strip it from the URL (both the
+  // top-level ?error= and one embedded in ?next=) so a bookmarked/shared
+  // /sign-in link doesn't re-show a stale error to every future visitor,
+  // while the cleaned ?next= is preserved for the round-trip.
   useEffect(() => {
     if (!redirectErrorCode) return;
     const params = new URLSearchParams(searchParams.toString());
     params.delete("error");
+    if (params.has("next")) params.set("next", next);
     router.replace(params.size > 0 ? `/sign-in?${params}` : "/sign-in");
-  }, [redirectErrorCode, router, searchParams]);
+  }, [redirectErrorCode, next, router, searchParams]);
   // A success/info panel (verification sent, reset link sent).
   const [info, setInfo] = useState<string | null>(null);
   // Set when sign-in is blocked on an unverified email — enables the resend.
