@@ -23,18 +23,11 @@ const PAYWALL_EXEMPT_PREFIXES = ["/account"];
 export default async function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const requestHeaders = await headers();
-  const pathname = requestHeaders.get("x-pathname") ?? "";
-  const search = requestHeaders.get("x-search") ?? "";
-  // Signed-out visitors bounce to /sign-in carrying the FULL destination
-  // (path + query) as ?next=, so deep links round-trip and error params
-  // riding the query survive to a page that can show them — better-auth
-  // redirects email-verification failures to `<callbackURL>?error=CODE`
-  // (e.g. /dashboard?error=TOKEN_EXPIRED for an expired confirmation link),
-  // and the sign-in page unpacks an error embedded in `next`.
-  const ctx = await requireAppContext(
-    pathname ? `${pathname}${search}` : undefined,
-  );
+  // The signed-out bounce carries the full destination automatically —
+  // requireAppContext derives ?next= from x-pathname/x-search itself, so the
+  // concurrent no-arg calls in pages produce the same redirect as this one.
+  const ctx = await requireAppContext();
+  const pathname = (await headers()).get("x-pathname") ?? "";
   const paywallExempt = PAYWALL_EXEMPT_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
