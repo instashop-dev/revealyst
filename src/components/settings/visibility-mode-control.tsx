@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { type KeyboardEvent, useRef, useState } from "react";
 import { Check, ShieldCheck, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -80,10 +80,32 @@ export function VisibilityModeControl({ current }: { current: VisibilityMode }) 
     }
   }
 
+  // Roving-tabindex refs (WAI-ARIA radio group): only the checked option is in
+  // the tab order; Arrow keys move focus + selection between options.
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  function onOptionKeyDown(
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+  ) {
+    let dir = 0;
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") dir = 1;
+    else if (event.key === "ArrowUp" || event.key === "ArrowLeft") dir = -1;
+    else return;
+    event.preventDefault();
+    const count = VISIBILITY_MODES.length;
+    const nextIndex = (index + dir + count) % count;
+    optionRefs.current[nextIndex]?.focus();
+    // APG radio semantics: selection follows focus. Here choosing may open the
+    // privacy-readiness dialog (loosening) or commit immediately (tightening) —
+    // the same effect as a click, which is the documented behavior (see test).
+    choose(VISIBILITY_MODES[nextIndex]);
+  }
+
   return (
     <div className="flex flex-col gap-3">
       <ul className="flex flex-col gap-3" role="radiogroup" aria-label="Visibility mode">
-        {VISIBILITY_MODES.map((mode) => {
+        {VISIBILITY_MODES.map((mode, index) => {
           const info = VISIBILITY_MODE_INFO[mode];
           const active = applied === mode;
           return (
@@ -92,6 +114,13 @@ export function VisibilityModeControl({ current }: { current: VisibilityMode }) 
                 type="button"
                 role="radio"
                 aria-checked={active}
+                // Roving tabindex: the checked option is the single tab stop;
+                // the rest are reached via Arrow keys.
+                tabIndex={active ? 0 : -1}
+                ref={(el) => {
+                  optionRefs.current[index] = el;
+                }}
+                onKeyDown={(e) => onOptionKeyDown(e, index)}
                 // Also disabled while the readiness dialog is pending, so a
                 // click can't re-enter choose() even if the dialog were ever
                 // rendered non-modal.
@@ -129,7 +158,15 @@ export function VisibilityModeControl({ current }: { current: VisibilityMode }) 
       <Dialog
         open={pending !== null}
         onOpenChange={(open) => {
-          if (!open) setPending(null);
+          if (!open) {
+            setPending(null);
+            // The option we arrowed to became disabled while the dialog was
+            // open, so Base UI can't restore focus to it on close — return
+            // focus to the checked radio (re-enabled on the next render) so
+            // keyboard focus never falls to document.body.
+            const idx = VISIBILITY_MODES.indexOf(applied);
+            requestAnimationFrame(() => optionRefs.current[idx]?.focus());
+          }
         }}
       >
         <DialogContent>
