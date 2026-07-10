@@ -1,13 +1,58 @@
-// W0-A live verification — GitHub Copilot usage-metrics reports API.
-// Covers NLV-C2, C3, C4, C7, C8, C9(partial), C10, C11(partial), C12, C13, C14, C17.
-// Env: GITHUB_TOKEN (org admin PAT or App installation token), GH_ORG,
-//      optional GH_USER_TOKEN + GH_USER (personal-plan checks).
+// W0-A / W4-T live verification — GitHub Copilot usage-metrics reports API.
+// Covers NLV-C1 (App-token end-to-end), C2, C3, C4, C7, C8, C9(partial), C10,
+// C11(partial), C12, C13, C14, C17.
+// Env, EITHER:
+//   - GH_COPILOT_APP_ID + GH_COPILOT_APP_PRIVATE_KEY + GH_INSTALLATION_ID
+//     (mints an installation token from the App key — the production path,
+//     NLV-C1), OR
+//   - GITHUB_TOKEN (org admin PAT or a pre-minted installation token).
+//   Plus GH_ORG, and optional GH_USER_TOKEN + GH_USER (personal-plan checks).
+import { createSign } from "node:crypto";
 import { env, section, finding, manual, call, shape, daysAgo, isoDay } from "./_lib.mjs";
 
-const token = env("GITHUB_TOKEN");
+const b64url = (buf) =>
+  Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+/** Mints a GitHub App JWT (RS256) then exchanges it for an installation token —
+ * the exact path src/connectors/copilot/github-app.ts uses in production, so
+ * NLV-C1 proves the App-permission grant end-to-end. Node's createSign accepts
+ * both PKCS#1 and PKCS#8 PEM. */
+async function installationTokenFromApp(appId, privateKeyPem, installationId) {
+  const iat = Math.floor(Date.now() / 1000) - 60;
+  const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = b64url(JSON.stringify({ iat, exp: iat + 540, iss: appId }));
+  const signer = createSign("RSA-SHA256");
+  signer.update(`${header}.${payload}`);
+  const sig = b64url(signer.sign(privateKeyPem));
+  const jwt = `${header}.${payload}.${sig}`;
+  const r = await call(
+    `https://api.github.com/app/installations/${installationId}/access_tokens`,
+    { method: "POST", headers: { authorization: `Bearer ${jwt}`, "x-github-api-version": "2026-03-10" } },
+  );
+  finding("C1", "installation-token mint status", r.status);
+  if (!r.body?.token) {
+    console.error("C1: could not mint installation token — aborting", shape(r.body));
+    process.exit(1);
+  }
+  return r.body.token;
+}
+
 const org = env("GH_ORG");
 const userToken = env("GH_USER_TOKEN", { optional: true });
 const user = env("GH_USER", { optional: true });
+const appId = env("GH_COPILOT_APP_ID", { optional: true });
+const appKey = env("GH_COPILOT_APP_PRIVATE_KEY", { optional: true });
+const installationId = env("GH_INSTALLATION_ID", { optional: true });
+
+section("NLV-C1: mint installation token from the GitHub App key (production path)");
+let token;
+if (appId && appKey && installationId) {
+  token = await installationTokenFromApp(appId, appKey, installationId);
+  finding("C1", "using App-minted installation token", "ok");
+} else {
+  token = env("GITHUB_TOKEN");
+  manual("C1", "Set GH_COPILOT_APP_ID + GH_COPILOT_APP_PRIVATE_KEY + GH_INSTALLATION_ID to exercise the App-permission grant end-to-end; falling back to GITHUB_TOKEN.");
+}
 
 const gh = (path, tok = token) =>
   call(`https://api.github.com${path}`, {
@@ -107,3 +152,7 @@ manual("C9", "Fetch users-1-day for one fixed day at D+1, D+2, D+3, D+5; diff pe
 manual("C11", "Compare users-1-day ai_credits_used vs billing ai_credit/usage for the same user+day.");
 manual("C15", "Disable the 'Copilot usage metrics' org policy; record the exact status/body from a report endpoint; re-enable.");
 manual("C16", "In an org with a <5-seat team, confirm the team is absent from user-teams-1-day (vs present-with-nulls).");
+
+section("After NLV passes — go-live flips (ADR 0022)");
+manual("GO-LIVE", "Sync GH_COPILOT_APP_ID / GH_COPILOT_APP_PRIVATE_KEY / GH_COPILOT_APP_SLUG into deploy secrets — the app's connect surfaces (connections page, onboarding) flip to offering the install automatically.");
+manual("GO-LIVE", "Marketing landing strip: remove \"github_copilot\" from NLV_PENDING_VENDORS in src/lib/vendor-connect-meta.ts (one line) — until then the landing page honestly keeps Copilot under \"Soon\".");

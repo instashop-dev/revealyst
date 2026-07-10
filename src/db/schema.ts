@@ -399,7 +399,11 @@ export const metricCatalog = pgTable("metric_catalog", {
   name: text("name").notNull(),
   description: text("description").notNull(),
   unit: text("unit", {
-    enum: ["count", "tokens", "usd_cents", "lines", "flag"],
+    // `credits` added V1.5 (ADR 0022) for GitHub Copilot AI Credits — a
+    // vendor-reported usage-billing unit that is NOT dollars. Plain-text
+    // column (drizzle text-enum is TS-only), so the new value needs no DDL,
+    // only the seed row + this type widening.
+    enum: ["count", "tokens", "usd_cents", "lines", "flag", "credits"],
   }).notNull(),
   // Which dimension the `dim` column carries for this metric; null = none.
   dimKind: text("dim_kind", { enum: ["model", "feature"] }),

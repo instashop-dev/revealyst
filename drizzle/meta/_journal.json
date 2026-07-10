@@ -155,6 +155,13 @@
       "when": 1783701385448,
       "tag": "0021_budgets",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1783701385449,
+      "tag": "0022_seed-agentic-and-credits-metrics",
+      "breakpoints": true
     }
   ]
 }

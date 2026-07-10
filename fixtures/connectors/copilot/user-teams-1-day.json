@@ -1,0 +1,8 @@
+{
+  "report_day": "2026-06-19",
+  "records": [
+    { "user_id": 1001, "user_login": "alice", "team_slug": "backend", "team_name": "Backend" },
+    { "user_id": 1001, "user_login": "alice", "team_slug": "platform", "team_name": "Platform" },
+    { "user_id": 1002, "user_login": "bob", "team_slug": "frontend", "team_name": "Frontend" }
+  ]
+}

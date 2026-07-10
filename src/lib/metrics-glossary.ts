@@ -187,6 +187,30 @@ export const METRIC_REFERENCE: Record<
       "Lines of code suggested per day (completion funnel; LoC acceptance ratio is computed, never stored).",
     plain: "How many lines of code an AI tool suggested in a day.",
   },
+  agent_sessions: {
+    name: "Agent sessions",
+    description:
+      "Agent/CLI sessions per day (Copilot CLI sessions; Claude Code sessions). Distinct from generic sessions — these are agent-mediated. Absent for vendors with no agent-session concept, never zero-filled.",
+    plain: "How many times an AI agent (not just autocomplete) ran a work session for you in a day.",
+  },
+  agent_requests: {
+    name: "Agent requests",
+    description:
+      "Agent-mode requests per day (Cursor agentRequests; Copilot agent-mode + CLI requests). A gap where a vendor has no agent request count (e.g. Claude Code) — rows are simply absent.",
+    plain: "How many requests you made to an AI agent (as opposed to plain chat or autocomplete) in a day.",
+  },
+  agent_active: {
+    name: "Agent used",
+    description:
+      "Subject used an agentic feature on this UTC day (value 1). The cross-vendor agentic-adoption flag: Copilot used_agent/coding-agent, Cursor agent requests, Claude Code activity.",
+    plain: "Whether you used an AI agent at all on a given day.",
+  },
+  ai_credits: {
+    name: "AI credits",
+    description:
+      "GitHub Copilot AI Credits consumed per day (usage-based billing, vendor-reported). A native credits unit — NOT a dollar amount; a cents conversion would be derived/estimated (spend_cents_estimated) and labeled, never billing truth. Available only from 2026-06-19; earlier days are absence, never zero.",
+    plain: "How many GitHub Copilot AI Credits you used in a day (credits, not dollars).",
+  },
 };
 
 function metricName(metricKey: string): string {

@@ -27,6 +27,7 @@ import {
 import { ScoreCardMock } from "@/components/marketing/score-card-mock";
 import { Section } from "@/components/marketing/section";
 import { trackLaunchEvent } from "@/lib/launch-events";
+import { NLV_PENDING_VENDORS } from "@/lib/vendor-connect-meta";
 import { VENDOR_LABELS, vendorLabel } from "@/lib/vendor-labels";
 
 // Request-rendered so the landing_view event fires per visit (§15). The page
@@ -51,13 +52,24 @@ export const metadata: Metadata = {
 // The "Connects" strip derives from the live connector registry so marketing
 // can never advertise a connector that doesn't exist (plus the Claude Code
 // local agent, which ingests via the desktop companion, not polling).
-// Everything else in the frozen vendor enum is shown honestly as "soon".
+// Everything else in the frozen vendor enum is shown honestly as "soon" —
+// including NLV_PENDING_VENDORS: connectors that are code-complete and
+// registered but whose live integration is still founder-gated (NLV run +
+// deploy secrets). Statically held in "Soon" here — the marketing page stays
+// statically renderable, so no runtime env check; the founder flip after NLV
+// is one line in src/lib/vendor-connect-meta.ts (ADR 0022).
 const CONNECTED_TOOLS = [
-  ...registeredVendors().map(vendorLabel),
+  ...registeredVendors()
+    .filter((v) => !NLV_PENDING_VENDORS.includes(v))
+    .map(vendorLabel),
   VENDOR_LABELS.claude_code_local,
 ];
 const COMING_TOOLS = (Object.keys(VENDOR_LABELS) as VendorId[])
-  .filter((v) => v !== "claude_code_local" && !registeredVendors().includes(v))
+  .filter(
+    (v) =>
+      v !== "claude_code_local" &&
+      (!registeredVendors().includes(v) || NLV_PENDING_VENDORS.includes(v)),
+  )
   .map(vendorLabel);
 
 const SCORES = [

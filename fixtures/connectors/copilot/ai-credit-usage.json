@@ -1,0 +1,37 @@
+{
+  "usageItems": [
+    {
+      "product": "copilot",
+      "sku": "copilot_premium_request",
+      "model": "gpt-5-copilot",
+      "unitType": "request",
+      "date": "2026-06-19",
+      "grossQuantity": 20,
+      "netQuantity": 18,
+      "grossAmount": 2.0,
+      "netAmount": 1.8
+    },
+    {
+      "product": "copilot",
+      "sku": "copilot_premium_request",
+      "model": "claude-sonnet-5",
+      "unitType": "request",
+      "date": "2026-06-19",
+      "grossQuantity": 10,
+      "netQuantity": 9,
+      "grossAmount": 1.0,
+      "netAmount": 0.9
+    },
+    {
+      "product": "copilot",
+      "sku": "copilot_premium_request",
+      "model": "gpt-5-copilot",
+      "unitType": "request",
+      "date": "2026-06-25",
+      "grossQuantity": 5,
+      "netQuantity": 5,
+      "grossAmount": 0.5,
+      "netAmount": 0.5
+    }
+  ]
+}
