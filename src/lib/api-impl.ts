@@ -19,6 +19,7 @@ import type { CredentialEnv } from "../lib/credentials";
 import { addDays } from "../poller/backfill";
 import type { PollMessage } from "../poller/messages";
 import type { DefinitionRow } from "./dashboard-read";
+import { collectGaps } from "./honesty-gaps";
 
 type OrgScope = ReturnType<typeof forOrg>;
 type VisibilityMode = "private" | "managed" | "full";
@@ -231,36 +232,6 @@ async function hydrateScoreResults(
   });
 }
 
-/** Distinct honesty gaps across a run set, deduped on kind+detail. Runs
- * store gaps as jsonb; keep only well-formed {kind[, detail]} entries. */
-function collectGaps(runs: Array<{ gaps: unknown }>) {
-  const seen = new Map<string, { kind: string; detail?: string }>();
-  for (const run of runs) {
-    if (!Array.isArray(run.gaps)) {
-      continue;
-    }
-    for (const gap of run.gaps) {
-      if (
-        typeof gap !== "object" ||
-        gap === null ||
-        typeof (gap as { kind?: unknown }).kind !== "string"
-      ) {
-        continue;
-      }
-      const kind = (gap as { kind: string }).kind;
-      const rawDetail = (gap as { detail?: unknown }).detail;
-      const detail = typeof rawDetail === "string" ? rawDetail : undefined;
-      // Structured key so a literal separator inside kind/detail can't
-      // collapse two distinct gaps into one.
-      const key = JSON.stringify([kind, detail ?? null]);
-      if (!seen.has(key)) {
-        seen.set(key, detail !== undefined ? { kind, detail } : { kind });
-      }
-    }
-  }
-  return [...seen.values()];
-}
-
 function sumRecordValues(rows: Array<{ value: number }>) {
   return rows.reduce((total, row) => total + row.value, 0);
 }
@@ -302,6 +273,71 @@ export async function dashboardSummary(
     unresolvedSubjects: tracked.unresolvedSubjectIds.length,
     gaps: collectGaps(runs),
   });
+}
+
+/**
+ * Org settings mutation (ADR 0018): rename and/or change visibility mode —
+ * the single most privacy-sensitive mutation in the product (§9.1). Writes the
+ * row through the org-scoped `org.update` writer, then records an `audit_log`
+ * entry (with its from→to) for each field whose value ACTUALLY changed against
+ * `current`. A patch that sets a field to its existing value writes no audit
+ * entry — a no-op must not fabricate accountability rows. Parses the result
+ * through the frozen `settingsUpdate` response schema. Pure over the
+ * org-scoped repository, so it's tested on PGlite; the route is thin HTTP glue.
+ * Throws `ApiError(404)` only if the org row vanished mid-request (unreachable
+ * in normal flow — the session guarantees it exists).
+ *
+ * Write-then-audit ordering is deliberate and matches every sibling admin
+ * mutation (connection update/delete, reconcile actions, benchmark consent):
+ * auditing first would fabricate a trail entry if the write then failed —
+ * the worse direction under invariant (b). A crash in the narrow window
+ * between the two loses the audit row, not the change; the audit trail is
+ * accountability for what HAPPENED, so it must never lead the write.
+ */
+export async function updateOrgSettings(
+  scope: OrgScope,
+  input: {
+    actorUserId: string;
+    current: { id: string; name: string; visibilityMode: VisibilityMode };
+    patch: { name?: string; visibilityMode?: VisibilityMode };
+  },
+) {
+  const { actorUserId, current, patch } = input;
+  const renamed =
+    patch.name !== undefined && patch.name !== current.name
+      ? { from: current.name, to: patch.name }
+      : null;
+  const revisibility =
+    patch.visibilityMode !== undefined &&
+    patch.visibilityMode !== current.visibilityMode
+      ? { from: current.visibilityMode, to: patch.visibilityMode }
+      : null;
+
+  const row = await scope.org.update(patch);
+  if (!row) {
+    throw new ApiError(404, "org not found");
+  }
+
+  if (renamed) {
+    await scope.auditLog.record({
+      actorUserId,
+      action: "org.rename",
+      targetKind: "org",
+      targetId: current.id,
+      metadata: renamed,
+    });
+  }
+  if (revisibility) {
+    await scope.auditLog.record({
+      actorUserId,
+      action: "org.visibility_set",
+      targetKind: "org",
+      targetId: current.id,
+      metadata: revisibility,
+    });
+  }
+
+  return apiRoutes.settingsUpdate.response.parse({ org: row });
 }
 
 export async function listScores(

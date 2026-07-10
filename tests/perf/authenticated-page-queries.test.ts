@@ -53,7 +53,9 @@ import { formatTable, instrumentPglite, measure, type ScenarioResult } from "./q
 // dashboard-view.ts's single stage-1 Promise.all (the downstream modules run
 // on pre-fetched rows only, issuing zero queries of their own), taking the
 // scenario from total 14 / depth 2 to its floor.
-// Current baseline (25 tracked people, 36 subjects): total 12, depth 1.
+// Current baseline (25 tracked people, 36 subjects): total 13, depth 1.
+// (W4-W added connector_runs to the stage-1 Promise.all so the team view
+// surfaces honesty gaps like the personal view — +1 query, still depth 1.)
 
 const PEOPLE_COUNT = 25;
 const WINDOW = { from: "2026-06-01", to: "2026-06-30" };
@@ -146,8 +148,9 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     results.push(result);
 
     // Recorded baseline (25 tracked people, 36 subjects) after the
-    // query-consolidation pass + depth-1 hoist: total 12, sequential
-    // depth 1 (see the module doc comment above for what dropped ~99 → 12).
+    // query-consolidation pass + depth-1 hoist: total 13, sequential
+    // depth 1 (see the module doc comment above for what dropped ~99 → 12;
+    // W4-W's connector_runs read for honesty gaps took it to 13).
     // Ceilings are generous (roughly 2x total, 3x depth) so an unrelated
     // one-query change doesn't make this flaky, while a real regression
     // (e.g. a reintroduced per-subject/per-row fan-out, or a stage that

@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   LogOut,
   ScanFace,
+  Settings,
   ShieldCheck,
   UserRound,
   UserRoundCog,
@@ -50,6 +51,9 @@ const ADMIN_NAV_ITEMS = [
   { title: "Reconcile", href: "/reconcile", icon: ScanFace },
   { title: "Billing", href: "/billing", icon: CreditCard },
   { title: "Compliance", href: "/compliance", icon: ShieldCheck },
+  // Settings hosts the org rename + visibility-mode control (ADR 0018).
+  // Admin-only, server-gated (the page redirects non-admins).
+  { title: "Settings", href: "/settings", icon: Settings },
 ];
 
 // Platform-staff-only discovery link (ADR 0016) — a different axis from
