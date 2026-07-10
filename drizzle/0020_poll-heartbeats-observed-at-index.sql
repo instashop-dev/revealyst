@@ -1,0 +1,1 @@
+CREATE INDEX "poll_heartbeats_observed_at_idx" ON "poll_heartbeats" USING btree ("observed_at");

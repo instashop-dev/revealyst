@@ -145,6 +145,12 @@ export default {
           ({ kind: "score-recompute", orgId, day }) satisfies PollMessage,
       );
       await sendInBatches(env.POLL_QUEUE, messages);
+      // W4-Q: once-nightly retention purge of audit_log / poll_heartbeats /
+      // connector_runs (bounded batches inside the consumer). One system-level
+      // message, riding the same nightly tick as the score recompute.
+      await env.POLL_QUEUE.send({
+        kind: "purge-retention",
+      } satisfies PollMessage);
       return;
     }
     if (controller.cron === METERING_CRON) {

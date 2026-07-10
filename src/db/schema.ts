@@ -685,16 +685,27 @@ export const benchmarks = pgTable(
 
 // One row per successful no-op poll job — proves Cron Trigger → Queue →
 // consumer → Postgres end-to-end (the W0 exit-gate heartbeat).
-export const pollHeartbeats = pgTable("poll_heartbeats", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  orgId: uuid("org_id")
-    .notNull()
-    .references(() => orgs.id),
-  source: text("source").notNull().default("noop-poller"),
-  observedAt: timestamp("observed_at", { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-});
+export const pollHeartbeats = pgTable(
+  "poll_heartbeats",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id),
+    source: text("source").notNull().default("noop-poller"),
+    observedAt: timestamp("observed_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => [
+    // Serves BOTH the /api/health top-1 read (latestHeartbeatAt orders by
+    // observed_at DESC) and the retention purge (W4-Q: delete where observed_at
+    // < cutoff) — without it both are seqscans over an ever-growing log
+    // (ADR 0019). observed_at only; heartbeats are system telemetry read/purged
+    // across orgs, never per-org, so no org_id lead column is needed.
+    index("poll_heartbeats_observed_at_idx").on(t.observedAt),
+  ],
+);
 
 // One row per connector poll / backfill-chunk attempt (ADR 0005, W1-D).
 // The "last synced 2h ago" source of truth and the backfill audit trail:
