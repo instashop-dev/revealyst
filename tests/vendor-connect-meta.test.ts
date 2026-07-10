@@ -75,13 +75,19 @@ describe("Copilot connect env gate (readCopilotAppConfig)", () => {
     GH_COPILOT_APP_ID: "4215573",
     GH_COPILOT_APP_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nxyz\n-----END PRIVATE KEY-----",
     GH_COPILOT_APP_SLUG: "revealyst",
+    // The OAuth client id/secret gate the install-ownership check (the
+    // confused-deputy fix): the whole flow stays disabled until they sync too.
+    GH_COPILOT_APP_CLIENT_ID: "Iv23li7wFumkZwiRogYu",
+    GH_COPILOT_APP_CLIENT_SECRET: "client-secret",
   };
 
-  it("all three secrets present → configured (the connect surfaces offer the install)", () => {
+  it("all secrets present → configured (the connect surfaces offer the install)", () => {
     expect(readCopilotAppConfig(full)).toEqual({
       appId: "4215573",
       privateKeyPem: full.GH_COPILOT_APP_PRIVATE_KEY,
       slug: "revealyst",
+      clientId: "Iv23li7wFumkZwiRogYu",
+      clientSecret: "client-secret",
     });
   });
 

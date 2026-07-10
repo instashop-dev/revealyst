@@ -6,6 +6,7 @@ import type { Db } from "../src/db/client";
 import { createFixtureOrg } from "../src/db/fixtures";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
+import { MAX_BUDGET_CENTS, setBudget } from "../src/lib/api-impl";
 import {
   evaluateBudgetAlert,
   monthToDateWindow,
@@ -232,6 +233,22 @@ describe("budgets repo + read layer", () => {
 
   it("rejects a non-positive budget at the DB check", async () => {
     await expect(scope.budgets.set({ monthlyLimitCents: 0 })).rejects.toThrow();
+    await scope.budgets.clear();
+  });
+
+  it("rejects an over-max budget with a 400 before the DB write (int4 guard)", async () => {
+    // The frozen budgetSet schema only bounds monthlyLimitCents as a positive
+    // int, but the column is int4 — a value above int4 max would throw
+    // "integer out of range" at INSERT (an ungraceful 500). setBudget rejects
+    // it as a clean ApiError(400) at the handler layer, contract untouched.
+    await expect(
+      setBudget(scope, { monthlyLimitCents: 3_000_000_000 }),
+    ).rejects.toMatchObject({ status: 400 });
+    // The over-max value never reached the DB.
+    expect(await scope.budgets.get()).toBeUndefined();
+    // A value at the ceiling is accepted.
+    const ok = await setBudget(scope, { monthlyLimitCents: MAX_BUDGET_CENTS });
+    expect(ok.budget.monthlyLimitCents).toBe(MAX_BUDGET_CENTS);
     await scope.budgets.clear();
   });
 
