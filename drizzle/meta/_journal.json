@@ -141,6 +141,13 @@
       "when": 1783524690604,
       "tag": "0019_platform-admin",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783698219610,
+      "tag": "0020_poll-heartbeats-observed-at-index",
+      "breakpoints": true
     }
   ]
 }

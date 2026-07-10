@@ -16,6 +16,12 @@ export type PollMessage =
       kind: "purge-raw";
     }
   | {
+      // W4-Q: ages out expired audit_log / poll_heartbeats / connector_runs
+      // rows on their retention windows, in bounded batches (system-level job
+      // — runs across orgs inside src/db/system.ts). Sent once nightly.
+      kind: "purge-retention";
+    }
+  | {
       // One regular poll of one connection over one restatement window.
       kind: "connector-poll";
       orgId: string;

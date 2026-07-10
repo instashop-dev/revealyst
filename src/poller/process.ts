@@ -3,6 +3,7 @@ import { forOrg } from "../db/org-scope";
 import {
   ensureSystemOrg as ensureSystemOrgRow,
   purgeExpiredRawPayloads,
+  purgeExpiredRetention,
 } from "../db/system";
 import { meterSubscription } from "../metering/meter";
 import { periodFor, recomputeOrg } from "../scoring";
@@ -44,6 +45,18 @@ export async function processPollMessage(
     }
     case "purge-raw": {
       await purgeExpiredRawPayloads(db);
+      return;
+    }
+    case "purge-retention": {
+      const result = await purgeExpiredRetention(db);
+      // A run is bounded (batchSize × maxBatches per table) to stay inside the
+      // Workers CPU budget; if it hit that cap, more expired rows remain, so
+      // re-enqueue to drain the backlog across successive runs rather than
+      // letting a high-volume table outpace one nightly pass. Only when the
+      // worker consumer supplied a queue producer (deps.send).
+      if (result.capped && deps?.send) {
+        await deps.send({ kind: "purge-retention" });
+      }
       return;
     }
     case "connector-poll": {
