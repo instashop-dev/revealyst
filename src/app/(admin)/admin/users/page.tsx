@@ -1,7 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { UsersTable, type UsersListParams } from "@/components/admin/users-table";
 import { listUsersForAdmin } from "@/db/admin";
-import { type AdminEnv, requireAdminContext } from "@/lib/admin-context";
+import { requireAdminContext } from "@/lib/admin-context";
 
 export const dynamic = "force-dynamic";
 
@@ -60,9 +60,8 @@ export default async function AdminUsersPage({
       limit: PAGE_SIZE,
       offset,
     },
-    // ADMIN_USER_IDS bootstrap admins must badge/filter as platform admins,
-    // matching the server guards (ADR 0016 — both power sources).
-    ctx.env as AdminEnv,
+    // Both power sources for platformAdmin — see isPlatformAdmin (ADR 0016).
+    ctx.env,
   );
 
   return (

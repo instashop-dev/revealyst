@@ -14,7 +14,6 @@ import { respondWith } from "./api-route";
 // The staff check itself lives in ./admin-access (pure, vitest-importable);
 // re-exported here so admin surfaces import one module.
 export { isPlatformAdmin, parseAdminUserIds } from "./admin-access";
-export type { AdminEnv } from "./admin-access";
 
 /**
  * Page/layout variant: resolve the app context and require platform-admin.

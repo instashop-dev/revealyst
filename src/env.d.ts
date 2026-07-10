@@ -11,6 +11,9 @@ interface CloudflareEnv {
   BETTER_AUTH_URL?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
+  // Platform-admin bootstrap ids (ADR 0016) — comma-separated Better Auth
+  // user ids; see src/lib/admin-access.ts.
+  ADMIN_USER_IDS?: string;
   // Credential-envelope KEKs (wrangler secret / .dev.vars). Format
   // `v<N>:<base64 32 bytes>`; PREVIOUS exists only during a rotation
   // window (src/lib/credentials.ts).

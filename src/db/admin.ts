@@ -227,10 +227,9 @@ export type AdminUserRow = {
   email: string;
   createdAt: Date;
   banned: boolean;
-  /** Derived via isPlatformAdmin — BOTH power sources (ADR 0016): user.role
-   * === "admin" OR the id is in ADMIN_USER_IDS. Must match the server
-   * guards in src/lib/auth.ts hooks, or the UI enables actions the server
-   * 403s (bootstrap admins have role NULL — self set-role is blocked). */
+  /** Derived via isPlatformAdmin — both power sources (role column +
+   * ADMIN_USER_IDS, ADR 0016), matching the server guards in
+   * src/lib/auth.ts hooks. */
   platformAdmin: boolean;
   orgId: string | null;
   orgName: string | null;
@@ -302,21 +301,18 @@ function buildUserListQuery(
     );
   }
   if (params.filter?.platformAdmin !== undefined) {
-    // Both power sources (ADR 0016): the role column AND the ADMIN_USER_IDS
-    // bootstrap list — mirrors isPlatformAdmin, which every server guard
-    // uses. A role-only filter reads as empty when all admins are
-    // env-bootstrapped (role NULL).
+    // Both power sources — see isPlatformAdmin (ADR 0016). A role-only
+    // filter reads as empty when all admins are env-bootstrapped (role
+    // NULL). Empty bootstrap list is safe: drizzle renders inArray(col, [])
+    // as `false` and notInArray(col, []) as `true`.
     const bootstrapIds = parseAdminUserIds(env);
-    const roleAdmin = eq(user.role, "admin");
-    const notRoleAdmin = or(isNull(user.role), ne(user.role, "admin"));
     conditions.push(
       params.filter.platformAdmin
-        ? bootstrapIds.length > 0
-          ? or(roleAdmin, inArray(user.id, bootstrapIds))
-          : roleAdmin
-        : bootstrapIds.length > 0
-          ? and(notRoleAdmin, notInArray(user.id, bootstrapIds))
-          : notRoleAdmin,
+        ? or(eq(user.role, "admin"), inArray(user.id, bootstrapIds))
+        : and(
+            or(isNull(user.role), ne(user.role, "admin")),
+            notInArray(user.id, bootstrapIds),
+          ),
     );
   }
   if (params.filter?.orgKind) {
@@ -459,8 +455,7 @@ const USER_DETAIL_AUDIT_LIMIT = 20;
  * diverge from the billing paths themselves. Never selects credential
  * material — connections show status fields only. Returns null if the user
  * does not exist. `env` is required for the same reason as
- * listUsersForAdmin: platformAdmin must cover both power sources
- * (role column + ADMIN_USER_IDS), exactly like the server guards.
+ * listUsersForAdmin (see its doc).
  */
 export async function userDetailForAdmin(
   db: Db,

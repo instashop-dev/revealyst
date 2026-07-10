@@ -370,6 +370,14 @@ describe("listUsersForAdmin", () => {
     expect(nonAdminIds).not.toContain(alice.id);
     expect(nonAdminIds).not.toContain(bob.id);
     expect(nonAdminIds).toContain(carol.id);
+
+    // Drift tripwire: the SQL filter and the per-row isPlatformAdmin
+    // classification encode the same predicate — the two buckets must
+    // agree with each row's own flag and partition the full list.
+    expect(admins.rows.every((r) => r.platformAdmin)).toBe(true);
+    expect(nonAdmins.rows.every((r) => !r.platformAdmin)).toBe(true);
+    const all = await listUsersForAdmin(db, { limit: 100 }, env);
+    expect(admins.total + nonAdmins.total).toBe(all.total);
   });
 
   it("filters by orgKind", async () => {
