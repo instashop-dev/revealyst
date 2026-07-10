@@ -9,12 +9,19 @@
 		"nodejs_compat",
 		"global_fetch_strictly_public"
 	],
-	// Authenticated requests make several sequential DB round-trips
-	// (Hyperdrive → Neon) per request; Smart Placement runs the Worker near
-	// Hyperdrive/Neon instead of at the requester's edge, collapsing those
-	// per-query WAN RTTs into local ones — Cloudflare's documented remedy for
-	// exactly this "chatty backend" pattern.
-	"placement": { "mode": "smart" },
+	// Smart Placement is deliberately OFF. It was enabled in PR #126 to collapse
+	// per-query WAN RTTs, but within hours of that deploy every request that
+	// invokes Better Auth (all auth API paths, /api/me, authenticated pages)
+	// hung indefinitely on app.revealyst.com while non-auth routes (incl.
+	// DB-touching /api/health) stayed fast, and workers.dev started returning
+	// error 1042 (blocked worker-self-fetch) for every route. The exact same
+	// bundle, env values, and NODE_ENV=production run clean in local workerd —
+	// the hang is a placement-layer interaction with this dual-custom-domain
+	// Worker, not app code. Re-enabling requires its own monitored change with
+	// wrangler tail watching authenticated-route latency and the Cf-Placement
+	// response header. NOTE: tests/worker-config.test.ts strips comments with a
+	// naive regex — never write the two-character block-comment opener (slash
+	// then star, e.g. in a glob like "/api/auth/" + star) inside comments here.
 	"assets": {
 		"directory": ".open-next/assets",
 		"binding": "ASSETS"
