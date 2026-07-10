@@ -95,19 +95,36 @@ export async function putTeamMembers(
     }
   }
   const current = new Set(currentMembers.map((m) => m.personId));
-  // Writes stay sequential (adds, then removes): a failed add must abort the
-  // batch before any remove commits, so a request that reports failure never
-  // leaves someone silently dropped from the team.
-  for (const personId of requested) {
-    if (!current.has(personId)) {
-      await scope.teams.addMember(teamId, personId);
+  // Two PHASES, adds then removes — a failed add must abort before any remove
+  // commits, so a request that reports failure never leaves someone silently
+  // dropped from the team. Within each phase the writes are independent, so
+  // they're issued concurrently instead of awaited one-at-a-time: N per-member
+  // round trips collapse to 2 batched round-trip stages on
+  // Workers→Hyperdrive→Neon. The phase ordering still holds — the removes
+  // phase never starts until every add has settled, and if any add fails the
+  // whole request throws before the removes phase runs. (The frozen org-scope
+  // API only exposes single-row addMember/removeMember; a true multi-row
+  // INSERT/DELETE would need new methods = an ADR, not worth it for this
+  // admin path.) allSettled, not Promise.all: Promise.all rejects on the
+  // FIRST failure and abandons its in-flight siblings, whose later rejections
+  // would surface as unhandledrejection events in the Workers runtime —
+  // allSettled awaits every write, then rethrows the first failure.
+  const settleAll = async (writes: Promise<unknown>[]) => {
+    const failed = (await Promise.allSettled(writes)).find(
+      (r): r is PromiseRejectedResult => r.status === "rejected",
+    );
+    if (failed) {
+      throw failed.reason;
     }
-  }
-  for (const personId of current) {
-    if (!requested.has(personId)) {
-      await scope.teams.removeMember(teamId, personId);
-    }
-  }
+  };
+  const toAdd = [...requested].filter((personId) => !current.has(personId));
+  const toRemove = [...current].filter((personId) => !requested.has(personId));
+  await settleAll(
+    toAdd.map((personId) => scope.teams.addMember(teamId, personId)),
+  );
+  await settleAll(
+    toRemove.map((personId) => scope.teams.removeMember(teamId, personId)),
+  );
   return apiRoutes.teamsPutMembers.response.parse({ ok: true });
 }
 
