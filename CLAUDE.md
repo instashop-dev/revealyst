@@ -99,6 +99,21 @@ contracts. Every session auto-loads this file — it is the interface between ag
   `Server-Timing: session/orgContext/access/pageData/total` (devtools →
   Network). `tests/perf/authenticated-page-queries.test.ts` (run with
   `--reporter=verbose`) counts queries + sequential depth on PGlite.
+- **Measured (W4, from BOM):** `db;dur` is a stable **~500–670ms per
+  round-trip** (Neon inferred US region) — this per-round-trip floor, not app
+  code, dominates authenticated TTFB. Read-path N+1 is already eliminated
+  (dashboard 12 queries / depth 1). The **biggest remaining lever is a Neon
+  read replica near users / region move** = founder infra, not yet done.
+- **Edge caching is ON (W4, PRs #146/#147):** OpenNext incremental cache
+  (static-assets flavor + `enableCacheInterception`, no new bindings). Live:
+  `/sign-in` + `/legal/*` serve via **interception** (`x-opennext-cache: HIT`);
+  the marketing landing `/` is **static** (`x-nextjs-cache: HIT`) — interception
+  does NOT fire for `/` (interceptor strips the trailing slash `/`→`""`, missing
+  the manifest key), so `/` rides the NextServer incremental cache instead.
+  `public/_headers` makes `/_next/static/*` `immutable`. The `landing_view` §15
+  metric now writes from the `src/worker.ts` entry seam (the page went static) —
+  it must count ALL non-RSC GETs of `/` (gating on `Accept: text/html` silently
+  drops `*/*`/no-Accept crawlers+monitors the old force-dynamic render counted).
 - **Instrumentation seam:** `src/lib/request-timing.ts` (`timeStage`, ALS
   collector entered in `src/worker.ts`). Streamed (Suspense) stages log as
   late-stage JSON lines (headers already flushed); assets/WebSocket upgrades
@@ -297,6 +312,25 @@ only by mechanism review). Also: base-nova `Card` draws its outline with
   And if a recovery PR develops conflicts with main, don't push the resolution
   to the open PR (merge-race drops it) — resolve on a fresh branch and
   recreate the PR with the resolution in its creation-time HEAD.
+- **Parallel-fan-out numbering collisions (W4 orchestration):** when N agents
+  build simultaneously, each grabs the "next" ADR/migration number offline and
+  they COLLIDE (W4: ADRs 0018/0020/0021 + migration 0020 all double-claimed
+  across 5 workstreams). ADR and migration are INDEPENDENT sequences. The
+  orchestrator must serialize merges and, after each ADR/migration-bearing
+  merge, have the next agent rebase + renumber (rename the ADR file, regen the
+  migration via `drizzle-kit generate`, update every code/test/PR-body ref)
+  BEFORE its PR merges. Cheaper than post-hoc recovery.
+- **Verify CI check state EXPLICITLY before merging — never pipe `gh pr merge`
+  after `gh pr checks`:** a shell pipe masked a red check and auto-merged a PR
+  whose `npm test` had FAILED (W4: #140 merged with a failing
+  account-deletion purge tripwire → needed hotfix #143). Pattern: capture
+  `gh pr checks <n>` output, grep for `fail|error`, and merge only if clean.
+- **A new org-scoped table needs THREE registrations, not two:** (1)
+  `tests/tenant-isolation.test.ts` SCOPED_READS with a non-vacuous B-org seed,
+  (2) a `docs/decisions/` ADR, AND (3) `src/db/account-deletion.ts` —
+  PURGE_TABLES if it has no cascade-to-orgs FK, else PURGE_EXEMPT_TABLES. The
+  purge-completeness tripwire (`tests/account-deletion.test.ts`) is CI-enforced
+  and will red main post-merge otherwise (W4: `budgets` missed #3).
 - **Shared-checkout hazard:** concurrent agent sessions drive this ONE physical
   checkout and can switch branches/HEAD under you mid-task (observed: reflog
   hopping across 5 branches while agents worked; uncommitted edits survive a
