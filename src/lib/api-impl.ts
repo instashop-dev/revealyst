@@ -20,6 +20,7 @@ import { addDays } from "../poller/backfill";
 import type { PollMessage } from "../poller/messages";
 import type { DefinitionRow } from "./dashboard-read";
 import { collectGaps } from "./honesty-gaps";
+import { budgetAlertFor, readMonthToDateSpend } from "./spend-governance";
 
 type OrgScope = ReturnType<typeof forOrg>;
 type VisibilityMode = "private" | "managed" | "full";
@@ -338,6 +339,50 @@ export async function updateOrgSettings(
   }
 
   return apiRoutes.settingsUpdate.response.parse({ org: row });
+}
+
+/**
+ * GET /api/budget core (W4-V, ADR 0020): the org's budget config + observed
+ * month-to-date spend (billed and derived kept separate) + the computed alert.
+ * `today` (YYYY-MM-DD, UTC) is caller-supplied so the window is deterministic.
+ * Never a stored ledger — spend is summed from metric_records at read time.
+ */
+export async function getBudget(scope: OrgScope, today: string) {
+  // Shared month-to-date core (src/lib/spend-governance.ts) — vendor-reported
+  // and derived spend summed separately; the alert is measured against
+  // vendor-reported only (derived can overlap it — invariant b, no double-count).
+  const { budget, reportedCents, estimatedCents } = await readMonthToDateSpend(
+    scope,
+    today,
+  );
+  const alert = budgetAlertFor(budget, reportedCents);
+  return apiRoutes.budgetGet.response.parse({
+    budget: budget
+      ? {
+          monthlyLimitCents: budget.monthlyLimitCents,
+          alertThresholds: budget.alertThresholds,
+        }
+      : null,
+    monthToDate: { reportedCents, estimatedCents },
+    alert,
+  });
+}
+
+/**
+ * PUT /api/budget core (W4-V, ADR 0020): create or replace the org's budget.
+ * Admin-gated at the route. Thresholds default to [50, 80, 100] when omitted.
+ */
+export async function setBudget(
+  scope: OrgScope,
+  input: { monthlyLimitCents: number; alertThresholds?: number[] },
+) {
+  const row = await scope.budgets.set(input);
+  return apiRoutes.budgetSet.response.parse({
+    budget: {
+      monthlyLimitCents: row.monthlyLimitCents,
+      alertThresholds: row.alertThresholds,
+    },
+  });
 }
 
 export async function listScores(

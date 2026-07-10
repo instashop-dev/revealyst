@@ -15,6 +15,7 @@ import {
   UserRoundCog,
   UserRoundPlus,
   UsersRound,
+  Wallet,
   Wrench,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +50,7 @@ const NAV_ITEMS = [
 const ADMIN_NAV_ITEMS = [
   { title: "Members", href: "/members", icon: UserRoundPlus },
   { title: "Reconcile", href: "/reconcile", icon: ScanFace },
+  { title: "Spend", href: "/spend", icon: Wallet },
   { title: "Billing", href: "/billing", icon: CreditCard },
   { title: "Compliance", href: "/compliance", icon: ShieldCheck },
   // Settings hosts the org rename + visibility-mode control (ADR 0018).

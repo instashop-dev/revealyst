@@ -701,7 +701,7 @@ export const pollHeartbeats = pgTable(
     // Serves BOTH the /api/health top-1 read (latestHeartbeatAt orders by
     // observed_at DESC) and the retention purge (W4-Q: delete where observed_at
     // < cutoff) — without it both are seqscans over an ever-growing log
-    // (ADR 0019). observed_at only; heartbeats are system telemetry read/purged
+    // (ADR 0020). observed_at only; heartbeats are system telemetry read/purged
     // across orgs, never per-org, so no org_id lead column is needed.
     index("poll_heartbeats_observed_at_idx").on(t.observedAt),
   ],
@@ -893,6 +893,50 @@ export const auditLog = pgTable(
     unique("audit_log_org_id_id_uq").on(t.orgId, t.id),
     // The read path: newest-first per org.
     index("audit_log_org_created_idx").on(t.orgId, t.createdAt),
+  ],
+);
+
+// Spend Governance (W4-V, ADR 0020). One org monthly spend budget + the
+// alert thresholds (percent-of-budget crossings surfaced in-app). One row
+// per org — the unique(org_id) constraint makes "set budget" a clean upsert
+// and there is never more than one budget to reconcile. NOT a spend ledger:
+// observed month-to-date spend is derived at read time from the existing
+// spend_cents / spend_cents_estimated metric_records (compute-on-read, no
+// background job, no persisted alert state). alert_thresholds are integer
+// percents (e.g. [50, 80, 100]); the honesty framing (day-grain vendor data,
+// observed-burn crossings) lives in the rendered copy, never in this table.
+export const budgets = pgTable(
+  "budgets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    // Monthly spend ceiling in USD cents, matching metric_records spend_cents.
+    monthlyLimitCents: integer("monthly_limit_cents").notNull(),
+    // Percent-of-budget crossings that raise an in-app alert, ascending.
+    // Mirrors DEFAULT_ALERT_THRESHOLDS (src/lib/spend-governance.ts) — schema is
+    // a leaf module and can't import lib code without a circular dependency, so
+    // keep the two literals in sync.
+    alertThresholds: jsonb("alert_thresholds")
+      .$type<number[]>()
+      .notNull()
+      .default([50, 80, 100]),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    // Anchor for composite tenant FKs, per D1a — kept even without child
+    // tables so the shape matches every other org-scoped table.
+    unique("budgets_org_id_id_uq").on(t.orgId, t.id),
+    // One budget per org: the set() upsert conflict target.
+    unique("budgets_org_uq").on(t.orgId),
+    check("budgets_monthly_limit_positive", sql`monthly_limit_cents > 0`),
   ],
 );
 
