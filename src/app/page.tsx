@@ -207,10 +207,16 @@ export default async function Home() {
                 Revealyst
               </span>
             </div>
+            {/* All /sign-in links here are plain <a>, not <Link>: this page
+                is the marketing surface (revealyst.com) and /sign-in lives on
+                app.revealyst.com, so a client-side RSC navigation gets 308'd
+                cross-origin and CORS-blocked. A hard navigation follows the
+                worker's host redirect cleanly. Same-surface links (/legal/*)
+                stay <Link>. */}
             <Button
               variant="ghost"
               nativeButton={false}
-              render={<Link href="/sign-in" />}
+              render={<a href="/sign-in" />}
             >
               Sign in
             </Button>
@@ -235,7 +241,7 @@ export default async function Home() {
                 <Button
                   size="lg"
                   nativeButton={false}
-                  render={<Link href="/sign-in" />}
+                  render={<a href="/sign-in" />}
                 >
                   Get your first score — free
                   <ArrowRight data-icon="inline-end" />
@@ -494,7 +500,7 @@ export default async function Home() {
             <Button
               variant="outline"
               nativeButton={false}
-              render={<Link href="/sign-in" />}
+              render={<a href="/sign-in" />}
               className="self-start"
             >
               Test your AI fluency
@@ -573,7 +579,7 @@ export default async function Home() {
           <Button
             size="lg"
             nativeButton={false}
-            render={<Link href="/sign-in" />}
+            render={<a href="/sign-in" />}
           >
             Get your first score — free
             <ArrowRight data-icon="inline-end" />
@@ -595,9 +601,9 @@ export default async function Home() {
             <Link href="/legal/privacy" className="hover:text-foreground">
               Privacy
             </Link>
-            <Link href="/sign-in" className="hover:text-foreground">
+            <a href="/sign-in" className="hover:text-foreground">
               Sign in
-            </Link>
+            </a>
           </div>
         </div>
       </footer>
