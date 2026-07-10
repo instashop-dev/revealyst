@@ -103,10 +103,15 @@ contracts. Every session auto-loads this file — it is the interface between ag
   stages; fixed in #127).
 - **DB client (`src/db/client.ts`):** `fetch_types: false` (postgres.js
   otherwise pays a pg_catalog introspection round-trip on every request's
-  fresh connection). `wrangler.jsonc` has Smart Placement on — collapses
-  per-query WAN RTTs; DB-free pages pay ~200-300ms transit and placement takes
-  a while to settle after deploy (watch the `Cf-Placement` response header;
-  intermittent ~2.5s transit spikes during settling are placement, not app).
+  fresh connection). **Smart Placement is OFF and must stay off** (reverted
+  in PR #131): within hours of the #126 deploy enabling it, every request
+  invoking Better Auth (all auth API paths, `/api/me`, authenticated pages)
+  hung indefinitely in prod while non-auth routes stayed fast — same bundle
+  + env ran clean in local workerd, so it's a placement-layer interaction
+  with this dual-custom-domain Worker (see wrangler.jsonc comment).
+  Re-enabling needs its own monitored change. Related: cross-surface links
+  (marketing↔app host) must be plain `<a>`, never `<Link>` — a soft-nav RSC
+  fetch gets 308'd cross-origin and CORS-blocked (PR #132).
 - **Better Auth perf config:** `experimental: { joins: true }` is a TOP-LEVEL
   `betterAuth()` option — inside `drizzleAdapter`'s options it is silently
   ignored. The join path needs drizzle `relations()` (`src/db/auth-relations.ts`,
