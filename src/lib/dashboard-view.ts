@@ -52,18 +52,21 @@ export type DashboardView = {
    * — no person data — so like `definitions` they do not change what
    * `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must inspect. */
   gaps: CollectedGap[];
+  /** The org's connections, already fetched in the depth-1 Promise.all below
+   * for readToolCoverage + the shared-account source. Returning them lets the
+   * team dashboard page render its Connections panel and needs-attention strip
+   * WITHOUT a separate `connections.list()` round trip stacked before this
+   * view (that serial hop cost ~250–500ms per authenticated TTFB on
+   * Workers→Hyperdrive→Neon). Connection rows carry no person data (vendor,
+   * admin-set displayName, status) — same privacy rationale as `definitions`,
+   * so `assertTeamOnlyPseudonymized` is unaffected. */
+  connections: Awaited<ReturnType<OrgScope["connections"]["list"]>>;
 };
 
 export async function readDashboardView(
   scope: OrgScope,
   visibilityMode: VisibilityMode,
   window: { from: string; to: string },
-  prefetched?: {
-    /** e.g. dashboard/page.tsx's own `connections.list()` fetch (needed
-     * there for the Connections panel / personal-mode onboarding gate) —
-     * pass to avoid a redundant query here too. */
-    connections?: Awaited<ReturnType<OrgScope["connections"]["list"]>>;
-  },
 ): Promise<DashboardView> {
   // EVERY DB read the composed view needs, in ONE Promise.all — round-trip
   // depth 1 on Workers→Hyperdrive→Neon (verified by tests/perf/
@@ -92,7 +95,7 @@ export async function readDashboardView(
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
     scope.people.list(),
-    prefetched?.connections ?? scope.connections.list(),
+    scope.connections.list(),
     scope.metrics.allSignals({ from: window.from, to: window.to }),
     scope.subjects.list(),
     scope.identities.all(),
@@ -185,5 +188,6 @@ export async function readDashboardView(
     sharedAccounts,
     definitions,
     gaps: collectGaps(runs),
+    connections,
   };
 }

@@ -1,0 +1,18 @@
+# Cloudflare Workers Static Assets header rules.
+# https://developers.cloudflare.com/workers/static-assets/headers/
+# https://opennext.js.org/cloudflare/caching#static-assets-caching
+#
+# OpenNext copies this file (with the rest of public/) into
+# .open-next/assets/_headers; Cloudflare's asset server applies these rules to
+# assets served DIRECTLY (bypassing the Worker) by the ASSETS binding.
+#
+# Everything under /_next/static/ is content-addressed: the build stamps a
+# hash into every chunk/CSS/font/media filename, so a given URL's bytes never
+# change. Serve them immutable for a year so returning visitors stop paying a
+# revalidation round trip per chunk (the default was
+# `public, max-age=0, must-revalidate`, forcing a conditional request for each
+# of ~10 chunks per navigation). ONLY this hashed prefix gets `immutable` —
+# HTML, RSC/data, and API responses are never matched here and keep their
+# app-controlled caching.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable

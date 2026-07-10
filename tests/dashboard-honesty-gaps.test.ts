@@ -70,7 +70,7 @@ describe("readDashboardView threads connector honesty gaps (A5)", () => {
       gaps: [{ kind: "shared_key_not_person_level", detail: "shared key" }],
     });
 
-    const view = await readDashboardView(scope, "private", WINDOW, {});
+    const view = await readDashboardView(scope, "private", WINDOW);
     expect(view.gaps).toContainEqual({
       kind: "shared_key_not_person_level",
       detail: "shared key",
@@ -80,7 +80,7 @@ describe("readDashboardView threads connector honesty gaps (A5)", () => {
   it("an org with no runs has an empty gaps surface (never fabricated)", async () => {
     const orgId = (await createFixtureOrg(db, "w4w-gaps-empty", "team")).id;
     const scope = forOrg(db, orgId);
-    const view = await readDashboardView(scope, "private", WINDOW, {});
+    const view = await readDashboardView(scope, "private", WINDOW);
     expect(view.gaps).toEqual([]);
   });
 
@@ -104,7 +104,7 @@ describe("readDashboardView threads connector honesty gaps (A5)", () => {
       gaps: [{ kind: "service_accounts_unresolved" }],
     });
 
-    const viewB = await readDashboardView(forOrg(db, orgB), "private", WINDOW, {});
+    const viewB = await readDashboardView(forOrg(db, orgB), "private", WINDOW);
     expect(viewB.gaps).toEqual([]);
   });
 });
