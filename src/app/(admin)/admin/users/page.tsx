@@ -1,7 +1,7 @@
 import { PageHeader } from "@/components/page-header";
 import { UsersTable, type UsersListParams } from "@/components/admin/users-table";
 import { listUsersForAdmin } from "@/db/admin";
-import { requireAdminContext } from "@/lib/admin-context";
+import { type AdminEnv, requireAdminContext } from "@/lib/admin-context";
 
 export const dynamic = "force-dynamic";
 
@@ -45,19 +45,25 @@ export default async function AdminUsersPage({
   const params = parseParams(await searchParams);
   const offset = (params.page - 1) * PAGE_SIZE;
 
-  const { rows, total } = await listUsersForAdmin(ctx.db, {
-    search: params.q || undefined,
-    sort: params.sort,
-    sortDir: params.dir,
-    filter: {
-      banned: params.banned,
-      platformAdmin: params.platformAdmin,
-      plan: params.plan,
-      orgKind: params.orgKind,
+  const { rows, total } = await listUsersForAdmin(
+    ctx.db,
+    {
+      search: params.q || undefined,
+      sort: params.sort,
+      sortDir: params.dir,
+      filter: {
+        banned: params.banned,
+        platformAdmin: params.platformAdmin,
+        plan: params.plan,
+        orgKind: params.orgKind,
+      },
+      limit: PAGE_SIZE,
+      offset,
     },
-    limit: PAGE_SIZE,
-    offset,
-  });
+    // ADMIN_USER_IDS bootstrap admins must badge/filter as platform admins,
+    // matching the server guards (ADR 0016 — both power sources).
+    ctx.env as AdminEnv,
+  );
 
   return (
     <>
