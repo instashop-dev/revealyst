@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { AlertCircle, MailCheck } from "lucide-react";
@@ -288,16 +287,20 @@ function SignInForm() {
           )}
           <p className="text-center text-xs text-muted-foreground">
             By continuing you agree to our{" "}
-            <Link href="/legal/terms" className="underline hover:text-foreground">
+            {/* Plain <a>, not <Link>: /legal/* is marketing-host surface, so a
+                client prefetch from the app host gets 308'd cross-origin and
+                CORS-blocked (console errors on every sign-in load). A hard
+                navigation follows the redirect cleanly. */}
+            <a href="/legal/terms" className="underline hover:text-foreground">
               Terms
-            </Link>{" "}
+            </a>{" "}
             and{" "}
-            <Link
+            <a
               href="/legal/privacy"
               className="underline hover:text-foreground"
             >
               Privacy Policy
-            </Link>
+            </a>
             .
           </p>
         </CardFooter>
