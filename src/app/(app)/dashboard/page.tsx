@@ -130,22 +130,29 @@ function SectionHeading({ children }: { children: ReactNode }) {
 
 export default async function DashboardPage() {
   const ctx = await requireAppContext();
-  const connections = await ctx.scope.connections.list();
 
-  // A fresh personal workspace has nothing to show until a source is
-  // connected — send it to the focused onboarding flow (W2-H). An errored
-  // connection (e.g. a rejected key at first attempt) does NOT count as
-  // connected, so a bad first key can't strand the user on an empty
-  // dashboard. /onboarding itself never redirects here, so there is no loop.
-  const hasUsableConnection = connections.some((c) => c.status !== "error");
-  if (ctx.org.kind === "personal" && !hasUsableConnection) {
-    redirect("/onboarding");
-  }
-
+  // Only the personal-mode onboarding gate needs the connections list BEFORE
+  // the rest of the page, so it's fetched first ONLY on that branch. The team
+  // path doesn't stack a separate `connections.list()` round trip ahead of its
+  // data read: `readDashboardView` already fetches connections inside its
+  // depth-1 Promise.all and now returns them, so TeamOverview renders its
+  // Connections panel + attention strip from `view.connections` with no extra
+  // sequential hop (each avoided Workers→Hyperdrive→Neon round trip is
+  // ~250–500ms of authenticated TTFB).
   if (ctx.org.kind === "personal") {
+    const connections = await ctx.scope.connections.list();
+    // A fresh personal workspace has nothing to show until a source is
+    // connected — send it to the focused onboarding flow (W2-H). An errored
+    // connection (e.g. a rejected key at first attempt) does NOT count as
+    // connected, so a bad first key can't strand the user on an empty
+    // dashboard. /onboarding itself never redirects here, so there is no loop.
+    const hasUsableConnection = connections.some((c) => c.status !== "error");
+    if (!hasUsableConnection) {
+      redirect("/onboarding");
+    }
     return <PersonalSelfView ctx={ctx} connections={connections} />;
   }
-  return <TeamOverview ctx={ctx} connections={connections} />;
+  return <TeamOverview ctx={ctx} />;
 }
 
 async function PersonalSelfView({
@@ -385,17 +392,9 @@ async function PersonalSelfView({
   );
 }
 
-async function TeamOverview({
-  ctx,
-  connections,
-}: {
-  ctx: AppContext;
-  connections: Awaited<ReturnType<AppContext["scope"]["connections"]["list"]>>;
-}) {
+async function TeamOverview({ ctx }: { ctx: AppContext }) {
   const view = await timeStage("pageData", () =>
-    readDashboardView(ctx.scope, ctx.org.visibilityMode, dashboardWindow(), {
-      connections,
-    }),
+    readDashboardView(ctx.scope, ctx.org.visibilityMode, dashboardWindow()),
   );
   const {
     summary,
@@ -407,6 +406,7 @@ async function TeamOverview({
     sharedAccounts,
     definitions,
     gaps,
+    connections,
   } = view;
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
