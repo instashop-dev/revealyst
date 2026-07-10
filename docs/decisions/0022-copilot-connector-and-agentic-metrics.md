@@ -126,7 +126,11 @@ integration stays founder-gated (NLV run + deploy secrets) after this merges:
   (`scripts/verify/copilot.mjs`, 17 open items) against a real Copilot Business
   org, and wiring `GH_COPILOT_APP_*` into deploy secrets. The connector is
   registered and complete against fixtures; it becomes operational once the
-  secrets are synced and NLV passes.
+  secrets are synced and NLV passes. **Superseded connect-flow security (ADR
+  0023):** the callback now proves installation ownership via install-time
+  OAuth, so go-live also requires `GH_COPILOT_APP_CLIENT_ID` +
+  `GH_COPILOT_APP_CLIENT_SECRET` (five secrets total) **and** enabling "Request
+  user authorization (OAuth) during installation" on the App — see ADR 0023.
 - **App private-key at-rest duplication:** storing the (single-app) private key
   in each connection's envelope trades a small secret-sprawl for keeping the
   frozen `ConnectorContext` untouched; each copy is separately AAD-bound, and

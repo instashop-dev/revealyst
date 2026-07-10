@@ -270,6 +270,158 @@ export async function getInstallationAccount(
   });
 }
 
+// ── Connect-flow OAuth: proving the caller controls the installation ────────
+//
+// The install callback is a classic confused-deputy risk: `installation_id`
+// arrives as a URL query param, and getInstallationAccount() above authenticates
+// as REVEALYST'S OWN App — so it succeeds for ANY installation of the app,
+// regardless of who is driving the browser. GitHub installation ids are
+// sequential/enumerable, so a caller could hand-craft a callback with a
+// victim org's installation id and (pre-fix) bind that org's per-developer
+// Copilot usage into their own Revealyst org. The org-bound CSRF state does
+// NOT close this — it only proves the caller started a flow for their own org,
+// not that they administer the installation (the id doesn't exist when state
+// is minted).
+//
+// The fix implements GitHub's "Request user authorization (OAuth) during
+// installation" pattern: GitHub returns a `code` alongside installation_id.
+// We exchange it for a USER-to-server token, resolve which account the
+// installation is on (App-authenticated), then require the OAuth user to be an
+// ADMIN of that org (userIsOrgAdmin) before binding. Admin — not mere access —
+// is the bar: `GET /user/installations` lists installs a user can *access*,
+// which for an org-wide install includes ordinary org members with repo
+// access, so it alone would still let a non-admin member bind the whole org's
+// Copilot data. (For non-org installs — personal/enterprise — we fall back to
+// "the user can access this specific installation".)
+
+const GITHUB_OAUTH_TOKEN_URL = "https://github.com/login/oauth/access_token";
+
+/** Standard headers for a GitHub REST call with a user-to-server token —
+ * shared by the connect-flow ownership checks below (dedups the envelope). */
+function userTokenHeaders(userToken: string): Record<string, string> {
+  return {
+    authorization: `Bearer ${userToken}`,
+    accept: "application/vnd.github+json",
+    "x-github-api-version": GITHUB_API_VERSION,
+    "user-agent": "revealyst-connector-copilot/1",
+  };
+}
+
+/**
+ * Exchanges the temporary `code` GitHub returns after user authorization for a
+ * user-to-server access token. The token proves the caller is a GitHub user
+ * who just authorized the Revealyst App — the first half of the
+ * confused-deputy defense. Throws on any non-token response (GitHub returns
+ * HTTP 200 with `{ error }` on a bad/expired code, so token presence — not
+ * status — is the success signal).
+ */
+export async function exchangeInstallationCode(
+  args: { clientId: string; clientSecret: string; code: string },
+  fetchFn: FetchFn = fetch,
+): Promise<string> {
+  return withTimeout("github_copilot", async (signal) => {
+    const res = await fetchFn(GITHUB_OAUTH_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        "user-agent": "revealyst-connector-copilot/1",
+      },
+      body: JSON.stringify({
+        client_id: args.clientId,
+        client_secret: args.clientSecret,
+        code: args.code,
+      }),
+      signal,
+    });
+    if (!res.ok) {
+      throw new Error(`github_copilot: ${res.status} exchanging oauth code`);
+    }
+    const body = (await res.json()) as { access_token?: string; error?: string };
+    if (!body.access_token) {
+      throw new Error(
+        `github_copilot: oauth code exchange returned no access token${
+          body.error ? ` (${body.error})` : ""
+        }`,
+      );
+    }
+    return body.access_token;
+  });
+}
+
+/**
+ * Confirms the OAuth user is an ACTIVE ADMIN of `orgLogin`
+ * (`GET /user/memberships/orgs/{org}` → `role === "admin" && state ===
+ * "active"`). This is the real ownership gate for an org installation: binding
+ * an org's Copilot usage is an admin-level action, and admin membership of the
+ * installation's org (resolved server-side, never caller-supplied) proves
+ * control of every installation on it. 404/403 (not a member) → false; any
+ * other non-OK THROWS so the caller can fail closed.
+ */
+export async function userIsOrgAdmin(
+  userToken: string,
+  orgLogin: string,
+  fetchFn: FetchFn = fetch,
+): Promise<boolean> {
+  return withTimeout("github_copilot", async (signal) => {
+    const res = await fetchFn(
+      `${GITHUB_API}/user/memberships/orgs/${encodeURIComponent(orgLogin)}`,
+      { headers: userTokenHeaders(userToken), signal },
+    );
+    // Not a member of the org at all — GitHub returns 404 (or 403).
+    if (res.status === 404 || res.status === 403) return false;
+    if (!res.ok) {
+      throw new Error(`github_copilot: ${res.status} reading org membership`);
+    }
+    const body = (await res.json()) as { role?: string; state?: string };
+    return body.role === "admin" && body.state === "active";
+  });
+}
+
+/**
+ * Confirms `installationId` is among the App installations the OAuth user can
+ * ACCESS (`GET /user/installations`, paginated). Weaker than userIsOrgAdmin —
+ * access ≠ admin for an org-wide install — so this is used ONLY as the
+ * ownership proof for NON-org installs (personal accounts, where access is
+ * owner-only; enterprise is founder-gated, see ADR 0023). Pagination is
+ * bounded; a network/HTTP failure THROWS so the caller can fail closed rather
+ * than treat "couldn't verify" as "owns it".
+ */
+export async function userControlsInstallation(
+  userToken: string,
+  installationId: string,
+  fetchFn: FetchFn = fetch,
+): Promise<boolean> {
+  const perPage = 100;
+  const maxPages = 10; // >1000 installs on one account is not a real customer
+  const target = String(installationId);
+  for (let page = 1; page <= maxPages; page++) {
+    const result = await withTimeout("github_copilot", async (signal) => {
+      const res = await fetchFn(
+        `${GITHUB_API}/user/installations?per_page=${perPage}&page=${page}`,
+        { headers: userTokenHeaders(userToken), signal },
+      );
+      if (!res.ok) {
+        throw new Error(
+          `github_copilot: ${res.status} listing user installations`,
+        );
+      }
+      const body = (await res.json()) as {
+        installations?: Array<{ id?: number | string }>;
+      };
+      const installs = body.installations ?? [];
+      if (installs.some((i) => String(i.id) === target)) {
+        return { match: true, done: true };
+      }
+      // Short page → last page; stop paginating.
+      return { match: false, done: installs.length < perPage };
+    });
+    if (result.match) return true;
+    if (result.done) return false;
+  }
+  return false;
+}
+
 export function retryAfterSeconds(res: Response): number {
   const retryAfter = Number(res.headers.get("retry-after"));
   if (Number.isFinite(retryAfter) && retryAfter > 0) return retryAfter;

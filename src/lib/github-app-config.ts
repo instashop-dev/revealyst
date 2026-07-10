@@ -22,6 +22,12 @@ export type CopilotAppEnv = {
   GH_COPILOT_APP_PRIVATE_KEY?: string;
   /** App slug for the install URL, e.g. `revealyst` → github.com/apps/revealyst. */
   GH_COPILOT_APP_SLUG?: string;
+  /** GitHub App OAuth client id (docs/approvals.md: Iv23li7wFumkZwiRogYu).
+   * Used to exchange the install-time OAuth `code` — proves the connecting
+   * user controls the installation (confused-deputy defense). */
+  GH_COPILOT_APP_CLIENT_ID?: string;
+  /** GitHub App OAuth client secret (Worker secret; never per-connection). */
+  GH_COPILOT_APP_CLIENT_SECRET?: string;
   /** Reused to sign the connect CSRF state (already a Worker secret). */
   BETTER_AUTH_SECRET?: string;
 };
@@ -30,15 +36,25 @@ export type CopilotAppConfig = {
   appId: string;
   privateKeyPem: string;
   slug: string;
+  clientId: string;
+  clientSecret: string;
 };
 
-/** Reads + validates the App secrets; null when the app isn't wired yet. */
+/** Reads + validates the App secrets; null when the app isn't wired yet.
+ *
+ * The client id/secret gate the SAME "not configured" degradation as the App
+ * id/key/slug: the install-ownership check (github-app.ts) can't run without
+ * them, so the whole connect flow — and the connect card that reads this —
+ * stays honestly disabled until ALL secrets sync, never a half-wired flow that
+ * skips the security gate. */
 export function readCopilotAppConfig(env: CopilotAppEnv): CopilotAppConfig | null {
   const appId = env.GH_COPILOT_APP_ID;
   const privateKeyPem = env.GH_COPILOT_APP_PRIVATE_KEY;
   const slug = env.GH_COPILOT_APP_SLUG;
-  if (!appId || !privateKeyPem || !slug) return null;
-  return { appId, privateKeyPem, slug };
+  const clientId = env.GH_COPILOT_APP_CLIENT_ID;
+  const clientSecret = env.GH_COPILOT_APP_CLIENT_SECRET;
+  if (!appId || !privateKeyPem || !slug || !clientId || !clientSecret) return null;
+  return { appId, privateKeyPem, slug, clientId, clientSecret };
 }
 
 /** The GitHub App installation URL a customer is redirected to. `state`

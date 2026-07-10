@@ -14,6 +14,13 @@ import type {
 } from "../contracts/connector";
 import type { MetricKey } from "../contracts/metrics";
 import { getConnector } from "../connectors/registry";
+import {
+  exchangeInstallationCode,
+  type FetchFn,
+  getInstallationAccount,
+  userControlsInstallation,
+  userIsOrgAdmin,
+} from "../connectors/copilot/github-app";
 import type { forOrg } from "../db/org-scope";
 import type { CredentialEnv } from "../lib/credentials";
 import { addDays } from "../poller/backfill";
@@ -385,6 +392,15 @@ export async function getBudget(scope: OrgScope, today: string) {
   });
 }
 
+/** Product ceiling for a monthly budget. The frozen `budgetSet` request schema
+ * (src/contracts/api.ts) only bounds `monthlyLimitCents` as a positive int, but
+ * the column is int4 (`budgets.monthly_limit_cents`), so a value above 2^31-1
+ * passes zod then throws "integer out of range" at INSERT → an ungraceful 500.
+ * Reject above a sane product max here — a $20,000,000.00/mo ceiling, well
+ * under int4 — so the handler returns a clean 400. (Enforced at the handler,
+ * not the frozen contract, to avoid an ADR-gated contract change.) */
+export const MAX_BUDGET_CENTS = 2_000_000_000;
+
 /**
  * PUT /api/budget core (W4-V, ADR 0020): create or replace the org's budget.
  * Admin-gated at the route. Thresholds default to [50, 80, 100] when omitted.
@@ -393,6 +409,12 @@ export async function setBudget(
   scope: OrgScope,
   input: { monthlyLimitCents: number; alertThresholds?: number[] },
 ) {
+  if (input.monthlyLimitCents > MAX_BUDGET_CENTS) {
+    throw new ApiError(
+      400,
+      `monthlyLimitCents exceeds the maximum of ${MAX_BUDGET_CENTS}`,
+    );
+  }
   const row = await scope.budgets.set(input);
   return apiRoutes.budgetSet.response.parse({
     budget: {
@@ -739,6 +761,225 @@ export async function completeGithubCopilotInstall(
     });
   }
   return connection;
+}
+
+/** Reason a Copilot install callback refused to bind, mapped 1:1 to the
+ * `?copilot_error=` values the connections page renders. `ownership` covers
+ * EVERY failure of the confused-deputy check (no code, bad code exchange, not
+ * an org admin, or a transient error verifying) on purpose: they are
+ * indistinguishable to the honest user, and a uniform message avoids leaking
+ * whether a given installation exists. The precise cause is recorded in the
+ * `connection.install_rejected` audit metadata, not the redirect. */
+export type GithubCopilotInstallRejection =
+  | "ownership"
+  | "install_lookup"
+  | "create_failed";
+
+export type GithubCopilotInstallResult =
+  | { ok: true; reused?: boolean }
+  | { ok: false; reason: GithubCopilotInstallRejection };
+
+/** Records a security-relevant refusal to bind an installation. Best-effort:
+ * an audit-write failure must never turn a REJECTION into a bound connection
+ * or a 500 — the rejection stands regardless. */
+async function auditInstallRejected(
+  scope: OrgScope,
+  actorUserId: string | undefined,
+  installationId: string,
+  reason: string,
+): Promise<void> {
+  try {
+    await scope.auditLog.record({
+      actorUserId: actorUserId ?? null,
+      action: "connection.install_rejected",
+      targetKind: "connection",
+      targetId: null,
+      // installationId is a non-secret enumerable id — safe (and useful) to
+      // log: it names which installation a caller tried to bind.
+      metadata: { vendor: "github_copilot", installationId, reason },
+    });
+  } catch {
+    // swallow — see doc comment.
+  }
+}
+
+/** True iff `connectionId` has a usable `github_app_private_key` credential.
+ * `withCredential` throws on a missing / expired / undecryptable row, so a
+ * throw here means "no usable credential" → treat as an orphan to re-bind.
+ * Distinguishes a healthy re-install (reuse) from a credential-less orphan
+ * left by a prior create-then-store crash (create + storeCredential are not
+ * one transaction). */
+async function hasUsableAppCredential(
+  scope: OrgScope,
+  connectionId: string,
+  env: CredentialEnv,
+): Promise<boolean> {
+  try {
+    return await scope.connections.withCredential(
+      connectionId,
+      "github_app_private_key",
+      env,
+      async () => true,
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Completes a Copilot GitHub-App install callback AFTER the route has verified
+ * the org-bound CSRF state — the security-critical core, kept here (not in the
+ * thin route) so it is unit-testable against PGlite.
+ *
+ * The confused-deputy fix: `installation_id` is an attacker-controllable,
+ * enumerable URL param, and getInstallationAccount authenticates as Revealyst's
+ * OWN App (it succeeds for ANY installation). So before binding, we PROVE the
+ * connecting user controls the installation:
+ *   1. exchange the install-time OAuth `code` for a user-to-server token;
+ *   2. resolve which account the installation is on (App-authenticated);
+ *   3. require the user to be an ACTIVE ADMIN of that org
+ *      (`GET /user/memberships/orgs/{org}`). Admin — not mere access — is the
+ *      bar: `/user/installations` lists installs an ordinary org member can
+ *      reach, so it alone would still let a non-admin bind the whole org's
+ *      data. (Non-org installs fall back to installation accessibility.)
+ * Every failure of that proof is an audited refusal to bind.
+ *
+ * Idempotency runs FIRST: a healthy existing connection for this installation
+ * is reused (a reconfigure re-install can legitimately arrive WITHOUT a fresh
+ * code); that connection was bound with ownership already verified, so reuse is
+ * safe. Only a first bind — or a credential-less orphan — runs the full proof.
+ */
+export async function connectGithubCopilotInstall(
+  scope: OrgScope,
+  env: CredentialEnv,
+  app: {
+    appId: string;
+    privateKeyPem: string;
+    clientId: string;
+    clientSecret: string;
+  },
+  params: { installationId: string; code: string | null; actorUserId?: string },
+  opts: { now?: Date; fetchFn?: FetchFn } = {},
+): Promise<GithubCopilotInstallResult> {
+  const now = opts.now ?? new Date();
+  const fetchFn = opts.fetchFn ?? fetch;
+  const { installationId, code, actorUserId } = params;
+
+  // ── 1. Idempotency / orphan detection (before requiring a fresh code) ──────
+  // A healthy connection for this installation → reuse it (ownership was proven
+  // when it was first bound; a reconfigure re-install may carry no fresh code).
+  // A credential-less orphan (create succeeded, storeCredential crashed) is NOT
+  // reusable — it can't poll — so we fall through and re-run the full bind,
+  // replacing it.
+  let orphanToReplace: string | undefined;
+  try {
+    const existing = (await scope.connections.list()).find(
+      (c) =>
+        c.vendor === "github_copilot" &&
+        (c.config as { installationId?: string }).installationId ===
+          installationId,
+    );
+    if (existing) {
+      if (await hasUsableAppCredential(scope, existing.id, env)) {
+        return { ok: true, reused: true };
+      }
+      orphanToReplace = existing.id;
+    }
+  } catch {
+    return { ok: false, reason: "create_failed" };
+  }
+
+  // ── 2. Prove the caller controls this installation (confused-deputy gate) ──
+  if (!code) {
+    // "Request user authorization during installation" is off, or the callback
+    // was hand-crafted without a code — either way we cannot prove ownership.
+    await auditInstallRejected(scope, actorUserId, installationId, "no_oauth_code");
+    return { ok: false, reason: "ownership" };
+  }
+  let userToken: string;
+  try {
+    userToken = await exchangeInstallationCode(
+      { clientId: app.clientId, clientSecret: app.clientSecret, code },
+      fetchFn,
+    );
+  } catch {
+    await auditInstallRejected(
+      scope,
+      actorUserId,
+      installationId,
+      "oauth_exchange_failed",
+    );
+    return { ok: false, reason: "ownership" };
+  }
+
+  // Resolve which org/enterprise this installation is on. App-authenticated, so
+  // it works for any id — but the RESOLVED login (never the caller's input) is
+  // what we then check admin membership against, so an attacker probing a
+  // victim id only gets their own admin check to fail.
+  let account: { login: string; type: string };
+  try {
+    account = await getInstallationAccount(
+      { appId: app.appId, installationId, privateKeyPem: app.privateKeyPem },
+      now,
+      fetchFn,
+    );
+  } catch {
+    return { ok: false, reason: "install_lookup" };
+  }
+
+  // Ownership proof, keyed on the account type:
+  //  • Organization → active ADMIN membership of the resolved org (the fix).
+  //  • otherwise (personal / founder-gated enterprise) → the user can access
+  //    this specific installation (owner-only for a personal account).
+  let controls: boolean;
+  try {
+    controls =
+      account.type === "Organization"
+        ? await userIsOrgAdmin(userToken, account.login, fetchFn)
+        : await userControlsInstallation(userToken, installationId, fetchFn);
+  } catch {
+    // Fail closed: a transient GitHub error must never be read as "controls it".
+    await auditInstallRejected(
+      scope,
+      actorUserId,
+      installationId,
+      "ownership_check_failed",
+    );
+    return { ok: false, reason: "ownership" };
+  }
+  if (!controls) {
+    await auditInstallRejected(
+      scope,
+      actorUserId,
+      installationId,
+      account.type === "Organization" ? "not_org_admin" : "not_installation_owner",
+    );
+    return { ok: false, reason: "ownership" };
+  }
+
+  // ── 3. Ownership proven — bind (replacing a credential-less orphan). ───────
+  try {
+    if (orphanToReplace) {
+      // Remove the un-pollable orphan before re-creating, so we don't mint a
+      // duplicate connection for the same installation. The orphan never
+      // polled, so it has no metric_records to reconcile.
+      await scope.connections.delete(orphanToReplace);
+    }
+    await completeGithubCopilotInstall(scope, env, {
+      orgLogin: account.login,
+      installationId,
+      appId: app.appId,
+      privateKeyPem: app.privateKeyPem,
+      // Enterprise detection is NLV-unverified (facts §1); V1.5 targets
+      // Copilot Business (org), so a non-"Enterprise" account.type falls back
+      // to org — the safe default until the first Enterprise customer.
+      scopeKind: account.type === "Enterprise" ? "enterprise" : "org",
+      actorUserId,
+    });
+  } catch {
+    return { ok: false, reason: "create_failed" };
+  }
+  return { ok: true };
 }
 
 /**

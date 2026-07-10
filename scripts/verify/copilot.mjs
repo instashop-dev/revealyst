@@ -153,6 +153,7 @@ manual("C11", "Compare users-1-day ai_credits_used vs billing ai_credit/usage fo
 manual("C15", "Disable the 'Copilot usage metrics' org policy; record the exact status/body from a report endpoint; re-enable.");
 manual("C16", "In an org with a <5-seat team, confirm the team is absent from user-teams-1-day (vs present-with-nulls).");
 
-section("After NLV passes — go-live flips (ADR 0022)");
-manual("GO-LIVE", "Sync GH_COPILOT_APP_ID / GH_COPILOT_APP_PRIVATE_KEY / GH_COPILOT_APP_SLUG into deploy secrets — the app's connect surfaces (connections page, onboarding) flip to offering the install automatically.");
+section("After NLV passes — go-live flips (ADR 0022 + 0023)");
+manual("GO-LIVE", "Sync GH_COPILOT_APP_ID / GH_COPILOT_APP_PRIVATE_KEY / GH_COPILOT_APP_SLUG / GH_COPILOT_APP_CLIENT_ID / GH_COPILOT_APP_CLIENT_SECRET into deploy secrets — the app's connect surfaces (connections page, onboarding) flip to offering the install automatically. ALL five are required: the client id/secret drive the install-ownership check (ADR 0023, confused-deputy fix); readCopilotAppConfig returns null (flow stays disabled) until every one is present.");
+manual("GO-LIVE", "In the GitHub App settings, enable \"Request user authorization (OAuth) during installation\" — the callback needs the returned `code` to prove the connecting user controls the installation (ADR 0023). Without it, every connect attempt fails closed with ?copilot_error=ownership.");
 manual("GO-LIVE", "Marketing landing strip: remove \"github_copilot\" from NLV_PENDING_VENDORS in src/lib/vendor-connect-meta.ts (one line) — until then the landing page honestly keeps Copilot under \"Soon\".");

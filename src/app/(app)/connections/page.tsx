@@ -57,6 +57,8 @@ function copilotConnectBanner(
     not_configured:
       "GitHub Copilot isn't available on this deployment yet — the GitHub App credentials are still being set up.",
     state: "That Copilot connect request expired or didn't match. Please start again.",
+    ownership:
+      "We couldn't confirm you're an admin of that GitHub organization. Connect from an account that administers the org where the Revealyst app is installed.",
     install_lookup: "We couldn't read your GitHub installation. Please try connecting again.",
     create_failed: "Something went wrong finishing the connection. Please try again.",
   };
