@@ -74,6 +74,9 @@ const SCOPED_READS: Array<{
   { name: "metrics.signals(B)", tables: ["subject_day_signals"], run: (s, c) => s.metrics.signals({ subjectId: c.B.subjects["alice-console"], from: PERIOD.start, to: PERIOD.end }) },
   { name: "raw.get(B)", tables: ["raw_payloads"], run: (s, c) => s.raw.get(c.B.subjects["alice-console"]) },
   { name: "scores.definitions", tables: ["score_definitions"], run: (s) => s.scores.definitions() },
+  // W4-U: org-scoped custom index rows (org_id set + `custom-` slug). B seeds
+  // a `custom-b` definition, so a dropped org filter here leaks B's def id.
+  { name: "scores.customDefinitions", tables: ["score_definitions"], run: (s) => s.scores.customDefinitions() },
   { name: "scores.results", tables: ["score_results"], run: (s) => s.scores.results({}) },
   { name: "billing.trackedUsers", tables: ["metric_records", "identities"], run: (s) => s.billing.trackedUsers(PERIOD) },
   { name: "heartbeats.list", tables: ["poll_heartbeats"], run: (s) => s.heartbeats.list() },
@@ -206,7 +209,9 @@ beforeAll(async () => {
     .insert(schema.scoreDefinitions)
     .values({
       orgId: orgB,
-      slug: "b-custom",
+      // `custom-` prefix (W4-U): exercises both the scores.definitions and the
+      // scores.customDefinitions sweeps below with one B-owned org-scoped row.
+      slug: "custom-b",
       version: 1,
       name: "B custom",
       subjectLevel: "org",

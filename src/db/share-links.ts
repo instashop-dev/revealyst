@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { Db } from "./client";
+import { isCustomSlug } from "../lib/custom-index";
 import { shareLinks } from "./schema";
 
 // Opt-in public score-card links (ADR 0008). Lives in the schema zone beside
@@ -35,6 +36,13 @@ export function shareLinksForOrg(db: Db, orgId: string) {
      * composite (org_id, person_id) FK rejects a cross-org person.
      */
     async create(input: CreateShareLinkInput) {
+      // §8.5 guardrail 2 (defense in depth): a custom index is never
+      // shareable — no benchmark exists for an org-specific formula, so a
+      // "vs" card would fabricate comparability. The route rejects this too;
+      // this guards any other caller of the factory.
+      if (isCustomSlug(input.scoreSlug)) {
+        throw new Error("custom indexes are not shareable");
+      }
       const token = generateShareToken();
       const tokenHash = await hashShareToken(token);
       const [row] = await db

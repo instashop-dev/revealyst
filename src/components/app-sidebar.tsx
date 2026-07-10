@@ -11,6 +11,7 @@ import {
   ScanFace,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   UserRound,
   UserRoundCog,
   UserRoundPlus,
@@ -49,6 +50,10 @@ const NAV_ITEMS = [
 // it needs no server-side gate — unlike its data-reading siblings.
 const ADMIN_NAV_ITEMS = [
   { title: "Members", href: "/members", icon: UserRoundPlus },
+  // Custom Index Builder (W4-U): admin-only AND server-side role-gated on the
+  // page (it reads/writes org score definitions). Team-paid entitlement is
+  // enforced in the page + API, not in nav.
+  { title: "Custom indexes", href: "/indexes", icon: SlidersHorizontal },
   { title: "Reconcile", href: "/reconcile", icon: ScanFace },
   { title: "Spend", href: "/spend", icon: Wallet },
   { title: "Billing", href: "/billing", icon: CreditCard },

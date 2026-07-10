@@ -232,7 +232,9 @@ describe("recompute paths", () => {
         status: "active",
       })
       .returning();
-    await recomputeOrg(db, orgA, { period: JUNE });
+    // `custom-`-slugged definitions are entitlement-gated in V1.5 (W4-U,
+    // §8.5 guardrail 5) — recompute them explicitly as an entitled org.
+    await recomputeOrg(db, orgA, { period: JUNE, customIndexesEntitled: true });
 
     // Version bump: v1 retires, v2 (different normalization) activates.
     await db
@@ -251,7 +253,7 @@ describe("recompute paths", () => {
         status: "active",
       })
       .returning();
-    await recomputeOrg(db, orgA, { period: JUNE });
+    await recomputeOrg(db, orgA, { period: JUNE, customIndexesEntitled: true });
 
     const scoped = forOrg(db, orgA);
     // Org-wide spend = 412 + 1980 + 240 = 2632 cents.
@@ -262,7 +264,7 @@ describe("recompute paths", () => {
 
     // Org-level rows hit the NULLS NOT DISTINCT branch of the upsert key —
     // a second recompute must update in place, not duplicate.
-    await recomputeOrg(db, orgA, { period: JUNE });
+    await recomputeOrg(db, orgA, { period: JUNE, customIndexesEntitled: true });
     expect(await scoped.scores.results({ definitionId: v2.id })).toHaveLength(1);
   });
 

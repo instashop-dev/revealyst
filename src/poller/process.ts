@@ -1,5 +1,6 @@
 import type { Db } from "../db/client";
 import { forOrg } from "../db/org-scope";
+import { subscriptionsForOrg } from "../db/subscriptions";
 import {
   ensureSystemOrg as ensureSystemOrgRow,
   purgeExpiredRawPayloads,
@@ -77,12 +78,24 @@ export async function processPollMessage(
       // writing both would flip February's grain label to rolling_28d.
       const month = periodFor("month", message.day);
       const rolling = periodFor("rolling_28d", message.day);
-      await recomputeOrg(db, message.orgId, { period: month });
+      // §8.5 guardrail 5: resolve Team entitlement ONCE and thread it into
+      // both recompute passes — a lapsed org's custom indexes stop
+      // recomputing (last results persist for a "paused" render); presets are
+      // unaffected. One subscription read instead of one per period.
+      const customIndexesEntitled =
+        (await subscriptionsForOrg(db, message.orgId).current()).plan === "team";
+      await recomputeOrg(db, message.orgId, {
+        period: month,
+        customIndexesEntitled,
+      });
       if (
         rolling.periodStart !== month.periodStart ||
         rolling.periodEnd !== month.periodEnd
       ) {
-        await recomputeOrg(db, message.orgId, { period: rolling });
+        await recomputeOrg(db, message.orgId, {
+          period: rolling,
+          customIndexesEntitled,
+        });
       }
       return;
     }
