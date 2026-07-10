@@ -52,9 +52,11 @@ const DLQ_QUEUE_NAME = "revealyst-poll-dlq";
 export default {
   // Host split (src/lib/domains.ts): keep each custom domain to its own
   // surface — app paths land on app.revealyst.com, marketing paths on
-  // revealyst.com — before handing off to OpenNext. Only GET/HEAD on the two
-  // custom domains ever redirect; workers.dev, the OpenNext self-reference
-  // subrequest, /api/*, and assets pass straight through.
+  // revealyst.com — and move legacy-host (workers.dev) pages to their
+  // canonical home, before handing off to OpenNext. Only GET/HEAD page
+  // requests ever redirect; /api/*, assets, neutral metadata routes, the
+  // OpenNext self-reference subrequest, and unknown hosts (localhost, CI
+  // previews) pass straight through.
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const target = resolveRedirect(

@@ -4,6 +4,7 @@ import {
   APP_ORIGIN,
   MARKETING_HOST,
   MARKETING_ORIGIN,
+  WORKERS_DEV_HOST,
   classifyPath,
   resolveRedirect,
   toMarketingOrigin,
@@ -112,11 +113,43 @@ describe("resolveRedirect", () => {
     ).toBeNull();
   });
 
-  it("passes through any non-custom host (workers.dev, localhost, self-ref)", () => {
-    expect(
-      resolveRedirect("revealyst.thapi.workers.dev", "GET", "/dashboard", ""),
-    ).toBeNull();
+  it("passes through any unknown host (localhost, previews, self-ref)", () => {
     expect(resolveRedirect("localhost", "GET", "/", "")).toBeNull();
+    // CI preview versions are NOT the legacy host — exact match only.
+    expect(
+      resolveRedirect(
+        "abc123-revealyst.thapi.workers.dev",
+        "GET",
+        "/dashboard",
+        "",
+      ),
+    ).toBeNull();
+  });
+
+  it("moves legacy workers.dev pages to the canonical host per surface", () => {
+    expect(
+      resolveRedirect(WORKERS_DEV_HOST, "GET", "/dashboard", "?tab=x"),
+    ).toBe(`${APP_ORIGIN}/dashboard?tab=x`);
+    expect(resolveRedirect(WORKERS_DEV_HOST, "GET", "/s/abc", "")).toBe(
+      `${MARKETING_ORIGIN}/s/abc`,
+    );
+    expect(resolveRedirect(WORKERS_DEV_HOST, "GET", "/", "")).toBe(
+      `${MARKETING_ORIGIN}/`,
+    );
+    // Neutral paths keep SERVING on the legacy host: old API GETs (health
+    // monitors, authed clients whose Authorization a cross-host redirect
+    // would strip) and metadata routes scrapers fetch without following 308s
+    // (same rationale as isNeutralPath).
+    expect(
+      resolveRedirect(WORKERS_DEV_HOST, "GET", "/api/health", ""),
+    ).toBeNull();
+    expect(
+      resolveRedirect(WORKERS_DEV_HOST, "GET", "/s/abc/opengraph-image", ""),
+    ).toBeNull();
+    // Non-safe methods are served in place, never replayed cross-host.
+    expect(
+      resolveRedirect(WORKERS_DEV_HOST, "POST", "/api/agent/ingest", ""),
+    ).toBeNull();
   });
 });
 

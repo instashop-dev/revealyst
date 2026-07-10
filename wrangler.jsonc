@@ -31,12 +31,20 @@
 	// src/lib/domains.ts. Attach these in the Cloudflare dashboard first (auto
 	// DNS + cert); this config keeps them attached idempotently on deploy.
 	// `wrangler versions upload` (CI preview) ignores routes, so previews are
-	// unaffected. workers_dev stays enabled during migration (the old URL keeps
-	// serving) — leave it at its default.
+	// unaffected.
 	"routes": [
 		{ "pattern": "revealyst.com", "custom_domain": true },
 		{ "pattern": "app.revealyst.com", "custom_domain": true }
 	],
+	// MUST stay an explicit true: when routes were added at the cutover,
+	// wrangler auto-disabled the workers.dev subdomain ("leave it at its
+	// default" was wrong) — Cloudflare's edge then answered every
+	// revealyst.thapi.workers.dev request with 404 "error code: 1042" WITHOUT
+	// invoking the Worker, breaking all pre-cutover links. With the subdomain
+	// re-enabled, src/worker.ts 308s legacy-host GET/HEAD page requests to the
+	// canonical hosts (WORKERS_DEV_HOST in src/lib/domains.ts) and serves
+	// neutral paths (API, metadata) and non-GET/HEAD methods in place.
+	"workers_dev": true,
 	// Poller architecture: Cron Trigger enqueues one message per connection;
 	// the queue consumer polls and writes. W0-B runs the no-op heartbeat.
 	"triggers": {

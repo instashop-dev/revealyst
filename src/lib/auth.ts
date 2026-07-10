@@ -88,6 +88,15 @@ export function createAuth(db: Db, env: AuthEnv) {
     // explicitly so a stray cross-origin request never 403s "Invalid origin"
     // during or after the domain cutover — see src/lib/domains.ts.
     trustedOrigins: [APP_ORIGIN, MARKETING_ORIGIN],
+    // Where OAuth-callback/redirect failures land (e.g. state_mismatch,
+    // access_denied when the user cancels at GitHub). Without this, Better
+    // Auth's production /error page 302s to `/?error=<code>` — the marketing
+    // root, which silently swallows the query param, so the 2026-07-09
+    // state_not_found incident was invisible to the user. The sign-in page
+    // reads `?error=` and shows a friendly message (src/app/sign-in/page.tsx).
+    // Relative on purpose: resolves against whichever host served the
+    // callback, so localhost dev keeps working.
+    onAPIError: { errorURL: "/sign-in" },
     database: drizzleAdapter(db, { provider: "pg" }),
     // Collapses getSession's session-then-user lookup (better-auth
     // internal-adapter findSession -> findOne join:{user:true}) into a
