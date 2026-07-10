@@ -4,6 +4,8 @@ import {
 } from "../contracts/scores";
 import type { Db } from "../db/client";
 import { forOrg, type ScoreResultUpsert } from "../db/org-scope";
+import { subscriptionsForOrg } from "../db/subscriptions";
+import { isCustomSlug } from "../lib/custom-index";
 import {
   componentMetricKeys,
   evaluateDefinition,
@@ -21,7 +23,7 @@ import type { Period } from "./periods";
 
 type ScopedRepo = ReturnType<typeof forOrg>;
 
-type ParsedDefinition = {
+export type ParsedDefinition = {
   id: string;
   subjectLevel: "person" | "team" | "org";
   components: ScoreComponent[];
@@ -32,12 +34,20 @@ type MetricRows = Map<string, EngineRow[]>;
 
 async function loadActiveDefinitions(
   scoped: ScopedRepo,
+  customIndexesEntitled: boolean,
 ): Promise<{ definitions: ParsedDefinition[]; skipped: number }> {
   const rows = await scoped.scores.definitions();
   const definitions: ParsedDefinition[] = [];
   let skipped = 0;
   for (const d of rows) {
     if (d.status !== "active") continue;
+    // §8.5 guardrail 5 — entitlement lapse: custom definitions stop
+    // recomputing when the org is no longer on the Team plan. Their last
+    // score_results rows are left untouched (never deleted) so the UI can
+    // render them in an explicit "paused" state rather than silently stale.
+    // Presets (global + the personal-org preset clones) are non-custom
+    // slugs and always recompute, regardless of entitlement.
+    if (!customIndexesEntitled && isCustomSlug(d.slug)) continue;
     // One malformed org-authored definition must not take down the org's
     // whole nightly recompute (presets included) — skip it loudly and
     // keep scoring the rest.
@@ -58,7 +68,7 @@ async function loadActiveDefinitions(
   return { definitions, skipped };
 }
 
-async function loadRowsByMetric(
+export async function loadRowsByMetric(
   scoped: ScopedRepo,
   definitions: ParsedDefinition[],
   period: Period,
@@ -106,7 +116,7 @@ async function loadRowsByMetric(
 
 /** Rows for one definition's metrics, restricted to a subject set (or all
  * subjects when `subjectIds` is null — the org level). */
-function rowsForSubjects(
+export function rowsForSubjects(
   definition: ParsedDefinition,
   byMetric: Map<string, MetricRows>,
   subjectIds: ReadonlySet<string> | null,
@@ -139,7 +149,7 @@ function rowsForSubjects(
  *   person's individual score — that would mint N copies of one number
  *   from account-level data (§6.1: surfaced, not redistributed).
  * Key/account subjects with no identity link appear at org level only. */
-async function loadPersonSubjects(scoped: ScopedRepo): Promise<{
+export async function loadPersonSubjects(scoped: ScopedRepo): Promise<{
   linked: Map<string, Set<string>>;
   exclusive: Map<string, Set<string>>;
 }> {
@@ -184,15 +194,28 @@ export type RecomputeSummary = {
  * Recomputes every active score definition for one org over one period.
  * Deterministic: same rows in, same score_results out; safe to re-run
  * (upserts on the frozen (org, definition, subject, period) key).
+ *
+ * `customIndexesEntitled` (§8.5 guardrail 5): when the org is not on the Team
+ * plan, org-authored custom definitions are excluded from this run (their last
+ * results persist for a "paused" render). Presets are always recomputed.
+ * Callers that already know the entitlement (the queue consumer) pass it to
+ * avoid a duplicate subscription read across the month/rolling recompute pair;
+ * direct callers may omit it and it is resolved from the org's subscription.
  */
 export async function recomputeOrg(
   db: Db,
   orgId: string,
-  options: { period: Period },
+  options: { period: Period; customIndexesEntitled?: boolean },
 ): Promise<RecomputeSummary> {
   const { period } = options;
   const scoped = forOrg(db, orgId);
-  const { definitions, skipped } = await loadActiveDefinitions(scoped);
+  const customIndexesEntitled =
+    options.customIndexesEntitled ??
+    (await subscriptionsForOrg(db, orgId).current()).plan === "team";
+  const { definitions, skipped } = await loadActiveDefinitions(
+    scoped,
+    customIndexesEntitled,
+  );
   if (definitions.length === 0) {
     return {
       definitionsEvaluated: 0,

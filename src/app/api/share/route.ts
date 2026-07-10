@@ -2,15 +2,27 @@ import { z } from "zod";
 import { shareLinksForOrg } from "@/db/share-links";
 import { ApiError } from "@/lib/api-impl";
 import { handleApi, parseBody, parseQuery } from "@/lib/api-route";
+import { isCustomSlug } from "@/lib/custom-index";
 
 export const dynamic = "force-dynamic";
 
 // Create an opt-in public share link for one of the org's people (ADR 0008).
 // Non-frozen route (share links post-date the W0-C API freeze). Returns the
 // plaintext token ONCE; the caller builds the public /s/<token> URL.
+//
+// §8.5 guardrail 2: custom indexes are NEVER shareable — no public benchmark
+// exists for an org-specific formula, so a shared "vs" card would fabricate
+// comparability (invariant b). Reject `custom-` slugs here (and the db factory
+// rejects them too, belt-and-suspenders). Customs are also team/org-level, so
+// a person-level share could never legitimately reference one anyway.
 const createShareSchema = z.object({
   personId: z.string().uuid(),
-  scoreSlug: z.string().min(1),
+  scoreSlug: z
+    .string()
+    .min(1)
+    .refine((slug) => !isCustomSlug(slug), {
+      message: "custom indexes are not shareable",
+    }),
   publicLabel: z.string().trim().min(1).max(80),
 });
 
