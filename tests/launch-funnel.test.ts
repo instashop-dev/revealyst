@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { writeLaunchEvent } from "../src/lib/launch-events";
+import { isLandingPageView, writeLaunchEvent } from "../src/lib/launch-events";
 import {
   deriveLaunchFunnel,
   percentile,
@@ -123,6 +123,39 @@ describe("deriveLaunchFunnel", () => {
       personalWithAcceptedInvites: 1,
       personalMultiMember: 1,
     });
+  });
+});
+
+describe("isLandingPageView", () => {
+  // The Worker-entry guard for the §15 landing_view write (src/worker.ts) —
+  // the landing page is a build-time prerender now (perf/edge-caching), so
+  // the per-request event fires at the edge seam, gated by this predicate.
+  // The third arg is isRscRequest (headers.has("rsc")), NOT the Accept header.
+  it("matches GET/HEAD of exactly / for ANY Accept — the old crawler-inclusive series", () => {
+    expect(isLandingPageView("GET", "/", false)).toBe(true);
+    expect(isLandingPageView("HEAD", "/", false)).toBe(true);
+  });
+
+  it("counts the non-text/html segment the old in-render write counted", () => {
+    // The OLD force-dynamic render fired for every GET/HEAD of / regardless of
+    // Accept — curl, uptime monitors, and crawlers/scrapers that send `*/*` or
+    // no Accept. isRscRequest is false for all of these, so they still count;
+    // gating on text/html (as the first draft did) would silently drop them.
+    // (Accept is not even an input here anymore — these are all `false` = not
+    // an RSC fetch, so all counted.)
+    expect(isLandingPageView("GET", "/", false)).toBe(true); // Accept: */* or missing
+  });
+
+  it("excludes ONLY the RSC soft-nav / prefetch fetch — the one deliberate reduction", () => {
+    expect(isLandingPageView("GET", "/", true)).toBe(false);
+    expect(isLandingPageView("HEAD", "/", true)).toBe(false);
+  });
+
+  it("rejects other paths and methods", () => {
+    expect(isLandingPageView("GET", "/sign-in", false)).toBe(false);
+    expect(isLandingPageView("GET", "/legal/terms", false)).toBe(false);
+    expect(isLandingPageView("POST", "/", false)).toBe(false);
+    expect(isLandingPageView("GET", "/api/health", false)).toBe(false);
   });
 });
 

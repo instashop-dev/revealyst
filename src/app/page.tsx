@@ -26,13 +26,29 @@ import {
 } from "@/components/ui/card";
 import { ScoreCardMock } from "@/components/marketing/score-card-mock";
 import { Section } from "@/components/marketing/section";
-import { trackLaunchEvent } from "@/lib/launch-events";
 import { NLV_PENDING_VENDORS } from "@/lib/vendor-connect-meta";
 import { VENDOR_LABELS, vendorLabel } from "@/lib/vendor-labels";
 
-// Request-rendered so the landing_view event fires per visit (§15). The page
-// itself reads no data — the only per-request work is the event write.
-export const dynamic = "force-dynamic";
+// Build-time prerendered (no `dynamic` export): everything on this page
+// derives from static sources — the connector registry, product constants —
+// so it serves from the incremental cache instead of paying a per-request
+// Worker render (measured 2026-07-10: 108KB HTML re-rendered per request,
+// 1–2s cold; warm cache reads are tens of ms). It was force-dynamic ONLY to
+// fire the §15 landing_view event server-side; that write moved to the
+// Worker entry seam (src/worker.ts, isLandingPageView), which sees every
+// request BEFORE OpenNext — same crawler-inclusive series semantics, no
+// client beacon a content blocker could drop. The host split is unaffected:
+// the marketing/app 308s also happen in src/worker.ts before OpenNext, and
+// this page has no per-request logic (the "Sign in" links are static <a>
+// tags — no session detection to go stale in a cached render).
+//
+// Accepted risk (unchanged from the already-static /sign-in): a static page
+// emits `Cache-Control: s-maxage=31536000`, so an s-maxage-honoring shared
+// proxy could pin this HTML across a deploy and briefly serve markup that
+// references now-404'd hashed chunks. Cloudflare in front of this Worker does
+// NOT honor s-maxage on Worker responses by default, so there is no live
+// shared cache pinning it today; if one is ever added, pair it with a
+// deploy-time purge (or drop s-maxage on these routes) before relying on it.
 
 export const metadata: Metadata = {
   title: "Revealyst — see who's actually adopting AI, and how well",
@@ -194,8 +210,7 @@ const TIERS: {
   },
 ];
 
-export default async function Home() {
-  await trackLaunchEvent("landing_view");
+export default function Home() {
   return (
     <main className="flex min-h-dvh flex-col">
       {/* Hero — dark, echoing the share-card artifact. Arbitrary-value CSS
