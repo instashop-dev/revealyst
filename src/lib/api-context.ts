@@ -71,14 +71,27 @@ export const appContext = cache(async () => {
 
 export type AppContext = NonNullable<Awaited<ReturnType<typeof appContext>>>;
 
-/** Page variant: bounce unauthenticated visitors to sign-in. Pass the
- * current path so sign-in can return the visitor here (invite links). */
+/** Page variant: bounce unauthenticated visitors to sign-in, carrying the
+ * destination (path + query) as ?next= so deep links round-trip and error
+ * params riding the query survive to a page that can show them (e.g. an
+ * expired email-verification link's /dashboard?error=TOKEN_EXPIRED — see
+ * src/app/sign-in/error-codes.ts). When no explicit nextPath is given, it is
+ * derived from the middleware-forwarded x-pathname/x-search headers: the
+ * (app) layout and its page call requireAppContext CONCURRENTLY, and pages
+ * pass no argument — whichever redirect wins the render race must carry the
+ * same ?next=, so the default cannot be a bare /sign-in. */
 export async function requireAppContext(nextPath?: string): Promise<AppContext> {
   const ctx = await appContext();
   if (!ctx) {
-    redirect(
-      nextPath ? `/sign-in?next=${encodeURIComponent(nextPath)}` : "/sign-in",
-    );
+    let next = nextPath;
+    if (!next) {
+      const requestHeaders = await headers();
+      const pathname = requestHeaders.get("x-pathname");
+      next = pathname
+        ? `${pathname}${requestHeaders.get("x-search") ?? ""}`
+        : undefined;
+    }
+    redirect(next ? `/sign-in?next=${encodeURIComponent(next)}` : "/sign-in");
   }
   return ctx;
 }
