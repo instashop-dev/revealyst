@@ -19,6 +19,7 @@ import {
   type PersonalScore,
 } from "@/components/scores/score-card-model";
 import { ShareScoreButton } from "@/components/share-score-button";
+import { BudgetAlertBanner } from "@/components/spend/budget-alert-banner";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import { dashboardSummary } from "@/lib/api-impl";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
 import { readDashboardView } from "@/lib/dashboard-view";
 import { formatCents } from "@/lib/format";
+import { readBudgetAlertForRole, todayUtc } from "@/lib/spend-governance";
 import {
   CONCEPT_GLOSSARY,
   methodologyAnchor,
@@ -170,9 +172,8 @@ async function PersonalSelfView({
   // while staying at round-trip depth 1 (dashboardSummary awaits the same
   // in-flight promise rather than starting a second query).
   const definitionsPromise = ctx.scope.scores.definitions();
-  const [summary, verifiedBenchmarks, definitions, prevScores] = await timeStage(
-    "pageData",
-    () =>
+  const [summary, verifiedBenchmarks, definitions, prevScores, budgetAlert] =
+    await timeStage("pageData", () =>
       Promise.all([
         dashboardSummary(
           ctx.scope,
@@ -193,8 +194,14 @@ async function PersonalSelfView({
           to: prevPeriod.periodEnd,
           subjectLevel: "person",
         }),
+        // The month-to-date budget alert (W4-V), role-gated like TeamOverview's:
+        // a personal-kind org CAN have an invited member (org-of-one machinery is
+        // identical to Team), and the budget limit is admin-configured governance
+        // — for a member the read is skipped entirely, not fetched-then-hidden.
+        // Null also when no budget is set or no threshold is crossed.
+        readBudgetAlertForRole(ctx.scope, ctx.role, today),
       ]),
-  );
+    );
   const scores = new Map<string, PersonalScore>(
     summary.scores
       .filter((s) => s.subjectLevel === "person" && s.periodGrain === "month")
@@ -272,6 +279,15 @@ async function PersonalSelfView({
           />
         )}
       </PageHeader>
+
+      {budgetAlert ? (
+        <BudgetAlertBanner
+          alert={budgetAlert.alert}
+          reportedCents={budgetAlert.reportedCents}
+          monthlyLimitCents={budgetAlert.monthlyLimitCents}
+          showManageLink
+        />
+      ) : null}
 
       <AttentionSection items={attentionItems} />
 
@@ -392,10 +408,21 @@ async function TeamOverview({
   ctx: AppContext;
   connections: Awaited<ReturnType<AppContext["scope"]["connections"]["list"]>>;
 }) {
-  const view = await timeStage("pageData", () =>
-    readDashboardView(ctx.scope, ctx.org.visibilityMode, dashboardWindow(), {
-      connections,
-    }),
+  // The composed view and the month-to-date budget alert are independent reads,
+  // gathered together so the banner adds no sequential round-trip to the hot
+  // dashboard path (the alert's MTD window differs from the view's 180d window,
+  // so its spend can't be reused). Role-gated inside readBudgetAlertForRole:
+  // the budget limit is admin-configured governance data (like /billing), so
+  // members never see the banner — and the read is skipped for them entirely.
+  // Null when no budget is set or no threshold is crossed — the banner then
+  // renders nothing.
+  const [view, budgetAlert] = await timeStage("pageData", () =>
+    Promise.all([
+      readDashboardView(ctx.scope, ctx.org.visibilityMode, dashboardWindow(), {
+        connections,
+      }),
+      readBudgetAlertForRole(ctx.scope, ctx.role, todayUtc()),
+    ]),
   );
   const {
     summary,
@@ -454,6 +481,15 @@ async function TeamOverview({
         title="Overview"
         description="Who's using AI, how well, and what it costs — across your tools. Tap the info icon next to any number for a plain-English explanation."
       />
+
+      {budgetAlert ? (
+        <BudgetAlertBanner
+          alert={budgetAlert.alert}
+          reportedCents={budgetAlert.reportedCents}
+          monthlyLimitCents={budgetAlert.monthlyLimitCents}
+          showManageLink
+        />
+      ) : null}
 
       <AttentionSection items={attentionItems} />
 

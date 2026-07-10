@@ -78,6 +78,10 @@ const SCOPED_READS: Array<{
   { name: "billing.trackedUsers", tables: ["metric_records", "identities"], run: (s) => s.billing.trackedUsers(PERIOD) },
   { name: "heartbeats.list", tables: ["poll_heartbeats"], run: (s) => s.heartbeats.list() },
   { name: "auditLog.list", tables: ["audit_log"], run: (s) => s.auditLog.list() },
+  // Budgets (ADR 0020): one row per org, keyed on the scope's orgId. Both orgs
+  // seed a budget below, so B's budget id is in the leak universe — org A's
+  // get() must surface only A's row.
+  { name: "budgets.get", tables: ["budgets"], run: (s) => s.budgets.get() },
   { name: "connectorRuns.list", tables: ["connector_runs"], run: (s) => s.connectorRuns.list() },
   { name: "connectorRuns.latest(B)", tables: ["connector_runs"], run: (s, c) => s.connectorRuns.latest(c.B.connections.anthropic) },
   // Credentials are read-only via withCredential, which throws for foreign
@@ -139,6 +143,9 @@ beforeAll(async () => {
       payload: { org: orgId },
     });
     await scoped.heartbeats.record(`beat-${orgId}`);
+    // A budget per org (ADR 0020) so budget ids join the leak universe and the
+    // budgets sweep is non-vacuous.
+    await scoped.budgets.set({ monthlyLimitCents: 100_000 });
     // A pending invite per org so the sweep's B-id universe includes one.
     const [inviter] = await db
       .insert(schema.user)

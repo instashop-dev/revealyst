@@ -148,6 +148,13 @@
       "when": 1783698219610,
       "tag": "0020_poll-heartbeats-observed-at-index",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783701385448,
+      "tag": "0021_budgets",
+      "breakpoints": true
     }
   ]
 }

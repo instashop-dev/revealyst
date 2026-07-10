@@ -408,6 +408,55 @@ export const apiRoutes = {
     }),
   },
 
+  // Spend Governance (W4-V, ADR 0020). Admin-set org monthly budget +
+  // in-app threshold alert. Observed month-to-date spend and the crossed
+  // threshold are DERIVED at read time from spend_cents / spend_cents_estimated
+  // metric_records — never a stored ledger. Cents throughout (like
+  // metric_records spend_cents); the split into vendor-reported vs. derived is
+  // preserved in `monthToDate` so no honesty gap is blended away (invariant b).
+  budgetGet: {
+    method: "GET",
+    path: "/api/budget",
+    request: null,
+    response: z.object({
+      budget: z
+        .object({
+          monthlyLimitCents: z.number().int().positive(),
+          alertThresholds: z.array(z.number().int()),
+        })
+        .nullable(),
+      monthToDate: z.object({
+        reportedCents: z.number(),
+        estimatedCents: z.number(),
+      }),
+      alert: z
+        .object({
+          crossedThreshold: z.number().int(),
+          pctUsed: z.number(),
+          overBudget: z.boolean(),
+        })
+        .nullable(),
+    }),
+  },
+  budgetSet: {
+    method: "PUT",
+    path: "/api/budget",
+    request: z.object({
+      monthlyLimitCents: z.number().int().positive(),
+      alertThresholds: z
+        .array(z.number().int().min(1).max(1000))
+        .min(1)
+        .max(10)
+        .optional(),
+    }),
+    response: z.object({
+      budget: z.object({
+        monthlyLimitCents: z.number().int().positive(),
+        alertThresholds: z.array(z.number().int()),
+      }),
+    }),
+  },
+
   // Paddle hosted customer portal: creates a fresh authenticated session (ADR
   // 0011) and returns its links. Generated per request, never cached.
   billingPortal: {
