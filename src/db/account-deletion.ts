@@ -70,12 +70,13 @@ export const PURGE_TABLES = [
  */
 export const PURGE_EXEMPT_TABLES = new Set([
   "orgs", // the row itself; deleted last, outside PURGE_TABLES
-  // These four have `onDelete: "cascade"` FKs straight to orgs.id, so the
+  // These five have `onDelete: "cascade"` FKs straight to orgs.id, so the
   // final `orgs` delete removes them without an explicit statement:
   "invites",
   "benchmark_consent",
   "subscriptions",
   "audit_log",
+  "budgets",
 ]);
 
 /**
