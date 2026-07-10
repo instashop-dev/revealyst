@@ -345,7 +345,13 @@ export function IndexWorkbench({
               </p>
             )}
             {componentError ? (
-              <p className="text-sm text-destructive">{componentError}</p>
+              <p
+                role="status"
+                aria-live="polite"
+                className="text-sm text-destructive"
+              >
+                {componentError}
+              </p>
             ) : null}
           </div>
 
@@ -425,11 +431,15 @@ function ComponentEditor({
   onChange: (patch: Partial<DraftComponent>) => void;
   onRemove: () => void;
 }) {
+  // Field ids derive from the stable per-row uid so every label/control pair is
+  // programmatically associated (mirrors the top-level index-name/level form).
+  const base = component.uid;
   return (
     <div className="flex flex-col gap-3 rounded-lg p-3 ring-1 ring-foreground/10">
       <div className="flex flex-wrap items-center gap-2">
         <Input
           className="max-w-48"
+          aria-label="Component name"
           placeholder="Component name"
           value={component.key}
           maxLength={40}
@@ -437,6 +447,7 @@ function ComponentEditor({
         />
         <select
           className={`${inputClassName} max-w-40`}
+          aria-label="Component type"
           value={component.kind}
           onChange={(e) => onChange({ kind: e.target.value as ComponentKind })}
         >
@@ -459,12 +470,14 @@ function ComponentEditor({
       {component.kind === "metric" ? (
         <div className="grid gap-2 sm:grid-cols-2">
           <MetricSelect
+            id={`${base}-metric`}
             label="Metric"
             metrics={metrics}
             value={component.metric}
             onChange={(v) => onChange({ metric: v })}
           />
           <AggregationSelect
+            id={`${base}-aggregation`}
             aggregations={aggregations}
             value={component.aggregation}
             onChange={(v) => onChange({ aggregation: v })}
@@ -474,12 +487,14 @@ function ComponentEditor({
         <div className="flex flex-col gap-2">
           <div className="grid gap-2 sm:grid-cols-2">
             <MetricSelect
+              id={`${base}-num-metric`}
               label="Numerator metric"
               metrics={metrics}
               value={component.numMetric}
               onChange={(v) => onChange({ numMetric: v })}
             />
             <AggregationSelect
+              id={`${base}-num-aggregation`}
               aggregations={aggregations}
               value={component.numAggregation}
               onChange={(v) => onChange({ numAggregation: v })}
@@ -487,12 +502,14 @@ function ComponentEditor({
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <MetricSelect
+              id={`${base}-den-metric`}
               label="Denominator metric"
               metrics={metrics}
               value={component.denMetric}
               onChange={(v) => onChange({ denMetric: v })}
             />
             <AggregationSelect
+              id={`${base}-den-aggregation`}
               aggregations={aggregations}
               value={component.denAggregation}
               onChange={(v) => onChange({ denAggregation: v })}
@@ -507,8 +524,11 @@ function ComponentEditor({
 
       <div className="grid gap-2 sm:grid-cols-3">
         <div className="flex flex-col gap-1">
-          <Label className="text-xs text-muted-foreground">Weight (0–1)</Label>
+          <Label htmlFor={`${base}-weight`} className="text-xs text-foreground">
+            Weight (0–1)
+          </Label>
           <Input
+            id={`${base}-weight`}
             type="number"
             step="0.01"
             min="0"
@@ -518,20 +538,22 @@ function ComponentEditor({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <Label className="text-xs text-muted-foreground">
+          <Label htmlFor={`${base}-min`} className="text-xs text-foreground">
             Scales to 0 at
           </Label>
           <Input
+            id={`${base}-min`}
             type="number"
             value={component.min}
             onChange={(e) => onChange({ min: e.target.value })}
           />
         </div>
         <div className="flex flex-col gap-1">
-          <Label className="text-xs text-muted-foreground">
+          <Label htmlFor={`${base}-max`} className="text-xs text-foreground">
             Scales to 100 at
           </Label>
           <Input
+            id={`${base}-max`}
             type="number"
             value={component.max}
             onChange={(e) => onChange({ max: e.target.value })}
@@ -543,11 +565,13 @@ function ComponentEditor({
 }
 
 function MetricSelect({
+  id,
   label,
   metrics,
   value,
   onChange,
 }: {
+  id: string;
   label: string;
   metrics: MetricOption[];
   value: string;
@@ -555,8 +579,11 @@ function MetricSelect({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Label htmlFor={id} className="text-xs text-foreground">
+        {label}
+      </Label>
       <select
+        id={id}
         className={inputClassName}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -572,18 +599,23 @@ function MetricSelect({
 }
 
 function AggregationSelect({
+  id,
   aggregations,
   value,
   onChange,
 }: {
+  id: string;
   aggregations: AggregationOption[];
   value: string;
   onChange: (value: string) => void;
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <Label className="text-xs text-muted-foreground">Aggregation</Label>
+      <Label htmlFor={id} className="text-xs text-foreground">
+        Aggregation
+      </Label>
       <select
+        id={id}
         className={inputClassName}
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -600,7 +632,15 @@ function AggregationSelect({
 
 function PreviewPanel({ preview }: { preview: PreviewResponse }) {
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-4 ring-1 ring-foreground/10">
+    // role="status" + aria-live so async preview results are announced. The
+    // container drops the muted fill so muted-foreground children keep contrast
+    // on the normal background (CLAUDE.md muted-on-muted rule); the ring alone
+    // marks the boundary, matching the ComponentEditor rows.
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex flex-col gap-3 rounded-lg p-4 ring-1 ring-foreground/10"
+    >
       <div className="flex items-center justify-between">
         <span className="text-sm font-medium">Preview</span>
         <span className="text-xs text-muted-foreground">

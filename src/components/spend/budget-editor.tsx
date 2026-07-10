@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
+import { errorText } from "@/lib/client-fetch";
 
 // Admin budget editor (W4-V). Sets the org's monthly spend ceiling; the alert
 // thresholds keep their configured values (default 50/80/100%). Dollars in the
@@ -38,7 +40,15 @@ export function BudgetEditor({
         body: JSON.stringify({ monthlyLimitCents }),
       });
       if (!res.ok) {
-        toast.error("Could not save the budget");
+        // Surface the server's message (handleApi returns { error }) like the
+        // index routes do, instead of a fixed string.
+        let payload: unknown = null;
+        try {
+          payload = await res.json();
+        } catch {
+          // non-JSON / empty body — errorText falls back below
+        }
+        toast.error(errorText(payload, "Could not save the budget"));
         return;
       }
       toast.success("Budget saved");
@@ -68,6 +78,7 @@ export function BudgetEditor({
             placeholder="0"
           />
           <Button onClick={save} disabled={busy}>
+            {busy && <Spinner data-icon="inline-start" />}
             {initialLimitCents != null ? "Update budget" : "Set budget"}
           </Button>
         </div>
