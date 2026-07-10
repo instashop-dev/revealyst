@@ -26,6 +26,44 @@ export type LaunchEventName =
   | "share_card_view"
   | "share_card_og_view";
 
+/**
+ * True for a landing-page view to count under §15 `landing_view`. The Worker
+ * entry (src/worker.ts) fires the event at this edge seam because the landing
+ * page is now a build-time prerender (perf/edge-caching), so the old
+ * per-request in-render `trackLaunchEvent` call can no longer exist.
+ *
+ * Series continuity is the whole point: the OLD write lived inside the
+ * force-dynamic render, so it fired for EVERY GET/HEAD of `/` that reached the
+ * page — regardless of the `Accept` header. That includes a wildcard `Accept`
+ * and a missing/empty `Accept`: curl, uptime monitors, and the many crawlers/
+ * scrapers that don't send `text/html` (the crawler-inclusive conflation
+ * documented above). So this predicate must NOT gate on `text/html` — doing so
+ * would silently step-drop the entire non-`text/html` segment at deploy.
+ *
+ * The ONE deliberate reduction vs. the old series: RSC soft-navigation /
+ * prefetch fetches are excluded. Next marks them with an `RSC` request header
+ * (with a wildcard `Accept`); the old in-render write did count them (the
+ * server component re-renders for the flight response), but a client-side
+ * route transition to `/` is not a landing-page view. Everything else the old
+ * path counted, this counts. `isRscRequest` is the caller's `headers.has("rsc")`.
+ *
+ * (Host is not checked here: the Worker fires this only AFTER the host-split
+ * 308 in src/worker.ts, so `/` on the app/legacy host has already redirected
+ * away — exactly as the old page only ever rendered on the marketing/preview
+ * hosts.)
+ */
+export function isLandingPageView(
+  method: string,
+  pathname: string,
+  isRscRequest: boolean,
+): boolean {
+  return (
+    (method === "GET" || method === "HEAD") &&
+    pathname === "/" &&
+    !isRscRequest
+  );
+}
+
 /** Pure write: testable, never throws, no-ops without a dataset binding. */
 export function writeLaunchEvent(
   dataset: AnalyticsEngineDataset | undefined,

@@ -23,6 +23,7 @@ import { sendInBatches } from "./poller/queue";
 import { retryDelaySeconds, RetryableConnectorError } from "./poller/run";
 import { previousDay } from "./scoring";
 import { resolveRedirect } from "./lib/domains";
+import { isLandingPageView, writeLaunchEvent } from "./lib/launch-events";
 import {
   createRequestTimingStore,
   formatServerTiming,
@@ -67,6 +68,26 @@ export default {
     );
     if (target) return Response.redirect(target, 308);
 
+    const accept = request.headers.get("accept") ?? "";
+    const isRsc = request.headers.has("rsc");
+
+    // §15 landing_view — fired at this seam, not in the page render: the
+    // landing page is now a build-time prerender (perf/edge-caching), so the
+    // old per-request in-render write can't exist. Firing AFTER the host-split
+    // 308 means an `/` request that redirects to its canonical host is never
+    // counted here (it renders on the marketing host, where it's counted).
+    // isLandingPageView keeps the OLD crawler-inclusive series — every
+    // GET/HEAD of `/` regardless of Accept, RSC soft-navs excluded (see its
+    // doc) — and, unlike a client beacon, can't be dropped by content
+    // blockers. Two accepted deltas vs. the in-render write, both toward
+    // over- not under-counting: (1) it fires before the render, so an `/`
+    // request whose render later 500s is still counted (the old write, being
+    // the render's first line, effectively counted these too); (2) it counts
+    // HEAD `/`. writeLaunchEvent never throws and no-ops without the binding.
+    if (isLandingPageView(request.method, url.pathname, isRsc)) {
+      writeLaunchEvent(env.LAUNCH_EVENTS, "landing_view", undefined, url.hostname);
+    }
+
     // Request-lifecycle instrumentation (incident: authenticated pages >7s
     // in prod). One AsyncLocalStorage store per instrumented request, entered
     // here (the outermost seam) so every `timeStage` call nested anywhere
@@ -81,11 +102,10 @@ export default {
     // through UNTOUCHED: no ALS wrap, no header clone, no Response
     // reconstruction — which also keeps 101/WebSocket upgrade responses
     // intact (a reconstructed Response drops the webSocket pair).
-    const accept = request.headers.get("accept") ?? "";
     const instrument =
       accept.includes("text/html") ||
       url.pathname.startsWith("/api/") ||
-      request.headers.has("rsc");
+      isRsc;
     if (!instrument) {
       return openNextHandler.fetch!(request, env, ctx);
     }
