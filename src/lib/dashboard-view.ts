@@ -7,6 +7,11 @@ import {
   computeAttributionTrend,
   type AttributionTrend,
 } from "./attribution-trend";
+import {
+  computeCorrelationPanel,
+  type CorrelationResult,
+} from "./correlation";
+import { composeNarrative, type Narrative } from "./narrative";
 import { resolveBenchmarkSource, type BenchmarkSummary } from "./benchmarks";
 import {
   latestTeamScoresBySlug,
@@ -110,6 +115,20 @@ export type DashboardView = {
   recentMovement: RecentMovement;
   usageDistribution: UsageDistribution;
   usageConcentration: UsageConcentration;
+  /** F2.4 (research I7): a 3–6 sentence, template-composed plain-prose summary
+   * of the recent period, built in JS from the movement/agentic/attribution
+   * derivations already computed above — zero new reads, no LLM (G6). Carries
+   * only aggregate sentences (no person id/pseudonym/name), so like
+   * `recentMovement`/`agentic` it does not change what
+   * `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) inspects. */
+  narrative: Narrative;
+  /** F2.4 (research I4): the "moved together" panel — directional same-direction
+   * agreement over weekly buckets for a few fixed metric pairs, derived in JS
+   * from the same pre-fetched rows (zero new reads). Aggregate-only (pair keys +
+   * percentages + week counts, never a subject/person identifier), so it too
+   * leaves the privacy predicate unaffected. Explicitly non-causal (see
+   * correlation.ts / CORRELATION_COPY). */
+  correlations: CorrelationResult[];
 };
 
 export async function readDashboardView(
@@ -286,6 +305,38 @@ export async function readDashboardView(
     recentUsage.excluded.unresolvedPrompts + recentUsage.excluded.sharedPrompts,
   );
 
+  // Zero new reads: the person-attributed usage-day share and the agentic rate
+  // both derive in JS from rows readDashboard already consumed. Hoisted to
+  // consts so the F2.4 narrative below reuses the SAME results the view
+  // returns, rather than recomputing them.
+  const attributionTrend = computeAttributionTrend(activeDayRecords);
+  const agentic = computeAgenticAdoption({
+    agentActiveRows: agentActiveRecords,
+    activeDayRows: activeDayRecords,
+    identityLinks: identities,
+    windowTo: window.to,
+  });
+
+  // F2.4 (I7/I4): both derive in JS from rows already fetched above — zero new
+  // queries, no new sequential stage (G10). The narrative composes the movement
+  // (F1.2), agentic (F1.4), and attribution (F1.7) results already in hand; the
+  // correlation panel buckets the same spend/active/agent/prompt rows into
+  // weeks. Notable events (F2.3 anomaly/plateau) are not on the view in this
+  // phase, so none are passed — the composer omits that block honestly.
+  const narrative = composeNarrative({
+    movement: recentMovement,
+    agentic,
+    attribution: attributionTrend,
+  });
+  const correlations = computeCorrelationPanel({
+    windowTo: window.to,
+    spendReportedRows: spendRecords,
+    activeDayRows: activeDayRecords,
+    agentActiveRows: agentActiveRecords,
+    promptRows: promptRecords,
+    identities,
+  });
+
   return {
     summary,
     benchmarks,
@@ -297,21 +348,15 @@ export async function readDashboardView(
     definitions,
     gaps: collectGaps(runs),
     connections,
-    // Zero new reads: the person-attributed usage-day share is derived in JS
-    // from the same active_day rows readDashboard already consumed.
-    attributionTrend: computeAttributionTrend(activeDayRecords),
-    // Pure JS over already-fetched rows — no query. Identity links resolve
-    // subject-days to person-days (`identities` is already in the stage-1
-    // batch for readDashboard/shared-accounts, so this costs nothing); the
-    // lib slices to its own 12-week window ending at `window.to`.
-    agentic: computeAgenticAdoption({
-      agentActiveRows: agentActiveRecords,
-      activeDayRows: activeDayRecords,
-      identityLinks: identities,
-      windowTo: window.to,
-    }),
+    // Both computed once above (zero new reads) and reused here + by the F2.4
+    // narrative: the person-attributed usage-day share (F1.7) and the agentic
+    // person-day rate (F1.4), identity-resolved from already-fetched rows.
+    attributionTrend,
+    agentic,
     recentMovement,
     usageDistribution,
     usageConcentration,
+    narrative,
+    correlations,
   };
 }
