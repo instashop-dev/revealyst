@@ -46,22 +46,41 @@ export function createDb(env: DbEnv): Db {
   // local dev db connect without client TLS.
   const wantsTls =
     !env.HYPERDRIVE && /[?&]sslmode=(require|prefer|allow)/.test(connectionString);
+  // The local dev socket (`npm run dev:db` — a PGlite net server on
+  // 127.0.0.1:5432, reached in dev because the HYPERDRIVE binding's
+  // localConnectionString points there) is the ONLY place that needs the
+  // historical postgres.js workarounds, and applying them to real Postgres is
+  // actively harmful for latency:
+  //  - `prepare`: the PGlite socket 08P01's on named prepared statements, so
+  //    dev needs `prepare: false`. But against real Postgres via Hyperdrive,
+  //    Cloudflare's docs are explicit — keep `prepare: true` (the default) so
+  //    Hyperdrive CACHES prepared statements; with `prepare: false` it cannot,
+  //    and pays an extra parse round-trip on EVERY query. That per-query cost
+  //    is invisible on a 1-query endpoint but compounds across an authenticated
+  //    page's multi-query batch (the ~15-query dashboard read) into seconds of
+  //    added TTFB — the post-sign-in slow-load.
+  //  - `max`: the PGlite net server resets overflow connections, so dev needs
+  //    `max: 1`. Cloudflare recommends `max: 5` for Hyperdrive so a request's
+  //    concurrent queries (our depth-1 `Promise.all` batches) can fan out
+  //    across the pool instead of serializing on a single connection.
+  // Detect the local socket by host; everything else (prod Hyperdrive, or a
+  // direct Neon DATABASE_URL) gets the recommended production pool config.
+  const isLocalSocket = /@(?:127\.0\.0\.1|localhost)[:/]/.test(connectionString);
   const client = postgres(connectionString, {
-    max: 1,
-    prepare: false,
+    max: isLocalSocket ? 1 : 5,
+    prepare: !isLocalSocket,
     connect_timeout: 10,
     idle_timeout: 20,
     // postgres.js defaults fetch_types:true, which issues a pg_catalog
     // type-introspection query on first use of every new connection — and
-    // Workers open a new connection per request (max: 1, no cross-request
-    // reuse), so every request was paying that extra round trip on top of
-    // its real queries. Cloudflare's Hyperdrive docs recommend disabling it.
-    // Safe here: fetch_types only affects parsing of CUSTOM/extension
-    // (composite/domain) Postgres types, which this schema has none of —
-    // pgEnum columns (src/db/schema.ts) serialize as plain text either way,
-    // and the one array column (subjectDaySignals.hours, smallint[]) uses a
-    // built-in array type postgres.js already knows how to parse without
-    // introspection.
+    // Workers open a new connection per request (no cross-request reuse), so
+    // every request was paying that extra round trip on top of its real
+    // queries. Cloudflare's Hyperdrive docs recommend disabling it. Safe here:
+    // fetch_types only affects parsing of CUSTOM/extension (composite/domain)
+    // Postgres types, which this schema has none of — pgEnum columns
+    // (src/db/schema.ts) serialize as plain text either way, and the one array
+    // column (subjectDaySignals.hours, smallint[]) uses a built-in array type
+    // postgres.js already knows how to parse without introspection.
     fetch_types: false,
     ...(wantsTls ? { ssl: {} } : {}),
   });
