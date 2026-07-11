@@ -10,7 +10,12 @@ import { listBenchmarks } from "../src/db/benchmarks";
 import { benchmarkConsentForOrg } from "../src/db/benchmark-consent";
 import { shareLinksForOrg } from "../src/db/share-links";
 import { invitesForOrg } from "../src/db/invites";
-import { buildDemoSeedPlan } from "../scripts/seed/activity";
+import {
+  ACME_CONNECTIONS,
+  PERSON_PRESET_CLONES,
+  SOURCE_CONNECTOR,
+  buildDemoSeedPlan,
+} from "../scripts/seed/activity";
 import { loadSeedPlan } from "../scripts/seed/load";
 import type { LoadSeedPlanResult } from "../scripts/seed/plan";
 import { readDashboardView, type DashboardView } from "../src/lib/dashboard-view";
@@ -28,7 +33,17 @@ import {
   isUsableConnection,
   scoreTimingChannel,
 } from "../src/lib/onboarding-guide";
-import { readSpendGovernance, todayUtc } from "../src/lib/spend-governance";
+import {
+  DEFAULT_ALERT_THRESHOLDS,
+  readSpendGovernance,
+  todayUtc,
+} from "../src/lib/spend-governance";
+// Side-effect import: registers every shipped connector (tests/
+// vendor-connect-meta.test.ts's pattern) — needed so getConnector() below
+// resolves real sourceConnector strings instead of undefined.
+import "../src/connectors";
+import { getConnector } from "../src/connectors/registry";
+import personalPresets from "../fixtures/score-definitions/personal-presets.json";
 
 // End-to-end validation of the rich demo seed (scripts/seed/README.md):
 // seeds the fixed-anchor plan into a PGlite database exactly like the CLI
@@ -418,7 +433,7 @@ describe("spend governance", () => {
   it("Acme's budget alert crosses 80 (not 100) and is not over budget", async () => {
     const spend = await readSpendGovernance(acmeScope, todayUtc());
     expect(spend.alert).toBeTruthy();
-    expect(spend.alert!.crossedThreshold).toBe(80);
+    expect(spend.alert!.crossedThreshold).toBe(DEFAULT_ALERT_THRESHOLDS[1]);
     expect(spend.alert!.overBudget).toBe(false);
   });
 
@@ -714,5 +729,42 @@ describe("tenant sanity (Globex sees none of Acme's people/subjects)", () => {
     for (const s of globexSubjects) {
       expect(acmeExternalIds.has(s.externalId)).toBe(false);
     }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 18. Drift tripwires — the generator's copies of shared shapes vs. their
+// real sources of truth, so a future edit to either side fails loudly
+// instead of silently diverging (CLAUDE.md fix #12).
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("drift tripwires (generator vs. sources of truth)", () => {
+  it("PERSON_PRESET_CLONES deep-equals fixtures/score-definitions/personal-presets.json", () => {
+    expect(PERSON_PRESET_CLONES).toEqual(personalPresets.definitions);
+  });
+
+  it("SOURCE_CONNECTOR values equal the registered connectors' sourceConnector strings", () => {
+    const vendorByKey = new Map(ACME_CONNECTIONS.map((c) => [c.key, c.vendor]));
+    let checked = 0;
+    for (const [key, sourceConnector] of Object.entries(SOURCE_CONNECTOR)) {
+      const vendor = vendorByKey.get(key);
+      expect(vendor, `ACME_CONNECTIONS has no entry for SOURCE_CONNECTOR key '${key}'`).toBeTruthy();
+      const registered = getConnector(vendor!);
+      if (!registered) {
+        // claude_code_local is a local-agent push with no polled connector
+        // registered — the one intentional gap; anything else missing here
+        // is a real drift, not an intentional exception.
+        expect(key, `'${key}' (vendor '${vendor}') has no registered connector`).toBe(
+          "claude_code_local",
+        );
+        continue;
+      }
+      expect(registered.sourceConnector, `${key} (${vendor})`).toBe(sourceConnector);
+      checked++;
+    }
+    // The 4 polled vendors (anthropic, openai, cursor, copilot) must all
+    // have been checked — guards against the skip branch above silently
+    // swallowing every entry.
+    expect(checked).toBe(4);
   });
 });

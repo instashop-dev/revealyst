@@ -9,7 +9,17 @@ import type {
   ScoreDefinitionInput,
 } from "../../src/contracts/scores";
 
-/** Post-create state applied to a connection made by loadFixture. */
+/**
+ * Post-create state applied to a connection made by loadFixture. The
+ * loader's precedence (load.ts's applyConnectionState) is fixed and NOT
+ * combinable — earlier wins:
+ *   1. status "error"   → connections.setStatus(id, "error", lastError)
+ *   2. status "paused"  → connections.setStatus(id, "paused")
+ *   3. synced: true     → connections.markSynced(id) (agent connections)
+ *   4. status "active"  → connections.markPolled(id, { ok: true })
+ * A spec combining e.g. status "active" + synced: true takes the `synced`
+ * branch (3), never both.
+ */
 export type ConnectionStateSpec = {
   /** FixtureGraph connections[].key */
   connection: string;
@@ -49,6 +59,16 @@ export type SeedUserSpec = {
   person?: string;
 };
 
+/**
+ * `publishCustomDefinition` itself carries no entitlement check — that gate
+ * lives at src/lib/custom-index-impl.ts's `assertCustomIndexEntitledForOrg`
+ * (checked only by the /api/indexes route). recomputeOrg re-derives
+ * `customIndexesEntitled` from the org's LIVE subscription, so a custom
+ * index only actually gets scored when the plan also loads a `subscription`
+ * (in practice: an entitling subscription spec is required for this org's
+ * custom indexes to produce score_results, even though this type doesn't
+ * enforce it).
+ */
 export type CustomIndexSpec = {
   /** Must match /^custom-[a-z0-9]+(-[a-z0-9]+)*$/. */
   slug: string;
@@ -120,8 +140,9 @@ export type SeedPlan = {
   /** Last day WITH data (yesterday UTC when run live; fixed in tests). */
   anchorDay: string;
   orgs: SeedOrgPlan[];
-  /** Flip one migration-seeded benchmarks row to status='verified'. */
-  verifyBenchmarkRow?: boolean;
+  /** Flip one migration-seeded benchmarks row (identified by scoreSlug +
+   * componentKey) to status='verified'. */
+  verifyBenchmark?: { scoreSlug: string; componentKey: string };
 };
 
 /** Implemented in activity.ts (pure — no I/O, deterministic per anchor). */

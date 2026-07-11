@@ -36,30 +36,26 @@ import {
   jitter,
   jitterInt,
   lerp,
-  pick,
   randFloat,
   randInt,
   shuffle,
   type Rng,
 } from "./rng";
+// Both reused from src/** rather than re-implemented (pure, no I/O — see
+// their own module comments): addDays's UTC day arithmetic is byte-identical
+// to the local implementation this replaces, and periodFor("week", iso)'s
+// ISO-Monday math (Mon=0…Sun=6) is what mondayOf used to hand-roll.
+import { addDays } from "../../src/poller/backfill";
+import { periodFor } from "../../src/scoring/periods";
+import { DEFAULT_ALERT_THRESHOLDS } from "../../src/lib/spend-governance";
 
 // ---------------------------------------------------------------------------
 // Date / window utilities (UTC calendar days, YYYY-MM-DD, no timezones).
 // ---------------------------------------------------------------------------
 
-function addDays(iso: string, delta: number): string {
-  const d = new Date(`${iso}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + delta);
-  return d.toISOString().slice(0, 10);
-}
-
 function dayOfWeekMon0(iso: string): number {
   const d = new Date(`${iso}T00:00:00.000Z`);
   return (d.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
-}
-
-function mondayOf(iso: string): string {
-  return addDays(iso, -dayOfWeekMon0(iso));
 }
 
 function monthStart(iso: string): string {
@@ -119,7 +115,7 @@ export type WindowCtx = {
 };
 
 function buildWindowCtx(anchorDay: string): WindowCtx {
-  const currentWeekMonday = mondayOf(anchorDay);
+  const currentWeekMonday = periodFor("week", anchorDay).periodStart;
   const weeks: WeekWindow[] = [];
   for (let i = 1; i <= 13; i++) {
     const monday = addDays(currentWeekMonday, -7 * (14 - i));
@@ -142,6 +138,17 @@ function buildWindowCtx(anchorDay: string): WindowCtx {
 function weekIndexForDay(day: string, ctx: WindowCtx): number {
   for (const w of ctx.weeks) {
     if (day >= w.monday && day <= w.sunday) return w.index;
+  }
+  // Days after the last complete week (weeks[12].sunday) fall in the
+  // partial current week containing anchorDay — index 14. A day BEFORE the
+  // 13-week window start is a caller bug (e.g. an eligibility clamp that
+  // forgot to clip against ctx.windowStart), not a legitimate "current
+  // week": silently returning 14 would misclassify it as the newest week
+  // instead of surfacing the mistake.
+  if (day < ctx.windowStart) {
+    throw new Error(
+      `weekIndexForDay: day ${day} precedes the 13-week window start ${ctx.windowStart}`,
+    );
   }
   return 14; // the partial (current) week containing anchorDay
 }
@@ -327,7 +334,10 @@ function buildPersonaDays(
 type RecordRow = FixtureGraph["records"][number];
 type SignalRow = FixtureGraph["signals"][number];
 
-const SOURCE_CONNECTOR: Record<AcmeVendorKey, string> = {
+// Exported so tests can pin these against the real registry/fixture sources
+// of truth (src/connectors/registry.ts, fixtures/score-definitions/) rather
+// than letting the seed's copies silently drift (CLAUDE.md fix #12).
+export const SOURCE_CONNECTOR: Record<AcmeVendorKey, string> = {
   anthropic: "anthropic-console@1",
   openai: "openai@1",
   cursor: "cursor@1",
@@ -725,10 +735,6 @@ function emitCopilotDay(
   );
 
   const tMult = tokensMult(multiplier);
-  const tokensIn = jitterInt(rng, 3000 * tMult, 0.35, 80);
-  const tokensOut = jitterInt(rng, 650 * tMult, 0.35, 20);
-  g.addRecord(rec(subjectKey, "tokens_input", day, "", tokensIn, attribution, sc));
-  g.addRecord(rec(subjectKey, "tokens_output", day, "", tokensOut, attribution, sc));
   g.addRecord(
     rec(subjectKey, "model_requests", day, MODEL.gpt5copilot, jitterInt(rng, 9 * multiplier, 0.4, 1), attribution, sc),
   );
@@ -739,18 +745,33 @@ function emitCopilotDay(
   const agentic = chance(rng, agenticProbability(weekIndex));
   g.addRecord(rec(subjectKey, "feature_used", day, FEATURE.completion, 1, attribution, sc));
   if (chance(rng, 0.5)) g.addRecord(rec(subjectKey, "feature_used", day, FEATURE.chat, 1, attribution, sc));
-  if (chance(rng, 0.3)) g.addRecord(rec(subjectKey, "feature_used", day, FEATURE.cli, 1, attribution, sc));
-  if (agentic) {
-    g.addRecord(rec(subjectKey, "feature_used", day, FEATURE.agent, 1, attribution, sc));
-    g.addRecord(rec(subjectKey, "agent_active", day, "", 1, attribution, sc));
-    g.addRecord(
-      rec(subjectKey, "agent_requests", day, "", jitterInt(rng, 6 * multiplier, 0.4, 1), attribution, sc),
-    );
+
+  // CLI-derived metrics (src/connectors/copilot/normalize.ts: sessions,
+  // agent_sessions, tokens_input, and tokens_output are populated ONLY from
+  // a per-user row's totals_by_cli) — gated on the SAME roll that emits
+  // feature=cli, so the seed never fabricates CLI session/token volume on a
+  // day the cli feature never fired (never a bare feature=cli chip with no
+  // CLI activity behind it, and never CLI activity with no feature chip).
+  const usedCli = chance(rng, 0.3);
+  if (usedCli) {
+    g.addRecord(rec(subjectKey, "feature_used", day, FEATURE.cli, 1, attribution, sc));
+    const tokensIn = jitterInt(rng, 3000 * tMult, 0.35, 80);
+    const tokensOut = jitterInt(rng, 650 * tMult, 0.35, 20);
+    g.addRecord(rec(subjectKey, "tokens_input", day, "", tokensIn, attribution, sc));
+    g.addRecord(rec(subjectKey, "tokens_output", day, "", tokensOut, attribution, sc));
     g.addRecord(
       rec(subjectKey, "sessions", day, "", jitterInt(rng, 2 * multiplier, 0.4, 1), attribution, sc),
     );
     g.addRecord(
       rec(subjectKey, "agent_sessions", day, "", jitterInt(rng, 1 * multiplier, 0.5, 1), attribution, sc),
+    );
+  }
+
+  if (agentic) {
+    g.addRecord(rec(subjectKey, "feature_used", day, FEATURE.agent, 1, attribution, sc));
+    g.addRecord(rec(subjectKey, "agent_active", day, "", 1, attribution, sc));
+    g.addRecord(
+      rec(subjectKey, "agent_requests", day, "", jitterInt(rng, 6 * multiplier, 0.4, 1), attribution, sc),
     );
   }
 
@@ -923,6 +944,27 @@ function buildSvcCiRunner(g: GraphBuilder, rng: Rng, ctx: WindowCtx): void {
   }
 }
 
+/** Business (Mon–Fri) calendar days in [start, end], inclusive. */
+function businessDaysInRange(start: string, end: string): string[] {
+  const days: string[] = [];
+  let d = start;
+  while (d <= end) {
+    if (dayOfWeekMon0(d) < 5) days.push(d);
+    d = addDays(d, 1);
+  }
+  return days;
+}
+
+/** Sums `spend_cents` (vendor-billed, never `_estimated`) rows with
+ * day >= monthStart — the month-to-date budget math both Acme's and
+ * Globex's budget limits derive from (readSpendGovernance sums ALL
+ * spend_cents rows regardless of attribution, so this mirrors that). */
+function mtdSpendCents(records: readonly RecordRow[], monthStart: string): number {
+  return records
+    .filter((r) => r.metricKey === "spend_cents" && r.day >= monthStart)
+    .reduce((sum, r) => sum + r.value, 0);
+}
+
 /** Org-level billing account: daily billed spend_cents, account attribution,
  * no identity link — the honest home for MTD budget math. */
 function buildOrgAccount(
@@ -942,7 +984,21 @@ function buildOrgAccount(
     ctx.anchorDay,
     Math.round(density * businessDayCount(ctx)),
   );
+  const covered = new Set(days);
   for (const day of days) {
+    g.addRecord(rec(subjectKey, "active_day", day, "", 1, attribution, sc));
+    g.addRecord(
+      rec(subjectKey, "spend_cents", day, "", jitterInt(rng, baseSpendCents, 0.3, 50), attribution, sc),
+    );
+  }
+  // Guarantee MTD coverage regardless of anchorDay's day-of-month: the
+  // density pick above draws over the WHOLE 91-day window, so an early-month
+  // anchor can leave every current-month day undrawn — flooring the budget
+  // limit's MTD sum to 0 and silently killing the engineered 80%/
+  // over-budget alerts on a live (non-fixed-anchor) run. Only fills days the
+  // density pick missed — never overwrites an already-picked day's value.
+  for (const day of businessDaysInRange(ctx.monthStartCurrent, ctx.anchorDay)) {
+    if (covered.has(day)) continue;
     g.addRecord(rec(subjectKey, "active_day", day, "", 1, attribution, sc));
     g.addRecord(
       rec(subjectKey, "spend_cents", day, "", jitterInt(rng, baseSpendCents, 0.3, 50), attribution, sc),
@@ -954,7 +1010,9 @@ function buildOrgAccount(
 // Org 1 — Acme Robotics (team).
 // ---------------------------------------------------------------------------
 
-const ACME_CONNECTIONS: FixtureGraph["connections"] = [
+// Exported (with SOURCE_CONNECTOR above) so tests can derive each fixture
+// connection key's real vendor id without a second hardcoded mapping.
+export const ACME_CONNECTIONS: FixtureGraph["connections"] = [
   { key: "anthropic", vendor: "anthropic_console", displayName: "Anthropic Console", authKind: "api_key" },
   { key: "openai", vendor: "openai", displayName: "OpenAI", authKind: "api_key" },
   { key: "cursor", vendor: "cursor", displayName: "Cursor", authKind: "admin_key" },
@@ -973,9 +1031,11 @@ const OAUTH_GAP_DETAIL =
  * versions/components, subjectLevel "person". Seeded org-scoped into Acme
  * via SeedOrgPlan.scoreDefinitions so recompute writes person-level rows
  * and the segments panel has buckets to fill (standing in for W2-I's
- * canonical segmentation job).
+ * canonical segmentation job). Exported so tests can pin these against
+ * fixtures/score-definitions/personal-presets.json (the source of truth
+ * they're meant to mirror) instead of drifting silently.
  */
-const PERSON_PRESET_CLONES: ScoreDefinitionInput[] = [
+export const PERSON_PRESET_CLONES: ScoreDefinitionInput[] = [
   {
     slug: "adoption",
     version: 1,
@@ -1287,7 +1347,7 @@ function randCountForRun(key: string): number {
   return base[key] ?? 2;
 }
 
-function buildAcmeOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
+function buildAcmeOrg(ctx: WindowCtx): SeedOrgPlan {
   const rng = createRng(DEFAULT_SEED);
   const g = buildAcmeGraph(rng, ctx);
   const graph = g.toGraph();
@@ -1296,11 +1356,7 @@ function buildAcmeOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
   // (readSpendGovernance) — size the limit from the org-wide current-month
   // total (org accounts + shared console + Cursor person-attributed spend)
   // so pctUsed lands ≈85% (crosses the 80 threshold, never 100).
-  const mtdSpend = graph.records
-    .filter(
-      (r) => r.metricKey === "spend_cents" && r.day >= ctx.monthStartCurrent,
-    )
-    .reduce((sum, r) => sum + r.value, 0);
+  const mtdSpend = mtdSpendCents(graph.records, ctx.monthStartCurrent);
   const budgetLimit = Math.max(1000, Math.round(mtdSpend / 0.85));
 
   return {
@@ -1343,7 +1399,7 @@ function buildAcmeOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
       { connection: "cursor_sandbox", status: "paused" },
     ],
     connectorRuns: buildAcmeConnectorRuns(ctx),
-    budget: { monthlyLimitCents: budgetLimit, alertThresholds: [50, 80, 100] },
+    budget: { monthlyLimitCents: budgetLimit, alertThresholds: DEFAULT_ALERT_THRESHOLDS },
     subscription: { status: "active", quantity: 12 },
     scoreDefinitions: PERSON_PRESET_CLONES,
     customIndexes: [
@@ -1398,25 +1454,33 @@ function buildAcmeOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
     ],
     invites: [{ email: `newhire@${ACME_EMAIL_DOMAIN}`, role: "member" }],
     benchmarkConsent: [{ user: "member-power", granted: true }],
+    // Real customer-org action strings/targetKinds ONLY (inventoried via
+    // `grep auditLog.record( src/**`) — never a fixture key standing in for
+    // a real DB id (load.ts auto-fills targetId from the resolved org/actor
+    // id where production always self-targets; omitted elsewhere, since a
+    // plan-time subject/connection UUID doesn't exist yet). Impersonation
+    // audits are deliberately NOT modeled here: production writes those as
+    // admin.impersonate.start/.stop, targetKind "user", into the SYSTEM
+    // org's audit log ONLY (src/lib/auth.ts) — never a customer org's, which
+    // is all this seed's auditLog reads exercise.
     auditEvents: [
       {
         actor: "tara",
-        action: "connection.created",
-        targetKind: "connection",
-        targetId: "anthropic",
-        metadata: { vendor: "anthropic_console" },
+        action: "org.visibility_set",
+        targetKind: "org",
+        metadata: { visibilityMode: "managed" },
       },
       {
         actor: "tara",
-        action: "budget.updated",
-        targetKind: "budget",
-        metadata: { monthlyLimitCents: budgetLimit },
+        action: "consent.benchmark_set",
+        targetKind: "user",
+        metadata: { granted: true },
       },
       {
-        actor: "platform-staff",
-        action: "org.impersonation_started",
-        targetKind: "org",
-        metadata: { reason: "support" },
+        actor: "member-power",
+        action: "identity.link",
+        targetKind: "identity",
+        metadata: { method: "manual" },
       },
     ],
     recompute: [
@@ -1438,7 +1502,7 @@ function buildAcmeOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
 // self-linked in the reconcile UI (manual method): its account-attributed
 // spend_cents rows also degrade Jordan's score attribution to "account"
 // via lowestAttribution — the personal-mode attribution-honesty exercise.
-function buildJordanOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
+function buildJordanOrg(ctx: WindowCtx): SeedOrgPlan {
   const rng = createRng(DEFAULT_SEED + 1);
   const g = new GraphBuilder();
   g.connections.push(
@@ -1562,8 +1626,8 @@ function buildJordanOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
         connection: "anthropic",
         kind: "poll",
         outcome: "success",
-        windowStart: addDays(anchorDay, -2),
-        windowEnd: anchorDay,
+        windowStart: addDays(ctx.anchorDay, -2),
+        windowEnd: ctx.anchorDay,
         subjectsSeen: 2,
         recordsUpserted: 45,
         signalsUpserted: 12,
@@ -1572,8 +1636,8 @@ function buildJordanOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
         connection: "openai",
         kind: "poll",
         outcome: "success",
-        windowStart: addDays(anchorDay, -2),
-        windowEnd: anchorDay,
+        windowStart: addDays(ctx.anchorDay, -2),
+        windowEnd: ctx.anchorDay,
         subjectsSeen: 1,
         recordsUpserted: 30,
         signalsUpserted: 8,
@@ -1582,8 +1646,8 @@ function buildJordanOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
         connection: "claude_code_local",
         kind: "poll",
         outcome: "success",
-        windowStart: addDays(anchorDay, -2),
-        windowEnd: anchorDay,
+        windowStart: addDays(ctx.anchorDay, -2),
+        windowEnd: ctx.anchorDay,
         subjectsSeen: 1,
         recordsUpserted: 40,
         signalsUpserted: 12,
@@ -1603,7 +1667,7 @@ function buildJordanOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
 // Org 3 — Globex Pilot (small team, no subscription, over budget).
 // ---------------------------------------------------------------------------
 
-function buildGlobexOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
+function buildGlobexOrg(ctx: WindowCtx): SeedOrgPlan {
   const rng = createRng(DEFAULT_SEED + 2);
   const g = new GraphBuilder();
   g.connections.push({
@@ -1661,7 +1725,18 @@ function buildGlobexOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
     ctx.anchorDay,
     Math.round(0.8 * businessDayCount(ctx)),
   );
+  const billingCovered = new Set(billingDays);
   for (const day of billingDays) {
+    g.addRecord(rec("globex-org-account", "active_day", day, "", 1, "account", SOURCE_CONNECTOR.anthropic));
+    g.addRecord(
+      rec("globex-org-account", "spend_cents", day, "", jitterInt(rng, 70, 0.3, 10), "account", SOURCE_CONNECTOR.anthropic),
+    );
+  }
+  // Guarantee MTD coverage regardless of anchorDay's day-of-month — same
+  // rationale as buildOrgAccount's guarantee block (CLAUDE.md fix #1). Only
+  // fills days the density pick above missed.
+  for (const day of businessDaysInRange(ctx.monthStartCurrent, ctx.anchorDay)) {
+    if (billingCovered.has(day)) continue;
     g.addRecord(rec("globex-org-account", "active_day", day, "", 1, "account", SOURCE_CONNECTOR.anthropic));
     g.addRecord(
       rec("globex-org-account", "spend_cents", day, "", jitterInt(rng, 70, 0.3, 10), "account", SOURCE_CONNECTOR.anthropic),
@@ -1674,9 +1749,7 @@ function buildGlobexOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
     );
   }
 
-  const mtdBilled = g.records
-    .filter((r) => r.metricKey === "spend_cents" && r.day >= ctx.monthStartCurrent)
-    .reduce((sum, r) => sum + r.value, 0);
+  const mtdBilled = mtdSpendCents(g.records, ctx.monthStartCurrent);
   // Budget deliberately below MTD spend — over-budget (≥100% of limit).
   const budgetLimit = Math.max(500, Math.round(mtdBilled * 0.9));
 
@@ -1690,8 +1763,8 @@ function buildGlobexOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
         connection: "anthropic",
         kind: "poll",
         outcome: "success",
-        windowStart: addDays(anchorDay, -3),
-        windowEnd: anchorDay,
+        windowStart: addDays(ctx.anchorDay, -3),
+        windowEnd: ctx.anchorDay,
         subjectsSeen: 3,
         recordsUpserted: 60,
         signalsUpserted: 20,
@@ -1701,13 +1774,13 @@ function buildGlobexOrg(anchorDay: string, ctx: WindowCtx): SeedOrgPlan {
         kind: "backfill",
         outcome: "success",
         windowStart: ctx.windowStart,
-        windowEnd: addDays(anchorDay, -4),
+        windowEnd: addDays(ctx.anchorDay, -4),
         subjectsSeen: 3,
         recordsUpserted: 220,
         signalsUpserted: 60,
       },
     ],
-    budget: { monthlyLimitCents: budgetLimit, alertThresholds: [50, 80, 100] },
+    budget: { monthlyLimitCents: budgetLimit, alertThresholds: DEFAULT_ALERT_THRESHOLDS },
     recompute: [
       { grain: "month", anchorDay: ctx.prevMonthMidDay },
       { grain: "month", anchorDay: ctx.anchorDay },
@@ -1750,7 +1823,11 @@ function buildOnboardingOrgs(): SeedOrgPlan[] {
     tiny(
       "Onboarding — Same Day",
       [{ key: "anthropic", vendor: "anthropic_console", displayName: "Anthropic Console", authKind: "api_key" }],
-      [{ connection: "anthropic", status: "active", synced: true }],
+      // status "active" WITHOUT synced: true — exercises load.ts's
+      // markPolled path (poll vendors are usable pre-sync; scoreTimingChannel
+      // only checks isUsableConnection + vendor, never lastSuccessAt, for a
+      // non-local channel, so this stays same_day — CLAUDE.md fix #10).
+      [{ connection: "anthropic", status: "active" }],
     ),
     tiny(
       "Onboarding — Overnight",
@@ -1782,11 +1859,11 @@ export const buildDemoSeedPlan: BuildDemoSeedPlan = (anchorDay: string): SeedPla
   return {
     anchorDay,
     orgs: [
-      buildAcmeOrg(anchorDay, ctx),
-      buildJordanOrg(anchorDay, ctx),
-      buildGlobexOrg(anchorDay, ctx),
+      buildAcmeOrg(ctx),
+      buildJordanOrg(ctx),
+      buildGlobexOrg(ctx),
       ...buildOnboardingOrgs(),
     ],
-    verifyBenchmarkRow: true,
+    verifyBenchmark: { scoreSlug: "fluency", componentKey: "effectiveness" },
   };
 };

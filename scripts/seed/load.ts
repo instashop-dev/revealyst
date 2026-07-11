@@ -240,7 +240,12 @@ async function loadOrgPlan(
   anchorDay: string,
 ): Promise<OrgSummary | undefined> {
   if (await findOrgIdByName(db, orgPlan.name)) {
-    console.warn(`seed: org "${orgPlan.name}" already exists — skipping`);
+    console.warn(
+      `seed: org "${orgPlan.name}" already exists — skipping. If this org ` +
+        `is half-seeded from an interrupted run, delete it (or restart the ` +
+        `in-memory dev db) before re-seeding, or it will keep being skipped ` +
+        `with incomplete data.`,
+    );
     return undefined;
   }
 
@@ -402,11 +407,23 @@ async function loadOrgPlan(
 
   for (const spec of orgPlan.auditEvents ?? []) {
     const actorUserId = userIdByKey.get(spec.actor) ?? null;
+    // A plan-time spec can't honestly supply a real subject/connection UUID
+    // (those don't exist until loadFixture runs above) — but production
+    // audits of an org-targeted or self-targeted user action always target a
+    // real id we DO already have here, so fill it in rather than leaving a
+    // fixture key or a fabricated value (CLAUDE.md fix #4).
+    const targetId =
+      spec.targetId ??
+      (spec.targetKind === "org"
+        ? orgId
+        : spec.targetKind === "user"
+          ? (actorUserId ?? undefined)
+          : undefined);
     await scoped.auditLog.record({
       actorUserId,
       action: spec.action,
       targetKind: spec.targetKind,
-      targetId: spec.targetId,
+      targetId,
       metadata: spec.metadata,
     });
   }
@@ -450,7 +467,7 @@ export async function loadSeedPlan(
     }
   }
 
-  if (plan.verifyBenchmarkRow) {
+  if (plan.verifyBenchmark) {
     // Idempotent: setting an already-verified row to 'verified' is a no-op
     // update, so a re-run's early org-skip elsewhere doesn't need to gate
     // this too.
@@ -459,8 +476,8 @@ export async function loadSeedPlan(
       .set({ status: "verified" })
       .where(
         and(
-          eq(benchmarks.scoreSlug, "fluency"),
-          eq(benchmarks.componentKey, "effectiveness"),
+          eq(benchmarks.scoreSlug, plan.verifyBenchmark.scoreSlug),
+          eq(benchmarks.componentKey, plan.verifyBenchmark.componentKey),
         ),
       );
   }
