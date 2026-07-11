@@ -8,8 +8,10 @@ import { ConnectionRowActions } from "@/components/connection-row-actions";
 import { EmptyState } from "@/components/empty-state";
 import { GithubAppConnectCard } from "@/components/github-app-connect-card";
 import { PageHeader } from "@/components/page-header";
+import { SyncAgentCard } from "@/components/sync-agent-card";
 import { SyncAllButton, SyncNowButton } from "@/components/sync-buttons";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
+import { SYNC_STALE_AFTER_DAYS } from "@/lib/agent-sync";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import {
   Table,
@@ -72,6 +74,10 @@ export default async function ConnectionsPage({
 }) {
   const ctx = await requireAppContext();
   const connections = await ctx.scope.connections.list();
+  // The local Claude Code agent connection, if paired — drives the Sync card's
+  // paired/last-synced state (create-or-reuse handles the not-yet-paired case).
+  // Derived from the already-fetched list; no extra query.
+  const localAgent = connections.find((c) => c.vendor === "claude_code_local");
   const banner = copilotConnectBanner(await searchParams);
   // Render-time env gate (ADR 0022): the Copilot connect card only offers the
   // GitHub App install when the App secrets are configured on this deployment
@@ -140,6 +146,13 @@ export default async function ConnectionsPage({
                       status={connection.status}
                       lastSuccessAt={connection.lastSuccessAt}
                       lastError={connection.lastError}
+                      // Staleness applies only to the manually-synced local
+                      // agent — polled connectors get no threshold.
+                      staleAfterDays={
+                        connection.vendor === "claude_code_local"
+                          ? SYNC_STALE_AFTER_DAYS
+                          : undefined
+                      }
                     />
                   </TableCell>
                   {showActions && (
@@ -174,6 +187,11 @@ export default async function ConnectionsPage({
       )}
 
       <section className="mt-8 grid gap-4 sm:grid-cols-2">
+        <SyncAgentCard
+          existingConnectionId={localAgent?.id ?? null}
+          paired={Boolean(localAgent && localAgent.status !== "error")}
+          lastSuccessAt={localAgent?.lastSuccessAt ?? null}
+        />
         {GITHUB_APP_VENDORS.map((v) => (
           <GithubAppConnectCard
             key={v.vendor}

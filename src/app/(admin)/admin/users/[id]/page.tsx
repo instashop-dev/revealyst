@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { userDetailForAdmin } from "@/db/admin";
 import { requireAdminContext } from "@/lib/admin-context";
+import { SYNC_STALE_AFTER_DAYS } from "@/lib/agent-sync";
 import { formatRelativeTime } from "@/lib/format";
 import { vendorLabel } from "@/lib/vendor-labels";
 
@@ -214,6 +215,15 @@ export default async function AdminUserDetailPage({
                         status={toSyncStatus(c.status)}
                         lastSuccessAt={c.lastSuccessAt}
                         lastError={c.lastError}
+                        // Same staleness treatment the user sees on their own
+                        // Connections page/dashboard — an admin investigating
+                        // freshness must not get a rosier badge (sibling-guard
+                        // rule; push-ingest vendor only, polled rows unchanged).
+                        staleAfterDays={
+                          c.vendor === "claude_code_local"
+                            ? SYNC_STALE_AFTER_DAYS
+                            : undefined
+                        }
                       />
                     </TableCell>
                   </TableRow>

@@ -73,7 +73,9 @@ export const metadata: Metadata = {
 
 // The "Connects" strip derives from the live connector registry so marketing
 // can never advertise a connector that doesn't exist (plus the Claude Code
-// local agent, which ingests via the desktop companion, not polling).
+// local agent, which ingests when the user runs the Revealyst Agent sync on
+// their own machine — a manual, on-demand push, not a resident companion or
+// server polling).
 // Everything else in the frozen vendor enum is shown honestly as "soon" —
 // including NLV_PENDING_VENDORS: connectors that are code-complete and
 // registered but whose live integration is still founder-gated (NLV run +

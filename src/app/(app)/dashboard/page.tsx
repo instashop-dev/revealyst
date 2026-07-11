@@ -27,6 +27,7 @@ import {
 } from "@/components/scores/score-card-model";
 import { ShareScoreButton } from "@/components/share-score-button";
 import { BudgetAlertBanner } from "@/components/spend/budget-alert-banner";
+import { SyncStalenessBanner } from "@/components/sync-staleness-banner";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +44,7 @@ import {
   AGENTIC_WINDOW_DAYS,
   computeAgenticAdoption,
 } from "@/lib/agentic-adoption";
+import { SYNC_STALE_AFTER_DAYS } from "@/lib/agent-sync";
 import { detectDailySpike } from "@/lib/anomaly";
 import { requireAppContext, type AppContext } from "@/lib/api-context";
 import { dashboardSummary } from "@/lib/api-impl";
@@ -427,6 +429,8 @@ async function PersonalSelfView({
         />
       ) : null}
 
+      <SyncStalenessBanner connections={connections} />
+
       <AttentionSection items={attentionItems} />
 
       {scores.size === 0 && (
@@ -683,6 +687,8 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
         />
       ) : null}
 
+      <SyncStalenessBanner connections={connections} />
+
       <AttentionSection items={attentionItems} />
 
       {hasScores ? (
@@ -843,6 +849,11 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
                       status={connection.status}
                       lastSuccessAt={connection.lastSuccessAt}
                       lastError={connection.lastError}
+                      staleAfterDays={
+                        connection.vendor === "claude_code_local"
+                          ? SYNC_STALE_AFTER_DAYS
+                          : undefined
+                      }
                     />
                   </div>
                 ))
