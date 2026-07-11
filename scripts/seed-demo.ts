@@ -7,9 +7,14 @@
 //   npm run dev:seed:demo   (terminal 2)
 // Re-runs skip orgs that already exist by name (loadSeedPlan's guard).
 // Override the anchor for reproducible loads: SEED_ANCHOR_DAY=2026-07-10.
+// SEED_PROD_SAFE=1 applies scripts/seed/prod-safety.ts (REQUIRED for any
+// non-throwaway target: random unlogged passwords, no platform admin,
+// unmeterable past_due subscriptions, no global benchmark flip, "[Demo] "
+// org-name prefix). Counterpart: scripts/seed-demo-teardown.ts.
 import { createDb } from "../src/db/client";
 import { buildDemoSeedPlan } from "./seed/activity";
 import { loadSeedPlan } from "./seed/load";
+import { applyProdSafety } from "./seed/prod-safety";
 
 const DEV_DB_URL =
   process.env.DATABASE_URL ??
@@ -24,7 +29,16 @@ function yesterdayUtc(): string {
 async function main() {
   const db = createDb({ DATABASE_URL: DEV_DB_URL });
   const anchorDay = process.env.SEED_ANCHOR_DAY ?? yesterdayUtc();
-  const plan = buildDemoSeedPlan(anchorDay);
+  const prodSafe = process.env.SEED_PROD_SAFE === "1";
+  const plan = prodSafe
+    ? applyProdSafety(buildDemoSeedPlan(anchorDay))
+    : buildDemoSeedPlan(anchorDay);
+  if (prodSafe) {
+    console.log(
+      "prod-safe mode: [Demo] org prefix, random unlogged passwords " +
+        "(use admin impersonation), past_due subscriptions, no benchmark flip",
+    );
+  }
   const result = await loadSeedPlan(
     db,
     plan,

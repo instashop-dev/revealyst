@@ -1,0 +1,54 @@
+# Manually-dispatched demo-data management for PRODUCTION (Neon via the
+# DATABASE_URL repo secret — the only sanctioned prod-DB access path, same as
+# deploy.yml's migrations step). Seeding always runs prod-safe
+# (scripts/seed/prod-safety.ts): "[Demo] "-prefixed orgs, random unlogged
+# passwords (view demo orgs via admin impersonation), past_due (entitling but
+# never-metered) subscriptions, no global benchmark flip. The demo decays as
+# its anchor ages — refresh with action=teardown then action=seed.
+name: Seed demo data (production)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "seed (prod-safe) or teardown (delete all demo data)"
+        required: true
+        type: choice
+        options:
+          - seed
+          - teardown
+      confirm:
+        description: 'Type "production" to confirm the target database'
+        required: true
+        type: string
+
+jobs:
+  seed-demo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm target
+        if: ${{ inputs.confirm != 'production' }}
+        run: |
+          echo 'Refusing: confirm input must be exactly "production".'
+          exit 1
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Run ${{ inputs.action }}
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          SEED_PROD_SAFE: "1"
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "DATABASE_URL repo secret not set — nothing to run against."
+            exit 1
+          fi
+          if [ "${{ inputs.action }}" = "teardown" ]; then
+            npx tsx scripts/seed-demo-teardown.ts
+          else
+            npx tsx scripts/seed-demo.ts
+          fi
