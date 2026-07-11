@@ -7,6 +7,8 @@ import type { AgentIngestRequest } from "../src/contracts/api";
 import type { Db } from "../src/db/client";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
+import type { PollMessage } from "../src/poller/messages";
+import { previousDay } from "../src/scoring";
 import { ingestAgentBatch } from "../src/lib/agent-ingest";
 import {
   composeAgentToken,
@@ -518,5 +520,73 @@ describe("agent ingest — operator controls", () => {
         ),
       );
     expect(after.lastUsedAt).not.toBeNull();
+  });
+});
+
+describe("agent ingest — score-recompute enqueue (Fix 2, plan PR2)", () => {
+  const collect = () => {
+    const sent: PollMessage[] = [];
+    return {
+      sent,
+      send: async (message: PollMessage) => {
+        sent.push(message);
+      },
+    };
+  };
+
+  it("a successful ingest with rows enqueues exactly one recompute for the token's org", async () => {
+    const { sent, send } = collect();
+    // Bracket the call so the day assertion can't flake across a UTC
+    // midnight boundary (the lib reads its own clock).
+    const before = previousDay(new Date().toISOString().slice(0, 10));
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, makeBatch(), {
+      send,
+    });
+    const after = previousDay(new Date().toISOString().slice(0, 10));
+    expect(outcome.ok).toBe(true);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      kind: "score-recompute",
+      orgId: orgA, // from the token, never the payload
+    });
+    expect([before, after]).toContain(
+      (sent[0] as { day: string }).day,
+    );
+  });
+
+  it("failed ingests never enqueue: bad auth, bad body, paused connection", async () => {
+    const { sent, send } = collect();
+    await ingestAgentBatch(db, ENV, "not-a-token", makeBatch(), { send });
+
+    const badBody = makeBatch();
+    badBody.records[0].day = "2026-06-15"; // outside window → 400
+    await ingestAgentBatch(db, ENV, tokenA, badBody, { send });
+
+    const paused = composeAgentToken(orgA, connPaused, secretPaused);
+    await ingestAgentBatch(db, ENV, paused, makeBatch(), { send });
+
+    expect(sent).toHaveLength(0);
+  });
+
+  it("a zero-row (empty) batch does not enqueue — no amplification on empty syncs", async () => {
+    const { sent, send } = collect();
+    const empty = makeBatch({ records: [], signals: [] });
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, empty, { send });
+    expect(outcome.ok).toBe(true);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("a throwing queue never fails the committed ingest (best-effort)", async () => {
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, makeBatch(), {
+      send: async () => {
+        throw new Error("queue unavailable");
+      },
+    });
+    expect(outcome).toMatchObject({ ok: true, status: 200 });
+  });
+
+  it("omitting deps keeps the legacy call shape working (no enqueue)", async () => {
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, makeBatch());
+    expect(outcome.ok).toBe(true);
   });
 });

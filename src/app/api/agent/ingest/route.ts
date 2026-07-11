@@ -27,6 +27,14 @@ export async function POST(req: Request) {
   }
 
   const { db, env } = getApiContext();
-  const outcome = await ingestAgentBatch(db, env, bearer, body);
+  const outcome = await ingestAgentBatch(db, env, bearer, body, {
+    // getApiContext narrows the runtime env to CredentialEnv for typing,
+    // but the object is the full CloudflareEnv — same widening the poll
+    // routes get via handleApi's ctx.env. POLL_QUEUE is bound in
+    // wrangler.jsonc; the send itself is best-effort inside the lib.
+    send: async (message) => {
+      await (env as unknown as CloudflareEnv).POLL_QUEUE.send(message);
+    },
+  });
   return Response.json(outcome.body, { status: outcome.status });
 }
