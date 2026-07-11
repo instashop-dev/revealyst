@@ -1,4 +1,8 @@
 import type { forOrg } from "../db/org-scope";
+import {
+  computeAgenticAdoption,
+  type AgenticAdoption,
+} from "./agentic-adoption";
 import { resolveBenchmarkSource, type BenchmarkSummary } from "./benchmarks";
 import {
   latestTeamScoresBySlug,
@@ -61,6 +65,17 @@ export type DashboardView = {
    * admin-set displayName, status) — same privacy rationale as `definitions`,
    * so `assertTeamOnlyPseudonymized` is unaffected. */
   connections: Awaited<ReturnType<OrgScope["connections"]["list"]>>;
+  /** Agentic-adoption view (F1.4 / research M6): the org-level share of active
+   * days on which an AI agent was used, plus a weekly trend. Derived in JS from
+   * the `agent_active` rows fetched in the stage-1 Promise.all below and the
+   * `active_day` rows already fetched for the summary — one new query, zero new
+   * sequential stages (G10). The value is aggregate-only: distinct subject-day
+   * COUNTS and per-connector day counts, never a person identifier or a
+   * per-person ranking — so, like `definitions`/`gaps`/`connections`, it does
+   * not change what `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must
+   * inspect, and the team surface stays aggregate-only (no per-person agentic
+   * ranking, per the F1.4 constraint). */
+  agentic: AgenticAdoption;
 };
 
 export async function readDashboardView(
@@ -88,6 +103,7 @@ export async function readDashboardView(
     spendRecords,
     spendEstimatedRecords,
     activeDayRecords,
+    agentActiveRecords,
     featureRecords,
     volumeRecords,
     runs,
@@ -111,6 +127,14 @@ export async function readDashboardView(
     }),
     scope.metrics.records({
       metricKey: "active_day",
+      from: window.from,
+      to: window.to,
+    }),
+    // Agentic-adoption numerator (F1.4). One new stage-1 read — the denominator
+    // (active_day) is already fetched above, so the rate + weekly trend derive
+    // in JS with zero further queries and no new sequential stage (G10).
+    scope.metrics.records({
+      metricKey: "agent_active",
       from: window.from,
       to: window.to,
     }),
@@ -189,5 +213,10 @@ export async function readDashboardView(
     definitions,
     gaps: collectGaps(runs),
     connections,
+    // Pure JS over the two already-fetched row sets — no query.
+    agentic: computeAgenticAdoption({
+      agentActiveRows: agentActiveRecords,
+      activeDayRows: activeDayRecords,
+    }),
   };
 }

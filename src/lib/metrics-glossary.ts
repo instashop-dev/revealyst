@@ -755,6 +755,39 @@ export const CONCEPT_GLOSSARY: Record<
   },
 };
 
+// ─── Agentic adoption (F1.4 / research M6) ───
+
+/**
+ * Copy for the agentic-adoption card (share of active days on which an AI
+ * AGENT — not just autocomplete or chat — was used). Lives here, not inline in
+ * the component, so the InfoTip body, the honest empty states, and any future
+ * methodology mention share one source of truth (G7 copy discipline).
+ *
+ * The empty-state copy names the vendors that actually emit the cross-vendor
+ * `agent_active` flag, verified against the connector normalizers:
+ * Claude Code (src/connectors/anthropic/normalize.ts), GitHub Copilot
+ * (used_agent / coding-agent), and Cursor (agent-mode requests). OpenAI usage
+ * emits no agent signal — so a zero here is "no agent-capable telemetry yet",
+ * NOT a measured-zero adoption claim (G4 honesty).
+ */
+export const AGENTIC_ADOPTION_COPY = {
+  title: "Agentic adoption",
+  shortWhat:
+    "The share of active days on which someone used an AI agent — not just autocomplete or chat.",
+  detail:
+    "Counted as distinct person-days with agent activity, divided by distinct active person-days, over the window. A day counts once no matter how many agent requests it held.",
+  /** Active days exist but no vendor reported any agent activity. */
+  emptyNoAgentic: {
+    title: "No agentic usage recorded yet",
+    body: "Not every connected tool reports agent activity. Claude Code, GitHub Copilot, and Cursor report when an AI agent was used; some tools (for example OpenAI usage) emit no agent signal at all. This fills in once an agent-capable tool syncs a day with agent activity — it is not a measured zero.",
+  },
+  /** Nothing has synced yet — no active days to measure against. */
+  emptyNoActivity: {
+    title: "No activity recorded yet",
+    body: "Agentic adoption compares agent-used days against active days. Once your connected tools sync active usage, this rate appears here.",
+  },
+} as const;
+
 // ─── Lookup helpers ───
 
 /** Any preset component key -> plain label; falls back to a humanized key. */
