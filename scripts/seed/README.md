@@ -66,10 +66,39 @@ forever).
 - `personas.ts` + `activity.ts` — pure generators: personas → FixtureGraph +
   extras (`buildDemoSeedPlan(anchorDay)`)
 - `load.ts` — loads a SeedPlan through repo-layer/factory seams + recomputes
-- `../seed-demo.ts` — CLI entry (`npm run dev:seed:demo`)
+- `prod-safety.ts` — transform that makes the plan safe for production
+- `teardown.ts` — removes the demo footprint (refresh cycle / cleanup)
+- `../seed-demo.ts` — CLI entry (`npm run dev:seed:demo`; `SEED_PROD_SAFE=1`
+  applies the transform) · `../seed-demo-teardown.ts` —
+  `npm run dev:seed:demo:teardown` (`SEED_TEARDOWN_UNPREFIXED=1` for local
+  DBs seeded without prod-safe mode — never against prod)
 - `../../tests/seed-demo.test.ts` — end-to-end validation on PGlite: seeds
   with a fixed anchor and asserts every dashboard panel/insight/API read
-  renders non-degenerate against the checklist above
+  renders non-degenerate against the checklist above ·
+  `../../tests/seed-demo-prod-safe.test.ts` — pins the prod-safety
+  invariants + teardown exact-footprint behavior
+
+## Production
+
+Prod seeding runs ONLY through the `Seed demo data (production)` workflow
+(`.github/workflows/seed-demo.yml`, manual dispatch, typed confirm
+`production`, action `seed`/`teardown`) — the `DATABASE_URL` repo secret is
+the sanctioned Neon path, same as deploy.yml's migrations. It always sets
+`SEED_PROD_SAFE=1` (`prod-safety.ts`), which differs from the local seed in
+five reviewed ways: `[Demo] `-prefixed org names (also the teardown match
+key); random unlogged passwords + no platform-admin user (base-plan
+passwords are committed to this repo — view prod demo orgs via admin
+impersonation instead); subscriptions forced to `past_due` (entitling per
+`resolveEntitlement`, but the daily metering dispatcher enumerates only
+active/trialing, so fake Paddle ids never generate API traffic); no global
+benchmark flip; no share links (public `/s/` pages must never present
+fabricated scores as measured usage — invariant b). The demo decays as its
+anchor ages (~4 weeks until trailing windows thin out): refresh with
+`action=teardown` then `action=seed`. Teardown deletes exactly the demo
+footprint — prefixed orgs, the demo users (.example emails), and their
+signup side-effect orgs; unprefixed base names ("Acme Robotics") are
+matched only behind the local-only opt-in because real orgs can collide
+with them (a regression test pins the collision-org-survives behavior).
 
 ## Invariants (do not violate)
 
