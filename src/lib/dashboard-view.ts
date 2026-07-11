@@ -3,10 +3,20 @@ import {
   computeAgenticAdoption,
   type AgenticAdoption,
 } from "./agentic-adoption";
+import { detectDailySpike, type AnomalyResult } from "./anomaly";
 import {
   computeAttributionTrend,
   type AttributionTrend,
 } from "./attribution-trend";
+import {
+  computeCorrelationPanel,
+  type CorrelationResult,
+} from "./correlation";
+import {
+  composeNarrative,
+  type Narrative,
+  type NarrativeNotableEvent,
+} from "./narrative";
 import { resolveBenchmarkSource, type BenchmarkSummary } from "./benchmarks";
 import {
   latestTeamScoresBySlug,
@@ -27,11 +37,16 @@ import {
   RECENT_PERIOD_DAYS,
   type RecentMovement,
 } from "./recent-movement";
+import { detectPlateau, type PlateauResult } from "./plateau";
 import { resolveSegmentSource, type SegmentDistribution } from "./segments";
 import {
   resolveSharedAccountSource,
   type SharedAccountFlag,
 } from "./shared-account";
+import {
+  computeUsageBaselines,
+  materializeMeasuredZeroWeeks,
+} from "./usage-baselines";
 import {
   resolvePerPersonUsage,
   summarizeUsageConcentration,
@@ -110,6 +125,35 @@ export type DashboardView = {
   recentMovement: RecentMovement;
   usageDistribution: UsageDistribution;
   usageConcentration: UsageConcentration;
+  /** F2.3 (I2/I3) early-warning results, computed request-time in stage-2 from
+   * rows already fetched below — spend/prompts daily series (spike detection),
+   * `active_day` + identities (the M8 retention curve behind the plateau
+   * detector), and `connections.lastSuccessAt` (the G5 staleness/post-gap
+   * gates). ZERO new queries. All THREE are aggregate-only — an org daily
+   * total, an org daily total, and a weekly active-PEOPLE count series — with
+   * NO person id, pseudonym, name, or per-named-person value, so like
+   * `recentMovement`/`agentic` above they add nothing
+   * `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must inspect. The
+   * detectors self-gate (staleness, post-gap catch-up batches, insufficient
+   * baselines), so a stale or sparse org yields a non-`spike`/non-`plateau`
+   * kind, never a fabricated alert. */
+  spendAnomaly: AnomalyResult;
+  promptAnomaly: AnomalyResult;
+  usagePlateau: PlateauResult;
+  /** F2.4 (research I7): a 3–6 sentence, template-composed plain-prose summary
+   * of the recent period, built in JS from the movement/agentic/attribution
+   * derivations already computed above — zero new reads, no LLM (G6). Carries
+   * only aggregate sentences (no person id/pseudonym/name), so like
+   * `recentMovement`/`agentic` it does not change what
+   * `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) inspects. */
+  narrative: Narrative;
+  /** F2.4 (research I4): the "moved together" panel — directional same-direction
+   * agreement over weekly buckets for a few fixed metric pairs, derived in JS
+   * from the same pre-fetched rows (zero new reads). Aggregate-only (pair keys +
+   * percentages + week counts, never a subject/person identifier), so it too
+   * leaves the privacy predicate unaffected. Explicitly non-causal (see
+   * correlation.ts / CORRELATION_COPY). */
+  correlations: CorrelationResult[];
 };
 
 export async function readDashboardView(
@@ -286,6 +330,84 @@ export async function readDashboardView(
     recentUsage.excluded.unresolvedPrompts + recentUsage.excluded.sharedPrompts,
   );
 
+  // Zero new reads: the person-attributed usage-day share and the agentic rate
+  // both derive in JS from rows readDashboard already consumed. Hoisted to
+  // consts so the F2.4 narrative below reuses the SAME results the view
+  // returns, rather than recomputing them.
+  const attributionTrend = computeAttributionTrend(activeDayRecords);
+  const agentic = computeAgenticAdoption({
+    agentActiveRows: agentActiveRecords,
+    activeDayRows: activeDayRecords,
+    identityLinks: identities,
+    windowTo: window.to,
+  });
+
+  // F2.3 stage-2 (I2/I3): pure derivation over rows already fetched above, zero
+  // further queries. Spike detection compares the last COMPLETE day's org spend
+  // / prompt total against its trailing 28-day baseline (the detector excludes
+  // today and the day itself); the plateau detector reads the M8 weekly
+  // active-people retention curve with activity-less complete weeks
+  // materialized as measured zeros (a total collapse must register, not vanish
+  // — see materializeMeasuredZeroWeeks). Both self-gate on connection
+  // staleness (G5) from `connections.lastSuccessAt`.
+  const usageBaselines = computeUsageBaselines({
+    activeDayRows: activeDayRecords,
+    identityLinks: identities,
+    windowTo: window.to,
+  });
+  const usagePlateau = detectPlateau({
+    weeklyActive: materializeMeasuredZeroWeeks(usageBaselines),
+    connections,
+    today: window.to,
+  });
+  const spendAnomaly = detectDailySpike({
+    metric: "spend",
+    records: spendRecords,
+    today: window.to,
+    connections,
+  });
+  const promptAnomaly = detectDailySpike({
+    metric: "prompts",
+    records: promptRecords,
+    today: window.to,
+    connections,
+  });
+
+  // F2.4 (I7/I4): both derive in JS from rows already fetched above — zero new
+  // queries, no new sequential stage (G10). The narrative composes the movement
+  // (F1.2), agentic (F1.4), and attribution (F1.7) results already in hand,
+  // plus the F2.3 spike/plateau results above as its notable events (they are
+  // optional directional inputs — a non-`spike`/non-`plateau` kind adds no
+  // sentence, so a quiet or stale org narrates honestly without them).
+  const notableEvents: NarrativeNotableEvent[] = [];
+  for (const anomaly of [spendAnomaly, promptAnomaly]) {
+    if (anomaly.kind === "spike") {
+      notableEvents.push({
+        kind: "spike",
+        subject: anomaly.signal.metric,
+        multiple: anomaly.signal.factor,
+        onDate: anomaly.signal.day,
+      });
+    }
+  }
+  if (usagePlateau.kind === "plateau") {
+    notableEvents.push({ kind: "plateau", subject: "active-people" });
+  }
+  const narrative = composeNarrative({
+    movement: recentMovement,
+    agentic,
+    attribution: attributionTrend,
+    notableEvents,
+  });
+  const correlations = computeCorrelationPanel({
+    windowTo: window.to,
+    spendReportedRows: spendRecords,
+    activeDayRows: activeDayRecords,
+    agentActiveRows: agentActiveRecords,
+    promptRows: promptRecords,
+    identities,
+  });
+
   return {
     summary,
     benchmarks,
@@ -297,21 +419,18 @@ export async function readDashboardView(
     definitions,
     gaps: collectGaps(runs),
     connections,
-    // Zero new reads: the person-attributed usage-day share is derived in JS
-    // from the same active_day rows readDashboard already consumed.
-    attributionTrend: computeAttributionTrend(activeDayRecords),
-    // Pure JS over already-fetched rows — no query. Identity links resolve
-    // subject-days to person-days (`identities` is already in the stage-1
-    // batch for readDashboard/shared-accounts, so this costs nothing); the
-    // lib slices to its own 12-week window ending at `window.to`.
-    agentic: computeAgenticAdoption({
-      agentActiveRows: agentActiveRecords,
-      activeDayRows: activeDayRecords,
-      identityLinks: identities,
-      windowTo: window.to,
-    }),
+    // Both computed once above (zero new reads) and reused here + by the F2.4
+    // narrative: the person-attributed usage-day share (F1.7) and the agentic
+    // person-day rate (F1.4), identity-resolved from already-fetched rows.
+    attributionTrend,
+    agentic,
     recentMovement,
     usageDistribution,
     usageConcentration,
+    spendAnomaly,
+    promptAnomaly,
+    usagePlateau,
+    narrative,
+    correlations,
   };
 }

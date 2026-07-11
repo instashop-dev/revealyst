@@ -162,6 +162,13 @@
       "when": 1783701385449,
       "tag": "0022_seed-agentic-and-credits-metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783757448104,
+      "tag": "0023_digest-preferences",
+      "breakpoints": true
     }
   ]
 }

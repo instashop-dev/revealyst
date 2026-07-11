@@ -189,7 +189,7 @@ describe("ScoreCard", () => {
         data={baseData({ slug: "efficiency", value: 92, componentRows: [] })}
       />,
     );
-    expect(screen.getByText(/relative to spend/i)).toBeInTheDocument();
+    expect(screen.getByText(/per dollar of spend/i)).toBeInTheDocument();
     expect(screen.queryByText(/Usage is broad and consistent/i)).not.toBeInTheDocument();
   });
 

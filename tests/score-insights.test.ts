@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScoreComponent } from "../src/contracts/scores";
+import type { SpikeSignal } from "../src/lib/anomaly";
 import { COACHING_GUIDANCE_SUFFIX } from "../src/lib/coaching-recommendations";
 import type { ScoreTrendPoint } from "../src/lib/dashboard-trends";
 import { SCORE_SLUGS } from "../src/lib/metrics-glossary";
@@ -1048,6 +1049,140 @@ describe("deriveAttention — F1.1 coaching recommendations", () => {
     for (const rec of recs) {
       expect(BANNED_PHRASING.test(rec.title)).toBe(false);
       expect(BANNED_PHRASING.test(rec.body)).toBe(false);
+    }
+  });
+});
+
+// ─── F2.3 (I2/I3) anomaly + plateau integration ───
+
+function spikeSignal(over: Partial<SpikeSignal> = {}): SpikeSignal {
+  return {
+    metric: "spend",
+    day: "2026-06-14",
+    value: 24_000,
+    baselineMean: 10_000,
+    baselineStdDev: 2_000,
+    factor: 2.4,
+    zScore: 7,
+    baselineDays: 28,
+    ...over,
+  };
+}
+
+const plateauInput = {
+  kind: "plateau" as const,
+  peak: { weekStart: "2026-05-04", label: "May 4–10", activePeople: 10 },
+  latest: { weekStart: "2026-06-01", label: "Jun 1–7", activePeople: 4 },
+  decliningWeeks: 3,
+  declinePct: 60,
+};
+
+describe("deriveAttention — F2.3 anomaly/plateau integration", () => {
+  const base = {
+    connections: [],
+    gaps: [],
+    sharedAccountCount: 0,
+    scoreDrops: [],
+  };
+
+  it("backward compatible: no anomalies/plateau inputs → unchanged (empty)", () => {
+    expect(deriveAttention({ ...base })).toEqual([]);
+    expect(deriveAttention({ ...base, anomalies: [], plateau: null })).toEqual([]);
+  });
+
+  it("a spike renders a directional 'anomaly'-kind info item naming the factor", () => {
+    const items = deriveAttention({ ...base, anomalies: [spikeSignal()] });
+    expect(items).toHaveLength(1);
+    expect(items[0].kind).toBe("anomaly");
+    expect(items[0].severity).toBe("info");
+    expect(items[0].title).toMatch(/2\.4×/);
+    // F3: the baseline denominator is MEASURED days and the copy must say so
+    // ("days with spend"), never claim a calendar span it didn't average over.
+    expect(items[0].body).toMatch(
+      /across the 28 days with spend in the last 4 weeks/,
+    );
+    // Directional framing — "unusual", never "wrong".
+    expect(items[0].body).toMatch(/unusual/i);
+    expect(items[0].body).not.toMatch(/\bwrong\b/i);
+  });
+
+  it("F3: a SPARSE baseline's copy states the measured-day denominator, not a calendar window", () => {
+    const items = deriveAttention({
+      ...base,
+      anomalies: [spikeSignal({ baselineDays: 14, factor: 3 })],
+    });
+    expect(items[0].body).toMatch(
+      /across the 14 days with spend in the last 4 weeks/,
+    );
+    // The misleading old phrasing must not come back.
+    expect(items[0].body).not.toMatch(/over the previous 14 days/);
+  });
+
+  it("a prompt-volume spike names prompt volume, not spend", () => {
+    const items = deriveAttention({
+      ...base,
+      anomalies: [spikeSignal({ metric: "prompts", factor: 3 })],
+    });
+    expect(items[0].title).toMatch(/Prompt volume/);
+    expect(items[0].body).toMatch(/prompt volume/);
+  });
+
+  it("a plateau renders a 'plateau'-kind info item stating the decline", () => {
+    const items = deriveAttention({ ...base, plateau: plateauInput });
+    expect(items).toHaveLength(1);
+    expect(items[0].kind).toBe("plateau");
+    expect(items[0].severity).toBe("info");
+    expect(items[0].body).toMatch(/60%/);
+    // F7: the stated run length is the true calendar span since the peak.
+    expect(items[0].body).toMatch(/in the 3 weeks since/);
+    expect(items[0].body).toMatch(/worth a look/i);
+  });
+
+  it("anomalies sort ABOVE coaching recommendations", () => {
+    const items = deriveAttention({
+      ...base,
+      anomalies: [spikeSignal()],
+      scoreComponents: [
+        {
+          slug: "adoption",
+          components: [componentRow("active_days", { normalized: 5, weight: 0.5 })],
+        },
+      ],
+    });
+    const anomalyIdx = items.findIndex((i) => i.kind === "anomaly");
+    const recIdx = items.findIndex((i) => i.kind === "recommendation");
+    expect(anomalyIdx).toBeGreaterThanOrEqual(0);
+    expect(recIdx).toBeGreaterThanOrEqual(0);
+    expect(anomalyIdx).toBeLessThan(recIdx);
+  });
+
+  it("anomalies/plateau sort BELOW action items (an errored connection)", () => {
+    const items = deriveAttention({
+      ...base,
+      connections: [{ label: "Cursor", status: "error" }],
+      anomalies: [spikeSignal()],
+      plateau: plateauInput,
+    });
+    expect(items[0].severity).toBe("action");
+    const firstInfoIdx = items.findIndex((i) => i.severity === "info");
+    const lastActionIdx = items.map((i) => i.severity).lastIndexOf("action");
+    expect(lastActionIdx).toBeLessThan(firstInfoIdx);
+    // Among info items, the spike sorts above the plateau.
+    const anomalyIdx = items.findIndex((i) => i.kind === "anomaly");
+    const plateauIdx = items.findIndex((i) => i.kind === "plateau");
+    expect(anomalyIdx).toBeLessThan(plateauIdx);
+  });
+
+  it("anomaly + plateau copy passes the banned-phrasing sweep", () => {
+    const items = deriveAttention({
+      ...base,
+      anomalies: [spikeSignal(), spikeSignal({ metric: "prompts" })],
+      plateau: plateauInput,
+    });
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      expect(BANNED_PHRASING.test(item.title)).toBe(false);
+      expect(BANNED_PHRASING.test(item.body)).toBe(false);
     }
   });
 });

@@ -330,9 +330,13 @@ describe("schema invariant: no plaintext credential columns", () => {
   // - invites.token_hash: SHA-256 of the invite token (ADR 0004).
   // - share_links.token_hash: SHA-256 of the share-link token (ADR 0008) —
   //   the plaintext lives only in the public /s/<token> URL.
+  // - digest_preferences.unsubscribe_token_hash: SHA-256 HASH of a random
+  //   unsubscribe capability token (ADR 0024, same pattern as share_links; the
+  //   plaintext exists only in the emailed URL) — not a credential, not plaintext.
   const EXEMPT_COLUMNS = new Set([
     "invites.token_hash",
     "share_links.token_hash",
+    "digest_preferences.unsubscribe_token_hash",
   ]);
 
   it("application tables carry no credential-shaped columns", () => {

@@ -18,9 +18,29 @@ export type EmailMessage = {
   to: string;
   subject: string;
   html: string;
+  /** Extra RFC-5322 headers to attach (SES v2 `Content.Simple.Headers`).
+   * Additive — transactional callers omit it. The digest sender (F2.2) uses it
+   * for `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058 one-click), which
+   * meaningfully improves bulk-mail deliverability and inbox trust. */
+  headers?: { name: string; value: string }[];
 };
 
 const DEFAULT_FROM = "Revealyst <noreply@revealyst.com>";
+
+/**
+ * Can `sendEmail` actually deliver with this env? The SAME predicate
+ * `sendEmail` no-ops on, exported so a sender with pre-send side effects can
+ * check it FIRST: the weekly digest compare-and-sets its once-per-week claim
+ * BEFORE sending, so if SES were unconfigured (e.g. a Monday secret-sync
+ * failure) the claim would burn the week on a send that silently no-opped.
+ * Checking this up front lets the digest skip WITHOUT claiming, so the week
+ * can still send once secrets are back.
+ */
+export function isEmailConfigured(env: EmailEnv): boolean {
+  return Boolean(
+    env.SES_ACCESS_KEY_ID && env.SES_SECRET_ACCESS_KEY && env.SES_REGION,
+  );
+}
 
 /**
  * Send one transactional email. When SES is not configured (local dev, or
@@ -37,6 +57,8 @@ const DEFAULT_FROM = "Revealyst <noreply@revealyst.com>";
  * on it reaching the client.
  */
 export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<void> {
+  // Inline (not isEmailConfigured) so TS narrows the fields below; keep the
+  // two checks in lockstep.
   if (!env.SES_ACCESS_KEY_ID || !env.SES_SECRET_ACCESS_KEY || !env.SES_REGION) {
     const detail =
       process.env.NODE_ENV === "production" ? "" : `\n${msg.html}`;
@@ -65,6 +87,14 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<void>
           Simple: {
             Subject: { Data: msg.subject, Charset: "UTF-8" },
             Body: { Html: { Data: msg.html, Charset: "UTF-8" } },
+            ...(msg.headers && msg.headers.length > 0
+              ? {
+                  Headers: msg.headers.map((h) => ({
+                    Name: h.name,
+                    Value: h.value,
+                  })),
+                }
+              : {}),
           },
         },
       }),

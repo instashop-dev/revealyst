@@ -211,7 +211,58 @@ describe("banned-phrasing guard (invariant b: no invented benchmarks)", () => {
       expect(BANNED_PHRASING.test(text), `${where} matches banned phrasing: "${text}"`).toBe(false);
     }
   });
+
+  // F2.5 positioning refresh: the leading-indicator repositioning lives in the
+  // narrative fields (what / whyItMatters / misconception), not just the
+  // reading-guidance strings above — so sweep those too. Same ONE regex, so a
+  // positioning edit can't smuggle in an invented benchmark either.
+  function collectNarrativeStrings(): { where: string; text: string }[] {
+    const strings: { where: string; text: string }[] = [];
+    const push = (where: string, entry: GlossaryFields) => {
+      strings.push({ where: `${where}.what`, text: entry.what });
+      strings.push({ where: `${where}.whyItMatters`, text: entry.whyItMatters });
+      if (entry.misconception) {
+        strings.push({ where: `${where}.misconception`, text: entry.misconception });
+      }
+    };
+    for (const slug of SCORE_SLUGS) {
+      const score = SCORE_GLOSSARY[slug];
+      push(`SCORE_GLOSSARY.${slug}`, score);
+      for (const [key, component] of Object.entries(score.components)) {
+        push(`SCORE_GLOSSARY.${slug}.components.${key}`, component);
+      }
+    }
+    for (const [key, concept] of Object.entries(CONCEPT_GLOSSARY)) {
+      push(`CONCEPT_GLOSSARY.${key}`, concept);
+    }
+    return strings;
+  }
+
+  it("no narrative string states a benchmark/threshold as fact", () => {
+    for (const { where, text } of collectNarrativeStrings()) {
+      expect(BANNED_PHRASING.test(text), `${where} matches banned phrasing: "${text}"`).toBe(false);
+    }
+  });
+
+  it("no score/concept copy ships 'time saved' / 'hours saved' as a product number (Group C refusal)", () => {
+    // Adoption/usage sophistication are leading indicators — Revealyst never
+    // ships a time-saved figure (plan §2 G7, research Group C). Mirrors the
+    // same refusal sweep in tests/maturity.test.ts.
+    const all = [
+      ...collectNarrativeStrings().map((s) => s.text),
+      ...collectInterpretStrings().map((s) => s.text),
+    ];
+    for (const text of all) {
+      expect(text.toLowerCase(), `"${text}"`).not.toMatch(/time saved|hours saved/);
+    }
+  });
 });
+
+type GlossaryFields = {
+  what: string;
+  whyItMatters: string;
+  misconception?: string;
+};
 
 describe("SCORE_GLOSSARY.interpretBands completeness", () => {
   it("every score has non-empty low/building/strong band guidance", () => {

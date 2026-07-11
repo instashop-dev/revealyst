@@ -212,6 +212,17 @@ export default function MethodologyPage() {
           <SectionHeading id={methodologyAnchor("honesty")}>
             How to read these scores
           </SectionHeading>
+          <p className="max-w-prose text-sm text-muted-foreground">
+            Revealyst scores measure{" "}
+            <span className="font-medium text-foreground">
+              adoption and usage sophistication
+            </span>{" "}
+            — how broadly, how regularly, and how skillfully AI tools are used.
+            They are a leading indicator of where AI value can come from, not a
+            measure of realized productivity or business outcomes: adoption is
+            not the same as the value your team actually produced, and Revealyst
+            never estimates time saved or ROI.
+          </p>
           <GlossaryBody entry={CONCEPT_GLOSSARY.honesty} />
         </section>
 

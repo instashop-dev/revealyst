@@ -7,6 +7,7 @@ import {
   purgeExpiredRetention,
 } from "../db/system";
 import { meterSubscription } from "../metering/meter";
+import { runWeeklyDigest } from "./digest";
 import { periodFor, recomputeOrg } from "../scoring";
 import {
   SYSTEM_ORG_ID,
@@ -105,6 +106,26 @@ export async function processPollMessage(
         throw new Error("meter-subscription requires Paddle config (worker consumer)");
       }
       await meterSubscription(db, d.paddleConfig, message);
+      return;
+    }
+    case "digest-weekly": {
+      const d = requireDeps(deps, message.kind);
+      // Soft skip (log-and-ack), NOT a throw: a missing BETTER_AUTH_URL /
+      // email env is an environment gap, and throwing would retry the message
+      // to exhaustion and dead-letter it every single week (DLQ noise with no
+      // recovery path). The digest makes no week-claims before its own guards
+      // run (runWeeklyDigest bails pre-claim when SES is unconfigured), so
+      // skipping is safe — the week can still send once the env is fixed.
+      if (!d.emailEnv || !d.appOrigin) {
+        console.warn(
+          `[digest] org ${message.orgId}: missing email env or app origin — skipped (no claim made)`,
+        );
+        return;
+      }
+      await runWeeklyDigest(db, message.orgId, {
+        emailEnv: d.emailEnv,
+        appOrigin: d.appOrigin,
+      });
       return;
     }
   }
