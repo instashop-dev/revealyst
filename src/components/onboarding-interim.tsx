@@ -55,7 +55,13 @@ export function OnboardingInterim({
         {interim.connectedLabel && (
           <p className="text-sm text-muted-foreground">
             <span className="font-medium text-foreground">Connected:</span>{" "}
-            {interim.connectedLabel} · backfill in progress.
+            {interim.connectedLabel}
+            {/* Channel-true suffix from the copy constants: "backfill in
+             * progress" only when a poll vendor is present — the local Agent
+             * is a one-shot client push with no backfill machinery. */}
+            {interim.timing.connectionNote
+              ? ` · ${interim.timing.connectionNote}.`
+              : "."}
           </p>
         )}
 

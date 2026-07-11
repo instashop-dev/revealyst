@@ -85,14 +85,20 @@ export function OnboardingWizard({
   }
 
   const anyConnected = connected.size > 0;
-  // Channel-aware end-state copy: only non-errored vendors are in `connected`,
-  // so treat each as usable. Poll connectors enqueue a same-day recompute; the
-  // local Agent channel waits for the nightly cron — the copy never promises
-  // "today" to a local-only org (see src/lib/onboarding-guide.ts).
-  const channelInputs = Array.from(connected).map((vendor) => ({
-    vendor,
-    status: "active" as const,
-  }));
+  // Channel- AND sync-state-aware end-state copy (F1.6). Statuses come from
+  // the server-loaded rows, NOT from this session's connect events: an agent
+  // paired in this session has only had a token issued — its connection is
+  // `pending` (markSynced flips it to `active` on the first real push), so
+  // the copy says "waiting for your agent's first sync", never "your data is
+  // in". Poll vendors connected this session are genuinely in-flight (the
+  // connect flow kicks off their first poll), so `pending` is fine for them
+  // — the lib treats pending poll connections as usable.
+  const channelInputs = Array.from(connected).map((vendor) => {
+    const initial = initialConnections.find(
+      (c) => c.vendor === vendor && c.status !== "error",
+    );
+    return { vendor, status: initial?.status ?? ("pending" as const) };
+  });
   const timing = SCORE_TIMING_COPY[scoreTimingChannel(channelInputs)];
   const connectedLabel = connectedToolsLabel(channelInputs);
 

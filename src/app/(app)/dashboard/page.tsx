@@ -44,6 +44,7 @@ import {
   SCORE_SLUGS,
   type ScoreSlug,
 } from "@/lib/metrics-glossary";
+import { isUsableConnection, syncedToolCount } from "@/lib/onboarding-guide";
 import { timeStage } from "@/lib/request-timing";
 import {
   connectionAttentionInputs,
@@ -301,16 +302,19 @@ async function PersonalSelfView({
 
       {scores.size === 0 && (
         // Connected, but no person scores computed yet — the F1.6 cliff. The
-        // interim bridge replaces a wall of "still computing" cards with an
-        // honest, channel-aware "here's what we ingested; first scores by …"
-        // plus the first-week checklist. Ingestion evidence is derived from
-        // data already in hand (summary + connections) — zero new reads.
+        // interim bridge renders ABOVE the still-computing score cards (the
+        // grid below stays — its null-state cards explain each score): an
+        // honest, sync-state-aware "here's what we ingested; first scores
+        // by …" plus the first-week checklist. Ingestion evidence derives
+        // from data already in hand (summary + connections) — zero new reads.
+        // Renders nothing when no usable (non-errored, non-paused) connection
+        // exists (buildOnboardingInterim's `none` channel).
         <OnboardingInterim
           connections={connections}
           ingestionEvidence={{
             activePeople: summary.activePeople,
             unresolvedSubjects: summary.unresolvedSubjects,
-            connectionsSynced: connections.filter((c) => c.lastSuccessAt).length,
+            connectionsSynced: syncedToolCount(connections),
           }}
           isAdmin={ctx.role === "admin"}
         />
@@ -566,19 +570,22 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
             </div>
           </section>
         </>
-      ) : connections.some((c) => c.status !== "error") ? (
-        // Usable connections exist but no scores yet — the "connected → first
-        // scores" cliff (F1.6). Show the interim bridge: what's ingested so
-        // far, honest channel-aware timing, and the first-week checklist.
-        // Ingestion evidence derives from the already-fetched view (zero new
-        // reads): activePeople/unresolvedSubjects from the summary, synced
-        // count from the connections' last_success_at.
+      ) : connections.some(isUsableConnection) ? (
+        // Usable (non-errored, non-paused — the lib's definition) connections
+        // exist but no scores yet — the "connected → first scores" cliff
+        // (F1.6). Show the interim bridge: what's ingested so far, honest
+        // sync-state-aware timing, and the first-week checklist. Ingestion
+        // evidence derives from the already-fetched view (zero new reads):
+        // activePeople/unresolvedSubjects from the summary, the synced count
+        // as distinct usable vendors with a last_success_at. An org with only
+        // paused/errored connections falls through to the plain EmptyState —
+        // nothing is ingesting, so no bridge that implies progress.
         <OnboardingInterim
           connections={connections}
           ingestionEvidence={{
             activePeople: summary.activePeople,
             unresolvedSubjects: summary.unresolvedSubjects,
-            connectionsSynced: connections.filter((c) => c.lastSuccessAt).length,
+            connectionsSynced: syncedToolCount(connections),
           }}
           isAdmin={ctx.role === "admin"}
         />
