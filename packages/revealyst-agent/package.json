@@ -1,14 +1,27 @@
 {
-  "name": "revealyst-agent",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@revealyst/agent",
+  "version": "0.2.0",
   "description": "Revealyst Agent — reads Claude Code session logs, summarizes them locally to metric records (never raw prompt content), pushes via device token.",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/instashop-dev/revealyst.git",
+    "directory": "packages/revealyst-agent"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "revealyst-agent": "dist/cli.js"
   },
   "files": ["dist"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   }
 }
