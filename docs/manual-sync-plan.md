@@ -205,13 +205,14 @@ Phase-1 security work items:
    `isValidTokenShape`, never persisted, never echoed, documented "CI/headless only") so anyone holding today's broken
    copy or old READMEs is un-stranded.
 2. **npm supply chain (R7):** the unscoped name `revealyst-agent` is unclaimed while live onboarding copy already
-   prints `npx revealyst-agent` — an open squat window onto machines holding `~/.claude`. **Claim the name in the
-   first Phase-1 deploy window** (stub or real publish). **[decision] Publish under unscoped `revealyst-agent`**,
-   matching the shipped `bin`, README, and all copy (zero drift risk), deviating from the research's `@revealyst/agent`
-   — flagged for founder sign-off in the publish PR; flipping to scoped is cheap **only before** first publish. Either
-   way: CI-only release, `npm publish --provenance` with `id-token: write`, npm 2FA + automation token in a repo
-   secret, version-pinned copy (`npx revealyst-agent@<MIN_AGENT_VERSION> …`) to harden the warm-npx-cache gap (A6) and
-   bound bad-publish blast radius.
+   prints `npx revealyst-agent` — an open squat window onto machines holding `~/.claude`. **Claim both names in the
+   first Phase-1 deploy window.** **[decision — FOUNDER-DECIDED 2026-07-11, supersedes this plan's earlier unscoped
+   default]: canonical package is scoped `@revealyst/agent`** (npm org `revealyst` created by the founder; org
+   namespace kills scope-squatting), **plus a thin unscoped `revealyst-agent` alias package** (bin delegates to the
+   scoped package) so every existing `npx revealyst-agent` instruction keeps working and the unscoped name is
+   un-squattable. Either way: CI-only release, `npm publish --provenance` with `id-token: write`, npm 2FA + automation
+   token in a repo secret, version-pinned copy (`npx @revealyst/agent@^<AGENT_PIN_VERSION> …`) to harden the
+   warm-npx-cache gap (A6) and bound bad-publish blast radius.
 3. **CSRF on the mint route:** research assumption A7 (Better Auth SameSite + `trustedOrigins` enforced on POST) must
    be verified for this custom route in the Sync-surface PR — a forged mint rotates the victim's token and bricks
    their agent. Add an explicit Origin check if Better Auth's CSRF cover doesn't extend to non-auth API routes.
@@ -306,7 +307,7 @@ Inherited from research §5 (R1–R10 stand); new/raised by this plan's evidence
 | # | Risk | Mitigation |
 |---|---|---|
 | P1 | **Skip-unchanged-files is unsafe as scoped in research item 4** — skipping files while declaring the full window makes delete-then-upsert erase the skipped days (found by the CLI stream). | **[decision]** Dropped from MVP entirely (research already hedged "if trivial" — it is not). Fast-follow only with per-changed-day window narrowing; never against a full-window restatement. |
-| P2 | Package-name fork (`revealyst-agent` vs `@revealyst/agent`) breaks `npx` copy if unreconciled (research §6.7 self-inconsistency). | One name, decided in the publish PR, aligned across package.json/bin/README/wizard/Sync card + pinned constant. Default: unscoped (matches everything shipped); founder may flip pre-publish. |
+| P2 | Package-name fork (`revealyst-agent` vs `@revealyst/agent`) breaks `npx` copy if unreconciled (research §6.7 self-inconsistency). | **RESOLVED 2026-07-11 (founder):** canonical `@revealyst/agent` + unscoped `revealyst-agent` alias package delegating to it — old copy keeps working, both names claimed. New copy renders the scoped name from `src/lib/agent-sync.ts` constants. |
 | P3 | Local-agent honesty gaps silently dropped today (no `connector_runs` sink) — Phase 2 is mis-sized as "enum add" without this. | Phase-2 ADR scoped to include the gap sink; documented in §5. |
 | P4 | Recompute cost amplification via non-expiring leaked token once Fix 2 lands. | Wrote-rows guard (PR2); min-interval + `expiresAt` fast-follows (§7.4). |
 | P5 | CSRF cover for the mint route is assumed, not verified (A7). | Explicit verification (or Origin check) inside PR3's checklist — blocking for that PR. |
@@ -351,5 +352,5 @@ data loss vs the ½·retention rule. Re-attaches the §5.6 thin-collector invers
   release-bumps-constant process, 14-day threshold's dependence on upstream `cleanupPeriodDays`).
 - **Decisions** (deviations or choices the research left open, each marked [decision] in place): event-day pin over
   mtime; zero-events abort; two-command copy + ephemeral env fallback (both sides aligned); injected `send` over
-  widening `getApiContext`; unscoped npm name (founder-flippable pre-publish); skip-unchanged dropped from MVP;
+  widening `getApiContext`; npm name resolved by the founder 2026-07-11 to scoped `@revealyst/agent` + unscoped alias (§7.2); skip-unchanged dropped from MVP;
   wrote-rows recompute guard.

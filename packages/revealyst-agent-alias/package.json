@@ -1,0 +1,25 @@
+{
+  "name": "revealyst-agent",
+  "version": "0.2.0",
+  "description": "Alias for @revealyst/agent — the Revealyst Agent CLI. Published so `npx revealyst-agent` resolves to the canonical package (and so the name cannot be squatted).",
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/instashop-dev/revealyst.git",
+    "directory": "packages/revealyst-agent-alias"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "revealyst-agent": "bin.js"
+  },
+  "files": ["bin.js"],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@revealyst/agent": "^0.2.0"
+  }
+}
