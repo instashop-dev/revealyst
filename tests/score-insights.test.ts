@@ -752,7 +752,7 @@ describe("deriveAttention — F1.3 score-drop attribution", () => {
     expect(items[0].body).not.toContain("the part that dropped most");
   });
 
-  it("a component omitted on one side is never blamed — falls back to un-attributed copy when nothing measured on both sides fell", () => {
+  it("a component omitted on one side is never blamed — the honest stopped-being-measurable copy renders instead", () => {
     const items = deriveAttention({
       ...base,
       scoreDrops: [
@@ -764,7 +764,8 @@ describe("deriveAttention — F1.3 score-drop attribution", () => {
             previousVersion: 1,
             // engagement_per_spend ROSE; output_per_spend is omitted this
             // period (present previously) — the real cause is unattributable,
-            // so no component is guessed as the driver.
+            // so no component is guessed as the driver; the measurability
+            // asymmetry itself is stated instead.
             currentComponents: { engagement_per_spend: entry(25) } satisfies Breakdown,
             previousComponents: {
               engagement_per_spend: entry(20),
@@ -776,6 +777,104 @@ describe("deriveAttention — F1.3 score-drop attribution", () => {
     });
     expect(items).toHaveLength(1);
     expect(items[0].body).not.toContain("the part that dropped most");
+    expect(items[0].body).toContain("isn't measurable this period");
+  });
+
+  it("omission asymmetry (reviewer scenario, verbatim): a 2-point breadth dip is never blamed for a 32-point drop whose cause is a component that stopped being measurable", () => {
+    // prev fluency {breadth:20, depth:25, effectiveness:30} = 75; current
+    // {breadth:18, depth:25} with effectiveness OMITTED (vendor funnel stopped
+    // reporting). Breadth explains 2 of 32 points — naming it would be a
+    // fabricated causal claim.
+    const items = deriveAttention({
+      ...base,
+      scoreDrops: [
+        {
+          slug: "fluency",
+          delta: -32,
+          attribution: {
+            currentVersion: 1,
+            previousVersion: 1,
+            currentComponents: {
+              breadth: entry(18),
+              depth: entry(25),
+            } satisfies Breakdown,
+            previousComponents: {
+              breadth: entry(20),
+              depth: entry(25),
+              effectiveness: entry(30),
+            } satisfies Breakdown,
+          },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].body).not.toContain("the part that dropped most");
+    expect(items[0].body).not.toContain("Breadth");
+    expect(items[0].body).toContain(
+      "A part of this score that was measured last period isn't measurable this period, so the drop isn't pinned on any one part.",
+    );
+  });
+
+  it("materiality floor: a small faller below half the drop is never named (un-attributed copy, no omission involved)", () => {
+    // Every component measured on both sides; worst faller is effectiveness at
+    // -3 against a -12 drop — below the 0.5 × |delta| = 6 floor, so nothing is
+    // named (the breakdown genuinely can't account for the drop).
+    const items = deriveAttention({
+      ...base,
+      scoreDrops: [
+        {
+          slug: "fluency",
+          delta: -12,
+          attribution: {
+            currentVersion: 1,
+            previousVersion: 1,
+            currentComponents: {
+              breadth: entry(18),
+              depth: entry(25),
+              effectiveness: entry(27),
+            } satisfies Breakdown,
+            previousComponents: {
+              breadth: entry(20),
+              depth: entry(25),
+              effectiveness: entry(30),
+            } satisfies Breakdown,
+          },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].body).not.toContain("the part that dropped most");
+    expect(items[0].body).not.toContain("isn't measurable");
+    expect(items[0].body).toContain("versus the previous period of the same kind.");
+  });
+
+  it("sign guard: a large RISING component never outranks a small material faller", () => {
+    // output_per_spend ROSE 90; engagement_per_spend fell 10 against a -15
+    // drop (≥ the 7.5 floor) — Engagement per spend is named, never the riser.
+    const items = deriveAttention({
+      ...base,
+      scoreDrops: [
+        {
+          slug: "efficiency",
+          delta: -15,
+          attribution: {
+            currentVersion: 1,
+            previousVersion: 1,
+            currentComponents: {
+              output_per_spend: entry(100),
+              engagement_per_spend: entry(30),
+            } satisfies Breakdown,
+            previousComponents: {
+              output_per_spend: entry(10),
+              engagement_per_spend: entry(40),
+            } satisfies Breakdown,
+          },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].body).toContain("the part that dropped most was Engagement per spend");
+    expect(items[0].body).not.toContain("Output per spend");
   });
 
   it("no attribution supplied → the plain drop copy (backward-compatible)", () => {
@@ -866,6 +965,41 @@ describe("deriveAttention — F1.1 coaching recommendations", () => {
     // depth (10) is weakest, then effectiveness (20) — breadth (30) is cut.
     expect(recs[0].title).toBe("Use AI on more days, not just more per day");
     expect(recs[1].title).toBe("Look at why suggestions are being turned down");
+  });
+
+  it("same-signal components never burn both slots (reviewer scenario): adoption.active_days + fluency.depth dedupe to one, letting tool-coverage through", () => {
+    // adoption.active_days and fluency.depth read the SAME 0–20 `active_day`
+    // signal — both weak at 10, they'd tie and consume both slots with
+    // near-identical advice, cutting the distinct tool-coverage guidance (20).
+    const items = deriveAttention({
+      ...base,
+      scoreComponents: [
+        {
+          slug: "adoption",
+          components: [
+            componentRow("active_days", { normalized: 10, weight: 0.5 }),
+            componentRow("tool_coverage", { normalized: 20, weight: 0.5 }),
+          ],
+        },
+        {
+          slug: "fluency",
+          components: [componentRow("depth", { normalized: 10, weight: 0.33 })],
+        },
+      ],
+    });
+    const recs = items.filter((i) => i.kind === "recommendation");
+    expect(recs).toHaveLength(2);
+    const titles = recs.map((r) => r.title);
+    // Exactly ONE active-days-signal recommendation…
+    expect(
+      titles.filter(
+        (t) =>
+          t === "Make AI part of the daily routine" ||
+          t === "Use AI on more days, not just more per day",
+      ),
+    ).toHaveLength(1);
+    // …and the distinct feature-breadth guidance survives the cap.
+    expect(titles).toContain("Broaden which AI features get used");
   });
 
   it("recommendations sort BELOW real alerts — action first, then every other info item, then guidance", () => {

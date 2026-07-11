@@ -3,6 +3,7 @@ import type { ScoreComponent } from "../contracts/scores";
 import {
   COACHING_GUIDANCE_SUFFIX,
   findCoachingRecommendation,
+  type CoachingRecommendation,
 } from "./coaching-recommendations";
 import type { DefinitionRow, ScoreRow } from "./dashboard-read";
 import type { ScoreTrendPoint } from "./dashboard-trends";
@@ -54,13 +55,28 @@ function periodLabel(point: ScoreTrendPoint): string {
  * same slug both fail safe into `notComparable` rather than being diffed as
  * if they were the same measurement.
  */
+/** The ONE pair-selection rule every "compare against the previous period"
+ * surface shares: sort by periodEnd, take the last two. `deriveDelta` and
+ * `teamScoreDropAttribution` both go through here, so the pair a delta was
+ * computed from and the pair a drop's driver is diagnosed from can never be
+ * two different pairs (F1.3). */
+function lastTwoByPeriodEnd<T extends { periodEnd: string }>(
+  rows: readonly T[],
+): { previous: T; current: T } | null {
+  if (rows.length < 2) return null;
+  const sorted = [...rows].sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+  return {
+    previous: sorted[sorted.length - 2],
+    current: sorted[sorted.length - 1],
+  };
+}
+
 export function deriveDelta(points: readonly ScoreTrendPoint[]): DeltaResult {
-  if (points.length < 2) {
+  const pair = lastTwoByPeriodEnd(points);
+  if (!pair) {
     return { kind: "first" };
   }
-  const sorted = [...points].sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
-  const previous = sorted[sorted.length - 2];
-  const current = sorted[sorted.length - 1];
+  const { previous, current } = pair;
   if (previous.periodGrain !== current.periodGrain) {
     return { kind: "notComparable", reason: "grain" };
   }
@@ -115,6 +131,33 @@ export function formatDelta(
 
 // ─── Person-level delta ───
 
+/** The ONE previous-row selection rule for the personal self-view:
+ * person-level rows of this slug's known definitions at the same grain,
+ * latest by periodEnd. `personDeltaResult` and `personScoreDropAttribution`
+ * both go through here, so the row a personal delta was diffed against and
+ * the row a drop's driver is diagnosed from can never be two different rows
+ * (F1.3). */
+function latestMatchingPersonRow(args: {
+  prevRows: readonly ScoreRow[];
+  definitions: readonly DefinitionRow[];
+  slug: ScoreSlug;
+  grain: PeriodGrain;
+}): ScoreRow | null {
+  const defIds = new Set(
+    args.definitions.filter((d) => d.slug === args.slug).map((d) => d.id),
+  );
+  const matches = args.prevRows.filter(
+    (row) =>
+      row.subjectLevel === "person" &&
+      row.periodGrain === args.grain &&
+      defIds.has(row.definitionId),
+  );
+  if (matches.length === 0) return null;
+  return matches.reduce((best, row) =>
+    row.periodEnd > best.periodEnd ? row : best,
+  );
+}
+
 /**
  * The personal self-view's delta mechanism: compares a person's current
  * score value against the latest person-level row for the same slug/grain
@@ -145,21 +188,10 @@ export function personDeltaResult(args: {
   if (args.currentValue === null) {
     return null;
   }
-  const defIds = new Set(
-    args.definitions.filter((d) => d.slug === args.slug).map((d) => d.id),
-  );
-  const matches = args.prevRows.filter(
-    (row) =>
-      row.subjectLevel === "person" &&
-      row.periodGrain === args.grain &&
-      defIds.has(row.definitionId),
-  );
-  if (matches.length === 0) {
+  const latest = latestMatchingPersonRow(args);
+  if (!latest) {
     return { kind: "first" };
   }
-  const latest = matches.reduce((best, row) =>
-    row.periodEnd > best.periodEnd ? row : best,
-  );
   const previousVersion = args.definitions.find(
     (d) => d.id === latest.definitionId,
   )?.version;
@@ -176,6 +208,62 @@ export function personDeltaResult(args: {
     previous: latest.value,
     delta: round4(args.currentValue - latest.value),
     previousPeriodLabel: args.previousPeriodLabel,
+  };
+}
+
+// ─── Score-drop attribution inputs (F1.3) ───
+
+/** The raw facts a surfaced score drop needs to (maybe) name its driving
+ * component — versions + stored breakdowns of the SAME two rows the delta was
+ * computed from. Built ONLY via `teamScoreDropAttribution` /
+ * `personScoreDropAttribution` below, which share their pair/row selection
+ * with `deriveDelta`/`personDeltaResult` — so the named driver can never
+ * desynchronize from the delta shown beside it. */
+export type ScoreDropAttribution = {
+  currentVersion: number | undefined;
+  previousVersion: number | undefined;
+  currentComponents: unknown;
+  previousComponents: unknown;
+};
+
+/** Team-dashboard selector: given one slug's TEAM-level score rows (any
+ * order), picks the same last-two-by-periodEnd pair `deriveDelta` compares
+ * (via the shared `lastTwoByPeriodEnd`) and returns their versions +
+ * breakdowns. `undefined` when there's no pair — the drop then renders
+ * un-attributed. */
+export function teamScoreDropAttribution<
+  T extends { periodEnd: string; definitionVersion: number; components: unknown },
+>(rows: readonly T[]): ScoreDropAttribution | undefined {
+  const pair = lastTwoByPeriodEnd(rows);
+  if (!pair) return undefined;
+  return {
+    currentVersion: pair.current.definitionVersion,
+    previousVersion: pair.previous.definitionVersion,
+    currentComponents: pair.current.components,
+    previousComponents: pair.previous.components,
+  };
+}
+
+/** Personal self-view selector: resolves the previous row through the same
+ * `latestMatchingPersonRow` selection `personDeltaResult` diffs against, and
+ * its version through the same definitions list. `undefined` when there's no
+ * prior row — the drop then renders un-attributed. */
+export function personScoreDropAttribution(args: {
+  currentVersion: number | undefined;
+  currentComponents: unknown;
+  prevRows: readonly ScoreRow[];
+  definitions: readonly DefinitionRow[];
+  slug: ScoreSlug;
+  grain: PeriodGrain;
+}): ScoreDropAttribution | undefined {
+  const latest = latestMatchingPersonRow(args);
+  if (!latest) return undefined;
+  return {
+    currentVersion: args.currentVersion,
+    previousVersion: args.definitions.find((d) => d.id === latest.definitionId)
+      ?.version,
+    currentComponents: args.currentComponents,
+    previousComponents: latest.components,
   };
 }
 
@@ -314,36 +402,54 @@ function asComponentRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/** A driver is only NAMED when its own contribution fall explains at least
+ * this share of the total score drop. Without a floor, a 2-point component
+ * dip would get blamed for a 32-point drop whose real cause lies elsewhere
+ * (e.g. a component that stopped being measurable) — naming it would be a
+ * fabricated causal claim (invariant b). Presentational threshold only. */
+const DRIVER_MATERIALITY_FACTOR = 0.5;
+
 /**
- * Names the component whose CONTRIBUTION fell the most between two score rows'
- * stored breakdowns — the F1.3 score-drop driver. Only components MEASURED
- * (present as a valid breakdown entry) on BOTH sides are eligible: a component
- * that was omitted in either period, or newly omitted this period, is never
- * blamed for the drop (that would conflate "no data" with "measured decline" —
- * invariant b / the ratio-honesty rule). Returns `null` when nothing measured
- * on both sides actually fell, so the caller falls back to the un-attributed
- * drop copy rather than guessing a cause. Version comparability is the
- * caller's gate (a cross-definition-version diff must never reach here).
+ * Diagnoses what the two stored breakdowns can honestly say about a score
+ * drop (F1.3). Only components MEASURED (a valid breakdown entry) on BOTH
+ * sides are eligible as the `worstFaller` — and only ones that actually LOST
+ * contribution (a large RISER never outranks a small faller). A component
+ * measured last period but missing/invalid this period sets `newlyUnmeasured`
+ * — that asymmetry is itself a knowable fact the drop copy states instead of
+ * guessing a driver (a comparison with a vanished component can't honestly
+ * rank fallers). Returns `null` when either record is malformed. Version
+ * comparability is the caller's gate (a cross-definition-version diff must
+ * never reach here).
  */
-function topContributionDrop(
+function diagnoseDropDrivers(
   currentComponents: unknown,
   previousComponents: unknown,
-): { key: string; contributionDelta: number } | null {
+): {
+  worstFaller: { key: string; contributionDelta: number } | null;
+  newlyUnmeasured: boolean;
+} | null {
   const current = asComponentRecord(currentComponents);
   const previous = asComponentRecord(previousComponents);
   if (!current || !previous) return null;
-  let worst: { key: string; contributionDelta: number } | null = null;
-  for (const [key, curValue] of Object.entries(current)) {
-    const prevValue = previous[key];
-    if (!isBreakdownEntry(curValue) || !isBreakdownEntry(prevValue)) continue;
+  let worstFaller: { key: string; contributionDelta: number } | null = null;
+  let newlyUnmeasured = false;
+  for (const [key, prevValue] of Object.entries(previous)) {
+    if (!isBreakdownEntry(prevValue)) continue;
+    const curValue = current[key];
+    if (!isBreakdownEntry(curValue)) {
+      // Measured last period, not measurable this period — knowable, honest,
+      // and disqualifying for driver-naming (see doc comment).
+      newlyUnmeasured = true;
+      continue;
+    }
     const contributionDelta = round4(curValue.contribution - prevValue.contribution);
     // Only a component that actually LOST contribution can drive a drop.
     if (contributionDelta >= 0) continue;
-    if (!worst || contributionDelta < worst.contributionDelta) {
-      worst = { key, contributionDelta };
+    if (!worstFaller || contributionDelta < worstFaller.contributionDelta) {
+      worstFaller = { key, contributionDelta };
     }
   }
-  return worst;
+  return { worstFaller, newlyUnmeasured };
 }
 
 export type AttentionConnection = { label: string; status: "error" | "paused" };
@@ -389,23 +495,20 @@ export function deriveAttention(input: {
   unresolvedUsage?: { count: number; viewerIsAdmin: boolean; scoresExist: boolean };
   gaps: { kind: string; detail?: string }[];
   sharedAccountCount: number;
-  /** F1.3 — each drop may optionally carry the two score rows' component
-   * breakdowns it was derived from, so the single surfaced drop can NAME its
-   * driving component. Comparability is gated centrally here (not by the
-   * caller): a driver is named only when `currentVersion === previousVersion`
-   * (the same `notComparable` discipline `deriveDelta` applies) AND the
-   * driving component is measured on both sides — otherwise the un-attributed
-   * drop copy is used, never a guessed cause. `attribution` omitted → the
-   * plain drop copy (fully backward-compatible). */
+  /** F1.3 — each drop may optionally carry the versions + breakdowns of the
+   * two rows its delta was computed from (built via `teamScoreDropAttribution`
+   * / `personScoreDropAttribution`, which share their row selection with the
+   * delta helpers). Gating is central, here (not the caller's): a driver is
+   * named only when `currentVersion === previousVersion` (the `notComparable`
+   * discipline), measured on both sides, AND material (its own fall explains
+   * ≥ `DRIVER_MATERIALITY_FACTOR` of the drop). A component measured last
+   * period but not this period yields the honest stopped-being-measurable
+   * copy instead. Otherwise — and when `attribution` is omitted — the plain
+   * un-attributed drop copy (fully backward-compatible). */
   scoreDrops: {
     slug: ScoreSlug;
     delta: number;
-    attribution?: {
-      currentVersion: number | undefined;
-      previousVersion: number | undefined;
-      currentComponents: unknown;
-      previousComponents: unknown;
-    };
+    attribution?: ScoreDropAttribution;
   }[];
   /** F1.1 — per-score component rows (from `formatComponentDetail`) for the
    * scores that currently exist. Gating for coaching recommendations lives
@@ -488,24 +591,39 @@ export function deriveAttention(input: {
     const label = biggestDrop.slug[0].toUpperCase() + biggestDrop.slug.slice(1);
     const roundedDrop = Math.round(Math.abs(biggestDrop.delta));
     const points = `${roundedDrop} point${roundedDrop === 1 ? "" : "s"}`;
-    // Name the driving component ONLY across a same-definition-version pair —
-    // a version change makes contributions incomparable (invariant b), so the
+    // Diagnose a driver ONLY across a same-definition-version pair — a
+    // version change makes contributions incomparable (invariant b), so the
     // drop is reported un-attributed rather than blamed on a component whose
     // meaning may have changed.
     const attribution = biggestDrop.attribution;
-    const driver =
+    const diagnosis =
       attribution &&
       attribution.currentVersion !== undefined &&
       attribution.previousVersion !== undefined &&
       attribution.currentVersion === attribution.previousVersion
-        ? topContributionDrop(
+        ? diagnoseDropDrivers(
             attribution.currentComponents,
             attribution.previousComponents,
           )
         : null;
-    const body = driver
-      ? `${label} fell ${points} versus the previous period of the same kind — the part that dropped most was ${componentLabel(driver.key)}.`
-      : `${label} fell ${points} versus the previous period of the same kind.`;
+    const plainBody = `${label} fell ${points} versus the previous period of the same kind.`;
+    let body = plainBody;
+    if (diagnosis?.newlyUnmeasured) {
+      // Honest omission copy: a component measured last period stopped being
+      // measurable this period. That asymmetry is a knowable, grounded fact —
+      // and it makes ranking the measured fallers dishonest, so no driver is
+      // ever named alongside it (never causal: "isn't pinned", not "caused").
+      body = `${plainBody} A part of this score that was measured last period isn't measurable this period, so the drop isn't pinned on any one part.`;
+    } else if (
+      diagnosis?.worstFaller &&
+      Math.abs(diagnosis.worstFaller.contributionDelta) >=
+        DRIVER_MATERIALITY_FACTOR * Math.abs(biggestDrop.delta)
+    ) {
+      // Materiality floor: name the driver only when its own fall explains at
+      // least DRIVER_MATERIALITY_FACTOR of the total drop — a small dip is
+      // never blamed for a drop it can't account for.
+      body = `${label} fell ${points} versus the previous period of the same kind — the part that dropped most was ${componentLabel(diagnosis.worstFaller.key)}.`;
+    }
     items.push({
       severity: "info",
       title: `${label} dropped`,
@@ -516,10 +634,15 @@ export function deriveAttention(input: {
 
   // Coaching recommendations (F1.1) sort BELOW every real signal: impact 1 is
   // under paused connections (6), gaps (10), shared accounts (8), and any
-  // surfaced drop (≥10). At most MAX_RECOMMENDATIONS, weakest component first.
+  // surfaced drop (≥10). Candidates are deduped by underlying SIGNAL before
+  // the cap — adoption.active_days and fluency.depth read the same 0–20
+  // `active_day` count (tool_coverage/breadth likewise share `feature_used`),
+  // so when both are weak they'd tie and burn both slots on near-identical
+  // advice, cutting distinct guidance. Weakest entry per signal group wins;
+  // then at most MAX_RECOMMENDATIONS, weakest first.
   if (input.scoreComponents && input.scoreComponents.length > 0) {
     const candidates: {
-      recommendation: ReturnType<typeof findCoachingRecommendation>;
+      recommendation: CoachingRecommendation;
       normalized: number;
     }[] = [];
     for (const score of input.scoreComponents) {
@@ -537,8 +660,13 @@ export function deriveAttention(input: {
       }
     }
     candidates.sort((a, b) => a.normalized - b.normalized);
-    for (const { recommendation } of candidates.slice(0, MAX_RECOMMENDATIONS)) {
-      if (!recommendation) continue;
+    const seenSignalGroups = new Set<string>();
+    const distinct = candidates.filter(({ recommendation }) => {
+      if (seenSignalGroups.has(recommendation.signalGroup)) return false;
+      seenSignalGroups.add(recommendation.signalGroup);
+      return true;
+    });
+    for (const { recommendation } of distinct.slice(0, MAX_RECOMMENDATIONS)) {
       items.push({
         severity: "info",
         kind: "recommendation",

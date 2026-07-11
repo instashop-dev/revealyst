@@ -57,10 +57,33 @@ describe("COACHING_RECOMMENDATIONS", () => {
     }
   });
 
-  it("no fabricated 'time saved' / productivity claims (Group C refusal list)", () => {
+  it("no fabricated 'time saved' / productivity claims (Group C refusal list) — titles AND bodies", () => {
     for (const rec of COACHING_RECOMMENDATIONS) {
-      expect(/time saved|hours saved|productivity gain|roi/i.test(rec.body), rec.id).toBe(false);
+      expect(/time saved|hours saved|productivity gain|roi/i.test(rec.title), `${rec.id} title`).toBe(false);
+      expect(/time saved|hours saved|productivity gain|roi/i.test(rec.body), `${rec.id} body`).toBe(false);
     }
+  });
+
+  it("same-signal component pairs share a signalGroup (the deriveAttention dedupe key)", () => {
+    // adoption.active_days and fluency.depth read the same 0–20 `active_day`
+    // count; adoption.tool_coverage and fluency.breadth read the same
+    // `feature_used` breadth — the glossary's own misconception notes say each
+    // pair "always move together", so each pair must dedupe to one slot.
+    const group = (slug: string, key: string) =>
+      COACHING_RECOMMENDATIONS.find(
+        (r) => r.slug === slug && r.componentKey === key,
+      )?.signalGroup;
+    expect(group("adoption", "active_days")).toBe(group("fluency", "depth"));
+    expect(group("adoption", "tool_coverage")).toBe(group("fluency", "breadth"));
+    // The remaining components measure genuinely distinct signals.
+    const distinct = [
+      group("fluency", "effectiveness"),
+      group("efficiency", "output_per_spend"),
+      group("efficiency", "engagement_per_spend"),
+    ];
+    expect(new Set(distinct).size).toBe(3);
+    expect(distinct).not.toContain(group("adoption", "active_days"));
+    expect(distinct).not.toContain(group("adoption", "tool_coverage"));
   });
 });
 

@@ -50,6 +50,8 @@ import {
   deriveAttention,
   deriveDelta,
   personDeltaResult,
+  personScoreDropAttribution,
+  teamScoreDropAttribution,
   type AttentionItem,
   type DeltaResult,
 } from "@/lib/score-insights";
@@ -278,27 +280,10 @@ async function PersonalSelfView({
     (slug) => ({ slug, components: cardData.get(slug)!.componentRows }),
   );
 
-  // F1.3 driver attribution: the latest person-level month row for a slug in
-  // the previous-period window is the same row personDeltaResult diffed against
-  // — its stored breakdown + definition version let deriveAttention name the
-  // component that drove a drop, comparably-gated (zero new queries; prevScores
-  // is already fetched).
-  const defsById = new Map(definitions.map((d) => [d.id, d]));
-  const prevPersonRow = (slug: ScoreSlug) => {
-    const ids = new Set(
-      definitions.filter((d) => d.slug === slug).map((d) => d.id),
-    );
-    const matches = prevScores.filter(
-      (r) =>
-        r.subjectLevel === "person" &&
-        r.periodGrain === "month" &&
-        ids.has(r.definitionId),
-    );
-    return matches.length === 0
-      ? null
-      : matches.reduce((best, r) => (r.periodEnd > best.periodEnd ? r : best));
-  };
-
+  // F1.3 driver attribution: personScoreDropAttribution resolves the previous
+  // row through the SAME selection personDeltaResult diffs against (shared
+  // selector in score-insights.ts), so the named driver can't desynchronize
+  // from the delta beside it. Zero new queries — prevScores is already fetched.
   const scoreDrops = SCORE_SLUGS.map((slug) => ({ slug, d: deltas.get(slug) }))
     .filter(
       (x): x is { slug: ScoreSlug; d: Extract<DeltaResult, { kind: "delta" }> } =>
@@ -306,19 +291,19 @@ async function PersonalSelfView({
     )
     .map((x) => {
       const score = scores.get(x.slug);
-      const prevRow = prevPersonRow(x.slug);
       return {
         slug: x.slug,
         delta: x.d.delta,
-        attribution:
-          score && prevRow
-            ? {
-                currentVersion: score.definitionVersion,
-                previousVersion: defsById.get(prevRow.definitionId)?.version,
-                currentComponents: score.components,
-                previousComponents: prevRow.components,
-              }
-            : undefined,
+        attribution: score
+          ? personScoreDropAttribution({
+              currentVersion: score.definitionVersion,
+              currentComponents: score.components,
+              prevRows: prevScores,
+              definitions,
+              slug: x.slug,
+              grain: "month",
+            })
+          : undefined,
       };
     });
   // The identity-link callout is admin-gated the same way /reconcile itself
@@ -533,37 +518,24 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     (slug) => ({ slug, components: cardData.get(slug)!.componentRows }),
   );
 
-  // F1.3 driver attribution: the last two team-level rows for a slug are the
-  // same current/previous points `deriveDelta` diffed (both come from the one
-  // prefetched `scores.results` fetch) — their stored breakdowns let
-  // deriveAttention name the drop's driving component, comparably-gated.
-  const teamRowsForSlug = (slug: ScoreSlug) =>
-    summary.scores
-      .filter((s) => s.subjectLevel === "team" && s.definitionSlug === slug)
-      .sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+  // F1.3 driver attribution: teamScoreDropAttribution picks the SAME
+  // last-two-by-periodEnd pair `deriveDelta` compares (shared selector in
+  // score-insights.ts), so the named driver can't desynchronize from the
+  // delta beside it. Zero new queries — summary.scores is already fetched.
   const scoreDrops = SCORE_SLUGS.map((slug) => ({ slug, d: deltas.get(slug)! }))
     .filter(
       (x): x is { slug: ScoreSlug; d: Extract<DeltaResult, { kind: "delta" }> } =>
         x.d.kind === "delta",
     )
-    .map((x) => {
-      const rows = teamRowsForSlug(x.slug);
-      const cur = rows[rows.length - 1];
-      const prev = rows[rows.length - 2];
-      return {
-        slug: x.slug,
-        delta: x.d.delta,
-        attribution:
-          cur && prev
-            ? {
-                currentVersion: cur.definitionVersion,
-                previousVersion: prev.definitionVersion,
-                currentComponents: cur.components,
-                previousComponents: prev.components,
-              }
-            : undefined,
-      };
-    });
+    .map((x) => ({
+      slug: x.slug,
+      delta: x.d.delta,
+      attribution: teamScoreDropAttribution(
+        summary.scores.filter(
+          (s) => s.subjectLevel === "team" && s.definitionSlug === x.slug,
+        ),
+      ),
+    }));
   // Team's needs-attention strip surfaces the SAME connector honesty gaps the
   // personal self-view does (W4-W finding A5 — the composed team view now
   // fetches connector_runs and threads gaps through `view.gaps`), plus

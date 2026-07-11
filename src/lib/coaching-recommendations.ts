@@ -21,6 +21,20 @@ import type { ScoreSlug } from "./metrics-glossary";
 //    (appended by `deriveAttention`, so it can never be forgotten per entry):
 //    this is guidance, not a measurement of any individual.
 
+/** The underlying measured signal a recommendation coaches on. Several
+ * preset components read the SAME signal (adoption.active_days and
+ * fluency.depth are both the 0–20-scaled `active_day` count; adoption.
+ * tool_coverage and fluency.breadth are both `feature_used` breadth — the
+ * glossary's own misconception notes say they "always move together").
+ * `deriveAttention` dedupes candidates by this group BEFORE its cap, so two
+ * flavors of the same advice never burn both recommendation slots. */
+export type CoachingSignalGroup =
+  | "active-days"
+  | "feature-breadth"
+  | "effectiveness"
+  | "output-per-spend"
+  | "engagement-per-spend";
+
 export type CoachingRecommendation = {
   /** Stable pattern id, unique across the map. */
   id: string;
@@ -29,6 +43,8 @@ export type CoachingRecommendation = {
   /** A LIVE preset component key of `slug` (validated in tests against
    * SCORE_GLOSSARY[slug].components — never a raw key with no glossary home). */
   componentKey: string;
+  /** Same-signal dedupe group — see `CoachingSignalGroup`. */
+  signalGroup: CoachingSignalGroup;
   /** Task-focused, imperative title — an action, never a verdict. */
   title: string;
   /** One-to-three sentences of task-focused guidance. */
@@ -49,6 +65,7 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     id: "adoption-active-days",
     slug: "adoption",
     componentKey: "active_days",
+    signalGroup: "active-days",
     title: "Make AI part of the daily routine",
     body: "The active-days part of Adoption is measuring low. Adoption grows when AI tools get reached for on more days, not just more within a single day. A common starting point is routing one recurring task — a standup summary, a first-draft email, a code-review comment — through an AI tool each day.",
   },
@@ -56,6 +73,7 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     id: "adoption-tool-coverage",
     slug: "adoption",
     componentKey: "tool_coverage",
+    signalGroup: "feature-breadth",
     title: "Broaden which AI features get used",
     body: "The tool-coverage part of Adoption is measuring low, which usually means usage leans on one or two features. Trying an additional connected feature — chat, inline completion, or an agent mode — for a task it fits is a common way to widen coverage.",
   },
@@ -63,6 +81,7 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     id: "fluency-breadth",
     slug: "fluency",
     componentKey: "breadth",
+    signalGroup: "feature-breadth",
     title: "Explore more of what the connected tools can do",
     body: "The breadth part of Fluency is measuring low. Reaching for more distinct features across the connected tools — rather than one narrow use — is what moves it. Picking one unused feature and finding a real task for it is a common approach.",
   },
@@ -70,6 +89,7 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     id: "fluency-depth",
     slug: "fluency",
     componentKey: "depth",
+    signalGroup: "active-days",
     title: "Use AI on more days, not just more per day",
     body: "The depth part of Fluency — how many days had any activity — is measuring low. More regular, day-to-day use tends to build steadier habits than occasional bursts, so spreading AI use across more days is a common way to raise it.",
   },
@@ -77,13 +97,15 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     id: "fluency-effectiveness",
     slug: "fluency",
     componentKey: "effectiveness",
+    signalGroup: "effectiveness",
     title: "Look at why suggestions are being turned down",
-    body: "The effectiveness part of Fluency — how often AI suggestions get accepted — is measuring low. Reviewing which prompts or contexts lead to rejected suggestions, and adjusting how tasks are framed to the tool, is a common way to raise acceptance.",
+    body: "The effectiveness part of Fluency — how often AI suggestions get accepted — is measuring low. Reviewing the kinds of tasks where suggestions get rejected, and adjusting how those tasks are framed to the tool, is a common way to raise acceptance.",
   },
   {
     id: "efficiency-output-per-spend",
     slug: "efficiency",
     componentKey: "output_per_spend",
+    signalGroup: "output-per-spend",
     title: "Weigh accepted output against what's being spent",
     body: "The output-per-spend part of Efficiency is measuring low. That can mean low acceptance or high spend relative to accepted output — comparing the accepted-suggestion counts against the billed spend for each tool is a common place to start.",
   },
@@ -91,6 +113,7 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     id: "efficiency-engagement-per-spend",
     slug: "efficiency",
     componentKey: "engagement_per_spend",
+    signalGroup: "engagement-per-spend",
     title: "Check active engagement against what's being spent",
     body: "The engagement-per-spend part of Efficiency is measuring low. Reviewing whether the tools with the most spend are the ones people are actually active in — and rightsizing seats or plans that see little use — is a common way to improve it.",
   },
