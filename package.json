@@ -7,6 +7,7 @@
     "dev:db": "node scripts/dev-db.mjs",
     "agent": "tsx packages/revealyst-agent/src/cli.ts",
     "dev:seed": "tsx scripts/seed-fixtures.ts",
+    "dev:seed:demo": "tsx scripts/seed-demo.ts",
     "calibrate:scores": "tsx scripts/calibrate-scores.ts",
     "launch:metrics": "tsx scripts/launch-metrics.ts",
     "rotate:kek": "tsx scripts/rotate-kek.ts",
