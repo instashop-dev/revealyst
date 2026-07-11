@@ -16,7 +16,7 @@ export const AGENT_PACKAGE_NAME = "@revealyst/agent";
 // caret range resolves the newest matching release automatically, but a
 // floor ahead of the registry makes `npx` fail notarget for EVERY user
 // between deploy and publish (review finding, ADR 0025 PR).
-export const AGENT_PIN_VERSION = "0.2.0";
+export const AGENT_PIN_VERSION = "0.2.1";
 
 /** What users actually type after `npx `. The unscoped `revealyst-agent`
  * alias package also resolves, but copy always renders the canonical
