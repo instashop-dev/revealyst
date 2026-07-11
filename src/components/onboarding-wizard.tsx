@@ -29,6 +29,11 @@ import { GithubAppConnectCard } from "@/components/github-app-connect-card";
 import { errorText, postJson } from "@/lib/client-fetch";
 import { connectApiKeyVendor } from "@/lib/connect-vendor";
 import {
+  connectedToolsLabel,
+  SCORE_TIMING_COPY,
+  scoreTimingChannel,
+} from "@/lib/onboarding-guide";
+import {
   COMING_SOON,
   GITHUB_APP_VENDORS,
   KEY_VENDORS,
@@ -80,6 +85,16 @@ export function OnboardingWizard({
   }
 
   const anyConnected = connected.size > 0;
+  // Channel-aware end-state copy: only non-errored vendors are in `connected`,
+  // so treat each as usable. Poll connectors enqueue a same-day recompute; the
+  // local Agent channel waits for the nightly cron — the copy never promises
+  // "today" to a local-only org (see src/lib/onboarding-guide.ts).
+  const channelInputs = Array.from(connected).map((vendor) => ({
+    vendor,
+    status: "active" as const,
+  }));
+  const timing = SCORE_TIMING_COPY[scoreTimingChannel(channelInputs)];
+  const connectedLabel = connectedToolsLabel(channelInputs);
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
@@ -166,9 +181,17 @@ export function OnboardingWizard({
           </Button>
         )}
         {anyConnected && (
-          <p className="text-xs text-muted-foreground">
-            Backfilling your history now — scores fill in as data lands.
-          </p>
+          <div className="flex max-w-md flex-col items-center gap-1 text-center">
+            <p className="text-sm font-medium">{timing.headline}</p>
+            <p className="text-balance text-xs text-muted-foreground">
+              {timing.detail}
+            </p>
+            {connectedLabel && (
+              <p className="text-xs text-muted-foreground">
+                Connected: {connectedLabel}
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>

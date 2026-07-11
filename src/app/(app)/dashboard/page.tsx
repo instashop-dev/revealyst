@@ -11,6 +11,7 @@ import { SharedAccountFlags } from "@/components/dashboard/shared-account-flags"
 import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
 import { EmptyState } from "@/components/empty-state";
 import { InfoTip } from "@/components/info-tip";
+import { OnboardingInterim } from "@/components/onboarding-interim";
 import { PageHeader } from "@/components/page-header";
 import { ScoreCard } from "@/components/scores/score-card";
 import {
@@ -298,6 +299,23 @@ async function PersonalSelfView({
 
       <AttentionSection items={attentionItems} />
 
+      {scores.size === 0 && (
+        // Connected, but no person scores computed yet — the F1.6 cliff. The
+        // interim bridge replaces a wall of "still computing" cards with an
+        // honest, channel-aware "here's what we ingested; first scores by …"
+        // plus the first-week checklist. Ingestion evidence is derived from
+        // data already in hand (summary + connections) — zero new reads.
+        <OnboardingInterim
+          connections={connections}
+          ingestionEvidence={{
+            activePeople: summary.activePeople,
+            unresolvedSubjects: summary.unresolvedSubjects,
+            connectionsSynced: connections.filter((c) => c.lastSuccessAt).length,
+          }}
+          isAdmin={ctx.role === "admin"}
+        />
+      )}
+
       <div className="grid gap-4 md:grid-cols-3">
         {SCORE_SLUGS.map((slug) => (
           <ScoreCard
@@ -548,6 +566,22 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
             </div>
           </section>
         </>
+      ) : connections.some((c) => c.status !== "error") ? (
+        // Usable connections exist but no scores yet — the "connected → first
+        // scores" cliff (F1.6). Show the interim bridge: what's ingested so
+        // far, honest channel-aware timing, and the first-week checklist.
+        // Ingestion evidence derives from the already-fetched view (zero new
+        // reads): activePeople/unresolvedSubjects from the summary, synced
+        // count from the connections' last_success_at.
+        <OnboardingInterim
+          connections={connections}
+          ingestionEvidence={{
+            activePeople: summary.activePeople,
+            unresolvedSubjects: summary.unresolvedSubjects,
+            connectionsSynced: connections.filter((c) => c.lastSuccessAt).length,
+          }}
+          isAdmin={ctx.role === "admin"}
+        />
       ) : (
         <EmptyState
           icon={Gauge}
