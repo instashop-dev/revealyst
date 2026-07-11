@@ -85,6 +85,14 @@ const SCOPED_READS: Array<{
   // seed a budget below, so B's budget id is in the leak universe — org A's
   // get() must surface only A's row.
   { name: "budgets.get", tables: ["budgets"], run: (s) => s.budgets.get() },
+  // Digest preferences (ADR 0024): one row per (org, user), keyed on the
+  // scope's orgId. Both orgs seed an enabled row below, so B's row id is in the
+  // leak universe — org A's list() must surface only A's rows.
+  {
+    name: "digestPreferences.list",
+    tables: ["digest_preferences"],
+    run: (s) => s.digestPreferences.list(),
+  },
   { name: "connectorRuns.list", tables: ["connector_runs"], run: (s) => s.connectorRuns.list() },
   { name: "connectorRuns.latest(B)", tables: ["connector_runs"], run: (s, c) => s.connectorRuns.latest(c.B.connections.anthropic) },
   // Credentials are read-only via withCredential, which throws for foreign
@@ -172,6 +180,9 @@ beforeAll(async () => {
       createdByUserId: inviter.id,
     });
     await benchmarkConsentForOrg(db, orgId).set(inviter.id, true);
+    // An enabled digest preference per org (ADR 0024) so its row id joins the
+    // leak universe and the digestPreferences sweep is non-vacuous.
+    await scoped.digestPreferences.setEnabled(inviter.id, true);
     // An audit row per org (ADR 0010) whose target is a fixture team id, so
     // the B-side row carries a B id and the auditLog sweep is non-vacuous.
     await scoped.auditLog.record({

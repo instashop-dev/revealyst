@@ -10,6 +10,7 @@ const openNextHandler = openNextHandlerModule as ExportedHandler<CloudflareEnv>;
 import "./connectors";
 import { createDb } from "./db/client";
 import type { CredentialEnv } from "./lib/credentials";
+import type { EmailEnv } from "./lib/email";
 import {
   resolvePaddleServerConfig,
   type PaddleEnv,
@@ -35,6 +36,9 @@ import {
 const NIGHTLY_SCORE_CRON = "0 2 * * *";
 // Daily seat metering (W3-M PR5): one message per active/trialing subscription.
 const METERING_CRON = "0 3 * * *";
+// Weekly digest (F2.2): Monday 14:00 UTC (a humane send hour) — one message per
+// org, fanned out through the existing revealyst-poll queue.
+const DIGEST_CRON = "0 14 * * 1";
 
 /** Paddle server config for the consumer, or undefined when unconfigured —
  * resolved safely so a missing key never breaks non-metering queue work. */
@@ -196,6 +200,17 @@ export default {
       await sendInBatches(env.POLL_QUEUE, messages);
       return;
     }
+    if (controller.cron === DIGEST_CRON) {
+      // Weekly digest fan-out: one message per org onto the existing poll queue.
+      // Messages stay tiny (org id only); all assembly/staleness/idempotency
+      // work happens in the consumer (src/poller/digest.ts).
+      const db = createDb(env);
+      const messages = (await listOrgIds(db)).map(
+        (orgId) => ({ kind: "digest-weekly", orgId }) satisfies PollMessage,
+      );
+      await sendInBatches(env.POLL_QUEUE, messages);
+      return;
+    }
     await env.POLL_QUEUE.send({
       kind: "noop-poll",
       orgId: SYSTEM_ORG_ID,
@@ -228,6 +243,8 @@ export default {
       try {
         await processPollMessage(db, message.body, {
           credentialEnv: env as unknown as CredentialEnv,
+          emailEnv: env as unknown as EmailEnv,
+          appOrigin: (env as unknown as { BETTER_AUTH_URL?: string }).BETTER_AUTH_URL ?? "",
           send: async (m, opts) => {
             await env.POLL_QUEUE.send(
               m,

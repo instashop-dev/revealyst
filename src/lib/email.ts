@@ -18,6 +18,11 @@ export type EmailMessage = {
   to: string;
   subject: string;
   html: string;
+  /** Extra RFC-5322 headers to attach (SES v2 `Content.Simple.Headers`).
+   * Additive — transactional callers omit it. The digest sender (F2.2) uses it
+   * for `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058 one-click), which
+   * meaningfully improves bulk-mail deliverability and inbox trust. */
+  headers?: { name: string; value: string }[];
 };
 
 const DEFAULT_FROM = "Revealyst <noreply@revealyst.com>";
@@ -65,6 +70,14 @@ export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<void>
           Simple: {
             Subject: { Data: msg.subject, Charset: "UTF-8" },
             Body: { Html: { Data: msg.html, Charset: "UTF-8" } },
+            ...(msg.headers && msg.headers.length > 0
+              ? {
+                  Headers: msg.headers.map((h) => ({
+                    Name: h.name,
+                    Value: h.value,
+                  })),
+                }
+              : {}),
           },
         },
       }),

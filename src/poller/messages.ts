@@ -66,6 +66,14 @@ export type PollMessage =
       orgId: string;
       paddleSubscriptionId: string;
       priceId: string;
+    }
+  | {
+      // F2.2: assembles and sends one org's weekly digest email. Sent weekly
+      // (one message per org, Monday 14:00 UTC). Idempotent on the prefs row's
+      // last_sent_week compare-and-set, so an at-least-once redelivery for the
+      // same ISO week does not re-send.
+      kind: "digest-weekly";
+      orgId: string;
     };
 
 export type ConnectorPollMessage = Extract<

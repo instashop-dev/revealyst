@@ -7,6 +7,7 @@ import {
   purgeExpiredRetention,
 } from "../db/system";
 import { meterSubscription } from "../metering/meter";
+import { runWeeklyDigest } from "./digest";
 import { periodFor, recomputeOrg } from "../scoring";
 import {
   SYSTEM_ORG_ID,
@@ -105,6 +106,19 @@ export async function processPollMessage(
         throw new Error("meter-subscription requires Paddle config (worker consumer)");
       }
       await meterSubscription(db, d.paddleConfig, message);
+      return;
+    }
+    case "digest-weekly": {
+      const d = requireDeps(deps, message.kind);
+      if (!d.emailEnv || !d.appOrigin) {
+        throw new Error(
+          "digest-weekly requires email env + app origin (worker consumer)",
+        );
+      }
+      await runWeeklyDigest(db, message.orgId, {
+        emailEnv: d.emailEnv,
+        appOrigin: d.appOrigin,
+      });
       return;
     }
   }
