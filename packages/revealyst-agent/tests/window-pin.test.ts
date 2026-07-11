@@ -46,6 +46,10 @@ describe("window pinning", () => {
       expect(record.day <= batch.window.end).toBe(true);
     }
     expect(batch.records.length).toBeGreaterThan(0);
+    // ADR 0025: a narrowed window is disclosed, naming both dates.
+    const gap = batch.gaps.find((g) => g.kind === "sync_window_incomplete");
+    expect(gap?.detail).toContain("2026-06-20");
+    expect(gap?.detail).toContain("2026-05-25");
   });
 
   it("leaves the window alone when evidence reaches back past the requested start", () => {
@@ -54,6 +58,10 @@ describe("window pinning", () => {
       end: "2026-06-22",
     });
     expect(batch.window).toEqual({ start: "2026-06-01", end: "2026-06-22" });
+    // No pin → no incompleteness disclosure.
+    expect(
+      batch.gaps.some((g) => g.kind === "sync_window_incomplete"),
+    ).toBe(false);
   });
 
   it("passes the requested window through with zero events (caller must not push)", () => {

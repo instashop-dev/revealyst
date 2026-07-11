@@ -32,7 +32,7 @@ const CATALOG_SEED =
   "\n" +
   readFileSync("drizzle/0022_seed-agentic-and-credits-metrics.sql", "utf8");
 
-// All 6 HonestyGap kinds (src/contracts/connector.ts) — no runtime array is
+// All 7 HonestyGap kinds (src/contracts/connector.ts) — no runtime array is
 // exported for this type, so the exhaustive list is hand-mirrored here.
 const HONESTY_GAP_KINDS: HonestyGapKind[] = [
   "oauth_actors_missing",
@@ -40,6 +40,7 @@ const HONESTY_GAP_KINDS: HonestyGapKind[] = [
   "shared_key_not_person_level",
   "service_accounts_unresolved",
   "sub_daily_unavailable",
+  "sync_window_incomplete", // ADR 0025
   "other",
 ];
 
@@ -97,7 +98,7 @@ describe("ATTRIBUTION_GLOSSARY covers every AttributionLevel", () => {
   });
 });
 
-describe("HONESTY_GAP_GLOSSARY covers all 6 HonestyGap kinds", () => {
+describe("HONESTY_GAP_GLOSSARY covers all 7 HonestyGap kinds", () => {
   it("has an entry for every kind", () => {
     for (const kind of HONESTY_GAP_KINDS) {
       expect(HONESTY_GAP_GLOSSARY[kind], `missing honesty-gap entry for '${kind}'`).toBeDefined();

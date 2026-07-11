@@ -28,6 +28,7 @@ export type HonestyGap = {
     | "shared_key_not_person_level" // OpenAI shared/service keys
     | "service_accounts_unresolved" // Cursor service accounts
     | "sub_daily_unavailable" // Copilot: daily grain only
+    | "sync_window_incomplete" // ADR 0025: manual-sync lookback exceeded surviving local logs
     | "other";
   detail?: string;
 };

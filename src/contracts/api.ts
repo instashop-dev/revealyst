@@ -107,6 +107,7 @@ export const honestyGapSchema = z.object({
     "shared_key_not_person_level",
     "service_accounts_unresolved",
     "sub_daily_unavailable",
+    "sync_window_incomplete", // ADR 0025
     "other",
   ]),
   detail: z.string().max(500).optional(),
