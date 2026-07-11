@@ -22,11 +22,23 @@ import {
 } from "./dashboard-signals";
 import { readScoreTrends, type ScoreTrend } from "./dashboard-trends";
 import { collectGaps, type CollectedGap } from "./honesty-gaps";
+import {
+  computeRecentMovement,
+  RECENT_PERIOD_DAYS,
+  type RecentMovement,
+} from "./recent-movement";
 import { resolveSegmentSource, type SegmentDistribution } from "./segments";
 import {
   resolveSharedAccountSource,
   type SharedAccountFlag,
 } from "./shared-account";
+import {
+  resolvePerPersonUsage,
+  summarizeUsageConcentration,
+  summarizeUsageDistribution,
+  type UsageConcentration,
+  type UsageDistribution,
+} from "./usage-distribution";
 import type { VisibilityMode } from "./visibility";
 
 type OrgScope = ReturnType<typeof forOrg>;
@@ -87,6 +99,17 @@ export type DashboardView = {
    * inspect, and the team surface stays aggregate-only (no per-person agentic
    * ranking, per the F1.4 constraint). */
   agentic: AgenticAdoption;
+  /** F1.2 analytics computed in stage-2 from rows already fetched below (zero
+   * new queries beyond one `prompts` read). All THREE are aggregate-only —
+   * period-over-period counts (M1), band tallies + org-relative percentiles
+   * (M3), and top-decile shares (M4) — carrying NO person id, pseudonym, name,
+   * or per-named-person value. Like `definitions`/`gaps`/`connections` above,
+   * they add nothing `assertTeamOnlyPseudonymized` (src/lib/visibility.ts)
+   * needs to inspect (that predicate audits person refs on scores, segment
+   * members, and shared-account identifiers — none of which appear here). */
+  recentMovement: RecentMovement;
+  usageDistribution: UsageDistribution;
+  usageConcentration: UsageConcentration;
 };
 
 export async function readDashboardView(
@@ -118,6 +141,7 @@ export async function readDashboardView(
     featureRecords,
     volumeRecords,
     runs,
+    promptRecords,
   ] = await Promise.all([
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
@@ -170,6 +194,14 @@ export async function readDashboardView(
     // (api-impl.ts `dashboardSummary`); the recent runs carry the deduped
     // gap set the poller wrote. Additive to the single-round-trip Promise.all.
     scope.connectorRuns.list({ limit: 200 }),
+    // F1.2 (M4): prompt volume per person feeds the usage-concentration
+    // module. The ONE new stage-1 read this feature adds — still round-trip
+    // depth 1 (it rides the existing Promise.all, no new sequential stage).
+    scope.metrics.records({
+      metricKey: "prompts",
+      from: window.from,
+      to: window.to,
+    }),
   ]);
 
   // One pass over the superset: the exact splits trends (team) and segments
@@ -219,6 +251,41 @@ export async function readDashboardView(
     { slug: "efficiency", value: latest.get("efficiency")?.value ?? null },
   ]);
 
+  // F1.2 stage-2 (M1/M3/M4): pure aggregation over rows already fetched above,
+  // zero further queries. `window.to` is today UTC (dashboardWindow), a
+  // partial day mid-ingestion — computeRecentMovement anchors both comparison
+  // windows at the last COMPLETE day (today − 1) so a flat org never renders
+  // a fabricated morning "decline". M3/M4 slice per-person usage over the
+  // SAME current window (taken from the movement result, so the two can't
+  // drift) — the whole "recent" story on the dashboard covers one window,
+  // and today is excluded from it everywhere.
+  const recentMovement = computeRecentMovement({
+    today: window.to,
+    spendReportedRecords: spendRecords,
+    activeDayRecords,
+    identities,
+  });
+  const inRecent = <T extends { day: string }>(rows: T[]) =>
+    rows.filter(
+      (r) =>
+        r.day >= recentMovement.currentFrom && r.day <= recentMovement.currentTo,
+    );
+  const recentUsage = resolvePerPersonUsage({
+    activeDayRows: inRecent(activeDayRecords),
+    promptRows: inRecent(promptRecords),
+    identities,
+  });
+  const usageDistribution = summarizeUsageDistribution(
+    recentUsage.perPerson,
+    RECENT_PERIOD_DAYS,
+  );
+  const usageConcentration = summarizeUsageConcentration(
+    recentUsage.perPerson,
+    // Volume the per-person math honestly could NOT attribute (unresolved
+    // keys/accounts + shared multi-person subjects) — disclosed on the panel.
+    recentUsage.excluded.unresolvedPrompts + recentUsage.excluded.sharedPrompts,
+  );
+
   return {
     summary,
     benchmarks,
@@ -243,5 +310,8 @@ export async function readDashboardView(
       identityLinks: identities,
       windowTo: window.to,
     }),
+    recentMovement,
+    usageDistribution,
+    usageConcentration,
   };
 }
