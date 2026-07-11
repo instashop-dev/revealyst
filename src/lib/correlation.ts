@@ -39,6 +39,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * Presentation threshold only; not derived from any dataset. */
 export const CORRELATION_MIN_WEEKS = 6;
 
+/** Comparable (both-sides-moved, adjacent) transitions a pair needs before the
+ * agreement share renders. The week floor alone is not enough (review F4): a
+ * series flat in 8 of 9 weeks passes the week count yet yields ONE comparable
+ * transition — "moved the same way in 1 of 1 recent weeks" is a coin flip
+ * dressed as a pattern. Presentation threshold only. */
+export const CORRELATION_MIN_COMPARABLE = 3;
+
 /** Trailing weeks the panel buckets into. Bounds the read to a recent slice
  * (the dashboard already fetches ~180d of rows). */
 export const CORRELATION_WINDOW_WEEKS = 16;
@@ -61,8 +68,8 @@ export type CorrelationResult =
   | {
       kind: "insufficient";
       pair: CorrelationPairKey;
-      /** Overlapping complete weeks measured on both sides (< MIN, or with no
-       * comparable transition). */
+      /** Overlapping complete weeks measured on both sides (< the week floor,
+       * or with fewer than CORRELATION_MIN_COMPARABLE comparable transitions). */
       weeks: number;
     }
   | {
@@ -109,9 +116,9 @@ function weekStartUtc(day: string): string {
  * same way.
  *
  * `insufficient` when there are fewer than `CORRELATION_MIN_WEEKS` overlapping
- * measured weeks OR no comparable transition survives (e.g. every adjacent pair
- * is flat on one side) — the share would be a divide-by-zero or a one-point
- * fluke otherwise.
+ * measured weeks OR fewer than `CORRELATION_MIN_COMPARABLE` comparable
+ * transitions survive (e.g. mostly-flat series) — a share over one or two
+ * transitions is a coin flip dressed as a pattern (review F4).
  */
 export function computeCorrelation(
   pair: CorrelationPairKey,
@@ -135,7 +142,7 @@ export function computeCorrelation(
     comparable += 1;
     if (dirA === dirB) agreeing += 1;
   }
-  if (weeks < CORRELATION_MIN_WEEKS || comparable === 0) {
+  if (weeks < CORRELATION_MIN_WEEKS || comparable < CORRELATION_MIN_COMPARABLE) {
     return { kind: "insufficient", pair, weeks };
   }
   return {

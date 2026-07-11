@@ -19,7 +19,9 @@ import type { CorrelationPairKey } from "./correlation";
 
 /** Causal phrasings banned from EVERY narrative + correlation string. A
  * "moved together" panel that implied causation would be the exact invariant-b
- * overclaim the plan calls out (I4 must stay directional). Swept in tests. */
+ * overclaim the plan calls out (I4 must stay directional). Swept in tests —
+ * the sweep covers every template here AND the card copy exported below
+ * (NARRATIVE_CARD_COPY), so the rendered card can't drift causal either. */
 export const CAUSAL_BANNED_PHRASES = [
   "causes",
   "caused",
@@ -37,6 +39,9 @@ export const CAUSAL_BANNED_PHRASES = [
   "thanks to",
   "due to",
   "as a result",
+  "explains",
+  "impact of",
+  "boosted",
 ] as const;
 
 /** Pseudo-statistics phrasings banned from correlation copy specifically — the
@@ -113,9 +118,13 @@ export const NARRATIVE_COPY = {
     `Over ${p.period}, ${p.people} ${plural(p.people, "person", "people")} ${
       p.people === 1 ? "was" : "were"
     } active on AI tools — the first period we can measure.`,
-  /** Agentic adoption share (measured — stated plainly). */
-  agentic: (p: { ratePct: number }): string =>
-    `Agentic tools were used on ${p.ratePct}% of active days.`,
+  /** Agentic adoption share (measured — stated plainly). WINDOW-HONEST: the
+   * rate is computed over its own window (12 weeks — AGENTIC_WINDOW_DAYS),
+   * NOT the 4-week movement period the lead sentence covers, so the sentence
+   * must name its window or the paragraph frames an 84-day figure as a
+   * 28-day one (review F1). */
+  agentic: (p: { window: string; ratePct: number }): string =>
+    `Over ${p.window}, agentic tools were used on ${p.ratePct}% of active days.`,
   /** Spend movement with a real prior-period comparison. */
   spendDelta: (p: {
     amount: string;
@@ -131,28 +140,86 @@ export const NARRATIVE_COPY = {
   /** First measurable spend period. */
   spendFirst: (p: { amount: string }): string =>
     `Spend over the period was around ${p.amount}.`,
-  /** Directional notable event — a spike. Hedged ("worth a look"), and phrased
-   * as an observation, never a cause. */
+  /** Directional notable event — a spike. Hedged (a "worth a look" lead), and
+   * phrased as an observation, never a cause. The multiple is rounded to one
+   * decimal IN the template (review F5) — a caller passing 2.3777 must never
+   * render "2.3777×". */
   notableSpike: (p: {
+    lead: string;
     subject: string;
     multiple: number;
     day: string;
   }): string =>
-    `One thing worth a look: ${p.subject} rose to about ${p.multiple}× your usual on ${p.day}.`,
-  /** Directional notable event — a plateau. */
-  notablePlateau: (p: { subject: string }): string =>
-    `One thing worth a look: ${p.subject} has flattened out recently.`,
-  /** Close: attribution coverage improving (measured). */
+    `${p.lead}: ${p.subject} rose to about ${round1(p.multiple)}× your usual on ${p.day}.`,
+  /** Directional notable event — a plateau. Takes the human LABEL (from
+   * PLATEAU_SUBJECT_LABELS), never a raw signal key (review F2). */
+  notablePlateau: (p: { lead: string; subjectLabel: string }): string =>
+    `${p.lead}: ${p.subjectLabel} has flattened out recently.`,
+  /** Close: attribution coverage improving (measured). WINDOW-HONEST (review
+   * F1): currentPct is the LATEST WEEK's share and previousPct the earliest
+   * displayed week's — the attribution-trend contract requires rendering the
+   * absolute previous week date, never a bare "up from N%". */
   closeAttributionUp: (p: {
     currentPct: number;
     previousPct: number;
+    previousWeekLabel: string;
   }): string =>
-    `Coverage is improving too — ${p.currentPct}% of usage is now attributed to a specific person, up from ${p.previousPct}%.`,
+    `Coverage is improving too — in the latest measured week, ${p.currentPct}% of usage was attributed to a specific person, up from ${p.previousPct}% the week of ${p.previousWeekLabel}.`,
+  /** Close: attribution coverage declining (measured) — the honest symmetric
+   * counterpart (review F8): a close that only ever reports improvement would
+   * be structurally good-news-only. Same weekly basis and dated comparison. */
+  closeAttributionDown: (p: {
+    currentPct: number;
+    previousPct: number;
+    previousWeekLabel: string;
+  }): string =>
+    `Coverage slipped — in the latest measured week, ${p.currentPct}% of usage was attributed to a specific person, down from ${p.previousPct}% the week of ${p.previousWeekLabel}.`,
 } as const;
+
+/** Round to one decimal for prose ("2.4", "3") — trailing ".0" dropped by
+ * number formatting. */
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/** Sentence leads for notable events: only the FIRST event may claim "One
+ * thing" — a second "One thing worth a look" in the same paragraph claims
+ * singularity twice (review F3). */
+export const NOTABLE_EVENT_LEADS = {
+  first: "One thing worth a look",
+  subsequent: "Also worth a look",
+} as const;
+
+/** The typed plateau subjects narrative prose can name. The KEY is the wire
+ * format callers pass (kept stable — the F2.3 integration wiring passes
+ * "active-people" verbatim); the value is the human phrase rendered in prose.
+ * A raw signal key must never reach a rendered sentence (review F2). */
+export const PLATEAU_SUBJECT_LABELS = {
+  "active-people": "the number of active people",
+} as const;
+
+export type PlateauSubjectKey = keyof typeof PLATEAU_SUBJECT_LABELS;
 
 function plural(n: number, one: string, many: string): string {
   return n === 1 ? one : many;
 }
+
+/**
+ * Card-level copy for the period-summary surface — exported from here (not
+ * hardcoded in the component) so the banned-phrase sweeps cover every rendered
+ * string (review F6). CLAIM DISCIPLINE (review F7): the description does NOT
+ * say "no estimates" — a notable-event sentence can carry a baseline-derived
+ * multiple ("about 2.4× your usual"), which is a measured-baseline derivation,
+ * not a raw measurement. "No forecasts" is the claim the surface actually
+ * keeps (nothing here projects forward).
+ */
+export const NARRATIVE_CARD_COPY = {
+  title: "Period summary",
+  description:
+    "Composed from your measured metrics and their measured baselines — no forecasts.",
+  empty:
+    "A plain-English summary of the recent period appears here once there's enough measured activity — active people, spend, and agentic usage over a few complete weeks. No forecasts, and nothing is shown until it's measured.",
+} as const;
 
 /** Plain labels for each fixed correlation pair — the two measures and the
  * joint subject the "moved together" line names. */

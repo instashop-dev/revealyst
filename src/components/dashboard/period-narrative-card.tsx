@@ -3,6 +3,7 @@ import type { Narrative } from "@/lib/narrative";
 import {
   CORRELATION_COPY,
   CORRELATION_PAIR_LABELS,
+  NARRATIVE_CARD_COPY,
 } from "@/lib/narrative-copy";
 import {
   Card,
@@ -40,13 +41,11 @@ export function PeriodNarrativeCard({
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Period summary</CardTitle>
+          <CardTitle className="text-base">{NARRATIVE_CARD_COPY.title}</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            A plain-English summary of the recent period appears here once
-            there&apos;s enough measured activity — active people, spend, and
-            agentic usage over a few complete weeks. Nothing here is estimated.
+            {NARRATIVE_CARD_COPY.empty}
           </p>
         </CardContent>
       </Card>
@@ -56,10 +55,8 @@ export function PeriodNarrativeCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Period summary</CardTitle>
-        <CardDescription>
-          Composed from your measured metrics — no estimates, no forecasts.
-        </CardDescription>
+        <CardTitle className="text-base">{NARRATIVE_CARD_COPY.title}</CardTitle>
+        <CardDescription>{NARRATIVE_CARD_COPY.description}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 text-sm">
         {hasNarrative ? (
