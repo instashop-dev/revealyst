@@ -307,7 +307,7 @@ describe("client", () => {
     }
   });
 
-  // Regression: the "OpenAI sync failure" (2026-07-11, ADR 0025). Restricted
+  // Regression: the "OpenAI sync failure" (2026-07-11, ADR 0026). Restricted
   // admin keys gate api.management.read and api.usage.read separately; the
   // old users-only probe validated usage-blind keys, then every poll 403'd
   // permanently with a raw vendor JSON as the connection error.

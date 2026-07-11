@@ -1,4 +1,4 @@
-# 0025 — OpenAI admin-key scopes erratum + two-scope validateAuth probe
+# 0026 — OpenAI admin-key scopes erratum + two-scope validateAuth probe
 
 - **Status:** Accepted
 - **Date:** 2026-07-11
