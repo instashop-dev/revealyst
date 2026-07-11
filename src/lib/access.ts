@@ -50,7 +50,16 @@ export async function computeAccess(
     // pipelined count for it.
     org.kind === "system"
       ? Promise.resolve(null)
-      : scope.billing.trackedUsers(trailing30dPeriod()),
+      : // The count is SPECULATIVE: it's discarded for a team/system org, and
+        // it never ran for entitled orgs before this parallelization. So it
+        // must not be able to fail an entitled request — map its rejection to
+        // a captured `{ error }` (never rejecting the Promise.all), and only
+        // re-surface it on the un-entitled path that actually consumes it,
+        // exactly as the old sequential `await` would have.
+        scope.billing.trackedUsers(trailing30dPeriod()).then(
+          (value) => ({ value }),
+          (error: unknown) => ({ error }),
+        ),
   ]);
   if (entitlement.plan === "team" || org.kind === "system") {
     return {
@@ -59,10 +68,16 @@ export async function computeAccess(
       limit: FREE_TRACKED_USER_LIMIT,
     };
   }
-  // Non-system + non-team → `tracked` was fetched above (not null).
+  // Un-entitled → the count is required. `tracked` is null only for system
+  // orgs (returned above), so here it is the captured result; if the
+  // speculative read failed, its error surfaces now, not sooner.
+  if (tracked === null || "error" in tracked) {
+    throw tracked?.error ??
+      new Error("computeAccess: missing tracked-user count for a non-system org");
+  }
   return resolveAccess({
     plan: entitlement.plan,
     orgKind: org.kind,
-    trackedUsers: tracked!.trackedPersonIds.length,
+    trackedUsers: tracked.value.trackedPersonIds.length,
   });
 }

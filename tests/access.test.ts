@@ -96,4 +96,38 @@ describe("computeAccess", () => {
     });
     expect(access.blocked).toBe(false);
   });
+
+  it("a failing count does NOT fail an entitled org (speculative read is discarded)", async () => {
+    // The count now runs concurrently with the subscription read, but its
+    // result is discarded for a team-plan org — so a failure of that
+    // speculative read must not turn an entitled org's request into a 500
+    // (it never ran for entitled orgs before the parallelization). This is
+    // the resilience the sequential short-circuit gave for free; the fix
+    // maps the speculative read's rejection to a captured error and only
+    // re-surfaces it on the un-entitled path.
+    const org = await createFixtureOrg(db, "acc-team-throws", "personal");
+    await applyPaddleSubscriptionEvent(db, {
+      orgId: org.id,
+      paddleSubscriptionId: "sub_throws",
+      occurredAt: new Date(),
+      status: "active",
+      priceId: "pri_test",
+      quantity: 3,
+    });
+    const access = await computeAccess(db, scopeThatThrows, {
+      id: org.id,
+      kind: "personal",
+    });
+    expect(access.blocked).toBe(false);
+  });
+
+  it("a failing count DOES surface on the un-entitled path (count is required)", async () => {
+    // For a free org the count is the operative input, so its failure must
+    // propagate — silently treating a failed count as "0 tracked users"
+    // would wrongly unblock an over-limit org (invariant b: never fabricate).
+    const org = await createFixtureOrg(db, "acc-free-throws", "personal");
+    await expect(
+      computeAccess(db, scopeThatThrows, { id: org.id, kind: "personal" }),
+    ).rejects.toThrow("count query should not run for an entitled org");
+  });
 });
