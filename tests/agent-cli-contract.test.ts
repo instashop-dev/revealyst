@@ -136,4 +136,69 @@ describe("CLI batch lands end-to-end", () => {
     expect(signals[0].hours?.[9]).toBe(6); // deduped events at 09:xx
     expect(signals[0].peakConcurrency).toBe(2); // real overlap: sidechain within main
   });
+
+  // Fix 1 regression (plan R2): the non-vacuous case — the requested
+  // lookback must reach back PAST the surviving logs, or the pin is never
+  // exercised and this test proves nothing (a default 30/30 gap is safe
+  // without the fix). Delete-then-upsert is authoritative for the DECLARED
+  // window, so an unpinned wide window would erase the previously-captured
+  // June 1 rows below and upsert nothing in their place.
+  it("a lookback wider than surviving logs cannot erase captured history", async () => {
+    const scoped = forOrg(db, orgId);
+    const identity = {
+      descriptor: {
+        kind: "account" as const,
+        externalId: "device:pin-test-device00",
+        email: null,
+        displayName: null,
+      },
+      attribution: "account" as const,
+    };
+    const promptLine = (day: string, session: string) =>
+      JSON.stringify({
+        type: "user",
+        sessionId: session,
+        timestamp: `${day}T09:00:00.000Z`,
+      });
+
+    // Capture June 1 while its log still exists locally.
+    const early = buildIngestRequest({
+      sessionContents: [promptLine("2026-06-01", "pin-s1")],
+      window: { start: "2026-06-01", end: "2026-06-01" },
+      identity,
+      agentVersion: "0.1.0",
+    });
+    expect(
+      await ingestAgentBatch(db, ENV, token, early),
+    ).toMatchObject({ ok: true });
+
+    // Later: the June 1 log is pruned; only June 20 survives — but the
+    // user asks for a lookback reaching back to May 25.
+    const wide = buildIngestRequest({
+      sessionContents: [promptLine("2026-06-20", "pin-s2")],
+      window: { start: "2026-05-25", end: "2026-06-20" },
+      identity,
+      agentVersion: "0.1.0",
+    });
+    // Vacuity guard: the pin actually fired.
+    expect(wide.window).toEqual({ start: "2026-06-20", end: "2026-06-20" });
+    expect(
+      await ingestAgentBatch(db, ENV, token, wide),
+    ).toMatchObject({ ok: true });
+
+    // The previously-captured day survives the wide re-sync…
+    const juneFirst = await scoped.metrics.records({
+      metricKey: "active_day",
+      from: "2026-06-01",
+      to: "2026-06-01",
+    });
+    expect(juneFirst).toHaveLength(1);
+    // …and the surviving day landed.
+    const juneTwentieth = await scoped.metrics.records({
+      metricKey: "active_day",
+      from: "2026-06-20",
+      to: "2026-06-20",
+    });
+    expect(juneTwentieth).toHaveLength(1);
+  });
 });

@@ -101,42 +101,51 @@ function isToolResultCarrier(record: Record<string, unknown>): boolean {
   return false;
 }
 
-export function parseSessionContent(content: string): ParseResult {
+/** Incremental line-at-a-time parser: the streaming reader feeds lines as
+ * they arrive (a multi-GB session file is never materialized as one
+ * string), and `parseSessionContent` wraps it for whole-string callers.
+ * Lines are independent, so one accumulator can span many files. */
+export type SessionParser = {
+  pushLine(line: string): void;
+  finish(): ParseResult;
+};
+
+export function createSessionParser(): SessionParser {
   const events: ParsedEvent[] = [];
   let skippedLines = 0;
   let unknownTypes = 0;
 
-  for (const line of content.split("\n")) {
+  function pushLine(line: string): void {
     if (line.trim() === "") {
-      continue;
+      return;
     }
     let record: Record<string, unknown>;
     try {
       const parsed = JSON.parse(line);
       if (typeof parsed !== "object" || parsed === null) {
         skippedLines++;
-        continue;
+        return;
       }
       record = parsed as Record<string, unknown>;
     } catch {
       skippedLines++;
-      continue;
+      return;
     }
 
     const type = asString(record.type);
     if (!type) {
       skippedLines++;
-      continue;
+      return;
     }
     if (IGNORED_TYPES.has(type)) {
-      continue;
+      return;
     }
 
     const sessionId = asString(record.sessionId);
     const timestampMs = Date.parse(asString(record.timestamp) ?? "");
     if (!sessionId || Number.isNaN(timestampMs)) {
       skippedLines++;
-      continue;
+      return;
     }
     const isSidechain = record.isSidechain === true;
 
@@ -178,5 +187,16 @@ export function parseSessionContent(content: string): ParseResult {
     }
   }
 
-  return { events, skippedLines, unknownTypes };
+  return {
+    pushLine,
+    finish: () => ({ events, skippedLines, unknownTypes }),
+  };
+}
+
+export function parseSessionContent(content: string): ParseResult {
+  const parser = createSessionParser();
+  for (const line of content.split("\n")) {
+    parser.pushLine(line);
+  }
+  return parser.finish();
 }

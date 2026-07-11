@@ -34,7 +34,9 @@ export type Summary = {
   gaps: HonestyGap[];
 };
 
-function utcDay(timestampMs: number): string {
+/** Exported so window pinning (index.ts) buckets days identically —
+ * one formatter, no silent drift between pinning and aggregation. */
+export function utcDay(timestampMs: number): string {
   return new Date(timestampMs).toISOString().slice(0, 10);
 }
 
