@@ -260,12 +260,15 @@ describe("client", () => {
     vi.useFakeTimers();
     try {
       const neverResolves = (() => new Promise<Response>(() => {})) as typeof fetch;
+      // A timeout is INCONCLUSIVE, not a rejection: checkAdminKey rethrows
+      // the retryable so credential-save keeps the key instead of erroring
+      // the connection on a vendor blip.
       const validate = checkAdminKey("k", neverResolves);
+      const validateAssertion = expect(validate).rejects.toSatisfy(
+        (e) => e instanceof RetryableConnectorError && /timed out/.test(e.message),
+      );
       await vi.runAllTimersAsync();
-      await expect(validate).resolves.toEqual({
-        ok: false,
-        reason: expect.stringMatching(/timed out/),
-      });
+      await validateAssertion;
 
       const raw = fetchCompletionsUsage(
         "k",
@@ -294,14 +297,64 @@ describe("client", () => {
           text: () => new Promise(() => {}),
         }) as unknown as Response) as typeof fetch;
       const validate = checkAdminKey("k", slowBody);
+      const assertion = expect(validate).rejects.toSatisfy(
+        (e) => e instanceof RetryableConnectorError && /timed out/.test(e.message),
+      );
       await vi.runAllTimersAsync();
-      await expect(validate).resolves.toEqual({
-        ok: false,
-        reason: expect.stringMatching(/timed out/),
-      });
+      await assertion;
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // Regression: the "OpenAI sync failure" (2026-07-11, ADR 0025). Restricted
+  // admin keys gate api.management.read and api.usage.read separately; the
+  // old users-only probe validated usage-blind keys, then every poll 403'd
+  // permanently with a raw vendor JSON as the connection error.
+  // Verbatim shape of the live rejection (note: `error` is a bare string,
+  // not the usual {error:{message}} envelope).
+  const usageScope403 = JSON.stringify({
+    error:
+      "You have insufficient permissions for this operation. Missing scopes: api.usage.read.",
+  });
+
+  it("checkAdminKey probes usage scope too — a usage-blind key is rejected at save", async () => {
+    const calls: string[] = [];
+    const fetchFn = (async (url: RequestInfo | URL) => {
+      const path = new URL(String(url)).pathname;
+      calls.push(path);
+      if (path.endsWith("/organization/users")) {
+        return new Response(
+          JSON.stringify({ object: "list", data: [], has_more: false }),
+          { status: 200 },
+        );
+      }
+      return new Response(usageScope403, { status: 403 });
+    }) as typeof fetch;
+    const result = await checkAdminKey("sk-admin-usage-blind", fetchFn);
+    expect(calls).toEqual(["/v1/organization/users", "/v1/organization/costs"]);
+    // The reason is what the UI tooltip / 400 shows — it must name the
+    // missing scope AND say what key kind to create, not just echo vendor JSON.
+    expect(result).not.toHaveProperty("ok", true);
+    const reason = result.ok ? "" : result.reason;
+    expect(reason).toMatch(/api\.usage\.read/);
+    expect(reason).toMatch(/org admin key/);
+  });
+
+  it("a 429 during validation is inconclusive (rethrown retryable), never a rejection", async () => {
+    const limited = (async () =>
+      new Response("slow", { status: 429, headers: { "retry-after": "7" } })) as typeof fetch;
+    await expect(checkAdminKey("sk-admin-test", limited)).rejects.toSatisfy(
+      (e) => e instanceof RetryableConnectorError && e.delaySeconds === 7,
+    );
+  });
+
+  it("401/403 errors carry the wrong-key-kind hint (project keys, missing scopes)", async () => {
+    const forbidden = (async () =>
+      new Response(usageScope403, { status: 403 })) as typeof fetch;
+    await expect(
+      fetchCompletionsUsage("sk-proj-x", { start: "2026-06-11", end: "2026-06-11" }, forbidden),
+    ).rejects.toThrow(/org admin key with the api\.management\.read/);
   });
 });
 
