@@ -97,14 +97,38 @@ function normalizeDailyUsage(rows: CursorDailyUsageRow[]): NormalizedBatch {
     acc.add(subject, attribution, "lines_added", day, "", row.totalLinesAdded);
     acc.add(subject, attribution, "lines_removed", day, "", row.totalLinesDeleted);
 
-    // Feature adoption flags — set only for surfaces the person actually
-    // touched (dim carries which surface).
+    // F1.5 harvest — fields fetched but deliberately NOT given a metric key,
+    // because no existing key is an honest home (invariant b; a new key is a
+    // catalog ADR, out of scope):
+    //   • acceptedLinesAdded / acceptedLinesDeleted (AI-accepted LoC):
+    //     lines_added/removed already carry totalLinesAdded/Deleted, so a
+    //     second mapping there would double-count; and lines_suggested is the
+    //     completion-funnel *offered* denominator (per the glossary), so
+    //     folding ACCEPTED lines into it would corrupt the LoC-acceptance
+    //     ratio. There is no lines_accepted key — these are skipped, not
+    //     mismapped.
+    //   • subscriptionIncludedReqs / apiKeyReqs / usageBasedReqs: a billing
+    //     PARTITION of the very requests already summed into `prompts`.
+    //     Readers sum every dim row of a key, so emitting these as `prompts`
+    //     dims (or any existing count) would double-count the request volume.
+    //     No billing-bucket key exists — skipped until an ADR adds one.
+    //   (`mostUsedModel` stays excluded too — see the model-mix note below.)
+
+    // Feature adoption flags — set only for surfaces/actions the person
+    // actually touched (dim carries which one). `apply` is the act of
+    // applying AI output to the editor (F1.5 harvest of totalApplies): a
+    // distinct interaction from composer/chat/agent, emitted ONLY as a
+    // breadth flag (value 1, max) — never an edit_actions_* count — because
+    // the apply→accept/reject funnel already lands in edit_actions_accepted/
+    // rejected (totalAccepts/totalRejects); counting applies there too would
+    // double-count the acceptance family (invariant b).
     for (const [feature, count] of [
       ["composer", row.composerRequests],
       ["chat", row.chatRequests],
       ["agent", row.agentRequests],
       ["cmdk", row.cmdkUsages],
       ["bugbot", row.bugbotUsages],
+      ["apply", row.totalApplies],
     ] as const) {
       if (count > 0) {
         acc.add(subject, attribution, "feature_used", day, `feature=${feature}`, 1, "max");

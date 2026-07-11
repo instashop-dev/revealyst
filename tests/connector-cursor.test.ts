@@ -26,6 +26,7 @@ const fixture = (name: string) =>
   JSON.parse(readFileSync(`fixtures/connectors/cursor/${name}`, "utf8"));
 const membersRes = fixture("members.json");
 const dailyRes = fixture("daily-usage-data.json");
+const dailyExtendedRes = fixture("daily-usage-data-extended.json");
 const eventsRes = fixture("filtered-usage-events.json");
 
 const dailyEnvelope: RawPayloadEnvelope<CursorRaw> = {
@@ -84,6 +85,31 @@ describe("normalize: daily-usage-data (prompts/acceptance/lines, no tokens)", ()
     }
   });
 
+  it("F1.5: totalApplies is a breadth flag (feature=apply), never an edit_actions count", () => {
+    // alice has totalApplies: 10 → the apply flag fires (value 1, max).
+    expect(record(batch, ALICE, "feature_used", "2026-06-11", "feature=apply")?.value).toBe(1);
+    // Applies are NOT counted into the acceptance family — edit_actions stay
+    // exactly totalAccepts (8) / totalRejects (2), not inflated by 10 applies.
+    expect(record(batch, ALICE, "edit_actions_accepted", "2026-06-11")?.value).toBe(8);
+    expect(record(batch, ALICE, "edit_actions_rejected", "2026-06-11")?.value).toBe(2);
+  });
+
+  it("F1.5: acceptedLines & request splits are NOT double-mapped (invariant b)", () => {
+    // acceptedLinesAdded/Deleted (90/20) do NOT touch lines_added/removed —
+    // those stay exactly the totals (120/30), and no lines_suggested is
+    // fabricated from accepted LoC on this surface.
+    expect(record(batch, ALICE, "lines_added", "2026-06-11")?.value).toBe(120);
+    expect(record(batch, ALICE, "lines_removed", "2026-06-11")?.value).toBe(30);
+    expect(record(batch, ALICE, "lines_suggested", "2026-06-11")).toBeUndefined();
+    // subscriptionIncludedReqs(18)/usageBasedReqs(2) do NOT get added to
+    // prompts (still 20 = 10+5+3+2) and produce exactly one prompts row.
+    const prompts = batch.records.filter(
+      (r) => r.subject.externalId === ALICE && r.metricKey === "prompts",
+    );
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].value).toBe(20);
+  });
+
   it("never emits model mix from daily-usage (mostUsedModel is coarse)", () => {
     expect(batch.records.some((r) => r.metricKey === "model_requests")).toBe(false);
     expect(batch.records.some((r) => r.metricKey === "model_tokens")).toBe(false);
@@ -96,6 +122,59 @@ describe("normalize: daily-usage-data (prompts/acceptance/lines, no tokens)", ()
   it("never emits a sessions metric (Cursor has no session concept)", () => {
     expect(batch.records.some((r) => r.metricKey === "sessions")).toBe(false);
     expect(batch.signals).toHaveLength(0); // sub-daily is events-only
+  });
+});
+
+describe("normalize: F1.5 harvest on the extended daily-usage fixture", () => {
+  const batch = normalizeCursor({
+    kind: ENVELOPE_KINDS.dailyUsage,
+    window: { start: "2026-06-12", end: "2026-06-12" },
+    payload: { surface: "daily_usage", rows: dailyExtendedRes.data },
+  });
+  const CAROL = "email:carol@example.com";
+  const DAN = "email:dan@example.com";
+  const day = "2026-06-12";
+
+  it("emits feature=apply only when totalApplies > 0", () => {
+    // carol: totalApplies 12 → apply flag; dan: totalApplies 0 → no apply flag.
+    expect(record(batch, CAROL, "feature_used", day, "feature=apply")?.value).toBe(1);
+    expect(record(batch, DAN, "feature_used", day, "feature=apply")).toBeUndefined();
+    // dan still gets his real touched surface (composerRequests 4).
+    expect(record(batch, DAN, "feature_used", day, "feature=composer")?.value).toBe(1);
+  });
+
+  it("accepted-LoC & billing-split fields add NO metric rows (only honest keys)", () => {
+    // The complete set of metric keys emitted for carol — proves acceptedLines
+    // (80/15) and the request splits (30/5/4) produced nothing extra, and
+    // lines_added/removed reflect the TOTALS (100/20), not accepted subsets.
+    const carolKeys = new Set(
+      batch.records
+        .filter((r) => r.subject.externalId === CAROL)
+        .map((r) => `${r.metricKey}|${r.dim}`),
+    );
+    expect(carolKeys).toEqual(
+      new Set([
+        "active_day|",
+        "prompts|",
+        "agent_requests|",
+        "agent_active|",
+        "edit_actions_accepted|",
+        "edit_actions_rejected|",
+        "suggestions_offered|",
+        "suggestions_accepted|",
+        "lines_added|",
+        "lines_removed|",
+        "feature_used|feature=composer",
+        "feature_used|feature=chat",
+        "feature_used|feature=agent",
+        "feature_used|feature=cmdk",
+        "feature_used|feature=apply",
+      ]),
+    );
+    expect(record(batch, CAROL, "lines_added", day)?.value).toBe(100);
+    expect(record(batch, CAROL, "lines_removed", day)?.value).toBe(20);
+    // prompts = 20+10+6+3 = 39 (billing splits 30/5/4 NOT added).
+    expect(record(batch, CAROL, "prompts", day)?.value).toBe(39);
   });
 });
 
