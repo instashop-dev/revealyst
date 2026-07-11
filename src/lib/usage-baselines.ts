@@ -24,11 +24,15 @@ import { addUtcDays } from "./raw-metric-delta";
 //  - Subjects linked to MORE THAN ONE person (shared accounts) are ALSO
 //    excluded — copying a shared account's days to each linked person would
 //    fabricate per-person cadence.
-//  - A week with NO resolved active person-days is omitted from `weeklyActive`,
-//    never plotted as a measured 0 (conflates "no data that week" with "0
-//    people active"). The current PARTIAL week is emitted with `complete:
-//    false` so consumers (the plateau detector) can drop it — a Tuesday's
-//    two-day sample is not a full week's cohort.
+//  - A week with NO resolved active person-days is omitted from `weeklyActive`
+//    (a chart must not plot 0 when the honest story might be "not syncing").
+//    `materializeMeasuredZeroWeeks` fills those weeks in as MEASURED zeros for
+//    the plateau detector, which gates on channel freshness FIRST — see its
+//    doc comment for why that makes the zeros measured, not missing.
+//  - Weeks the window only PARTIALLY covers are `complete: false`, so
+//    consumers drop them: the current week (a Tuesday's two-day sample is not
+//    a full week's cohort) AND the leading week when the window starts
+//    mid-week (its sliced-off days would undercount it — review F4).
 //  - Fewer than MIN_PEOPLE_FOR_BASELINE resolved people → the honest
 //    "insufficient" kinds, never a two-person "curve".
 //  - The activation curve's first-seen day is the earliest day WITHIN THE
@@ -89,13 +93,18 @@ export function weekSpanLabel(start: string, end: string): string {
 export type WeeklyActivePoint = {
   /** UTC Monday of the week, `YYYY-MM-DD`. */
   weekStart: string;
-  /** Human label for the covered span, e.g. "Jun 2–8" (its REAL span for the
-   * partial current week, never the full week range). */
+  /** Human label for the covered span, e.g. "Jun 2–8" (its REAL span for a
+   * partially-covered week, never the full week range). */
   label: string;
   activePeople: number;
   activePersonDays: number;
-  /** False for the week containing `windowTo` when its Sunday is after
-   * `windowTo` — a partial, still-accumulating week. */
+  /** False for a week the window only PARTIALLY covers — either the week
+   * containing `windowTo` when its Sunday is after `windowTo` (the current,
+   * still-accumulating week), or the LEADING week containing `windowFrom`
+   * when `windowFrom` isn't its Monday: its early days were sliced off with
+   * the window, so its counts UNDERCOUNT the real week. Treating that
+   * truncated leading bucket as complete fabricated a "rise into the peak"
+   * for the plateau detector on any non-Monday request date (review F4). */
   complete: boolean;
 };
 
@@ -133,8 +142,10 @@ export type UsageBaselines = {
    * per-person count, disclosed so a surface can say so. */
   unresolvedSubjects: number;
   /** Chronological weekly retention buckets (weeks with zero resolved activity
-   * omitted). The last point may be the partial current week (`complete:
-   * false`). Empty when fewer than {@link MIN_PEOPLE_FOR_BASELINE} people. */
+   * omitted here — `materializeMeasuredZeroWeeks` fills them in for the
+   * plateau detector, whose staleness gate makes those zeros measured). The
+   * first/last points may be partially-covered weeks (`complete: false`).
+   * Empty when fewer than {@link MIN_PEOPLE_FOR_BASELINE} people. */
   weeklyActive: WeeklyActivePoint[];
   cadence: CadenceSummary;
   /** New-person activation curve, chronological. Empty when insufficient. */
@@ -257,11 +268,17 @@ export function computeUsageBaselines(input: {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([weekStart, w]) => {
       const isCurrent = weekStart === currentWeekStart;
-      const complete = !isCurrent || currentWeekComplete;
-      const endDay = complete ? addUtcDays(weekStart, 6) : windowTo;
+      // Truncated at the FRONT: the window starts mid-week, so this bucket
+      // only saw the week's tail (review F4 — an undercounted leading week
+      // must not read as a real, complete low week).
+      const isTruncatedLeading = weekStart < from;
+      const complete = (!isCurrent || currentWeekComplete) && !isTruncatedLeading;
+      const startDay = isTruncatedLeading ? from : weekStart;
+      const endDay =
+        isCurrent && !currentWeekComplete ? windowTo : addUtcDays(weekStart, 6);
       return {
         weekStart,
-        label: weekSpanLabel(weekStart, endDay),
+        label: weekSpanLabel(startDay, endDay),
         activePeople: w.people.size,
         activePersonDays: w.personDays.size,
         complete,
@@ -299,11 +316,62 @@ export function computeUsageBaselines(input: {
   return { ...base, weeklyActive, cadence, activation };
 }
 
-/** The COMPLETE weekly retention points only (drops the partial current week)
- * — the exact series the plateau detector reasons over, so a two-day partial
- * week never registers as a falling cohort. */
+/** The COMPLETE weekly retention points only (drops the partial current week
+ * AND the truncated leading week) — weeks with data, no zeros materialized. */
 export function completeWeeklyActive(
   baselines: Pick<UsageBaselines, "weeklyActive">,
 ): WeeklyActivePoint[] {
   return baselines.weeklyActive.filter((w) => w.complete);
+}
+
+/**
+ * The plateau detector's input series (review F1): every FULLY-COVERED
+ * calendar week from the first complete week with resolved activity through
+ * the last complete week before `windowTo`, with activity-less weeks
+ * materialized as MEASURED ZEROS. `weeklyActive` itself keeps the omission
+ * (a chart shouldn't plot weeks as 0 when the honest story might be "not
+ * syncing") — but the plateau detector gates on `connections.lastSuccessAt`
+ * staleness BEFORE reading this series, and under a fresh, successfully-
+ * syncing channel a calendar week in which no resolved person had an active
+ * day IS a measured "zero people active", not missing data. Without the
+ * zeros, a total collapse (everyone quitting) produced NO weekly points and
+ * the plateau detector saw nothing — the exact scenario an early-warning
+ * system exists for.
+ *
+ * Leading zero weeks (before the org's first resolved activity) are NOT
+ * materialized: before adoption started, "zero people" conflates "not using
+ * AI yet" with "stopped using AI" — and a fabricated 0→N ramp would
+ * manufacture the rise-into-peak the detector requires. Trailing and interior
+ * gaps are the measured zeros.
+ */
+export function materializeMeasuredZeroWeeks(
+  baselines: Pick<UsageBaselines, "weeklyActive" | "windowTo">,
+): WeeklyActivePoint[] {
+  const complete = completeWeeklyActive(baselines);
+  if (complete.length === 0) return [];
+  const byStart = new Map(complete.map((w) => [w.weekStart, w]));
+  const firstWeek = complete[0].weekStart;
+  const currentWeekStart = weekStartUtc(baselines.windowTo);
+  const lastCompleteWeek =
+    addUtcDays(currentWeekStart, 6) <= baselines.windowTo
+      ? currentWeekStart
+      : addUtcDays(currentWeekStart, -7);
+  if (lastCompleteWeek < firstWeek) return complete;
+  const out: WeeklyActivePoint[] = [];
+  for (
+    let weekStart = firstWeek;
+    weekStart <= lastCompleteWeek;
+    weekStart = addUtcDays(weekStart, 7)
+  ) {
+    out.push(
+      byStart.get(weekStart) ?? {
+        weekStart,
+        label: weekSpanLabel(weekStart, addUtcDays(weekStart, 6)),
+        activePeople: 0,
+        activePersonDays: 0,
+        complete: true,
+      },
+    );
+  }
+  return out;
 }

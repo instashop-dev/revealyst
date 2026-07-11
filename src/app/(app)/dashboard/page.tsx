@@ -369,7 +369,7 @@ async function PersonalSelfView({
           : undefined,
       };
     });
-  // F2.3 (I2): the viewer's own spend spike, gated (staleness/post-gap) inside
+  // F2.3 (I2): the viewer's own spend spike, staleness-gated (G5) inside
   // detectDailySpike. Org-of-one, so the daily spend total IS the viewer's. No
   // plateau on the self-view: a one-person "active-people cohort" is degenerate
   // (detectPlateau would return `insufficient`), so it's not computed here.
@@ -378,7 +378,6 @@ async function PersonalSelfView({
     records: personalSpend,
     today,
     connections,
-    activeDayRecords: personalActiveDay,
   });
   const anomalies = spendAnomaly.kind === "spike" ? [spendAnomaly.signal] : [];
   // The identity-link callout is admin-gated the same way /reconcile itself
@@ -648,8 +647,8 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
   // shared-account count, errored connections, score drops, and (F1.1)
   // coaching recommendations. The unresolved-subjects/identity-link callout
   // stays personal/admin-only.
-  // F2.3 early warnings — the detectors already applied every G5 gate
-  // (staleness, post-gap catch-up batches, insufficient baselines) inside
+  // F2.3 early warnings — the detectors already applied every gate (G5
+  // staleness, statistical floors, insufficient baselines/weeks) inside
   // readDashboardView, so here we only pass the genuine spikes/plateau through.
   const anomalies = [spendAnomaly, promptAnomaly]
     .filter((a): a is Extract<typeof a, { kind: "spike" }> => a.kind === "spike")

@@ -13,23 +13,35 @@ import { MIN_PEOPLE_FOR_BASELINE, type WeeklyActivePoint } from "./usage-baselin
 // See anomaly-glossary.ts for the rendered copy.
 //
 // Honesty rules:
-//  - Reasons over COMPLETE weeks only (the caller passes
-//    `completeWeeklyActive`) — a partial current week is not a falling cohort.
+//  - Reasons over COMPLETE, fully-covered calendar weeks with activity-less
+//    weeks materialized as measured zeros (the caller passes
+//    `materializeMeasuredZeroWeeks`) — a partial current week or a truncated
+//    leading week is not a falling cohort, and a TOTAL collapse (weeks with
+//    ZERO active people) must register as the steepest fall of all, not
+//    vanish from the series (review F1: everyone quitting fired nothing when
+//    zero weeks were simply omitted).
 //  - Measures the active-PEOPLE COUNT, not a "share". A share would need a
 //    total-people denominator; counting people who were actually active is a
 //    measured quantity with an honest floor of zero (fewer people using AI IS
 //    a real, knowable regression). NOTE this is deliberately a count, not the
 //    "share" the research shorthand names.
 //  - Needs an actual peak WITH a rise into it (peak not the first week) and a
-//    sustained decline — a noisy flat series never trips it.
+//    sustained, never-recovering slide — a noisy flat series never trips it.
+//    The slide is NON-INCREASING, not strictly decreasing: a collapse that
+//    flattens at zero (…8 → 0 → 0 → 0) is still a collapse, and the
+//    total-decline floor keeps an all-equal run (0% drop) from firing.
 //  - G5 staleness: a stale org's recent weeks are missing, not collapsing —
-//    suppressed (shares `isChannelStale` with the anomaly surface).
+//    suppressed (shares `isChannelStale` with the anomaly surface). This gate
+//    is also what makes the materialized zero weeks MEASURED zeros: under a
+//    fresh, successfully-syncing channel, "no active person-days that week"
+//    is a fact, not a data gap.
 //  - Fewer than {@link MIN_PEOPLE_FOR_BASELINE} people at the peak → the curve
 //    is too small to read a trend from (and risks de-anonymizing) → not shown.
 
-/** Consecutive declining COMPLETE weeks (after the peak) required to call a
- * plateau. Three weeks distinguishes a sustained slide from a one-off dip;
- * three decline steps means the run spans a peak week + 3 lower weeks. */
+/** Complete calendar weeks (after the peak, through the latest week, with no
+ * recovery) required to call a plateau. Three weeks distinguishes a sustained
+ * slide from a one-off dip; the run spans a peak week + ≥3 no-higher weeks
+ * (zero weeks included — see the module header). */
 export const PLATEAU_MIN_WEEKS = 3;
 
 /** The cohort must have shrunk by at least this fraction from its peak to the
@@ -50,7 +62,9 @@ export type PlateauResult =
       peak: PlateauPoint;
       /** The latest complete week. */
       latest: PlateauPoint;
-      /** Number of consecutive declining weeks after the peak. */
+      /** CALENDAR weeks from the peak to the latest week (the length of the
+       * no-recovery run, zero weeks included — review F7: the copy must state
+       * the true run length, not just the strictly-falling steps). */
       decliningWeeks: number;
       /** Percent drop from peak to latest, rounded to a whole number. */
       declinePct: number;
@@ -64,19 +78,22 @@ function toPoint(w: WeeklyActivePoint): PlateauPoint {
 }
 
 /**
- * Detects a plateau/regression from the COMPLETE weekly retention curve.
+ * Detects a plateau/regression from the COMPLETE weekly retention curve
+ * (measured zeros materialized).
  *
  * Algorithm: take the peak (max active-people) week; require a rise into it
  * (peak is not the first week) and a peak cohort of at least
  * {@link MIN_PEOPLE_FOR_BASELINE}; from the peak to the latest week require a
- * STRICTLY declining run of at least {@link PLATEAU_MIN_WEEKS} steps ending at
- * the latest week, with a total drop of at least
- * {@link PLATEAU_MIN_TOTAL_DECLINE_PCT}. Any break in the decline (a week that
- * rose vs the prior) means the cohort recovered — not a plateau.
+ * NON-INCREASING run of at least {@link PLATEAU_MIN_WEEKS} calendar weeks
+ * ending at the latest week, with a total drop of at least
+ * {@link PLATEAU_MIN_TOTAL_DECLINE_PCT}. Any break in the run (a week that
+ * rose vs the prior) means the cohort recovered — not a plateau. Equal steps
+ * are allowed so a collapse that flattens at zero still counts; an all-equal
+ * run has a 0% total drop and never clears the decline floor.
  */
 export function detectPlateau(input: {
-  /** COMPLETE weekly points only, chronological — pass
-   * `completeWeeklyActive(baselines)`. */
+  /** COMPLETE weekly points with measured zeros materialized, chronological —
+   * pass `materializeMeasuredZeroWeeks(baselines)`. */
   weeklyActive: readonly WeeklyActivePoint[];
   /** For the G5 staleness gate. */
   connections: readonly ConnectionChannelInput[];
@@ -106,12 +123,17 @@ export function detectPlateau(input: {
   if (peakIdx === 0) return { kind: "none" };
   if (peak.activePeople < MIN_PEOPLE_FOR_BASELINE) return { kind: "none" };
 
-  // Strictly declining run from the peak to the latest week.
-  let decliningWeeks = 0;
+  // Non-increasing run from the peak to the latest week. Equal steps stay in
+  // the run (a collapse flattening at zero is still a collapse — review F1);
+  // any RISE is a recovery and breaks the plateau. The run length is counted
+  // in calendar weeks since the peak (review F7 — the rendered "N weeks"
+  // must be the true span, zero weeks included).
   for (let i = peakIdx + 1; i < weeks.length; i += 1) {
-    if (weeks[i].activePeople < weeks[i - 1].activePeople) decliningWeeks += 1;
-    else return { kind: "none" }; // a recovery breaks the plateau
+    if (weeks[i].activePeople > weeks[i - 1].activePeople) {
+      return { kind: "none" }; // a recovery breaks the plateau
+    }
   }
+  const decliningWeeks = weeks.length - 1 - peakIdx;
   if (decliningWeeks < PLATEAU_MIN_WEEKS) return { kind: "none" };
 
   const latest = weeks[weeks.length - 1];

@@ -35,8 +35,8 @@ import {
   type SharedAccountFlag,
 } from "./shared-account";
 import {
-  completeWeeklyActive,
   computeUsageBaselines,
+  materializeMeasuredZeroWeeks,
 } from "./usage-baselines";
 import {
   resolvePerPersonUsage,
@@ -311,15 +311,17 @@ export async function readDashboardView(
   // further queries. Spike detection compares the last COMPLETE day's org spend
   // / prompt total against its trailing 28-day baseline (the detector excludes
   // today and the day itself); the plateau detector reads the M8 weekly
-  // active-people retention curve. Both self-gate on connection staleness /
-  // post-gap catch-up batches (G5) from `connections.lastSuccessAt`.
+  // active-people retention curve with activity-less complete weeks
+  // materialized as measured zeros (a total collapse must register, not vanish
+  // — see materializeMeasuredZeroWeeks). Both self-gate on connection
+  // staleness (G5) from `connections.lastSuccessAt`.
   const usageBaselines = computeUsageBaselines({
     activeDayRows: activeDayRecords,
     identityLinks: identities,
     windowTo: window.to,
   });
   const usagePlateau = detectPlateau({
-    weeklyActive: completeWeeklyActive(usageBaselines),
+    weeklyActive: materializeMeasuredZeroWeeks(usageBaselines),
     connections,
     today: window.to,
   });
@@ -328,14 +330,12 @@ export async function readDashboardView(
     records: spendRecords,
     today: window.to,
     connections,
-    activeDayRecords,
   });
   const promptAnomaly = detectDailySpike({
     metric: "prompts",
     records: promptRecords,
     today: window.to,
     connections,
-    activeDayRecords,
   });
 
   return {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   completeWeeklyActive,
   computeUsageBaselines,
+  materializeMeasuredZeroWeeks,
   MIN_PEOPLE_FOR_BASELINE,
   weekStartUtc,
 } from "../src/lib/usage-baselines";
@@ -105,5 +106,76 @@ describe("computeUsageBaselines", () => {
     expect(thin.weeklyActive).toEqual([]);
     expect(thin.cadence.available).toBe(false);
     expect(thin.activation).toEqual([]);
+  });
+
+  it("F4: the truncated LEADING week (window starts mid-week) is complete:false and excluded from the complete series", () => {
+    // WINDOW_TO 2026-06-30 with 8 weeks → windowFrom 2026-05-06 (a Wednesday),
+    // so the week of Mon 2026-05-04 is only partially covered.
+    const rows = [
+      ad("s1", "2026-05-06"),
+      ad("s2", "2026-05-07"),
+      ad("s1", "2026-06-01"),
+      ad("s2", "2026-06-01"),
+      ad("s3", "2026-06-01"),
+      ad("s4", "2026-06-01"),
+    ];
+    const b = computeUsageBaselines({
+      activeDayRows: rows,
+      identityLinks: identities,
+      windowTo: WINDOW_TO,
+      weeks: WEEKS,
+    });
+    expect(b.windowFrom).toBe("2026-05-06");
+    const leading = b.weeklyActive.find((w) => w.weekStart === "2026-05-04");
+    expect(leading).toBeDefined();
+    expect(leading?.complete).toBe(false);
+    // Label states the REAL covered span (starts at windowFrom, not Monday).
+    expect(leading?.label).toMatch(/^May 6/);
+    expect(
+      completeWeeklyActive(b).some((w) => w.weekStart === "2026-05-04"),
+    ).toBe(false);
+  });
+});
+
+describe("materializeMeasuredZeroWeeks", () => {
+  it("fills interior and trailing activity-less complete weeks as measured zeros; never leading zeros", () => {
+    // 4 people active only in the weeks of May 11 and Jun 8; windowTo Jun 30
+    // (Tuesday) → last complete week is Jun 22.
+    const rows = ["s1", "s2", "s3", "s4"].flatMap((s) => [
+      ad(s, "2026-05-11"),
+      ad(s, "2026-06-08"),
+    ]);
+    const b = computeUsageBaselines({
+      activeDayRows: rows,
+      identityLinks: identities,
+      windowTo: WINDOW_TO,
+      weeks: WEEKS,
+    });
+    const weekly = materializeMeasuredZeroWeeks(b);
+    expect(weekly.map((w) => w.weekStart)).toEqual([
+      "2026-05-11", // activity
+      "2026-05-18", // materialized zero (interior)
+      "2026-05-25", // materialized zero (interior)
+      "2026-06-01", // materialized zero (interior)
+      "2026-06-08", // activity
+      "2026-06-15", // materialized zero (trailing)
+      "2026-06-22", // materialized zero (trailing — last complete week)
+    ]);
+    const zeros = weekly.filter((w) => w.activePeople === 0);
+    expect(zeros).toHaveLength(5);
+    for (const z of zeros) {
+      expect(z.complete).toBe(true);
+      expect(z.activePersonDays).toBe(0);
+    }
+    // No week before the first activity week (leading zeros would fabricate
+    // a 0→N adoption ramp).
+    expect(weekly[0].weekStart).toBe("2026-05-11");
+    expect(weekly[0].activePeople).toBe(4);
+  });
+
+  it("returns [] when there are no complete weeks with activity", () => {
+    expect(
+      materializeMeasuredZeroWeeks({ weeklyActive: [], windowTo: WINDOW_TO }),
+    ).toEqual([]);
   });
 });

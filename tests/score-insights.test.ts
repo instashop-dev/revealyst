@@ -1096,9 +1096,26 @@ describe("deriveAttention — F2.3 anomaly/plateau integration", () => {
     expect(items[0].kind).toBe("anomaly");
     expect(items[0].severity).toBe("info");
     expect(items[0].title).toMatch(/2\.4×/);
+    // F3: the baseline denominator is MEASURED days and the copy must say so
+    // ("days with spend"), never claim a calendar span it didn't average over.
+    expect(items[0].body).toMatch(
+      /across the 28 days with spend in the last 4 weeks/,
+    );
     // Directional framing — "unusual", never "wrong".
     expect(items[0].body).toMatch(/unusual/i);
     expect(items[0].body).not.toMatch(/\bwrong\b/i);
+  });
+
+  it("F3: a SPARSE baseline's copy states the measured-day denominator, not a calendar window", () => {
+    const items = deriveAttention({
+      ...base,
+      anomalies: [spikeSignal({ baselineDays: 14, factor: 3 })],
+    });
+    expect(items[0].body).toMatch(
+      /across the 14 days with spend in the last 4 weeks/,
+    );
+    // The misleading old phrasing must not come back.
+    expect(items[0].body).not.toMatch(/over the previous 14 days/);
   });
 
   it("a prompt-volume spike names prompt volume, not spend", () => {
@@ -1116,6 +1133,8 @@ describe("deriveAttention — F2.3 anomaly/plateau integration", () => {
     expect(items[0].kind).toBe("plateau");
     expect(items[0].severity).toBe("info");
     expect(items[0].body).toMatch(/60%/);
+    // F7: the stated run length is the true calendar span since the peak.
+    expect(items[0].body).toMatch(/in the 3 weeks since/);
     expect(items[0].body).toMatch(/worth a look/i);
   });
 

@@ -531,11 +531,12 @@ export function deriveAttention(input: {
    * empty) → no recommendations, so a no-scores-yet dashboard gets none. */
   scoreComponents?: { slug: ScoreSlug; components: ComponentDetailRow[] }[];
   /** F2.3 (I2) — spend/prompt spikes ALREADY gated by src/lib/anomaly.ts
-   * (`detectDailySpike` handles staleness + post-gap suppression, so only
-   * genuine spikes reach here — the "gate centrally, pass raw facts" pattern:
-   * the detector IS the gate). Each is a directional "info" item that sorts
-   * above coaching recommendations. Aggregate/org-level only — a spike is an
-   * org daily total, never a named person. Omitted/empty → no anomaly items. */
+   * (`detectDailySpike` handles the G5 staleness gate + the statistical
+   * floors, so only genuine spikes reach here — the "gate centrally, pass raw
+   * facts" pattern: the detector IS the gate). Each is a directional "info"
+   * item that sorts above coaching recommendations. Aggregate/org-level only —
+   * a spike is an org daily total, never a named person. Omitted/empty → no
+   * anomaly items. */
   anomalies?: SpikeSignal[];
   /** F2.3 (I3) — a detected plateau (declining active-people cohort) or null.
    * The caller passes ONLY the `plateau` kind (src/lib/plateau.ts gates
@@ -658,7 +659,7 @@ export function deriveAttention(input: {
   }
 
   // F2.3 early warnings (I2 spikes, I3 plateau). These arrive ALREADY gated by
-  // the detectors (staleness + post-gap suppression in anomaly.ts; staleness +
+  // the detectors (staleness + statistical floors in anomaly.ts; staleness +
   // insufficiency in plateau.ts) — deriveAttention only formats them. Both are
   // directional "info" items sorting above coaching recommendations.
   for (const signal of input.anomalies ?? []) {

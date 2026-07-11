@@ -1,6 +1,5 @@
 import {
   isUsableConnection,
-  LOCAL_CHANNEL_VENDOR,
   type ConnectionChannelInput,
 } from "./onboarding-guide";
 import { addUtcDays } from "./raw-metric-delta";
@@ -28,9 +27,11 @@ import { addUtcDays } from "./raw-metric-delta";
 //    {@link ANOMALY_STALE_AFTER_DAYS}, the whole check is SUPPRESSED — an
 //    unsynced stretch's missing recent days must not read as a collapse, and a
 //    stale org's "last complete day" isn't current enough to call unusual.
-//  - G5 post-gap batch: for local-channel orgs a burst on the first active day
-//    after a ≥ {@link ANOMALY_POST_GAP_MIN_DAYS}-day gap is a CATCH-UP sync,
-//    not a spike — SUPPRESSED. (A post-gap sync is not a spend spike.)
+//    This is the ONLY sync-shaped gate; see the note above `dailyTotals` for
+//    why a "post-gap catch-up batch" suppression is structurally unnecessary
+//    on this pipeline (and would only ever have suppressed real spikes).
+//  - Relative gates lie at tiny scale: a spike must also clear
+//    {@link ANOMALY_MIN_ABS_DELTA} in absolute terms.
 
 export type SpikeMetric = "spend" | "prompts";
 
@@ -65,11 +66,17 @@ export const ANOMALY_FACTOR_FLOOR = 2;
  * has genuinely stopped. */
 export const ANOMALY_STALE_AFTER_DAYS = 2;
 
-/** For local-channel orgs, a burst on the first active day after a gap of at
- * least this many empty active-days is treated as a catch-up sync batch, not a
- * spike (G5). Three days distinguishes a real multi-day silence-then-sync from
- * an ordinary one-day sync gap. */
-export const ANOMALY_POST_GAP_MIN_DAYS = 3;
+/** AND the day must exceed the trailing mean by at least this ABSOLUTE amount
+ * (review F5). The z-score and the factor are both scale-free, so a flat 1¢
+ * baseline followed by a 2¢ day passed every relative gate — a prominent
+ * "Spend is 2× your recent baseline" callout over one cent. Floors are in
+ * each metric's native unit: 500 cents ($5) of extra spend / 20 extra prompts
+ * — below that, a day isn't worth an unprompted callout regardless of how
+ * statistically unusual it is. Uncalibrated presentational thresholds. */
+export const ANOMALY_MIN_ABS_DELTA: Record<SpikeMetric, number> = {
+  spend: 500,
+  prompts: 20,
+};
 
 type DailyRow = { day: string; value: number };
 
@@ -99,8 +106,8 @@ export type AnomalyResult =
   | { kind: "none"; metric: SpikeMetric }
   /** Not enough measured baseline days to judge. */
   | { kind: "insufficient"; metric: SpikeMetric; measuredDays: number }
-  /** A spike would have fired but is suppressed by a G5 gate. */
-  | { kind: "suppressed"; metric: SpikeMetric; reason: "stale" | "postGapBatch" };
+  /** The check didn't run: the org's channels are stale (G5). */
+  | { kind: "suppressed"; metric: SpikeMetric; reason: "stale" };
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
@@ -142,40 +149,18 @@ export function isChannelStale(
   return freshest.getTime() < cutoff.getTime();
 }
 
-function hasLocalChannel(
-  connections: readonly ConnectionChannelInput[],
-): boolean {
-  return connections.some(
-    (c) => isUsableConnection(c) && c.vendor === LOCAL_CHANNEL_VENDOR,
-  );
-}
-
-/**
- * True when `evalDay` is the first active day after a gap of at least
- * `minGap` empty active-days — the catch-up-sync signature. Reads the
- * ORG-LEVEL union of `active_day` days: a poll connector that keeps the org
- * active every day leaves no gap, so this only ever fires when the org
- * genuinely went silent (the local-channel case the caller gates on).
- */
-function isPostGapResumption(
-  activeDayRecords: readonly DailyRow[],
-  evalDay: string,
-  minGap: number,
-): boolean {
-  const activeDays = new Set<string>();
-  for (const r of activeDayRecords) if (r.value > 0) activeDays.add(r.day);
-  // A resumption BURST requires activity on the evaluated day itself.
-  if (!activeDays.has(evalDay)) return false;
-  let gap = 0;
-  let d = addUtcDays(evalDay, -1);
-  // Bounded: finding `minGap` consecutive empty days is enough to decide.
-  while (gap < minGap) {
-    if (activeDays.has(d)) break;
-    gap += 1;
-    d = addUtcDays(d, -1);
-  }
-  return gap >= minGap;
-}
+// NO post-gap "catch-up batch" suppression — deliberately (review F2). It
+// looks necessary ("a sync after a gap piles days of spend into one day") but
+// is structurally void on this pipeline: `metric_records` are DAY-KEYED (the
+// frozen upsert key is org/subject/metric/day/dim) and the local agent
+// summarizes per LOG DATE, so a catch-up sync backfills the TRUE historical
+// days — it cannot pile volume into the sync day. The local channel also
+// emits `spend_cents_estimated`, never `spend_cents`, so a local batch can't
+// even reach the spend series this detector reads. A suppression keyed on
+// "activity gap then burst" therefore only ever suppressed REAL spikes (a
+// genuine post-holiday surge is exactly a gap-then-burst). The staleness gate
+// above is the complete G5 story: while the channel is behind, the whole
+// check is off; once synced, every day's total is that day's truth.
 
 /** Sum a metric's rows into one total per UTC day. */
 function dailyTotals(rows: readonly DailyRow[]): Map<string, number> {
@@ -189,8 +174,15 @@ function dailyTotals(rows: readonly DailyRow[]): Map<string, number> {
 /**
  * Detects a spike on the last complete day for one metric. See the module
  * header for the honesty rules. Gate order: staleness (whole check) →
- * insufficient baseline → statistical test → post-gap suppression (only a
- * would-be spike is ever suppressed, so `none` never masks a catch-up batch).
+ * insufficient baseline → statistical test (z AND factor AND absolute delta).
+ *
+ * KNOWN CONSERVATIVE FALSE NEGATIVE (documented, pinned in tests): the
+ * baseline is a mean/σ, so a single huge historic outlier inside the trailing
+ * window inflates both and can mask a genuine spike today. That failure mode
+ * only ever SUPPRESSES (never fabricates), which is the right direction for
+ * an unprompted callout. A robust median/MAD baseline would fix it — noted as
+ * future work, not built now (keep v1 legible; thresholds are uncalibrated
+ * anyway).
  */
 export function detectDailySpike(input: {
   metric: SpikeMetric;
@@ -201,11 +193,8 @@ export function detectDailySpike(input: {
   /** Today's UTC date (`YYYY-MM-DD`) — the partial day, EXCLUDED everywhere.
    * The evaluated day is `today − 1`. */
   today: string;
-  /** For the G5 staleness + post-gap gates. */
+  /** For the G5 staleness gate. */
   connections: readonly ConnectionChannelInput[];
-  /** Org `active_day` rows for post-gap detection (the same rows the dashboard
-   * already fetched). */
-  activeDayRecords: readonly DailyRow[];
 }): AnomalyResult {
   const { metric } = input;
 
@@ -245,17 +234,14 @@ export function detectDailySpike(input: {
   const zScore = stdDev > 0 ? (evalValue - mean) / stdDev : null;
   const zPasses = zScore === null ? evalValue > mean : zScore >= ANOMALY_Z_THRESHOLD;
 
-  // 3) Statistical test.
-  if (!(zPasses && factor >= ANOMALY_FACTOR_FLOOR)) {
+  // 3) Statistical test + the absolute-delta floor (review F5): a flat 1¢
+  // baseline followed by a 2¢ day is a perfect 2× with infinite significance
+  // — and utterly not worth a callout. The floor applies on EVERY path
+  // (zero-variance and real-variance alike).
+  const absDeltaPasses =
+    evalValue - mean >= ANOMALY_MIN_ABS_DELTA[metric];
+  if (!(zPasses && factor >= ANOMALY_FACTOR_FLOOR && absDeltaPasses)) {
     return { kind: "none", metric };
-  }
-
-  // 4) Post-gap batch suppression (local-channel orgs only).
-  if (
-    hasLocalChannel(input.connections) &&
-    isPostGapResumption(input.activeDayRecords, evalDay, ANOMALY_POST_GAP_MIN_DAYS)
-  ) {
-    return { kind: "suppressed", metric, reason: "postGapBatch" };
   }
 
   return {
