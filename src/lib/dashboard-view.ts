@@ -14,7 +14,6 @@ import {
 } from "./dashboard-signals";
 import { readScoreTrends, type ScoreTrend } from "./dashboard-trends";
 import { collectGaps, type CollectedGap } from "./honesty-gaps";
-import { adjacentPeriods } from "./raw-metric-delta";
 import {
   computeRecentMovement,
   RECENT_PERIOD_DAYS,
@@ -212,29 +211,39 @@ export async function readDashboardView(
   ]);
 
   // F1.2 stage-2 (M1/M3/M4): pure aggregation over rows already fetched above,
-  // zero further queries. M1 movement compares the last RECENT_PERIOD_DAYS to
-  // the period before it (spend + identity-resolved activity). M3/M4 resolve
-  // per-person usage over the SAME recent period (a slice of the fetched
-  // records) so the whole "recent" story on the dashboard covers one window.
+  // zero further queries. `window.to` is today UTC (dashboardWindow), a
+  // partial day mid-ingestion — computeRecentMovement anchors both comparison
+  // windows at the last COMPLETE day (today − 1) so a flat org never renders
+  // a fabricated morning "decline". M3/M4 slice per-person usage over the
+  // SAME current window (taken from the movement result, so the two can't
+  // drift) — the whole "recent" story on the dashboard covers one window,
+  // and today is excluded from it everywhere.
   const recentMovement = computeRecentMovement({
-    to: window.to,
+    today: window.to,
     spendReportedRecords: spendRecords,
     activeDayRecords,
     identities,
   });
-  const recent = adjacentPeriods(window.to, RECENT_PERIOD_DAYS);
   const inRecent = <T extends { day: string }>(rows: T[]) =>
-    rows.filter((r) => r.day >= recent.currentFrom && r.day <= recent.currentTo);
+    rows.filter(
+      (r) =>
+        r.day >= recentMovement.currentFrom && r.day <= recentMovement.currentTo,
+    );
   const recentUsage = resolvePerPersonUsage({
     activeDayRows: inRecent(activeDayRecords),
     promptRows: inRecent(promptRecords),
     identities,
   });
   const usageDistribution = summarizeUsageDistribution(
-    recentUsage,
+    recentUsage.perPerson,
     RECENT_PERIOD_DAYS,
   );
-  const usageConcentration = summarizeUsageConcentration(recentUsage);
+  const usageConcentration = summarizeUsageConcentration(
+    recentUsage.perPerson,
+    // Volume the per-person math honestly could NOT attribute (unresolved
+    // keys/accounts + shared multi-person subjects) — disclosed on the panel.
+    recentUsage.excluded.unresolvedPrompts + recentUsage.excluded.sharedPrompts,
+  );
 
   return {
     summary,

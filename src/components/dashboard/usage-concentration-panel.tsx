@@ -15,12 +15,23 @@ import {
 
 const C = USAGE_CONCENTRATION_COPY;
 
+/** The ACTUAL cohort share behind a "top N" figure: with 4 resolved people a
+ * nominal "top 10%" cohort is really 1 of 4 = 25% — the label must say what
+ * the math did, not the nominal cut point (F9). */
+function actualCohortPct(count: number, resolvedPeople: number): number {
+  return Math.round((count / resolvedPeople) * 100);
+}
+
 /**
- * Usage concentration (M4): share of prompt volume from the heaviest slice of
- * users. Directional (uncalibrated cut points, stated in the InfoTip) and
- * aggregate-only — the heavy users are counted, never named. Honest empty
- * state below the resolved-people floor or with no prompt volume (ratio
- * honesty: no denominator, no ratio).
+ * Usage concentration (M4): share of ATTRIBUTED prompt volume (identity-
+ * resolved people only — the InfoTip and the excluded-volume note say so)
+ * from the heaviest slice of resolved users. Directional (uncalibrated cut
+ * points, stated in the InfoTip) and aggregate-only — the heavy users are
+ * counted, never named. Honest empty state below the resolved-people floor or
+ * with no attributed volume (ratio honesty: no denominator, no ratio). With
+ * few people the nominal 10%/25% cohorts collapse to the same set — then one
+ * figure renders, labeled by its actual cohort share, instead of the same
+ * number twice under two made-up percentages.
  */
 export function UsageConcentrationPanel({
   concentration,
@@ -53,20 +64,40 @@ export function UsageConcentrationPanel({
                   {Math.round(concentration.top25SharePct)}%
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {C.sentence(25, concentration.top25SharePct, concentration.top25Count)}
+                  {C.sentence(
+                    actualCohortPct(
+                      concentration.top25Count,
+                      concentration.resolvedPeople,
+                    ),
+                    concentration.top25SharePct,
+                    concentration.top25Count,
+                  )}
                 </span>
               </div>
-              <div className="flex flex-col gap-0.5">
-                <span className="font-heading text-3xl font-semibold tabular-nums">
-                  {Math.round(concentration.top10SharePct)}%
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {C.sentence(10, concentration.top10SharePct, concentration.top10Count)}
-                </span>
-              </div>
+              {concentration.top10Count !== concentration.top25Count ? (
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-heading text-3xl font-semibold tabular-nums">
+                    {Math.round(concentration.top10SharePct)}%
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {C.sentence(
+                      actualCohortPct(
+                        concentration.top10Count,
+                        concentration.resolvedPeople,
+                      ),
+                      concentration.top10SharePct,
+                      concentration.top10Count,
+                    )}
+                  </span>
+                </div>
+              ) : null}
             </div>
             <span className="text-xs text-muted-foreground">
-              Across {concentration.resolvedPeople} people with recorded prompts.
+              Across {concentration.resolvedPeople} identity-resolved people with
+              recorded prompts.
+              {concentration.excludedPrompts > 0 ? (
+                <> {C.excludedNote(concentration.excludedPrompts)}</>
+              ) : null}
             </span>
           </>
         )}

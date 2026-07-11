@@ -18,7 +18,7 @@ function prompt(subjectId: string, value: number) {
 
 describe("resolvePerPersonUsage", () => {
   it("resolves active days per person from their linked subjects (distinct days)", () => {
-    const usage = resolvePerPersonUsage({
+    const { perPerson } = resolvePerPersonUsage({
       activeDayRows: [
         active("s1", "2026-06-01"),
         active("s1", "2026-06-02"),
@@ -30,42 +30,70 @@ describe("resolvePerPersonUsage", () => {
         { subjectId: "s2", personId: "p1" },
       ],
     });
-    expect(usage).toHaveLength(1);
+    expect(perPerson).toHaveLength(1);
     // p1: days {06-01, 06-02} across both subjects = 2 distinct days.
-    expect(usage[0].activeDays).toBe(2);
+    expect(perPerson[0].activeDays).toBe(2);
   });
 
-  it("EXCLUDES subjects with no identity link (never guessed into a person)", () => {
-    const usage = resolvePerPersonUsage({
+  it("EXCLUDES subjects with no identity link (never guessed) and tallies their volume", () => {
+    const { perPerson, excluded } = resolvePerPersonUsage({
       activeDayRows: [active("linked", "2026-06-01"), active("orphan", "2026-06-01")],
       promptRows: [prompt("orphan", 500)],
       identities: [{ subjectId: "linked", personId: "p1" }],
     });
-    expect(usage).toHaveLength(1);
-    expect(usage[0].activeDays).toBe(1);
-    expect(usage[0].prompts).toBe(0); // the orphan's 500 prompts are dropped
+    expect(perPerson).toHaveLength(1);
+    expect(perPerson[0].activeDays).toBe(1);
+    expect(perPerson[0].prompts).toBe(0); // the orphan's 500 prompts are dropped...
+    expect(excluded.unresolvedSubjects).toBe(1); // ...but disclosed, not hidden
+    expect(excluded.unresolvedPrompts).toBe(500);
   });
 
-  it("a shared subject (many identities) contributes to each linked person", () => {
-    const usage = resolvePerPersonUsage({
+  it("EXCLUDES shared (multi-person) subjects from per-person math — volume is never multiplied per linked person", () => {
+    // The duplication probe: 900 prompts on one account linked to 3 people
+    // must NOT become 2,700 attributed prompts (nor be split by a guess).
+    const { perPerson, excluded } = resolvePerPersonUsage({
       activeDayRows: [active("shared", "2026-06-01")],
-      promptRows: [prompt("shared", 100)],
+      promptRows: [prompt("shared", 900)],
       identities: [
+        { subjectId: "shared", personId: "p1" },
+        { subjectId: "shared", personId: "p2" },
+        { subjectId: "shared", personId: "p3" },
+      ],
+    });
+    expect(perPerson).toHaveLength(0); // nobody credited — excluded, never guessed
+    expect(excluded.sharedSubjects).toBe(1);
+    expect(excluded.sharedPrompts).toBe(900); // counted ONCE
+  });
+
+  it("shared-subject exclusion applies to DAYS too — a person's own subjects still count", () => {
+    const { perPerson, excluded } = resolvePerPersonUsage({
+      activeDayRows: [
+        active("own", "2026-06-01"), // p1's exclusive account
+        active("shared", "2026-06-02"), // linked to p1 AND p2
+      ],
+      promptRows: [prompt("own", 50), prompt("shared", 900)],
+      identities: [
+        { subjectId: "own", personId: "p1" },
         { subjectId: "shared", personId: "p1" },
         { subjectId: "shared", personId: "p2" },
       ],
     });
-    expect(usage).toHaveLength(2);
-    expect(usage.every((u) => u.activeDays === 1 && u.prompts === 100)).toBe(true);
+    // p1 keeps ONLY their exclusive subject's day+volume; the shared day is
+    // not added to p1 or p2 (distribution and concentration read the same
+    // population).
+    expect(perPerson).toHaveLength(1);
+    expect(perPerson[0].activeDays).toBe(1);
+    expect(perPerson[0].prompts).toBe(50);
+    expect(excluded.sharedPrompts).toBe(900);
   });
 
   it("sums prompt volume per person", () => {
-    const usage = resolvePerPersonUsage({
+    const { perPerson } = resolvePerPersonUsage({
       activeDayRows: [],
       promptRows: [prompt("s1", 30), prompt("s1", 70)],
       identities: [{ subjectId: "s1", personId: "p1" }],
     });
-    expect(usage[0].prompts).toBe(100);
+    expect(perPerson[0].prompts).toBe(100);
   });
 });
 
@@ -142,14 +170,35 @@ describe("summarizeUsageConcentration", () => {
     expect(summarizeUsageConcentration(usage).available).toBe(false);
   });
 
-  it("ratio honesty: zero total prompts → not shown (no denominator)", () => {
+  it("ratio honesty: zero attributed prompts → not shown (no denominator)", () => {
     const usage = Array.from({ length: 6 }, () => ({ activeDays: 3, prompts: 0 }));
     const c = summarizeUsageConcentration(usage);
     expect(c.available).toBe(false);
     expect(c.resolvedPeople).toBe(0);
   });
 
-  it("computes top-decile shares over prompt volume", () => {
+  it("carries excludedPrompts through BOTH variants (the unresolved-heavy-key probe)", () => {
+    // 4 light resolved users + a 10,000-prompt unresolved key: the shares
+    // cover only the 70 attributed prompts, and the surface must be able to
+    // say the 10,000 were left out.
+    const usage = [
+      { activeDays: 1, prompts: 10 },
+      { activeDays: 1, prompts: 15 },
+      { activeDays: 1, prompts: 20 },
+      { activeDays: 1, prompts: 25 },
+    ];
+    const c = summarizeUsageConcentration(usage, 10_000);
+    expect(c.available).toBe(true);
+    if (!c.available) return;
+    expect(c.totalPrompts).toBe(70); // attributed only — NOT 10,070
+    expect(c.excludedPrompts).toBe(10_000); // disclosed alongside
+    // And when unavailable, the disclosure still rides along.
+    const empty = summarizeUsageConcentration([], 10_000);
+    expect(empty.available).toBe(false);
+    expect(empty.excludedPrompts).toBe(10_000);
+  });
+
+  it("computes top-decile shares over attributed prompt volume", () => {
     // 10 people: one heavy (1000), nine light (10 each = 90). Total 1090.
     const usage = [
       { activeDays: 1, prompts: 1000 },
@@ -175,5 +224,9 @@ describe("summarizeUsageConcentration", () => {
     const c = summarizeUsageConcentration(usage);
     if (!c.available) throw new Error("expected available");
     expect(c.top10Count).toBeGreaterThanOrEqual(1);
+    // With 4 people the nominal 10% and 25% cohorts collapse to the same
+    // single person — the UI then renders ONE figure labeled by the actual
+    // cohort share (25%), never "top 10%" for 1-of-4.
+    expect(c.top10Count).toBe(c.top25Count);
   });
 });

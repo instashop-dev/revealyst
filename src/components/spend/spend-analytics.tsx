@@ -110,7 +110,10 @@ export function CostPerUnitCard({
               label={C.perActiveDay.label}
               short={C.perActiveDay.short}
               cost={costPerActiveDay}
-              unitNoun="active day"
+              // Named for the math: raw active_day rows are per tool account
+              // (subject), NOT deduped person-days (F4) — see the glossary's
+              // denominator discipline note.
+              unitNoun="subject-day"
             />
             <UnitFigure
               label={C.perPrompt.label}
@@ -168,10 +171,13 @@ function UnitFigure({
 }
 
 /**
- * Model-mix trend (M7): per-model share shift between the first and last week
- * of the window. Directional token-volume mix (never a dollar split) — the
- * badge and InfoTip say so. Renders the honest empty note when there aren't
- * two weeks of per-model data.
+ * Model-mix trend (M7): per-model share shift between the first and last
+ * COMPLETE week of the window (partial endpoint weeks are dropped in lib —
+ * a Monday-morning sample can't read as a week's mix). Directional
+ * token-volume mix (never a dollar split) — the badge and InfoTip say so.
+ * Renders the honest empty note when there aren't two complete weeks of
+ * per-model data. Shift arrows are judgment-free (muted, no verdict color):
+ * a model gaining share is not "good" or "bad".
  */
 export function ModelMixTrendCard({ trend }: { trend: ModelMixTrend }) {
   const C = MODEL_MIX_TREND_COPY;
@@ -193,7 +199,7 @@ export function ModelMixTrendCard({ trend }: { trend: ModelMixTrend }) {
             <div className="flex items-center gap-2">
               <Badge variant="outline">Token volume</Badge>
               <span className="text-xs text-muted-foreground">
-                {trend.weeks.length} weeks · not a cost split
+                {trend.weeks.length} complete weeks · not a cost split
               </span>
             </div>
             <ul className="flex flex-col gap-2">
@@ -208,20 +214,12 @@ export function ModelMixTrendCard({ trend }: { trend: ModelMixTrend }) {
                     <span className="min-w-0 truncate font-medium">
                       {shift.model}
                     </span>
-                    <span className="flex items-center gap-2 tabular-nums">
-                      <span className="text-muted-foreground">
+                    <span className="flex items-center gap-2 tabular-nums text-muted-foreground">
+                      <span>
                         {Math.round(shift.firstWeekSharePct)}% →{" "}
                         {Math.round(shift.lastWeekSharePct)}%
                       </span>
-                      <span
-                        className={
-                          up
-                            ? "text-primary"
-                            : down
-                              ? "text-destructive"
-                              : "text-muted-foreground"
-                        }
-                      >
+                      <span>
                         <span aria-hidden="true">
                           {up ? "▲" : down ? "▼" : "→"}
                         </span>{" "}
@@ -234,9 +232,9 @@ export function ModelMixTrendCard({ trend }: { trend: ModelMixTrend }) {
               })}
             </ul>
             <p className="text-xs text-muted-foreground">
-              Share of weekly token volume by model. Per-model spend isn&apos;t
-              reported by any connected vendor, so this is a usage mix, not
-              dollars.
+              Share of weekly token volume by model, over complete weeks only.
+              Revealyst doesn&apos;t ingest a per-model dollar split, so this is
+              a usage mix, not dollars.
             </p>
           </>
         )}

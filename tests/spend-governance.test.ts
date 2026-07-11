@@ -226,34 +226,43 @@ describe("costPerUnit", () => {
 // ─── F1.2 / M7: model-mix trend ─────────────────────────────────────────────
 
 describe("modelTrendWindow", () => {
-  it("is a trailing MODEL_TREND_DAYS window ending at `today`", () => {
+  it("is a trailing MODEL_TREND_DAYS window ending at YESTERDAY (today is partial)", () => {
     const w = modelTrendWindow("2026-07-15");
-    expect(w.to).toBe("2026-07-15");
-    // 56-day inclusive window → from = today − 55 days.
-    expect(w.from).toBe("2026-05-21");
+    expect(w.to).toBe("2026-07-14"); // today − 1, never today
+    // 56-day inclusive window → from = (today − 1) − 55 days.
+    expect(w.from).toBe("2026-05-20");
     expect(MODEL_TREND_DAYS).toBe(56);
   });
 });
 
 describe("summarizeModelMixTrend", () => {
-  it("needs at least two populated weeks (a trend needs two points)", () => {
+  // Mon 2026-06-29 .. Sun 2026-07-12 — exactly two COMPLETE ISO weeks.
+  const TWO_WEEKS = { from: "2026-06-29", to: "2026-07-12" };
+
+  it("needs at least two populated complete weeks (a trend needs two full points)", () => {
     expect(
-      summarizeModelMixTrend([
-        { dim: "model=opus", day: "2026-07-06", value: 100 },
-        { dim: "model=opus", day: "2026-07-08", value: 100 }, // same ISO week
-      ]),
+      summarizeModelMixTrend(
+        [
+          { dim: "model=opus", day: "2026-07-06", value: 100 },
+          { dim: "model=opus", day: "2026-07-08", value: 100 }, // same ISO week
+        ],
+        TWO_WEEKS,
+      ),
     ).toEqual({ available: false });
   });
 
   it("buckets by ISO week and reports first→last share shift per model", () => {
     // Week A (Mon 2026-06-29): opus 100, haiku 100 → 50/50.
     // Week B (Mon 2026-07-06): opus 300, haiku 100 → 75/25.
-    const trend = summarizeModelMixTrend([
-      { dim: "model=opus", day: "2026-06-30", value: 100 },
-      { dim: "model=haiku", day: "2026-06-30", value: 100 },
-      { dim: "model=opus", day: "2026-07-07", value: 300 },
-      { dim: "model=haiku", day: "2026-07-07", value: 100 },
-    ]);
+    const trend = summarizeModelMixTrend(
+      [
+        { dim: "model=opus", day: "2026-06-30", value: 100 },
+        { dim: "model=haiku", day: "2026-06-30", value: 100 },
+        { dim: "model=opus", day: "2026-07-07", value: 300 },
+        { dim: "model=haiku", day: "2026-07-07", value: 100 },
+      ],
+      TWO_WEEKS,
+    );
     expect(trend.available).toBe(true);
     if (!trend.available) return;
     expect(trend.weeks.map((w) => w.weekStart)).toEqual(["2026-06-29", "2026-07-06"]);
@@ -265,13 +274,58 @@ describe("summarizeModelMixTrend", () => {
     expect(haiku.shiftPct).toBe(-25);
   });
 
-  it("a model absent from a week counts as 0% that week (the shift itself)", () => {
+  it("drops a trailing PARTIAL week — the Monday-morning probe shows no shift", () => {
+    // Two steady 50/50 complete weeks (06-15, 06-22), then ONE opus-only
+    // request on Monday 06-29 with the window ending Wednesday 07-01. The
+    // partial trailing week must be dropped — otherwise a single morning
+    // request reads as "opus 50% → 100%".
+    const rows = [
+      { dim: "model=opus", day: "2026-06-16", value: 100 },
+      { dim: "model=haiku", day: "2026-06-16", value: 100 },
+      { dim: "model=opus", day: "2026-06-23", value: 100 },
+      { dim: "model=haiku", day: "2026-06-23", value: 100 },
+      { dim: "model=opus", day: "2026-06-29", value: 1 }, // Monday morning
+    ];
+    const trend = summarizeModelMixTrend(rows, {
+      from: "2026-06-15",
+      to: "2026-07-01", // Wednesday — week of 06-29 is partial
+    });
+    expect(trend.available).toBe(true);
+    if (!trend.available) return;
+    expect(trend.weeks.map((w) => w.weekStart)).toEqual(["2026-06-15", "2026-06-22"]);
+    const opus = trend.shifts.find((s) => s.model === "opus")!;
+    expect(opus.firstWeekSharePct).toBe(50);
+    expect(opus.lastWeekSharePct).toBe(50);
+    expect(opus.shiftPct).toBe(0); // no fabricated jump
+  });
+
+  it("drops a leading PARTIAL week too", () => {
+    // Window starts Wednesday 06-17: the week of 06-15 is only partially
+    // covered — a heavy row in it must not become the trend's first point.
+    const trend = summarizeModelMixTrend(
+      [
+        { dim: "model=gemini", day: "2026-06-18", value: 10_000 }, // leading partial
+        { dim: "model=opus", day: "2026-06-23", value: 100 }, // week 06-22 (complete)
+        { dim: "model=opus", day: "2026-06-30", value: 100 }, // week 06-29 (complete)
+      ],
+      { from: "2026-06-17", to: "2026-07-05" },
+    );
+    expect(trend.available).toBe(true);
+    if (!trend.available) return;
+    expect(trend.weeks.map((w) => w.weekStart)).toEqual(["2026-06-22", "2026-06-29"]);
+    expect(trend.shifts.find((s) => s.model === "gemini")).toBeUndefined();
+  });
+
+  it("a model absent from a counted week counts as 0% that week (the shift itself)", () => {
     // Week A: only opus. Week B: opus + a NEW model gemini.
-    const trend = summarizeModelMixTrend([
-      { dim: "model=opus", day: "2026-06-30", value: 100 },
-      { dim: "model=opus", day: "2026-07-07", value: 100 },
-      { dim: "model=gemini", day: "2026-07-07", value: 100 },
-    ]);
+    const trend = summarizeModelMixTrend(
+      [
+        { dim: "model=opus", day: "2026-06-30", value: 100 },
+        { dim: "model=opus", day: "2026-07-07", value: 100 },
+        { dim: "model=gemini", day: "2026-07-07", value: 100 },
+      ],
+      TWO_WEEKS,
+    );
     if (!trend.available) throw new Error("expected available");
     const gemini = trend.shifts.find((s) => s.model === "gemini")!;
     expect(gemini.firstWeekSharePct).toBe(0); // absent in week A
@@ -281,10 +335,13 @@ describe("summarizeModelMixTrend", () => {
 
   it("ignores non-model dims", () => {
     expect(
-      summarizeModelMixTrend([
-        { dim: "feature=chat", day: "2026-06-30", value: 5 },
-        { dim: "feature=chat", day: "2026-07-07", value: 5 },
-      ]),
+      summarizeModelMixTrend(
+        [
+          { dim: "feature=chat", day: "2026-06-30", value: 5 },
+          { dim: "feature=chat", day: "2026-07-07", value: 5 },
+        ],
+        TWO_WEEKS,
+      ),
     ).toEqual({ available: false });
   });
 });

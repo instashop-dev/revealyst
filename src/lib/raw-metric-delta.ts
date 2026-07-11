@@ -32,7 +32,10 @@ export type AdjacentPeriods = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function addDays(day: string, delta: number): string {
+/** UTC calendar-day arithmetic on YYYY-MM-DD strings. Exported so window
+ * anchors (e.g. "the last COMPLETE day = today − 1") share one definition
+ * across the analytics modules instead of re-implementing date math. */
+export function addUtcDays(day: string, delta: number): string {
   return new Date(new Date(`${day}T00:00:00.000Z`).getTime() + delta * DAY_MS)
     .toISOString()
     .slice(0, 10);
@@ -46,9 +49,9 @@ function addDays(day: string, delta: number): string {
  * `to`; the previous window is the `periodDays` days directly before it.
  */
 export function adjacentPeriods(to: string, periodDays: number): AdjacentPeriods {
-  const currentFrom = addDays(to, -(periodDays - 1));
-  const previousTo = addDays(currentFrom, -1);
-  const previousFrom = addDays(previousTo, -(periodDays - 1));
+  const currentFrom = addUtcDays(to, -(periodDays - 1));
+  const previousTo = addUtcDays(currentFrom, -1);
+  const previousFrom = addUtcDays(previousTo, -(periodDays - 1));
   return { currentFrom, currentTo: to, previousFrom, previousTo };
 }
 

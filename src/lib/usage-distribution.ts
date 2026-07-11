@@ -11,9 +11,17 @@
 //
 // Honesty rules:
 //  - Subjects with no identity link are EXCLUDED from all per-person math
-//    (never guessed into a person). A subject linked to several people (a
-//    shared account) contributes to each — the same "resolved identities only"
-//    posture the tracked_user primitive takes.
+//    (never guessed into a person).
+//  - Subjects linked to MORE THAN ONE person (shared accounts) are ALSO
+//    excluded — from volume AND day math. Copying a shared account's full
+//    volume to each linked person would multiply it (900 prompts × 3 people =
+//    2,700 fabricated prompts), and splitting it evenly would fabricate
+//    per-person numbers; exclusion is the only honest option. NOTE this is
+//    deliberately NARROWER than the frozen tracked_user primitive
+//    (src/contracts/tracked-user.ts), which counts each resolved identity on
+//    a shared account as a tracked user for BILLING — counting people is not
+//    re-attributing volume, and this module needs per-person volume. The
+//    excluded volume is returned so surfaces can disclose it.
 //  - Fewer than MIN_PEOPLE_FOR_DISTRIBUTION resolved people → the honest
 //    "not enough people to show a distribution" state, never a two-person
 //    "distribution".
@@ -31,21 +39,44 @@ export const MIN_PEOPLE_FOR_DISTRIBUTION = 4;
 type MetricRow = { subjectId: string; day: string; value: number };
 type IdentityLink = { subjectId: string; personId: string };
 
+/** What per-person math could NOT honestly include, tallied so surfaces can
+ * disclose it instead of silently narrowing their denominator. */
+export type ExcludedUsage = {
+  /** Distinct subjects seen in the rows with NO identity link. */
+  unresolvedSubjects: number;
+  /** Prompt volume carried by those unresolved subjects. */
+  unresolvedPrompts: number;
+  /** Distinct subjects seen in the rows linked to MORE THAN ONE person. */
+  sharedSubjects: number;
+  /** Prompt volume carried by those shared subjects (counted once — never
+   * multiplied per linked person). */
+  sharedPrompts: number;
+};
+
+export type PerPersonUsageResult = {
+  /** One anonymous quantity bag per person with cleanly-attributed activity. */
+  perPerson: PersonUsage[];
+  excluded: ExcludedUsage;
+};
+
 /**
  * Resolves per-person usage quantities over ONE period from already-fetched
  * rows. `activeDayRows` are `active_day` metric_records (value 1 per active
  * UTC day); `promptRows` are `prompts` metric_records (interaction counts).
  * Both are assumed pre-filtered to the period. A person's active-day count is
- * the number of DISTINCT days across all subjects linked to them; their prompt
- * count is the summed prompt volume across those subjects. Subjects with no
- * link are dropped. Returns one bag per person that had ANY resolved subject
- * activity in the period.
+ * the number of DISTINCT days across their EXCLUSIVELY-linked subjects; their
+ * prompt count is the summed prompt volume across those subjects.
+ *
+ * Exclusions (see the module header): subjects with no identity link AND
+ * subjects linked to more than one person contribute to `excluded`, never to
+ * `perPerson` — for volume and days alike, so the distribution and the
+ * concentration read the same population.
  */
 export function resolvePerPersonUsage(args: {
   activeDayRows: MetricRow[];
   promptRows: MetricRow[];
   identities: IdentityLink[];
-}): PersonUsage[] {
+}): PerPersonUsageResult {
   const subjectToPeople = new Map<string, string[]>();
   for (const link of args.identities) {
     const list = subjectToPeople.get(link.subjectId);
@@ -53,41 +84,70 @@ export function resolvePerPersonUsage(args: {
     else subjectToPeople.set(link.subjectId, [link.personId]);
   }
 
+  const unresolvedSubjectIds = new Set<string>();
+  const sharedSubjectIds = new Set<string>();
+  let unresolvedPrompts = 0;
+  let sharedPrompts = 0;
+
+  /** The single person a subject cleanly belongs to, or null if the subject
+   * is unresolved/shared (tallied into `excluded` as a side effect). */
+  const exclusiveOwner = (subjectId: string): string | null => {
+    const people = subjectToPeople.get(subjectId);
+    if (!people) {
+      unresolvedSubjectIds.add(subjectId);
+      return null;
+    }
+    if (people.length > 1) {
+      sharedSubjectIds.add(subjectId);
+      return null;
+    }
+    return people[0];
+  };
+
   const activeDaysByPerson = new Map<string, Set<string>>();
   for (const row of args.activeDayRows) {
-    const people = subjectToPeople.get(row.subjectId);
-    if (!people) continue; // unresolved subject — excluded, never guessed
-    for (const personId of people) {
-      let set = activeDaysByPerson.get(personId);
-      if (!set) {
-        set = new Set();
-        activeDaysByPerson.set(personId, set);
-      }
-      set.add(row.day);
+    const personId = exclusiveOwner(row.subjectId);
+    if (personId === null) continue;
+    let set = activeDaysByPerson.get(personId);
+    if (!set) {
+      set = new Set();
+      activeDaysByPerson.set(personId, set);
     }
+    set.add(row.day);
   }
 
   const promptsByPerson = new Map<string, number>();
   for (const row of args.promptRows) {
-    const people = subjectToPeople.get(row.subjectId);
-    if (!people) continue;
-    for (const personId of people) {
-      promptsByPerson.set(personId, (promptsByPerson.get(personId) ?? 0) + row.value);
+    const personId = exclusiveOwner(row.subjectId);
+    if (personId === null) {
+      const people = subjectToPeople.get(row.subjectId);
+      if (!people) unresolvedPrompts += row.value;
+      else sharedPrompts += row.value;
+      continue;
     }
+    promptsByPerson.set(personId, (promptsByPerson.get(personId) ?? 0) + row.value);
   }
 
   const personIds = new Set<string>([
     ...activeDaysByPerson.keys(),
     ...promptsByPerson.keys(),
   ]);
-  const out: PersonUsage[] = [];
+  const perPerson: PersonUsage[] = [];
   for (const personId of personIds) {
-    out.push({
+    perPerson.push({
       activeDays: activeDaysByPerson.get(personId)?.size ?? 0,
       prompts: promptsByPerson.get(personId) ?? 0,
     });
   }
-  return out;
+  return {
+    perPerson,
+    excluded: {
+      unresolvedSubjects: unresolvedSubjectIds.size,
+      unresolvedPrompts,
+      sharedSubjects: sharedSubjectIds.size,
+      sharedPrompts,
+    },
+  };
 }
 
 /**
@@ -184,14 +244,22 @@ export function summarizeUsageDistribution(
 }
 
 export type UsageConcentration =
-  | { available: false; resolvedPeople: number }
+  | { available: false; resolvedPeople: number; excludedPrompts: number }
   | {
       available: true;
       resolvedPeople: number;
-      /** Total prompt volume across resolved people (the denominator). */
+      /** Total prompt volume across resolved people — the DENOMINATOR. This
+       * is attributed volume only, NOT the org's total prompt volume; the
+       * unattributed remainder is `excludedPrompts` and the copy must say
+       * "of prompts attributed to identity-resolved people". */
       totalPrompts: number;
-      /** Share of total prompts generated by the top 10% / 25% of people by
-       * prompt volume. Directional — thresholds are uncalibrated. */
+      /** Prompt volume from unresolved or shared (multi-person) subjects in
+       * the same period — NOT in the denominator; surfaced so the UI can
+       * disclose what the shares don't cover. */
+      excludedPrompts: number;
+      /** Share of attributed prompts generated by the top 10% / 25% of
+       * resolved people by prompt volume. Directional — thresholds are
+       * uncalibrated. */
       top10SharePct: number;
       top25SharePct: number;
       /** People counts behind each share, so the copy can say "the top N". */
@@ -206,22 +274,26 @@ function topShare(sortedDesc: readonly number[], total: number, fraction: number
 }
 
 /**
- * Usage concentration (M4): what share of total prompt volume comes from the
- * heaviest-using slice of people. Computed over prompt volume per person
+ * Usage concentration (M4): what share of ATTRIBUTED prompt volume comes from
+ * the heaviest-using resolved people. Computed over prompt volume per person
  * (the volume quantity, not the active-day flag). Fewer than
- * {@link MIN_PEOPLE_FOR_DISTRIBUTION} people with any prompts, or zero total
- * prompts, → `available: false` (ratio honesty — no denominator, no ratio).
- * Directional label required in the UI: the 10%/25% cut points are
- * uncalibrated.
+ * {@link MIN_PEOPLE_FOR_DISTRIBUTION} people with any prompts, or zero
+ * attributed volume, → `available: false` (ratio honesty — no denominator,
+ * no ratio). `excludedPrompts` (unresolved + shared volume from the same
+ * period, per `resolvePerPersonUsage`) rides along in BOTH variants so the
+ * surface can disclose what the shares don't cover — a huge unresolved key
+ * must not silently masquerade as "all prompts". Directional label required
+ * in the UI: the 10%/25% cut points are uncalibrated.
  */
 export function summarizeUsageConcentration(
   usage: readonly PersonUsage[],
+  excludedPrompts = 0,
 ): UsageConcentration {
   const prompts = usage.map((u) => u.prompts).filter((p) => p > 0);
   const resolvedPeople = prompts.length;
   const total = prompts.reduce((a, b) => a + b, 0);
   if (resolvedPeople < MIN_PEOPLE_FOR_DISTRIBUTION || total <= 0) {
-    return { available: false, resolvedPeople };
+    return { available: false, resolvedPeople, excludedPrompts };
   }
   const sortedDesc = [...prompts].sort((a, b) => b - a);
   const t10 = topShare(sortedDesc, total, 0.1);
@@ -230,6 +302,7 @@ export function summarizeUsageConcentration(
     available: true,
     resolvedPeople,
     totalPrompts: total,
+    excludedPrompts,
     top10SharePct: t10.sharePct,
     top25SharePct: t25.sharePct,
     top10Count: t10.count,

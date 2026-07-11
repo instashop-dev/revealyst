@@ -62,6 +62,10 @@ export function RecentMovementPanel({ movement }: { movement: RecentMovement }) 
                 delta={metric.delta}
                 unit={copy.label}
                 formatValue={magnitudeFormatter(metric)}
+                // Spend movement is judgment-free: cost going up isn't "good"
+                // and down isn't "bad", so no verdict color (F10). Activity
+                // metrics keep the up-good language shared with score cards.
+                sentiment={metric.key === "reported_spend" ? "neutral" : "upGood"}
               />
             </div>
           );

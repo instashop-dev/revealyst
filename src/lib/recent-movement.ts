@@ -11,6 +11,7 @@
 // `assertTeamOnlyPseudonymized` inspects.
 
 import {
+  addUtcDays,
   adjacentPeriods,
   deriveRawMetricDelta,
   periodRangeLabel,
@@ -60,19 +61,25 @@ function hasAnyBefore(rows: MetricRow[], day: string): boolean {
   return rows.some((r) => r.day < day);
 }
 
-/** Active people + total active-days over one period, identity-resolved. */
+/** Identity-resolved active people + total person-days over one period.
+ * Uses the SAME resolver as M3/M4, so the same exclusions apply: subjects
+ * with no identity link AND multi-person (shared) subjects contribute
+ * nothing — a person active ONLY via a shared account is not counted here
+ * (documented choice: consistent "excluded, never guessed" posture across
+ * every F1.2 per-person surface; the shared-account panel is where shared
+ * activity is surfaced). */
 function activityTotals(
   activeDayRows: MetricRow[],
   identities: IdentityLink[],
 ): { activePeople: number; activeDays: number } {
-  const usage = resolvePerPersonUsage({
+  const { perPerson } = resolvePerPersonUsage({
     activeDayRows,
     promptRows: [],
     identities,
   });
   let activePeople = 0;
   let activeDays = 0;
-  for (const u of usage) {
+  for (const u of perPerson) {
     if (u.activeDays > 0) activePeople += 1;
     activeDays += u.activeDays;
   }
@@ -81,22 +88,40 @@ function activityTotals(
 
 /**
  * Computes the recent-movement strip from the dashboard's pre-fetched
- * `spend_cents` and `active_day` records plus the identity links, over the
- * `periodDays`-day window ending at `to`. Active people/days are resolved the
- * same way M3/M4 resolve them (unresolved subjects excluded). Each metric's
- * `first`/`notComparable` honesty kind flows straight from
+ * `spend_cents` and `active_day` records plus the identity links.
+ *
+ * COMPLETE-DAY ANCHOR: `today` is a partial UTC day still mid-ingestion —
+ * including it would compare ~27.x days of data against 28 complete days and
+ * fabricate a small "decline" every morning on a perfectly flat org (labeled
+ * "Measured", the worst kind of wrong). Both windows therefore EXCLUDE
+ * `today`: the current period is the `periodDays` days ending at today − 1,
+ * the previous period the `periodDays` days before that.
+ *
+ * Active people/person-days are resolved the same way M3/M4 resolve them
+ * (unresolved and shared subjects excluded — see activityTotals). Each
+ * metric's `first`/`notComparable` honesty kind flows straight from
  * `deriveRawMetricDelta` — a freshly-connected org with no prior-period data
  * shows "new", never a fabricated jump.
+ *
+ * HORIZON NOTE: `hasAnyBefore` sees only the rows the caller fetched (the
+ * dashboard's 180-day window), so "data before the current period" means
+ * "within the fetched horizon". An org whose only history is older than that
+ * horizon reads as `first` — acceptable: the horizon (180d) is far wider than
+ * the 2×28d the comparison needs, and failing toward "first" hides a chip
+ * rather than fabricating one.
  */
 export function computeRecentMovement(args: {
-  to: string;
+  /** Today's UTC date (YYYY-MM-DD) — EXCLUDED from both windows; the
+   * comparison anchors at the last complete day (today − 1). */
+  today: string;
   periodDays?: number;
   spendReportedRecords: MetricRow[];
   activeDayRecords: MetricRow[];
   identities: IdentityLink[];
 }): RecentMovement {
   const periodDays = args.periodDays ?? RECENT_PERIOD_DAYS;
-  const p = adjacentPeriods(args.to, periodDays);
+  const lastCompleteDay = addUtcDays(args.today, -1);
+  const p = adjacentPeriods(lastCompleteDay, periodDays);
   const prevLabel = periodRangeLabel(p.previousFrom, p.previousTo);
 
   // Spend (reported cents).

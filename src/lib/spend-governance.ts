@@ -1,4 +1,5 @@
 import type { forOrg } from "../db/org-scope";
+import { addUtcDays } from "./raw-metric-delta";
 import { vendorLabel } from "./vendor-labels";
 
 // Spend Governance core (W4-V, ADR 0020). Pure aggregation + threshold logic
@@ -298,9 +299,9 @@ type ModelTrendRow = { dim: string; day: string; value: number };
 export type ModelWeekShare = { model: string; tokens: number; sharePct: number };
 export type ModelWeekBucket = { weekStart: string; totalTokens: number; models: ModelWeekShare[] };
 
-/** A per-model share shift between the first and last populated week of the
- * trend window — "Opus share 31% → 44%". Directional token-volume mix, NOT a
- * dollar split (no vendor reports per-model spend). */
+/** A per-model share shift between the first and last populated COMPLETE week
+ * of the trend window — "Opus share 31% → 44%". Directional token-volume mix,
+ * NOT a dollar split (Revealyst doesn't ingest a per-model dollar split). */
 export type ModelShareShift = {
   model: string;
   firstWeekSharePct: number;
@@ -317,19 +318,34 @@ export type ModelMixTrend =
 /**
  * Multi-window extension of `summarizeModelVolume` (M7): buckets model_tokens
  * rows into ISO weeks and reports, per model, the share shift between the
- * first and last populated week. Same honesty posture as `summarizeModelVolume`
- * — this is vendor-reported TOKEN volume, never a per-model dollar split. Rows
- * with a non-`model=` dim are ignored. Fewer than two populated weeks →
- * `available: false` (a "trend" needs at least two points; G4 honest empty).
- * A model absent from a given week counts as 0% that week — that IS the shift
- * the surface is meant to show, not a gap.
+ * first and last populated COMPLETE week. Same honesty posture as
+ * `summarizeModelVolume` — this is vendor-reported TOKEN volume, never a
+ * per-model dollar split. Rows with a non-`model=` dim are ignored.
+ *
+ * COMPLETE WEEKS ONLY: a week counts only when the window covers ALL seVEN of
+ * its days (weekStart ≥ window.from AND weekStart+6 ≤ window.to). Unless the
+ * window happens to align on Monday–Sunday, its endpoint weeks are PARTIAL —
+ * a lone Monday-morning request would otherwise read as that week's entire
+ * mix ("opus 50% → 100%"), a fabricated shift from a one-day sample. Partial
+ * leading/trailing weeks (and any stray rows outside the window) are dropped.
+ * Fewer than two populated complete weeks → `available: false` (a "trend"
+ * needs two full points; G4 honest empty). A model absent from a counted week
+ * counts as 0% that week — that IS the shift the surface is meant to show,
+ * not a gap.
  */
-export function summarizeModelMixTrend(rows: ModelTrendRow[]): ModelMixTrend {
+export function summarizeModelMixTrend(
+  rows: ModelTrendRow[],
+  window: { from: string; to: string },
+): ModelMixTrend {
+  const isCompleteWeek = (weekStart: string) =>
+    weekStart >= window.from && addUtcDays(weekStart, 6) <= window.to;
   const byWeek = new Map<string, Map<string, number>>();
   for (const r of rows) {
     if (!r.dim.startsWith("model=")) continue;
-    const model = r.dim.slice("model=".length) || "(unspecified)";
+    if (r.day < window.from || r.day > window.to) continue;
     const week = isoWeekStart(r.day);
+    if (!isCompleteWeek(week)) continue;
+    const model = r.dim.slice("model=".length) || "(unspecified)";
     let models = byWeek.get(week);
     if (!models) {
       models = new Map();
@@ -383,22 +399,21 @@ export function summarizeModelMixTrend(rows: ModelTrendRow[]): ModelMixTrend {
   return { available: true, weeks, shifts };
 }
 
-/** The trailing window (ending at `today`, inclusive) the model-mix trend
- * buckets into weeks. Eight weeks gives enough points for a share-shift read
- * without pulling unbounded history. */
+/** The trailing window the model-mix trend buckets into weeks. Eight weeks
+ * gives enough points for a share-shift read without pulling unbounded
+ * history. */
 export const MODEL_TREND_DAYS = 56;
 
+/** Trailing MODEL_TREND_DAYS window ending at YESTERDAY (today − 1): `today`
+ * is a partial UTC day mid-ingestion and must not feed a trend endpoint. The
+ * complete-week filter in summarizeModelMixTrend then drops any remaining
+ * partial leading/trailing ISO weeks inside this window. */
 export function modelTrendWindow(today: string): { from: string; to: string } {
   if (!DAY_RE.test(today)) {
     throw new Error(`modelTrendWindow expects YYYY-MM-DD, got "${today}"`);
   }
-  const from = new Date(
-    new Date(`${today}T00:00:00.000Z`).getTime() -
-      (MODEL_TREND_DAYS - 1) * 24 * 60 * 60 * 1000,
-  )
-    .toISOString()
-    .slice(0, 10);
-  return { from, to: today };
+  const to = addUtcDays(today, -1);
+  return { from: addUtcDays(to, -(MODEL_TREND_DAYS - 1)), to };
 }
 
 /** The composed spend-governance view for the /spend page. */
@@ -464,7 +479,7 @@ export async function readSpendGovernance(
     projection: projectMonthEndSpend(mtd.reportedCents, today),
     costPerActiveDay: costPerUnit(mtd.reportedCents, sumValues(activeDayRows)),
     costPerPrompt: costPerUnit(mtd.reportedCents, sumValues(promptRows)),
-    modelMixTrend: summarizeModelMixTrend(modelTrendRows),
+    modelMixTrend: summarizeModelMixTrend(modelTrendRows, trendWindow),
   };
 }
 
