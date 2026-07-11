@@ -588,7 +588,7 @@ export const ATTRIBUTION_GLOSSARY: Record<
   },
 };
 
-// ─── Honesty gap glossary (all 6 HonestyGap kinds) ───
+// ─── Honesty gap glossary (all 7 HonestyGap kinds) ───
 
 export const HONESTY_GAP_GLOSSARY: Record<HonestyGapKind, { label: string; shortWhat: string }> = {
   oauth_actors_missing: {
