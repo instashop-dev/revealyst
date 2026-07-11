@@ -24,9 +24,11 @@ const WEEKLY_DAYS = [
 ];
 
 /** A broad + steady + deep scenario (lands at a high level) with spend and a
- * connection, so every number card has a real value to render. */
+ * connection, so every number card has a real value to render. F11: the
+ * fixture is internally consistent — active people are a subset of the known
+ * people rows (never 9 active out of 1 known). */
 function scenarioView(orgPeople = 10) {
-  const active = 9;
+  const active = Math.max(1, orgPeople - 1);
   const activeDayRows: MetricRowLike[] = [];
   const agentActiveRows: MetricRowLike[] = [];
   const spendRows: MetricRowLike[] = [];
@@ -41,7 +43,7 @@ function scenarioView(orgPeople = 10) {
   spendRows.push({ subjectId: "s0", day: "2026-06-10", value: 9000, connectionId: "c1" });
   const input: MaturityInput = {
     windowTo: WINDOW_TO,
-    knownPeople: orgPeople,
+    people: Array.from({ length: orgPeople }, () => ({})),
     identityLinks,
     activeDayRows,
     agentActiveRows,

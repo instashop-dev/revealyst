@@ -86,6 +86,22 @@ const CONCURRENCY_MIN = 2;
 /** A person-day counts as "multi-feature" at this many distinct features. */
 const MULTI_FEATURE_MIN = 2;
 
+/** Consistency (review F4): a person's cadence denominator is the weeks they
+ * COULD have been active — from their first active week in the window to the
+ * window end — never the full window for a mid-window joiner (dividing a new
+ * hire's 4 perfect weeks by 12 reads as a 33% cadence and structurally locks a
+ * hiring org out of the sustained-cadence levels). Floored at this many weeks
+ * so a brand-new joiner's single active week doesn't read as a perfect 100%
+ * cadence off a one-week sample. */
+export const CONSISTENCY_MIN_WEEKS_PER_PERSON = 4;
+
+/** Trajectory (review F3): the prior window is a comparable quarter only when
+ * resolved usage covers MOST of it — at least this many of its 12 weeks must
+ * contain resolved person-day usage. An org whose data starts two weeks before
+ * the current window must render "not comparable — the window predates your
+ * data", never a fabricated "up a level vs the prior quarter". */
+export const TRAJECTORY_MIN_PRIOR_WEEKS = 8;
+
 /** Plateau check needs at least this many complete weeks of usage to compare a
  * recent half against an earlier half; fewer → insufficient (never a verdict
  * from a couple of weeks). */
@@ -144,6 +160,14 @@ export type ConnectionLike = {
   displayName: string;
   lastSuccessAt: Date | string | null;
 };
+/** A people-table row, reduced to what the maturity math needs. `createdAt`
+ * lets the PRIOR window's activation divide by the people known AS OF that
+ * window's end instead of today's headcount (review F3) — a person added last
+ * week must not deflate last quarter's activation. A missing/null createdAt is
+ * treated as always-known: dropping such a person entirely would shrink the
+ * denominator and INFLATE activation, so the conservative (larger-denominator)
+ * reading is the honest default. */
+export type PersonLike = { createdAt?: Date | string | null };
 
 // ─── Axis result types ───────────────────────────────────────────────────────
 
@@ -237,8 +261,13 @@ export function computeAxes(input: {
   const activePersons = new Set<string>();
   for (const k of activeKeys) activePersons.add(k.slice(0, k.indexOf("|")));
   const activePeople = activePersons.size;
+  // Clamped to 100 (review F11): identity links can resolve active persons the
+  // people snapshot doesn't cover (deleted rows, out-of-window createdAt
+  // filtering), and a >100% activation share is never a fact worth rendering.
   const activationPct =
-    knownPeople > 0 ? round1((activePeople / knownPeople) * 100) : null;
+    knownPeople > 0
+      ? Math.min(100, round1((activePeople / knownPeople) * 100))
+      : null;
 
   // ── Breadth ──
   const breadthComponents: AxisComponent[] = [];
@@ -249,8 +278,13 @@ export function computeAxes(input: {
       weight: BREADTH_WEIGHTS.activation,
     });
   }
+  // Review F6: coverage counts only features from subjects RESOLVED to a
+  // person — the same person-resolution guard its sibling multi-feature
+  // component already applied (an unlinked ci-bot's features must not widen
+  // "their work"). Sibling-guard diff per the CLAUDE.md gate-check pattern.
   const featureRowsInWin = input.featureRows.filter(
-    (r) => r.value > 0 && inWin(r.day, w),
+    (r) =>
+      r.value > 0 && inWin(r.day, w) && personBySubject.has(r.subjectId),
   );
   if (featureRowsInWin.length > 0) {
     const distinctFeatures = new Set(featureRowsInWin.map((r) => r.dim));
@@ -312,27 +346,47 @@ export function computeAxes(input: {
       weight: DEPTH_WEIGHTS.multiFeatureDays,
     });
   }
-  // Peak concurrency: share of subject-days (that report concurrency at all)
-  // with ≥2 agents running at once. Available only when some signal row in the
-  // window has a non-null peakConcurrency (many connectors emit none — absence
-  // is not zero).
-  const concurrencyDays = input.signalRows.filter(
-    (r) => inWin(r.day, w) && r.peakConcurrency !== null,
-  );
-  if (concurrencyDays.length > 0) {
-    const concurrent = concurrencyDays.filter(
-      (r) => (r.peakConcurrency ?? 0) >= CONCURRENCY_MIN,
-    ).length;
+  // Peak concurrency (review F2): RESOLVED person-days only — a signal row
+  // whose subject has no identity link is EXCLUDED, never guessed onto a
+  // person, the same rule every other component follows. (Pre-fix this was
+  // the ONE unresolved-counting component, and renormalization could make an
+  // unlinked ci-bot's peakConcurrency 100% of Depth.) A person-day counts as
+  // concurrent when ANY of that person's subjects reported ≥2 agents at once
+  // that day; the denominator is the resolved person-days that report
+  // concurrency at all (many connectors emit none — absence is not zero).
+  const peakByPersonDay = new Map<string, number>();
+  for (const r of input.signalRows) {
+    if (!inWin(r.day, w) || r.peakConcurrency === null) continue;
+    const person = personBySubject.get(r.subjectId);
+    if (person === undefined) continue;
+    const key = `${person}|${r.day}`;
+    const prev = peakByPersonDay.get(key);
+    if (prev === undefined || r.peakConcurrency > prev) {
+      peakByPersonDay.set(key, r.peakConcurrency);
+    }
+  }
+  if (peakByPersonDay.size > 0) {
+    let concurrent = 0;
+    for (const peak of peakByPersonDay.values()) {
+      if (peak >= CONCURRENCY_MIN) concurrent += 1;
+    }
     depthComponents.push({
       key: "concurrency",
-      value: round1((concurrent / concurrencyDays.length) * 100),
+      value: round1((concurrent / peakByPersonDay.size) * 100),
       weight: DEPTH_WEIGHTS.concurrency,
     });
   }
   const depth = blend(depthComponents);
 
   // ── Consistency ──
-  // Mean over active people of (distinct active weeks ÷ total weeks in window).
+  // Mean over active people of (distinct active weeks ÷ the weeks that person
+  // COULD have been active). Review F4: the per-person denominator runs from
+  // that person's FIRST active week in the window to the window end — capped
+  // at the window length, floored at CONSISTENCY_MIN_WEEKS_PER_PERSON — so a
+  // mid-window joiner with a perfect cadence since they started scores as
+  // steady, not as "absent for the weeks before they existed". Dividing every
+  // person by the full window structurally locked a hiring org out of the
+  // sustained-cadence levels.
   const totalWeeks = windowWeeks(w);
   const consistencyComponents: AxisComponent[] = [];
   if (activePeople >= 1 && totalWeeks >= 2) {
@@ -347,9 +401,22 @@ export function computeAxes(input: {
       }
       set.add(weekStartUtc(day));
     }
+    const windowEndWeek = weekStartUtc(w.to);
+    const weekMs = 7 * DAY_MS;
     let ratioSum = 0;
     for (const set of weeksByPerson.values()) {
-      ratioSum += Math.min(1, set.size / totalWeeks);
+      const firstWeek = [...set].sort()[0];
+      const weeksSinceFirst =
+        Math.round(
+          (new Date(`${windowEndWeek}T00:00:00Z`).getTime() -
+            new Date(`${firstWeek}T00:00:00Z`).getTime()) /
+            weekMs,
+        ) + 1;
+      const denom = Math.min(
+        totalWeeks,
+        Math.max(CONSISTENCY_MIN_WEEKS_PER_PERSON, weeksSinceFirst),
+      );
+      ratioSum += Math.min(1, set.size / denom);
     }
     consistencyComponents.push({
       key: "active_week_ratio",
@@ -395,9 +462,17 @@ export function mapLevel(axes: MaturityAxes): MaturityLevelValue | null {
   if (level === 3 && (consistency === null || consistency < CONSISTENCY_SUSTAINED_MIN)) {
     level = 2;
   }
-  // Amplified (L4): sustained cadence + real agentic/multi-tool depth on L3.
+  // Amplified (L4): sustained cadence + real depth on L3, AND (review F2) the
+  // depth blend must contain a MEASURED agentic-share component — depth
+  // renormalization means a lone concurrency or multi-feature component could
+  // otherwise carry the whole axis, and "Amplified" claims agentic use. The
+  // component only exists when ≥1 resolved agentic person-day was measured.
+  const hasMeasuredAgentic =
+    axes.depth.available &&
+    axes.depth.components.some((c) => c.key === "agentic_share");
   if (
     level === 3 &&
+    hasMeasuredAgentic &&
     consistency !== null &&
     consistency >= CONSISTENCY_AMPLIFIED_MIN &&
     depth !== null &&
@@ -416,9 +491,13 @@ function axisDelta(current: MaturityAxis, prior: MaturityAxis): number | null {
 }
 
 export type MaturityTrajectory =
-  // No usage in the prior window — can't distinguish "org didn't exist yet"
-  // from "measured zero", so the comparison is withheld (notComparable).
-  | { kind: "notComparable"; reason: "insufficientHistory" }
+  // Withheld (notComparable) in two cases: NO resolved usage in the prior
+  // window ("insufficientHistory" — can't distinguish "org didn't exist yet"
+  // from "measured zero"), or resolved usage covering FEWER than
+  // TRAJECTORY_MIN_PRIOR_WEEKS of its weeks ("partialPrior" — the window
+  // predates most of the data, so a "quarter" comparison would fabricate a
+  // rise out of the org's own onboarding, review F3).
+  | { kind: "notComparable"; reason: "insufficientHistory" | "partialPrior" }
   | {
       kind: "comparable";
       priorLevel: MaturityLevelValue | null;
@@ -462,10 +541,20 @@ export type MaturityNumber = {
   level: MaturityLevelValue | null;
   axes: MaturityAxes;
   trajectory: MaturityTrajectory;
+  /** Review F8: true when the freshest successful sync predates the ENTIRE
+   * report window — the window's silence is then unobserved, not measured, so
+   * `level` is withheld (null) rather than rendered as a confident "Dormant"
+   * off data we don't have. */
+  stale: boolean;
 };
 
 export type PlateauNumber =
   | { confidence: "directional"; kind: "insufficient"; weeks: number }
+  // Review F1: the freshest successful sync predates the start of the recent
+  // half being judged — those weeks are UNOBSERVED, not measured zeros, so
+  // the growth/plateau verdict is withheld (a stale connector must never
+  // render as a collapse OR mask one).
+  | { confidence: "directional"; kind: "stale"; weeks: number }
   | {
       confidence: "directional";
       kind: "measured";
@@ -522,6 +611,9 @@ export type MaturityView = {
   /** Freshest successful sync across connections, ISO string — the "data as
    * of" line. null when nothing has synced. */
   dataAsOf: string | null;
+  /** Review F8: freshest sync predates the entire window — level withheld,
+   * surfaces render the stale state instead of a confident low level. */
+  stale: boolean;
 };
 
 // ─── Plateau helper (own small directional slope check — deliberately NOT
@@ -559,22 +651,40 @@ export function computePlateau(weeklyPersonDays: readonly number[]): PlateauNumb
   };
 }
 
-/** Per-complete-week person-day counts over the window, chronological. A week
- * counts only when it lies wholly inside the window (both its Monday and its
- * Sunday within [from,to]); partial endpoint weeks are dropped so a lone
- * partial week can't read as a collapse or a spike. */
+/** Every complete-week Monday wholly inside [from,to], chronological (a week
+ * counts only when both its Monday and Sunday lie within the window; partial
+ * endpoint weeks are dropped so a lone partial week can't read as a collapse
+ * or a spike). */
+function completeWeekMondays(w: Window): string[] {
+  let monday = weekStartUtc(w.from);
+  if (monday < w.from) monday = addDays(monday, 7);
+  const mondays: string[] = [];
+  while (addDays(monday, 6) <= w.to) {
+    mondays.push(monday);
+    monday = addDays(monday, 7);
+  }
+  return mondays;
+}
+
+/** Per-complete-week person-day counts over the window, chronological, one
+ * entry per complete week — ZERO-FILLED (review F1): a complete in-window week
+ * with no person-day rows is a MEASURED ZERO for a count series, never an
+ * omitted point. (Omitting made a dead month read as "Growing" because only
+ * the populated early weeks survived into the recent half.) Whether that zero
+ * is trustworthy — i.e. whether the connector actually synced those weeks —
+ * is a separate staleness gate applied by the caller against `dataAsOf`. */
 function weeklyPersonDayCounts(
   personDayKeys: Set<string>,
-  w: Window,
+  mondays: readonly string[],
 ): number[] {
-  const byWeek = new Map<string, number>();
+  const byWeek = new Map<string, number>(mondays.map((m) => [m, 0]));
   for (const key of personDayKeys) {
     const day = key.slice(key.indexOf("|") + 1);
     const week = weekStartUtc(day);
-    if (week < w.from || addDays(week, 6) > w.to) continue; // complete weeks only
-    byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
+    const prev = byWeek.get(week);
+    if (prev !== undefined) byWeek.set(week, prev + 1);
   }
-  return [...byWeek.keys()].sort().map((wk) => byWeek.get(wk)!);
+  return mondays.map((m) => byWeek.get(m)!);
 }
 
 // ─── The pure composite ───────────────────────────────────────────────────────
@@ -582,7 +692,10 @@ function weeklyPersonDayCounts(
 export type MaturityInput = {
   /** Inclusive window end anchor — "today" (partial). Windows end yesterday. */
   windowTo: string;
-  knownPeople: number;
+  /** The org's people rows (see PersonLike): the CURRENT window's activation
+   * divides by people known as of its end; the PRIOR window's by people known
+   * as of ITS end (via createdAt) — review F3. */
+  people: readonly PersonLike[];
   identityLinks: readonly IdentityLinkLike[];
   /** All rows below span BOTH the current and prior windows (fetched once over
    * the combined span, sliced per-window here — keeps readMaturityView at
@@ -619,38 +732,76 @@ export function maturityWindows(windowTo: string): {
   };
 }
 
+/** YYYY-MM-DD of a Date/ISO-string timestamp. */
+function toDay(when: Date | string): string {
+  return (when instanceof Date ? when : new Date(when)).toISOString().slice(0, 10);
+}
+
 export function computeMaturity(input: MaturityInput): MaturityView {
   const { current, prior } = maturityWindows(input.windowTo);
   const personBySubject = personBySubjectMap(input.identityLinks);
 
+  // ── Data-as-of FIRST: the plateau staleness gate and the F8 stale-level
+  // guard both key off the freshest successful sync. ──
+  let dataAsOf: string | null = null;
+  for (const c of input.connections) {
+    if (c.lastSuccessAt === null) continue;
+    const iso =
+      c.lastSuccessAt instanceof Date
+        ? c.lastSuccessAt.toISOString()
+        : new Date(c.lastSuccessAt).toISOString();
+    if (dataAsOf === null || iso > dataAsOf) dataAsOf = iso;
+  }
+  const dataAsOfDay = dataAsOf === null ? null : dataAsOf.slice(0, 10);
+
+  // People known as of a window end (review F3): a person added last week must
+  // not deflate last quarter's activation denominator. Missing createdAt →
+  // always-known (see PersonLike doc comment).
+  const knownPeopleAsOf = (day: string): number =>
+    input.people.filter(
+      (p) => p.createdAt === undefined || p.createdAt === null || toDay(p.createdAt) <= day,
+    ).length;
+
   const axes = computeAxes({
     window: current,
-    knownPeople: input.knownPeople,
+    knownPeople: knownPeopleAsOf(current.to),
     identityLinks: input.identityLinks,
     activeDayRows: input.activeDayRows,
     agentActiveRows: input.agentActiveRows,
     featureRows: input.featureRows,
     signalRows: input.signalRows,
   });
-  const level = mapLevel(axes);
+  // Review F8: when the freshest sync predates the ENTIRE window, the window's
+  // silence is unobserved, not measured — withhold the level rather than
+  // rendering a confident "Dormant" off data we don't have. (dataAsOf === null
+  // with no rows resolves to axes-insufficient → level null on its own.)
+  const stale = dataAsOfDay !== null && dataAsOfDay < current.from;
+  const level = stale ? null : mapLevel(axes);
 
-  // ── Trajectory: recompute axes over the prior window. Withheld when the
-  // prior window has NO usage (can't tell "didn't exist" from "measured 0"). ──
+  // ── Trajectory: recompute axes over the prior window (review F3). Withheld
+  // when the prior window has NO resolved usage (can't tell "didn't exist"
+  // from "measured 0" — and unresolved-only usage is not the series the axes
+  // measure), OR when resolved usage covers fewer than
+  // TRAJECTORY_MIN_PRIOR_WEEKS of its weeks (the window predates most of the
+  // data — comparing against the org's own onboarding fabricates a rise). ──
   const priorActiveKeys = resolvedPersonDays(
     input.activeDayRows,
     prior,
     personBySubject,
   );
-  const priorHasUsage =
-    priorActiveKeys.size > 0 ||
-    input.activeDayRows.some((r) => r.value > 0 && inWin(r.day, prior));
+  const priorUsageWeeks = new Set<string>();
+  for (const key of priorActiveKeys) {
+    priorUsageWeeks.add(weekStartUtc(key.slice(key.indexOf("|") + 1)));
+  }
   let trajectory: MaturityTrajectory;
-  if (!priorHasUsage) {
+  if (priorActiveKeys.size === 0) {
     trajectory = { kind: "notComparable", reason: "insufficientHistory" };
+  } else if (priorUsageWeeks.size < TRAJECTORY_MIN_PRIOR_WEEKS) {
+    trajectory = { kind: "notComparable", reason: "partialPrior" };
   } else {
     const priorAxes = computeAxes({
       window: prior,
-      knownPeople: input.knownPeople,
+      knownPeople: knownPeopleAsOf(prior.to),
       identityLinks: input.identityLinks,
       activeDayRows: input.activeDayRows,
       agentActiveRows: input.agentActiveRows,
@@ -699,6 +850,7 @@ export function computeMaturity(input: MaturityInput): MaturityView {
     level,
     axes,
     trajectory,
+    stale,
   };
 
   // ── Number 4: plateau flag (directional, own slope check) ──
@@ -707,9 +859,21 @@ export function computeMaturity(input: MaturityInput): MaturityView {
     current,
     personBySubject,
   );
-  const plateau = computePlateau(
-    weeklyPersonDayCounts(currentActiveKeys, current),
+  const weekMondays = completeWeekMondays(current);
+  let plateau = computePlateau(
+    weeklyPersonDayCounts(currentActiveKeys, weekMondays),
   );
+  // Review F1 staleness gate: if the freshest successful sync predates the
+  // start of the recent half being judged, that half's zero-filled weeks are
+  // UNOBSERVED, not measured silence — withhold the verdict. A stale
+  // connector must never render as a collapse (or mask one as "Growing").
+  if (plateau.kind === "measured") {
+    const half = Math.floor(weekMondays.length / 2);
+    const recentHalfStart = weekMondays[weekMondays.length - half];
+    if (dataAsOfDay === null || dataAsOfDay < recentHalfStart) {
+      plateau = { confidence: "directional", kind: "stale", weeks: plateau.weeks };
+    }
+  }
 
   // ── Number 5: concentration (directional, reused) ──
   const currentUsage = resolvePerPersonUsage({
@@ -751,27 +915,19 @@ export function computeMaturity(input: MaturityInput): MaturityView {
     idleTools: Math.max(0, connectedTools - activeConnectionIds.size),
   };
 
-  // ── Number 8: agentic share (measured, reused directly at windowTo) ──
+  // ── Number 8: agentic share (measured, reused). Review F7: windowTo is
+  // `current.to` (yesterday), NOT today — computeAgenticAdoption's own 84-day
+  // window then aligns exactly with the report's current window, so this card
+  // can never contradict the depth axis computed over the same rows. ──
   const agenticShare: AgenticShareNumber = {
     confidence: "measured",
     agentic: computeAgenticAdoption({
       agentActiveRows: input.agentActiveRows,
       activeDayRows: input.activeDayRows,
       identityLinks: [...input.identityLinks],
-      windowTo: input.windowTo,
+      windowTo: current.to,
     }),
   };
-
-  // ── Data-as-of: freshest successful sync ──
-  let dataAsOf: string | null = null;
-  for (const c of input.connections) {
-    if (c.lastSuccessAt === null) continue;
-    const iso =
-      c.lastSuccessAt instanceof Date
-        ? c.lastSuccessAt.toISOString()
-        : new Date(c.lastSuccessAt).toISOString();
-    if (dataAsOf === null || iso > dataAsOf) dataAsOf = iso;
-  }
 
   return {
     currentWindow: current,
@@ -788,6 +944,7 @@ export function computeMaturity(input: MaturityInput): MaturityView {
       agenticShare,
     },
     dataAsOf,
+    stale,
   };
 }
 
@@ -882,7 +1039,7 @@ export async function readMaturityView(
 
   return computeMaturity({
     windowTo,
-    knownPeople: people.length,
+    people,
     identityLinks: identities,
     activeDayRows,
     agentActiveRows,

@@ -63,10 +63,10 @@ function AxisMeterCard({
             <ScoreMeter value={axis.value} label={`${copy.label} score`} />
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            Not enough data to score this axis yet. It fills in once the usage it
-            reads from — {copy.inputs.charAt(0).toLowerCase() + copy.inputs.slice(1)}
-          </p>
+          <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+            <p>Not enough data to score this axis yet.</p>
+            <p>What feeds it: {copy.inputs}</p>
+          </div>
         )}
       </CardContent>
     </Card>

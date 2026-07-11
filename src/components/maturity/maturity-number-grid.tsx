@@ -161,6 +161,17 @@ function NumberBody({
     }
     case "maturity": {
       const m = numbers.maturity;
+      if (m.stale) {
+        // F8: the freshest sync predates the entire window — the level is
+        // withheld, never rendered as a confident low off unobserved silence.
+        return (
+          <Headline
+            tier={m.confidence}
+            value="—"
+            sub="Withheld — no tool has synced inside this window"
+          />
+        );
+      }
       const levelName =
         m.level === null ? "Not enough data" : MATURITY_LEVEL_COPY[m.level].name;
       return (
@@ -182,6 +193,17 @@ function NumberBody({
             tier={p.confidence}
             value="—"
             sub={`Needs more weekly history (${p.weeks} so far)`}
+          />
+        );
+      }
+      if (p.kind === "stale") {
+        // F1: the last sync predates the weeks being judged — those weeks are
+        // unobserved, not measured silence, so no growth/plateau verdict.
+        return (
+          <Headline
+            tier={p.confidence}
+            value="—"
+            sub="Withheld — the last sync predates the recent weeks being judged"
           />
         );
       }
@@ -287,7 +309,9 @@ function TrajectoryLine({
   if (trajectory.kind === "notComparable") {
     return (
       <span className="text-xs text-muted-foreground">
-        Not enough prior history to show a trajectory yet.
+        {trajectory.reason === "partialPrior"
+          ? "Not comparable — the prior quarter predates most of your data."
+          : "Not enough prior history to show a trajectory yet."}
       </span>
     );
   }

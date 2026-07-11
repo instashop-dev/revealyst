@@ -29,36 +29,42 @@ export type MaturityLevelCopy = {
   description: string;
 };
 
+// Review F5: every sentence below states ONLY what the level's gates actually
+// check (the activation share, the weekly cadence, and — for L4 — measured
+// depth including a recorded agentic signal). Never an unchecked
+// characteristic like "use is no longer concentrated in champions" or "leans
+// on chat" — concentration is computed separately on the same page and could
+// contradict such a claim on the same screen (invariant b).
 export const MATURITY_LEVEL_COPY: Record<MaturityLevelValue, MaturityLevelCopy> = {
   0: {
     name: "Dormant",
-    tagline: "Tools are in place, but almost no one is using them yet.",
+    tagline: "Very few of the people we can see were active.",
     description:
-      "Access exists but day-to-day use is rare — fewer than a fifth of the people we can see are active. This is the normal starting point right after tools are rolled out. The next move is turning access into habit for a first group of people, not adding more tools.",
+      "Fewer than a fifth of the people we can identify had any AI activity in the window. This is the normal starting point right after tools are rolled out. The next move is turning access into habit for a first group of people, not adding more tools.",
   },
   1: {
     name: "Trial",
-    tagline: "A first wave is using AI, often a handful of early adopters.",
+    tagline: "A first minority of the people we can see is active.",
     description:
-      "Some people are active and use tends to sit with a few champions, week to week it can be uneven. This is real momentum, not saturation. Widening use beyond the first movers matters more here than deepening it.",
+      "Between a fifth and half of the people we can identify had AI activity in the window. That's real momentum, not saturation — widening use beyond the first movers matters more here than deepening it.",
   },
   2: {
     name: "Adopted",
-    tagline: "Use has spread past the early adopters to a broad middle.",
+    tagline: "A majority of the people we can see are active.",
     description:
-      "A majority of the people we can see are active and use is no longer concentrated in a few champions. Day-to-day use still leans on chat and completion rather than agentic or multi-tool work. The next frontier is depth and steadiness, not just reach.",
+      "More than half — sometimes far more — of the people we can identify had AI activity in the window, but activity hasn't yet held steadily week to week across it. Reaching the next level is about the cadence holding week after week, not about more people.",
   },
   3: {
     name: "Embedded",
-    tagline: "AI is a steady habit for most people, week after week.",
+    tagline: "Most people are active, and the cadence holds week to week.",
     description:
-      "Most of the people we can see are active and the cadence is steady rather than spiky — use holds week to week instead of coming in bursts. Agentic and multi-feature work is showing up. Sustaining the habit and growing depth is what carries an org from here.",
+      "More than four in five of the people we can identify were active, and their activity recurs steadily across the window's weeks rather than arriving in bursts. From here the ceiling is measured depth — including agent use the connected tools can actually report.",
   },
   4: {
     name: "Amplified",
-    tagline: "Broad, steady, and deep — agentic and multi-tool use is the norm.",
+    tagline: "Broad, steady use with measured agentic depth.",
     description:
-      "Use is broad, steady, and deep at the same time: most people active, a regular weekly cadence, and meaningful agentic and multi-feature work rather than autocomplete alone. This is the leading edge of what the telemetry can show. It describes usage sophistication — a leading indicator — not proven business outcomes.",
+      "Most of the people we can identify are active, the weekly cadence is strong, and measured depth — including real, recorded agent activity — clears the bar. This is the leading edge of what the telemetry can show. It describes usage sophistication, a leading indicator — not proven business outcomes.",
   },
 };
 
@@ -69,6 +75,16 @@ export const MATURITY_LEVEL_NONE_COPY = {
   tagline: "We can't place a maturity level until people and usage are visible.",
   description:
     "A maturity level needs people we can see and usage days to measure. Once your connected tools sync activity and identities are resolved, a level appears here. We don't show a placeholder level — an absence of data is not a level zero.",
+} as const;
+
+/** Review F8: shown when the freshest successful sync predates the entire
+ * report window — the window's silence is unobserved, not measured, so the
+ * level is withheld rather than rendered as a confident low. */
+export const MATURITY_LEVEL_STALE_COPY = {
+  name: "Level withheld — data is stale",
+  tagline: "No connected tool has synced inside this report's window.",
+  description:
+    "Every axis and level here reads the last 12 complete weeks, but the most recent successful sync is older than that — so the quiet weeks are unobserved, not measured. Re-sync your connections to bring the report current; we don't render a level off data we don't have.",
 } as const;
 
 export type MaturityAxisKey = "breadth" | "depth" | "consistency";
@@ -106,7 +122,7 @@ export const MATURITY_AXIS_COPY: Record<MaturityAxisKey, AxisCopy> = {
       "How steady the habit is — whether people show up week after week rather than in bursts.",
     what: "Consistency is about habit: whether use holds week to week or arrives in spikes. It reads the raw active-day cadence over recent weeks — an org where people are active most weeks scores higher than one with the same total usage crammed into a few bursts.",
     inputs:
-      "The average share of recent weeks in which each active person had at least one active day. Measured from raw active-day records.",
+      "The average share of recent weeks in which each active person had at least one active day, counted from each person's own first active week (with a four-week minimum) so someone who joined mid-window isn't penalized for the weeks before they started. Measured from raw active-day records.",
   },
 };
 

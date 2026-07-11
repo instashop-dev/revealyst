@@ -5,6 +5,7 @@ import type { MaturityLevelValue } from "@/lib/maturity-glossary";
 import {
   MATURITY_LEVEL_COPY,
   MATURITY_LEVEL_NONE_COPY,
+  MATURITY_LEVEL_STALE_COPY,
   MATURITY_LEVELS,
 } from "@/lib/maturity-glossary";
 import { cn } from "@/lib/utils";
@@ -15,16 +16,24 @@ import { cn } from "@/lib/utils";
  * the "data as of" line. The level is a MODELED reading over uncalibrated
  * thresholds (labeled as such), NOT a certified grade; a null level renders the
  * honest "not enough data" state, never a placeholder L0 (which is a measured
- * low, a different fact). Server-safe — pure props.
+ * low, a different fact); `stale` (review F8 — freshest sync predates the
+ * whole window) renders the withheld-stale state, never a confident low level
+ * off unobserved silence. Server-safe — pure props.
  */
 export function MaturityLevelBanner({
   level,
   dataAsOf,
+  stale,
 }: {
   level: MaturityLevelValue | null;
   dataAsOf: string | null;
+  stale: boolean;
 }) {
-  const copy = level === null ? MATURITY_LEVEL_NONE_COPY : MATURITY_LEVEL_COPY[level];
+  const copy = stale
+    ? MATURITY_LEVEL_STALE_COPY
+    : level === null
+      ? MATURITY_LEVEL_NONE_COPY
+      : MATURITY_LEVEL_COPY[level];
   return (
     <Card>
       <CardContent className="flex flex-col gap-5 py-6">
@@ -44,6 +53,7 @@ export function MaturityLevelBanner({
             <InfoTip
               label="AI maturity level"
               short="A modeled reading of usage sophistication across three measured axes — a leading indicator, not a measure of realized productivity. Levels use uncalibrated thresholds, so they're directional."
+              detail="Because the 12-week window slides, the level can move from week to week as usage enters and leaves it — no smoothing is applied in this version."
             />
           </div>
           <p className="text-sm font-medium text-foreground">{copy.tagline}</p>
@@ -64,6 +74,9 @@ export function MaturityLevelBanner({
             })}
             . Covers the last 12 complete weeks; today is excluded while it's
             still in progress.
+            {stale
+              ? " That sync is OLDER than this window — the numbers below reflect what was last ingested, not the current state."
+              : null}
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">

@@ -23,7 +23,11 @@ export function MaturityReport({
 }) {
   return (
     <div className="flex flex-col gap-6">
-      <MaturityLevelBanner level={view.level} dataAsOf={view.dataAsOf} />
+      <MaturityLevelBanner
+        level={view.level}
+        dataAsOf={view.dataAsOf}
+        stale={view.stale}
+      />
 
       <section className="flex flex-col gap-3">
         <SectionHeading>The three axes</SectionHeading>
