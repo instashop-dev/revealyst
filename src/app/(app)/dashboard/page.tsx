@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Cable, Gauge, Info, Lightbulb, TriangleAlert } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
+import { AgenticAdoptionCard } from "@/components/dashboard/agentic-adoption-card";
 import { AttributionTrendCard } from "@/components/dashboard/attribution-trend-card";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
@@ -34,6 +35,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { listBenchmarks } from "@/db/benchmarks";
+import {
+  AGENTIC_WINDOW_DAYS,
+  computeAgenticAdoption,
+} from "@/lib/agentic-adoption";
 import { requireAppContext, type AppContext } from "@/lib/api-context";
 import { dashboardSummary } from "@/lib/api-impl";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
@@ -195,8 +200,24 @@ async function PersonalSelfView({
   // while staying at round-trip depth 1 (dashboardSummary awaits the same
   // in-flight promise rather than starting a second query).
   const definitionsPromise = ctx.scope.scores.definitions();
-  const [summary, verifiedBenchmarks, definitions, prevScores, budgetAlert] =
-    await timeStage("pageData", () =>
+  // A wider window than the current-month summary, purely so the agentic
+  // adoption card has ~12 weeks to draw a real trend line (the lib slices to
+  // its own AGENTIC_WINDOW_DAYS window ending today — this fetch matches it).
+  // Org-of-one, so these rows are the viewer's own — the person-day rate IS
+  // their personal rate.
+  const agenticFrom = new Date(Date.now() - (AGENTIC_WINDOW_DAYS - 1) * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+  const [
+    summary,
+    verifiedBenchmarks,
+    definitions,
+    prevScores,
+    budgetAlert,
+    personalActiveDay,
+    personalAgentActive,
+    personalIdentities,
+  ] = await timeStage("pageData", () =>
       Promise.all([
         dashboardSummary(
           ctx.scope,
@@ -223,8 +244,31 @@ async function PersonalSelfView({
         // — for a member the read is skipped entirely, not fetched-then-hidden.
         // Null also when no budget is set or no threshold is crossed.
         readBudgetAlertForRole(ctx.scope, ctx.role, today),
+        // Agentic adoption inputs (F1.4). Numerator + denominator over the
+        // wider trend window; the rate + weekly trend derive in JS below.
+        ctx.scope.metrics.records({
+          metricKey: "active_day",
+          from: agenticFrom,
+          to: today,
+        }),
+        ctx.scope.metrics.records({
+          metricKey: "agent_active",
+          from: agenticFrom,
+          to: today,
+        }),
+        // Identity links resolve the agentic rows' subject-days to
+        // person-days — the same human often spans several vendor subjects
+        // (review F1). Fetched inside this flat Promise.all: +1 query, still
+        // round-trip depth 1.
+        ctx.scope.identities.all(),
       ]),
     );
+  const agentic = computeAgenticAdoption({
+    agentActiveRows: personalAgentActive,
+    activeDayRows: personalActiveDay,
+    identityLinks: personalIdentities,
+    windowTo: today,
+  });
   const scores = new Map<string, PersonalScore>(
     summary.scores
       .filter((s) => s.subjectLevel === "person" && s.periodGrain === "month")
@@ -382,6 +426,8 @@ async function PersonalSelfView({
         ))}
       </div>
 
+      <AgenticAdoptionCard data={agentic} />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Spend this month</CardTitle>
@@ -507,6 +553,7 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     gaps,
     connections,
     attributionTrend,
+    agentic,
   } = view;
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
@@ -610,6 +657,7 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
               <ActivityHeatmap heatmap={heatmap} />
               <div className="grid gap-4">
                 <ToolCoveragePanel coverage={coverage} />
+                <AgenticAdoptionCard data={agentic} />
                 <ScoreTrend trends={trends} />
               </div>
             </div>

@@ -1,5 +1,9 @@
 import type { forOrg } from "../db/org-scope";
 import {
+  computeAgenticAdoption,
+  type AgenticAdoption,
+} from "./agentic-adoption";
+import {
   computeAttributionTrend,
   type AttributionTrend,
 } from "./attribution-trend";
@@ -72,6 +76,17 @@ export type DashboardView = {
    * any kind — so, like `definitions` and `gaps`, it does not change what
    * `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must inspect. */
   attributionTrend: AttributionTrend;
+  /** Agentic-adoption view (F1.4 / research M6): the org-level share of active
+   * days on which an AI agent was used, plus a weekly trend. Derived in JS from
+   * the `agent_active` rows fetched in the stage-1 Promise.all below and the
+   * `active_day` rows already fetched for the summary — one new query, zero new
+   * sequential stages (G10). The value is aggregate-only: distinct subject-day
+   * COUNTS and per-connector day counts, never a person identifier or a
+   * per-person ranking — so, like `definitions`/`gaps`/`connections`, it does
+   * not change what `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must
+   * inspect, and the team surface stays aggregate-only (no per-person agentic
+   * ranking, per the F1.4 constraint). */
+  agentic: AgenticAdoption;
 };
 
 export async function readDashboardView(
@@ -99,6 +114,7 @@ export async function readDashboardView(
     spendRecords,
     spendEstimatedRecords,
     activeDayRecords,
+    agentActiveRecords,
     featureRecords,
     volumeRecords,
     runs,
@@ -130,6 +146,14 @@ export async function readDashboardView(
       from: window.from,
       to: window.to,
       dim: "",
+    }),
+    // Agentic-adoption numerator (F1.4). One new stage-1 read — the denominator
+    // (active_day) is already fetched above, so the rate + weekly trend derive
+    // in JS with zero further queries and no new sequential stage (G10).
+    scope.metrics.records({
+      metricKey: "agent_active",
+      from: window.from,
+      to: window.to,
     }),
     scope.metrics.records({
       metricKey: "feature_used",
@@ -209,5 +233,15 @@ export async function readDashboardView(
     // Zero new reads: the person-attributed usage-day share is derived in JS
     // from the same active_day rows readDashboard already consumed.
     attributionTrend: computeAttributionTrend(activeDayRecords),
+    // Pure JS over already-fetched rows — no query. Identity links resolve
+    // subject-days to person-days (`identities` is already in the stage-1
+    // batch for readDashboard/shared-accounts, so this costs nothing); the
+    // lib slices to its own 12-week window ending at `window.to`.
+    agentic: computeAgenticAdoption({
+      agentActiveRows: agentActiveRecords,
+      activeDayRows: activeDayRecords,
+      identityLinks: identities,
+      windowTo: window.to,
+    }),
   };
 }
