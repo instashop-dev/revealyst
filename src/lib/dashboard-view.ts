@@ -213,10 +213,15 @@ export async function readDashboardView(
     definitions,
     gaps: collectGaps(runs),
     connections,
-    // Pure JS over the two already-fetched row sets — no query.
+    // Pure JS over already-fetched rows — no query. Identity links resolve
+    // subject-days to person-days (`identities` is already in the stage-1
+    // batch for readDashboard/shared-accounts, so this costs nothing); the
+    // lib slices to its own 12-week window ending at `window.to`.
     agentic: computeAgenticAdoption({
       agentActiveRows: agentActiveRecords,
       activeDayRows: activeDayRecords,
+      identityLinks: identities,
+      windowTo: window.to,
     }),
   };
 }

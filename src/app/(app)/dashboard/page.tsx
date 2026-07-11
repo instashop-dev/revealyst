@@ -32,7 +32,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { listBenchmarks } from "@/db/benchmarks";
-import { computeAgenticAdoption } from "@/lib/agentic-adoption";
+import {
+  AGENTIC_WINDOW_DAYS,
+  computeAgenticAdoption,
+} from "@/lib/agentic-adoption";
 import { requireAppContext, type AppContext } from "@/lib/api-context";
 import { dashboardSummary } from "@/lib/api-impl";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
@@ -182,9 +185,11 @@ async function PersonalSelfView({
   // in-flight promise rather than starting a second query).
   const definitionsPromise = ctx.scope.scores.definitions();
   // A wider window than the current-month summary, purely so the agentic
-  // adoption card has ~12 weeks to draw a real trend line. Org-of-one, so these
-  // rows are the viewer's own — the aggregate rate IS their personal rate.
-  const agenticFrom = new Date(Date.now() - 84 * DAY_MS)
+  // adoption card has ~12 weeks to draw a real trend line (the lib slices to
+  // its own AGENTIC_WINDOW_DAYS window ending today — this fetch matches it).
+  // Org-of-one, so these rows are the viewer's own — the person-day rate IS
+  // their personal rate.
+  const agenticFrom = new Date(Date.now() - (AGENTIC_WINDOW_DAYS - 1) * DAY_MS)
     .toISOString()
     .slice(0, 10);
   const [
@@ -195,6 +200,7 @@ async function PersonalSelfView({
     budgetAlert,
     personalActiveDay,
     personalAgentActive,
+    personalIdentities,
   ] = await timeStage("pageData", () =>
       Promise.all([
         dashboardSummary(
@@ -234,11 +240,18 @@ async function PersonalSelfView({
           from: agenticFrom,
           to: today,
         }),
+        // Identity links resolve the agentic rows' subject-days to
+        // person-days — the same human often spans several vendor subjects
+        // (review F1). Fetched inside this flat Promise.all: +1 query, still
+        // round-trip depth 1.
+        ctx.scope.identities.all(),
       ]),
     );
   const agentic = computeAgenticAdoption({
     agentActiveRows: personalAgentActive,
     activeDayRows: personalActiveDay,
+    identityLinks: personalIdentities,
+    windowTo: today,
   });
   const scores = new Map<string, PersonalScore>(
     summary.scores
