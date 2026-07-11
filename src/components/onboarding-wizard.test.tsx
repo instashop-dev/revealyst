@@ -1,0 +1,71 @@
+// @vitest-environment jsdom
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { OnboardingWizard } from "./onboarding-wizard";
+import { SCORE_TIMING_COPY } from "@/lib/onboarding-guide";
+
+// End-state copy honesty (F1.6 review F1): the wizard's timing line must key
+// on the connection's REAL sync state, never on this session's connect
+// events — a paired-but-never-run agent is `pending` and gets the waiting
+// copy, not "your data is in".
+
+describe("OnboardingWizard end-state timing copy", () => {
+  it("shows the waiting copy for a paired-but-never-synced agent (pending)", () => {
+    render(
+      <OnboardingWizard
+        initialConnections={[
+          { id: "c1", vendor: "claude_code_local", status: "pending" },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText(SCORE_TIMING_COPY.awaiting_agent.headline),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/data is in/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/by tomorrow/i)).not.toBeInTheDocument();
+  });
+
+  it("shows the overnight copy only once the agent has actually synced (active)", () => {
+    render(
+      <OnboardingWizard
+        initialConnections={[
+          { id: "c1", vendor: "claude_code_local", status: "active" },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText(SCORE_TIMING_COPY.overnight.headline),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/nightly run/i)).toBeInTheDocument();
+  });
+
+  it("shows the same-day copy for a poll-connector org", () => {
+    render(
+      <OnboardingWizard
+        initialConnections={[
+          { id: "c1", vendor: "anthropic_console", status: "active" },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByText(SCORE_TIMING_COPY.same_day.headline),
+    ).toBeInTheDocument();
+    expect(screen.getByText(SCORE_TIMING_COPY.same_day.detail)).toBeInTheDocument();
+  });
+
+  it("shows no timing line when nothing is connected", () => {
+    render(<OnboardingWizard initialConnections={[]} />);
+
+    expect(
+      screen.queryByText(SCORE_TIMING_COPY.same_day.headline),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(SCORE_TIMING_COPY.awaiting_agent.headline),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Connect a source to continue")).toBeInTheDocument();
+  });
+});
