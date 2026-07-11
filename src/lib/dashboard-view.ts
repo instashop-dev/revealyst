@@ -3,6 +3,7 @@ import {
   computeAgenticAdoption,
   type AgenticAdoption,
 } from "./agentic-adoption";
+import { detectDailySpike, type AnomalyResult } from "./anomaly";
 import {
   computeAttributionTrend,
   type AttributionTrend,
@@ -27,11 +28,16 @@ import {
   RECENT_PERIOD_DAYS,
   type RecentMovement,
 } from "./recent-movement";
+import { detectPlateau, type PlateauResult } from "./plateau";
 import { resolveSegmentSource, type SegmentDistribution } from "./segments";
 import {
   resolveSharedAccountSource,
   type SharedAccountFlag,
 } from "./shared-account";
+import {
+  completeWeeklyActive,
+  computeUsageBaselines,
+} from "./usage-baselines";
 import {
   resolvePerPersonUsage,
   summarizeUsageConcentration,
@@ -110,6 +116,21 @@ export type DashboardView = {
   recentMovement: RecentMovement;
   usageDistribution: UsageDistribution;
   usageConcentration: UsageConcentration;
+  /** F2.3 (I2/I3) early-warning results, computed request-time in stage-2 from
+   * rows already fetched below — spend/prompts daily series (spike detection),
+   * `active_day` + identities (the M8 retention curve behind the plateau
+   * detector), and `connections.lastSuccessAt` (the G5 staleness/post-gap
+   * gates). ZERO new queries. All THREE are aggregate-only — an org daily
+   * total, an org daily total, and a weekly active-PEOPLE count series — with
+   * NO person id, pseudonym, name, or per-named-person value, so like
+   * `recentMovement`/`agentic` above they add nothing
+   * `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must inspect. The
+   * detectors self-gate (staleness, post-gap catch-up batches, insufficient
+   * baselines), so a stale or sparse org yields a non-`spike`/non-`plateau`
+   * kind, never a fabricated alert. */
+  spendAnomaly: AnomalyResult;
+  promptAnomaly: AnomalyResult;
+  usagePlateau: PlateauResult;
 };
 
 export async function readDashboardView(
@@ -286,6 +307,37 @@ export async function readDashboardView(
     recentUsage.excluded.unresolvedPrompts + recentUsage.excluded.sharedPrompts,
   );
 
+  // F2.3 stage-2 (I2/I3): pure derivation over rows already fetched above, zero
+  // further queries. Spike detection compares the last COMPLETE day's org spend
+  // / prompt total against its trailing 28-day baseline (the detector excludes
+  // today and the day itself); the plateau detector reads the M8 weekly
+  // active-people retention curve. Both self-gate on connection staleness /
+  // post-gap catch-up batches (G5) from `connections.lastSuccessAt`.
+  const usageBaselines = computeUsageBaselines({
+    activeDayRows: activeDayRecords,
+    identityLinks: identities,
+    windowTo: window.to,
+  });
+  const usagePlateau = detectPlateau({
+    weeklyActive: completeWeeklyActive(usageBaselines),
+    connections,
+    today: window.to,
+  });
+  const spendAnomaly = detectDailySpike({
+    metric: "spend",
+    records: spendRecords,
+    today: window.to,
+    connections,
+    activeDayRecords,
+  });
+  const promptAnomaly = detectDailySpike({
+    metric: "prompts",
+    records: promptRecords,
+    today: window.to,
+    connections,
+    activeDayRecords,
+  });
+
   return {
     summary,
     benchmarks,
@@ -313,5 +365,8 @@ export async function readDashboardView(
     recentMovement,
     usageDistribution,
     usageConcentration,
+    spendAnomaly,
+    promptAnomaly,
+    usagePlateau,
   };
 }

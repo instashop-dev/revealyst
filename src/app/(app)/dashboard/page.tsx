@@ -42,6 +42,7 @@ import {
   AGENTIC_WINDOW_DAYS,
   computeAgenticAdoption,
 } from "@/lib/agentic-adoption";
+import { detectDailySpike } from "@/lib/anomaly";
 import { requireAppContext, type AppContext } from "@/lib/api-context";
 import { dashboardSummary } from "@/lib/api-impl";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
@@ -220,6 +221,7 @@ async function PersonalSelfView({
     personalActiveDay,
     personalAgentActive,
     personalIdentities,
+    personalSpend,
   ] = await timeStage("pageData", () =>
       Promise.all([
         dashboardSummary(
@@ -264,6 +266,17 @@ async function PersonalSelfView({
         // (review F1). Fetched inside this flat Promise.all: +1 query, still
         // round-trip depth 1.
         ctx.scope.identities.all(),
+        // F2.3 (I2): reported spend over the same wide window, so the spend
+        // spike detector has a trailing 28-day baseline (the current-month
+        // summary window is too short). Org-of-one, so these rows are the
+        // viewer's own spend. The ONE new stage-1 read this feature adds on the
+        // personal path — inside this flat Promise.all, still round-trip depth
+        // 1 (no new sequential stage).
+        ctx.scope.metrics.records({
+          metricKey: "spend_cents",
+          from: agenticFrom,
+          to: today,
+        }),
       ]),
     );
   const agentic = computeAgenticAdoption({
@@ -356,6 +369,18 @@ async function PersonalSelfView({
           : undefined,
       };
     });
+  // F2.3 (I2): the viewer's own spend spike, gated (staleness/post-gap) inside
+  // detectDailySpike. Org-of-one, so the daily spend total IS the viewer's. No
+  // plateau on the self-view: a one-person "active-people cohort" is degenerate
+  // (detectPlateau would return `insufficient`), so it's not computed here.
+  const spendAnomaly = detectDailySpike({
+    metric: "spend",
+    records: personalSpend,
+    today,
+    connections,
+    activeDayRecords: personalActiveDay,
+  });
+  const anomalies = spendAnomaly.kind === "spike" ? [spendAnomaly.signal] : [];
   // The identity-link callout is admin-gated the same way /reconcile itself
   // is — a non-admin member can't act on it, so it's never surfaced to them
   // (rather than shown and then dead-ending). It's further gated on having no
@@ -375,6 +400,7 @@ async function PersonalSelfView({
     sharedAccountCount: 0,
     scoreDrops,
     scoreComponents,
+    anomalies,
   });
 
   return (
@@ -560,6 +586,9 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     recentMovement,
     usageDistribution,
     usageConcentration,
+    spendAnomaly,
+    promptAnomaly,
+    usagePlateau,
   } = view;
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
@@ -619,12 +648,21 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
   // shared-account count, errored connections, score drops, and (F1.1)
   // coaching recommendations. The unresolved-subjects/identity-link callout
   // stays personal/admin-only.
+  // F2.3 early warnings — the detectors already applied every G5 gate
+  // (staleness, post-gap catch-up batches, insufficient baselines) inside
+  // readDashboardView, so here we only pass the genuine spikes/plateau through.
+  const anomalies = [spendAnomaly, promptAnomaly]
+    .filter((a): a is Extract<typeof a, { kind: "spike" }> => a.kind === "spike")
+    .map((a) => a.signal);
+  const plateau = usagePlateau.kind === "plateau" ? usagePlateau : null;
   const attentionItems = deriveAttention({
     connections: connectionAttentionInputs(connections),
     gaps,
     sharedAccountCount: sharedAccounts.length,
     scoreDrops,
     scoreComponents,
+    anomalies,
+    plateau,
   });
 
   return (

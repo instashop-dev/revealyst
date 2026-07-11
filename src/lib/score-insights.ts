@@ -1,10 +1,13 @@
 import type { PeriodGrain } from "../contracts/scores";
 import type { ScoreComponent } from "../contracts/scores";
+import type { SpikeSignal } from "./anomaly";
+import { plateauAttentionCopy, spikeAttentionCopy } from "./anomaly-glossary";
 import {
   COACHING_GUIDANCE_SUFFIX,
   findCoachingRecommendation,
   type CoachingRecommendation,
 } from "./coaching-recommendations";
+import type { PlateauResult } from "./plateau";
 import type { DefinitionRow, ScoreRow } from "./dashboard-read";
 import type { ScoreTrendPoint } from "./dashboard-trends";
 import {
@@ -368,10 +371,11 @@ export type AttentionItem = {
   title: string;
   body: string;
   href?: string;
-  /** Set only on coaching-recommendation items (F1.1) — lets the renderer add
-   * a "Guidance" affordance. Absent (undefined) on every other item kind, so
-   * `AttentionItem` stays backward-compatible. */
-  kind?: "recommendation";
+  /** Set on coaching-recommendation items (F1.1 — a "Guidance" affordance) and
+   * on the F2.3 early-warning kinds (`anomaly` = spend/prompt spike, `plateau`
+   * = declining active-people cohort). Absent (undefined) on every other item
+   * kind, so `AttentionItem` stays backward-compatible. */
+  kind?: "recommendation" | "anomaly" | "plateau";
 };
 
 /** A same-grain score drop below this many points is treated as worth a
@@ -408,6 +412,16 @@ function asComponentRecord(value: unknown): Record<string, unknown> | null {
  * (e.g. a component that stopped being measurable) — naming it would be a
  * fabricated causal claim (invariant b). Presentational threshold only. */
 const DRIVER_MATERIALITY_FACTOR = 0.5;
+
+/** F2.3 early-warning impacts. Both are "info" severity (directional — never
+ * an action directive, per G2), and both sort ABOVE coaching recommendations
+ * (impact 1) and the other info signals (gaps 10, shared accounts 8, drops
+ * ≥10) but BELOW every "action" item (connection error 100, unresolved usage
+ * 50+) — an unusual-spend flag is prominent but not a fault. A spike sorts just
+ * above a plateau (a sudden money spike reads as more urgent than a slow
+ * cohort slide). Presentational only. */
+const ANOMALY_ITEM_IMPACT = 30;
+const PLATEAU_ITEM_IMPACT = 25;
 
 /**
  * Diagnoses what the two stored breakdowns can honestly say about a score
@@ -516,6 +530,17 @@ export function deriveAttention(input: {
    * "gate centrally, pass raw facts" pattern as `unresolvedUsage`. Omitted (or
    * empty) → no recommendations, so a no-scores-yet dashboard gets none. */
   scoreComponents?: { slug: ScoreSlug; components: ComponentDetailRow[] }[];
+  /** F2.3 (I2) — spend/prompt spikes ALREADY gated by src/lib/anomaly.ts
+   * (`detectDailySpike` handles staleness + post-gap suppression, so only
+   * genuine spikes reach here — the "gate centrally, pass raw facts" pattern:
+   * the detector IS the gate). Each is a directional "info" item that sorts
+   * above coaching recommendations. Aggregate/org-level only — a spike is an
+   * org daily total, never a named person. Omitted/empty → no anomaly items. */
+  anomalies?: SpikeSignal[];
+  /** F2.3 (I3) — a detected plateau (declining active-people cohort) or null.
+   * The caller passes ONLY the `plateau` kind (src/lib/plateau.ts gates
+   * staleness/insufficiency/no-plateau). Directional "info" item, org-level. */
+  plateau?: Extract<PlateauResult, { kind: "plateau" }> | null;
 }): AttentionItem[] {
   const items: ScoredAttentionItem[] = [];
 
@@ -629,6 +654,31 @@ export function deriveAttention(input: {
       title: `${label} dropped`,
       body,
       impact: roundedDrop,
+    });
+  }
+
+  // F2.3 early warnings (I2 spikes, I3 plateau). These arrive ALREADY gated by
+  // the detectors (staleness + post-gap suppression in anomaly.ts; staleness +
+  // insufficiency in plateau.ts) — deriveAttention only formats them. Both are
+  // directional "info" items sorting above coaching recommendations.
+  for (const signal of input.anomalies ?? []) {
+    const copy = spikeAttentionCopy(signal);
+    items.push({
+      severity: "info",
+      kind: "anomaly",
+      title: copy.title,
+      body: copy.body,
+      impact: ANOMALY_ITEM_IMPACT,
+    });
+  }
+  if (input.plateau) {
+    const copy = plateauAttentionCopy(input.plateau);
+    items.push({
+      severity: "info",
+      kind: "plateau",
+      title: copy.title,
+      body: copy.body,
+      impact: PLATEAU_ITEM_IMPACT,
     });
   }
 
