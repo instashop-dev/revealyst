@@ -35,6 +35,17 @@ shown once; re-issuing rotates it). `sync --dry-run` shows exactly what
 would be pushed without pushing. Schedule `sync` daily with Task Scheduler
 (Windows) or cron if you want hands-off updates.
 
+For CI/headless one-shot runs, `sync` also honors `REVEALYST_TOKEN` (and
+optionally `REVEALYST_API`) without persisting anything — interactive users
+should prefer `login`, which keeps the token out of shell history. An
+env-supplied token is always device-scoped: identity consent applies only
+to the `login` that granted it, never to env runs.
+
+`sync` pins the pushed window to the earliest day your local logs still
+cover, so a wide `--days` lookback can never erase previously-synced days
+whose logs have since been pruned. If no activity falls inside the window,
+nothing is pushed (and nothing is deleted).
+
 Log locations scanned: `%USERPROFILE%\.claude\projects\` (or
 `~/.claude/projects/`), honoring `CLAUDE_CONFIG_DIR` (multi-path). Local
 logs retain ~30 days by default, so backfill depth is bounded by that.

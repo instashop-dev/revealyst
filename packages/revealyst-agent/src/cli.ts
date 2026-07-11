@@ -8,20 +8,18 @@
 // Everything printed here is structural (counts, days, masked token) —
 // never log content, never file paths of individual sessions.
 
-import { readFileSync } from "node:fs";
 import { hostname, homedir, userInfo } from "node:os";
 import { parseArgs } from "node:util";
 import {
   isValidTokenShape,
-  loadConfig,
   maskToken,
+  resolveConfig,
   saveConfig,
 } from "./config";
 import { claudeConfigDirs, listSessionFiles } from "./discover";
-import { resolveLocalIdentity } from "./identity";
-import { buildIngestRequest } from "./index";
 import { pushBatch } from "./push";
-import { trailingWindow } from "./window";
+import { parseSessionFilesStreaming } from "./stream";
+import { runSync } from "./sync-run";
 
 const AGENT_VERSION = "0.1.0";
 const DEFAULT_API = "https://app.revealyst.com";
@@ -85,76 +83,45 @@ async function sync(args: string[]): Promise<void> {
   }
   const dryRun = values["dry-run"] === true;
 
-  const config = loadConfig(homedir());
-  if (!config && !dryRun) {
-    fail("not logged in — run: revealyst-agent login --token rva1.…");
-  }
-
-  const dirs = claudeConfigDirs(process.env, homedir());
-  const files = listSessionFiles(dirs);
-  if (files.length === 0) {
-    console.log("No Claude Code session logs found — nothing to sync.");
-    return;
-  }
-
-  const contents: string[] = [];
-  let unreadable = 0;
-  for (const file of files) {
-    try {
-      contents.push(readFileSync(file.path, "utf8"));
-    } catch {
-      unreadable++;
-    }
-  }
-
-  const identity = resolveLocalIdentity(
-    homedir(),
-    config?.consentIdentity ?? false,
-    deviceSeed(),
+  const outcome = await runSync(
+    { days, dryRun },
+    {
+      homeDir: homedir(),
+      env: process.env,
+      defaultApi: DEFAULT_API,
+      agentVersion: AGENT_VERSION,
+      deviceSeed: deviceSeed(),
+      now: () => new Date(),
+      listFiles: () => listSessionFiles(claudeConfigDirs(process.env, homedir())),
+      parseFiles: parseSessionFilesStreaming,
+      push: pushBatch,
+      log: (message) => console.log(message),
+      warn: (message) => console.error(`revealyst-agent: ${message}`),
+    },
   );
-  const batch = buildIngestRequest({
-    sessionContents: contents,
-    window: trailingWindow(new Date(), days),
-    identity,
-    agentVersion: AGENT_VERSION,
-  });
-
-  const activeDays = new Set(batch.records.map((r) => r.day)).size;
-  console.log(
-    `Summarized ${files.length} session files (${unreadable} unreadable) → ` +
-      `${batch.records.length} metric records, ${batch.signals.length} day signals ` +
-      `across ${activeDays} active days [window ${batch.window.start}..${batch.window.end}]`,
-  );
-  console.log(
-    `Identity: ${identity.descriptor.kind} (${identity.attribution}-level attribution)`,
-  );
-
-  if (dryRun) {
-    console.log("Dry run — nothing pushed.");
-    return;
+  if (outcome.kind === "fail") {
+    fail(outcome.message);
   }
-
-  const result = await pushBatch(config!.apiBaseUrl, config!.token, batch);
-  if (!result.ok) {
-    fail(`push failed (${result.status ?? "network"}): ${result.error}`);
-  }
-  console.log(
-    `Pushed: ${result.records} records, ${result.signals} signals, ` +
-      `${result.subjects} subject(s) upserted.`,
-  );
 }
 
 function status(): void {
-  const config = loadConfig(homedir());
+  const resolved = resolveConfig(process.env, homedir(), DEFAULT_API);
   const dirs = claudeConfigDirs(process.env, homedir());
   const files = listSessionFiles(dirs);
   console.log(`revealyst-agent ${AGENT_VERSION}`);
-  console.log(
-    config
-      ? `Login: ${maskToken(config.token)} → ${config.apiBaseUrl} ` +
-          `(identity consent: ${config.consentIdentity ? "yes" : "no"})`
-      : "Login: not configured",
-  );
+  if (resolved.source === "invalid-env") {
+    console.log("Login: REVEALYST_TOKEN is set but malformed");
+  } else if (resolved.source === "none") {
+    console.log("Login: not configured");
+  } else {
+    const { config } = resolved;
+    const suffix =
+      resolved.source === "env" ? " [from REVEALYST_TOKEN env]" : "";
+    console.log(
+      `Login: ${maskToken(config.token)} → ${config.apiBaseUrl} ` +
+        `(identity consent: ${config.consentIdentity ? "yes" : "no"})${suffix}`,
+    );
+  }
   console.log(`Log dirs: ${dirs.length} (${files.length} session files)`);
 }
 
