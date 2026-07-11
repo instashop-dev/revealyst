@@ -7,6 +7,7 @@ import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { AgenticAdoptionCard } from "@/components/dashboard/agentic-adoption-card";
 import { AttributionTrendCard } from "@/components/dashboard/attribution-trend-card";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
+import { PeriodNarrativeCard } from "@/components/dashboard/period-narrative-card";
 import { RecentMovementPanel } from "@/components/dashboard/recent-movement-panel";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
@@ -588,6 +589,8 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     spendAnomaly,
     promptAnomaly,
     usagePlateau,
+    narrative,
+    correlations,
   } = view;
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
@@ -697,6 +700,20 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
           <section className="flex flex-col gap-3">
             <SectionHeading>Recent movement</SectionHeading>
             <RecentMovementPanel movement={recentMovement} />
+          </section>
+
+          {/* F2.4 (I7/I4): a template-composed plain-prose period summary plus
+           * the directional "moved together" panel. Team-only: the composer
+           * needs the recent-movement + correlation derivations, which live on
+           * the composed team view; the personal self-view (org-of-one) does not
+           * compute movement/correlation and adding them would mean new reads —
+           * out of scope for this garnish feature (documented deviation). */}
+          <section className="flex flex-col gap-3">
+            <SectionHeading>Period summary</SectionHeading>
+            <PeriodNarrativeCard
+              narrative={narrative}
+              correlations={correlations}
+            />
           </section>
 
           <section className="flex flex-col gap-3">
