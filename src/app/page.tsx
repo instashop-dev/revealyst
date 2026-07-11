@@ -99,7 +99,7 @@ const SCORES = [
     name: "Adoption",
     question: "Who's actually using AI — and who isn't?",
     detail:
-      "Active days and tool coverage across everything you've connected, segmented from Skeptics to AI Natives. The people quietly not using the seats you pay for show up here.",
+      "Active days and tool coverage across everything you've connected, segmented from Skeptics to AI Natives. The people quietly not using the tools you've connected show up here.",
     components: ["active days", "tool coverage"],
     flagship: false,
   },
@@ -355,7 +355,7 @@ export default function Home() {
         index="01"
         eyebrow="The dashboard problem"
         title="Every vendor gives you a dashboard. None of them answers the question."
-        lead="Somebody is going to ask what the company gets for its AI spend. Per-tool dashboards can't answer it — and they were never going to."
+        lead="Somebody is going to ask how the company's AI spend is actually being used. Per-tool dashboards can't answer it — and they were never going to."
       >
         <div className="grid gap-6 md:grid-cols-3">
           {[
@@ -471,8 +471,8 @@ export default function Home() {
       <Section
         index="04"
         eyebrow="AI maturity model"
-        title="The question every CTO is being asked: are we the 95% still stuck in pilots, or the 5% getting real leverage?"
-        lead="Your connected tools already hold the answer. The AI Maturity model reads them into one board-level level — Dormant through Amplified — across three measured axes. The levels are modeled and directional, not a certified grade; naming what they can't show is the point."
+        title="The question every CTO is being asked: are we still stuck in pilots, or actually getting leverage?"
+        lead="Your connected tools already hold the usage half of the answer. The AI Maturity model reads them into one board-level level — Dormant through Amplified — across three measured axes. The levels are modeled and directional, not a certified grade; naming what they can't show is the point."
       >
         <div className="flex flex-col gap-10">
           {/* L0 → L4 ladder */}
@@ -523,7 +523,8 @@ export default function Home() {
               <p className="max-w-2xl text-sm text-muted-foreground">
                 A maturity level is a leading indicator of usage sophistication,
                 not a business-outcome number. Where telemetry can&apos;t honestly
-                support a figure, we name the gap instead of inventing one.
+                support a figure — or shouldn&apos;t — we name the gap instead of
+                inventing one.
               </p>
             </div>
             <dl className="grid gap-4 sm:grid-cols-2">
@@ -619,9 +620,9 @@ export default function Home() {
             </p>
             <p className="text-sm text-muted-foreground">
               Curious how you compare? Opt into anonymized benchmarks to help
-              build the published comparison set — verified benchmarks appear
-              alongside your scores only once they&apos;re confirmed against a
-              primary source, never before.
+              build the published comparison set. Next to your scores you&apos;ll
+              see a clearly-labeled modeled estimate in the meantime — verified
+              figures replace it only once confirmed against a primary source.
             </p>
             <Button
               variant="outline"
@@ -699,8 +700,9 @@ export default function Home() {
             The board is going to ask. Answer with numbers.
           </h2>
           <p className="max-w-xl text-muted-foreground text-pretty">
-            Who&apos;s using AI, how well, and whether it&apos;s worth the
-            spend — measured neutrally across every tool you run, in minutes.
+            Who&apos;s using AI, how well, and whether usage is keeping pace
+            with the spend — measured neutrally across every tool you run, in
+            minutes.
           </p>
           <Button
             size="lg"

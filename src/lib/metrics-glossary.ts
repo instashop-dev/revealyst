@@ -513,9 +513,9 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
       "Efficiency's denominator is always billed, vendor-authoritative spend (spend_cents) — estimated spend is a separate figure shown alongside it and never feeds either ratio, no matter how confident the estimate is.",
     relatedKeys: ["output_per_spend", "engagement_per_spend"],
     interpretBands: {
-      low: "Value per dollar is low relative to spend right now — that can mean low usage, but it can also mean spend is high relative to usage, so check the spend figures alongside it.",
-      building: "Value per dollar is building relative to spend — usage and spend are starting to balance out.",
-      strong: "Value per dollar is strong relative to spend — accepted output and engagement are high for what's being spent.",
+      low: "Measured usage per dollar of spend is low right now — that can mean low usage, but it can also mean spend is high relative to usage, so check the spend figures alongside it.",
+      building: "Measured usage per dollar of spend is building — usage and spend are starting to balance out.",
+      strong: "Measured usage per dollar of spend is strong — accepted output and engagement are high for what's being spent.",
     },
     components: {
       output_per_spend: {
@@ -524,7 +524,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
         shortWhat: describeCalculation(EFFICIENCY_OUTPUT_PER_SPEND).simple,
         what: "Suggestions accepted, divided by billed spend in cents, over the period — how much accepted output you are getting per dollar billed.",
         whyItMatters:
-          "This is the closest Efficiency comes to a direct 'value for spend' read: accepted suggestions per dollar billed.",
+          "This is the closest Efficiency comes to a direct 'usage for spend' read: accepted suggestions per dollar billed.",
         howCalculatedSimple: describeCalculation(EFFICIENCY_OUTPUT_PER_SPEND).simple,
         howCalculatedDetailed: describeCalculation(EFFICIENCY_OUTPUT_PER_SPEND).detailed,
         included: "Accepted-suggestion and billed-spend rows from connected tools that report both.",
