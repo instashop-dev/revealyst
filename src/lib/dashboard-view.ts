@@ -14,11 +14,24 @@ import {
 } from "./dashboard-signals";
 import { readScoreTrends, type ScoreTrend } from "./dashboard-trends";
 import { collectGaps, type CollectedGap } from "./honesty-gaps";
+import { adjacentPeriods } from "./raw-metric-delta";
+import {
+  computeRecentMovement,
+  RECENT_PERIOD_DAYS,
+  type RecentMovement,
+} from "./recent-movement";
 import { resolveSegmentSource, type SegmentDistribution } from "./segments";
 import {
   resolveSharedAccountSource,
   type SharedAccountFlag,
 } from "./shared-account";
+import {
+  resolvePerPersonUsage,
+  summarizeUsageConcentration,
+  summarizeUsageDistribution,
+  type UsageConcentration,
+  type UsageDistribution,
+} from "./usage-distribution";
 import type { VisibilityMode } from "./visibility";
 
 type OrgScope = ReturnType<typeof forOrg>;
@@ -61,6 +74,17 @@ export type DashboardView = {
    * admin-set displayName, status) — same privacy rationale as `definitions`,
    * so `assertTeamOnlyPseudonymized` is unaffected. */
   connections: Awaited<ReturnType<OrgScope["connections"]["list"]>>;
+  /** F1.2 analytics computed in stage-2 from rows already fetched below (zero
+   * new queries beyond one `prompts` read). All THREE are aggregate-only —
+   * period-over-period counts (M1), band tallies + org-relative percentiles
+   * (M3), and top-decile shares (M4) — carrying NO person id, pseudonym, name,
+   * or per-named-person value. Like `definitions`/`gaps`/`connections` above,
+   * they add nothing `assertTeamOnlyPseudonymized` (src/lib/visibility.ts)
+   * needs to inspect (that predicate audits person refs on scores, segment
+   * members, and shared-account identifiers — none of which appear here). */
+  recentMovement: RecentMovement;
+  usageDistribution: UsageDistribution;
+  usageConcentration: UsageConcentration;
 };
 
 export async function readDashboardView(
@@ -91,6 +115,7 @@ export async function readDashboardView(
     featureRecords,
     volumeRecords,
     runs,
+    promptRecords,
   ] = await Promise.all([
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
@@ -129,6 +154,14 @@ export async function readDashboardView(
     // (api-impl.ts `dashboardSummary`); the recent runs carry the deduped
     // gap set the poller wrote. Additive to the single-round-trip Promise.all.
     scope.connectorRuns.list({ limit: 200 }),
+    // F1.2 (M4): prompt volume per person feeds the usage-concentration
+    // module. The ONE new stage-1 read this feature adds — still round-trip
+    // depth 1 (it rides the existing Promise.all, no new sequential stage).
+    scope.metrics.records({
+      metricKey: "prompts",
+      from: window.from,
+      to: window.to,
+    }),
   ]);
 
   // One pass over the superset: the exact splits trends (team) and segments
@@ -178,6 +211,31 @@ export async function readDashboardView(
     { slug: "efficiency", value: latest.get("efficiency")?.value ?? null },
   ]);
 
+  // F1.2 stage-2 (M1/M3/M4): pure aggregation over rows already fetched above,
+  // zero further queries. M1 movement compares the last RECENT_PERIOD_DAYS to
+  // the period before it (spend + identity-resolved activity). M3/M4 resolve
+  // per-person usage over the SAME recent period (a slice of the fetched
+  // records) so the whole "recent" story on the dashboard covers one window.
+  const recentMovement = computeRecentMovement({
+    to: window.to,
+    spendReportedRecords: spendRecords,
+    activeDayRecords,
+    identities,
+  });
+  const recent = adjacentPeriods(window.to, RECENT_PERIOD_DAYS);
+  const inRecent = <T extends { day: string }>(rows: T[]) =>
+    rows.filter((r) => r.day >= recent.currentFrom && r.day <= recent.currentTo);
+  const recentUsage = resolvePerPersonUsage({
+    activeDayRows: inRecent(activeDayRecords),
+    promptRows: inRecent(promptRecords),
+    identities,
+  });
+  const usageDistribution = summarizeUsageDistribution(
+    recentUsage,
+    RECENT_PERIOD_DAYS,
+  );
+  const usageConcentration = summarizeUsageConcentration(recentUsage);
+
   return {
     summary,
     benchmarks,
@@ -189,5 +247,8 @@ export async function readDashboardView(
     definitions,
     gaps: collectGaps(runs),
     connections,
+    recentMovement,
+    usageDistribution,
+    usageConcentration,
   };
 }

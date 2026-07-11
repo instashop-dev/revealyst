@@ -5,10 +5,13 @@ import { Cable, Gauge, Info, TriangleAlert } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
+import { RecentMovementPanel } from "@/components/dashboard/recent-movement-panel";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
 import { SharedAccountFlags } from "@/components/dashboard/shared-account-flags";
 import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
+import { UsageConcentrationPanel } from "@/components/dashboard/usage-concentration-panel";
+import { UsageDistributionPanel } from "@/components/dashboard/usage-distribution-panel";
 import { EmptyState } from "@/components/empty-state";
 import { InfoTip } from "@/components/info-tip";
 import { PageHeader } from "@/components/page-header";
@@ -436,6 +439,9 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     definitions,
     gaps,
     connections,
+    recentMovement,
+    usageDistribution,
+    usageConcentration,
   } = view;
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
@@ -530,6 +536,11 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
           </section>
 
           <section className="flex flex-col gap-3">
+            <SectionHeading>Recent movement</SectionHeading>
+            <RecentMovementPanel movement={recentMovement} />
+          </section>
+
+          <section className="flex flex-col gap-3">
             <SectionHeading>Activity</SectionHeading>
             <div className="grid gap-4 lg:grid-cols-2">
               <ActivityHeatmap heatmap={heatmap} />
@@ -545,6 +556,8 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
             <div className="grid gap-4 lg:grid-cols-2">
               <SegmentBreakdown distribution={segments} />
               <SharedAccountFlags flags={sharedAccounts} />
+              <UsageDistributionPanel distribution={usageDistribution} />
+              <UsageConcentrationPanel concentration={usageConcentration} />
             </div>
           </section>
         </>

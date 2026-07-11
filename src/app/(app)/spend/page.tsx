@@ -1,4 +1,9 @@
 import { redirect } from "next/navigation";
+import {
+  CostPerUnitCard,
+  ModelMixTrendCard,
+  SpendProjectionCard,
+} from "@/components/spend/spend-analytics";
 import { BudgetAlertBanner } from "@/components/spend/budget-alert-banner";
 import { BudgetEditor } from "@/components/spend/budget-editor";
 import { SpendByModel, SpendByTool } from "@/components/spend/spend-breakdown";
@@ -103,6 +108,18 @@ export default async function SpendPage() {
         </Card>
       </div>
 
+      {/* M2 (run-rate) + M5 (unit economics): both vendor-reported only. The
+       * projection card mounts only when there's reported spend to project. */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {view.projection ? (
+          <SpendProjectionCard projection={view.projection} />
+        ) : null}
+        <CostPerUnitCard
+          costPerActiveDay={view.costPerActiveDay}
+          costPerPrompt={view.costPerPrompt}
+        />
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Spend by tool</CardTitle>
@@ -130,6 +147,9 @@ export default async function SpendPage() {
           <SpendByModel byModel={view.byModel} />
         </CardContent>
       </Card>
+
+      {/* M7: how the model mix has shifted week over week. */}
+      <ModelMixTrendCard trend={view.modelMixTrend} />
     </>
   );
 }
