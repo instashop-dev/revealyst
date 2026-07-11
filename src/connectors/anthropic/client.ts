@@ -93,7 +93,11 @@ async function paginate<T>(
   return pages;
 }
 
-/** Auth probe: /me is the cheapest admin-key check. */
+/** Auth probe: /me is the cheapest admin-key check. Transient failures
+ * (429/5xx/timeout) RETHROW as RetryableConnectorError: the credential-save
+ * contract (api-impl putConnectionCredential) treats a throw as inconclusive
+ * and keeps the key, while `{ok:false}` definitively rejects it and errors
+ * the connection — a vendor blip must never do that. */
 export async function checkAdminKey(
   credential: string,
   fetchFn: FetchFn = fetch,
@@ -102,6 +106,7 @@ export async function checkAdminKey(
     await getJson(credential, "/v1/organizations/me", {}, fetchFn);
     return { ok: true };
   } catch (error) {
+    if (error instanceof RetryableConnectorError) throw error;
     return {
       ok: false,
       reason: error instanceof Error ? error.message : String(error),

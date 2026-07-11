@@ -225,17 +225,34 @@ describe("client error policy", () => {
         status: 429,
         headers: { "retry-after": "17" },
       })) as typeof fetch;
-    const err = await checkAdminKey("k", fetchFn).then(
-      () => null,
-      (e) => e,
-    );
-    // checkAdminKey wraps into {ok:false}; hit the raw path via usage:
+    // Hit the raw path via usage:
     await expect(
       fetchUsageMessages("k", { start: "2026-06-11", end: "2026-06-11" }, fetchFn),
     ).rejects.toSatisfy(
       (e) => e instanceof RetryableConnectorError && e.delaySeconds === 17,
     );
-    expect(err).toBeNull(); // validateAuth reports, never throws
+  });
+
+  it("a 429 during checkAdminKey rethrows as RetryableConnectorError, not {ok:false}", async () => {
+    // Transient failures are inconclusive: credential-save (api-impl
+    // putConnectionCredential) keeps the key on a throw and only rejects it
+    // on a definitive {ok:false} — a vendor blip must never do the latter.
+    const limited = (async () =>
+      new Response("slow down", {
+        status: 429,
+        headers: { "retry-after": "9" },
+      })) as typeof fetch;
+    await expect(checkAdminKey("k", limited)).rejects.toSatisfy(
+      (e) => e instanceof RetryableConnectorError && e.delaySeconds === 9,
+    );
+  });
+
+  it("a definitive 401 during checkAdminKey still resolves {ok:false} (unchanged)", async () => {
+    const unauthorized = (async () =>
+      new Response('{"error":"invalid x-api-key"}', { status: 401 })) as typeof fetch;
+    await expect(checkAdminKey("k", unauthorized)).resolves.toMatchObject({
+      ok: false,
+    });
   });
 
   it("5xx → retryable; 401 → permanent", async () => {
@@ -259,12 +276,15 @@ describe("client error policy", () => {
     vi.useFakeTimers();
     try {
       const neverResolves = (() => new Promise<Response>(() => {})) as typeof fetch;
+      // A timeout is INCONCLUSIVE, not a rejection: checkAdminKey rethrows
+      // the retryable so credential-save keeps the key instead of erroring
+      // the connection on a vendor blip.
       const validate = checkAdminKey("k", neverResolves);
+      const validateAssertion = expect(validate).rejects.toSatisfy(
+        (e) => e instanceof RetryableConnectorError && /timed out/.test(e.message),
+      );
       await vi.runAllTimersAsync();
-      await expect(validate).resolves.toEqual({
-        ok: false,
-        reason: expect.stringMatching(/timed out/),
-      });
+      await validateAssertion;
 
       const raw = fetchUsageMessages(
         "k",
@@ -293,11 +313,11 @@ describe("client error policy", () => {
           text: () => new Promise(() => {}),
         }) as unknown as Response) as typeof fetch;
       const validate = checkAdminKey("k", slowBody);
+      const assertion = expect(validate).rejects.toSatisfy(
+        (e) => e instanceof RetryableConnectorError && /timed out/.test(e.message),
+      );
       await vi.runAllTimersAsync();
-      await expect(validate).resolves.toEqual({
-        ok: false,
-        reason: expect.stringMatching(/timed out/),
-      });
+      await assertion;
     } finally {
       vi.useRealTimers();
     }

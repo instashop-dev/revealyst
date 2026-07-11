@@ -91,7 +91,11 @@ async function handle<T>(response: Response, path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-/** Auth probe: the cheapest admin-key check. */
+/** Auth probe: the cheapest admin-key check. Transient failures (429/5xx/
+ * timeout) RETHROW as RetryableConnectorError: the credential-save contract
+ * (api-impl putConnectionCredential) treats a throw as inconclusive and
+ * keeps the key, while `{ok:false}` definitively rejects it and errors the
+ * connection — a vendor blip must never do that. */
 export async function checkAdminKey(
   credential: string,
   fetchFn: FetchFn = fetch,
@@ -100,6 +104,7 @@ export async function checkAdminKey(
     await get<CursorMembersResponse>(credential, "/teams/members", fetchFn);
     return { ok: true };
   } catch (error) {
+    if (error instanceof RetryableConnectorError) throw error;
     return {
       ok: false,
       reason: error instanceof Error ? error.message : String(error),

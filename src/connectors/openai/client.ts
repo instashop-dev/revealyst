@@ -15,6 +15,19 @@ import type {
 // permanent (admin keys can expire — NLV-O12 — which lands here as a
 // permanent error surfaced on the connection).
 
+/** Appended to 401/403 errors: this exact string is what lands in
+ * `connections.lastError` and the credential-save 400 — the raw vendor body
+ * ("Missing scopes: api.usage.read …") doesn't tell a user what key to make.
+ * Worded to cover every 401/403 cause: wrong key kind at onboarding, a
+ * restricted admin key missing a scope, and a mid-life expiry/revocation
+ * (NLV-O12) — the last lands on long-active connections, so the hint must
+ * not imply the user picked the wrong kind of key. */
+const ADMIN_KEY_HINT =
+  " — the key must be an active OpenAI org admin key with the" +
+  " api.management.read and api.usage.read scopes: project keys (sk-proj-…)" +
+  " cannot read the org admin surface, and admin keys can expire or be" +
+  " revoked.";
+
 const BASE = "https://api.openai.com";
 export type FetchFn = typeof fetch;
 
@@ -60,7 +73,11 @@ async function getJson<T>(
     }
     if (!response.ok) {
       const body = (await response.text()).slice(0, 300);
-      throw new Error(`openai: ${response.status} on ${path}: ${body}`);
+      const hint =
+        response.status === 401 || response.status === 403
+          ? ADMIN_KEY_HINT
+          : "";
+      throw new Error(`openai: ${response.status} on ${path}: ${body}${hint}`);
     }
     return (await response.json()) as T;
   });
@@ -90,16 +107,40 @@ async function paginatePages<T>(
   return pages;
 }
 
-/** Auth probe: the cheapest admin-key check (project keys 401/403 here —
- * the wrong-key-kind case personal-mode onboarding must catch). */
+/** Auth probe: the cheapest check of BOTH scopes a sync needs. Restricted
+ * admin keys gate the member list (api.management.read) and usage/costs
+ * (api.usage.read) separately — a users-only probe passed usage-blind keys
+ * through onboarding and every later poll 403'd permanently. Project keys
+ * 401/403 on the first call — the wrong-key-kind case personal-mode
+ * onboarding must catch. Transient failures (429/5xx/timeout) RETHROW as
+ * RetryableConnectorError: the credential-save contract (api-impl
+ * putConnectionCredential) treats a throw as inconclusive and keeps the
+ * key, while `{ok:false}` definitively rejects it and errors the
+ * connection — a vendor blip must never do that. */
 export async function checkAdminKey(
   credential: string,
   fetchFn: FetchFn = fetch,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   try {
     await getJson(credential, "/v1/organization/users", { limit: "1" }, fetchFn);
+    // Cheapest api.usage.read probe: one 1d costs bucket for today. Same
+    // param shape as fetchCosts (day-aligned start, explicit bucket_width)
+    // so a probe-only 400 can't false-reject a key the real poll accepts.
+    // No CALL_SPACING_MS here: this is one interactive save-path call pair,
+    // not a poller pagination burst.
+    await getJson(
+      credential,
+      "/v1/organization/costs",
+      {
+        start_time: unixStart(new Date().toISOString().slice(0, 10)),
+        bucket_width: "1d",
+        limit: "1",
+      },
+      fetchFn,
+    );
     return { ok: true };
   } catch (error) {
+    if (error instanceof RetryableConnectorError) throw error;
     return {
       ok: false,
       reason: error instanceof Error ? error.message : String(error),
