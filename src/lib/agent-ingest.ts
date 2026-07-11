@@ -4,6 +4,8 @@ import {
 } from "../contracts/api";
 import type { Db } from "../db/client";
 import { forOrg } from "../db/org-scope";
+import type { PollMessage } from "../poller/messages";
+import { previousDay } from "../scoring";
 import { parseAgentToken, timingSafeEqualStr } from "./agent-token";
 import type { CredentialEnv } from "./credentials";
 
@@ -42,11 +44,20 @@ function badRequest(error: string): AgentIngestOutcome {
   return { ok: false, status: 400, body: { error } };
 }
 
+export type AgentIngestDeps = {
+  /** Queue producer for the post-commit score-recompute enqueue (Fix 2).
+   * Injected (mirroring PollDeps.send) so this stays PGlite-unit-testable;
+   * the route supplies POLL_QUEUE.send. Optional: absent in tests that
+   * don't care, and the enqueue is best-effort either way. */
+  send?: (message: PollMessage) => Promise<void>;
+};
+
 export async function ingestAgentBatch(
   db: Db,
   env: CredentialEnv,
   bearerToken: string,
   rawBody: unknown,
+  deps: AgentIngestDeps = {},
 ): Promise<AgentIngestOutcome> {
   // --- 1. Authenticate (cheap, before touching the body) ---------------
   const token = parseAgentToken(bearerToken);
@@ -207,6 +218,32 @@ export async function ingestAgentBatch(
       signals: body.signals.length,
     };
   });
+
+  // Fix 2 (plan PR2): the "click Sync → watch your score" payoff. Chain the
+  // same score-recompute message connector polls send (poller/run.ts) —
+  // AFTER the transaction committed, never inside it (a rolled-back write
+  // must not trigger recompute), and best-effort (the ingest already
+  // succeeded; a lost message self-heals at the nightly cron). Guarded on
+  // the submitted batch being non-empty so a zero-row batch replayed on a
+  // leaked token can't be amplified into full-org recomputes (plan §7.4);
+  // note an idempotent replay of a NON-empty batch still enqueues — the
+  // recompute itself is idempotent on the frozen score_results upsert key,
+  // so the cost is bounded, not incorrect.
+  if (deps.send && counts.records + counts.signals > 0) {
+    try {
+      await deps.send({
+        kind: "score-recompute",
+        orgId: token.orgId,
+        day: previousDay(new Date().toISOString().slice(0, 10)),
+      });
+    } catch (error) {
+      console.warn(
+        `score-recompute enqueue after agent ingest failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   return { ok: true, status: 200, body: { ok: true, ...counts } };
 }
