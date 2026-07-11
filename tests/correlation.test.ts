@@ -3,6 +3,7 @@ import {
   buildCorrelationSeries,
   computeCorrelation,
   computeCorrelationPanel,
+  CORRELATION_MIN_COMPARABLE,
   CORRELATION_MIN_WEEKS,
   CORRELATION_PAIRS,
   type WeeklySeries,
@@ -84,6 +85,23 @@ describe("computeCorrelation — direction agreement", () => {
     const r = computeCorrelation("active_people__spend", a, b);
     // 6 overlapping weeks (meets the count floor) but 0 comparable transitions.
     expect(r.kind).toBe("insufficient");
+  });
+
+  it("is insufficient below the comparable-transition floor (review F4 — flat 8-of-9)", () => {
+    // 9 overlapping weeks (passes the week floor) but A is flat for 8 of them —
+    // only ONE comparable transition survives. "Moved the same way in 1 of 1
+    // recent weeks" is a coin flip dressed as a pattern; it must not render.
+    const a = series([5, 5, 5, 5, 5, 5, 5, 5, 6]);
+    const b = series([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(a.size).toBeGreaterThanOrEqual(CORRELATION_MIN_WEEKS);
+    const r = computeCorrelation("active_people__spend", a, b);
+    expect(r.kind).toBe("insufficient");
+    // And exactly at the floor it measures: 3 comparable transitions render.
+    const a2 = series([5, 5, 5, 5, 5, 5, 6, 7, 8]);
+    const r2 = computeCorrelation("active_people__spend", a2, b);
+    expect(r2.kind).toBe("measured");
+    if (r2.kind !== "measured") return;
+    expect(r2.comparableWeeks).toBe(CORRELATION_MIN_COMPARABLE);
   });
 
   it("never bridges a calendar gap into a fake transition", () => {

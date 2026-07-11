@@ -18,22 +18,29 @@
 // `NarrativeNotableEvent` and flow through unchanged — the composer already
 // orders and hedges them.
 
-import type { AgenticAdoption } from "./agentic-adoption";
+import { AGENTIC_WINDOW_DAYS, type AgenticAdoption } from "./agentic-adoption";
 import type { AttributionTrend } from "./attribution-trend";
 import {
   NARRATIVE_COPY,
+  NOTABLE_EVENT_LEADS,
+  PLATEAU_SUBJECT_LABELS,
   narrativeApproxDollars,
   narrativeDayLabel,
   narrativePeriodPhrase,
+  type PlateauSubjectKey,
 } from "./narrative-copy";
 import type { MovementMetricKey, RecentMovement } from "./recent-movement";
 
 /** A directional, "worth a look" event the narrative closes its body with.
  * Kept structurally decoupled from F2.3's anomaly/plateau result types so this
- * module doesn't depend on unmerged code — the caller maps into this shape. */
+ * module doesn't depend on unmerged code — the caller maps into this shape.
+ * A plateau's `subject` is a TYPED wire-format key (e.g. "active-people",
+ * exactly what the F2.3 integration wiring passes), resolved to a human label
+ * in the template — a raw signal key must never reach rendered prose
+ * (review F2). */
 export type NarrativeNotableEvent =
   | { kind: "spike"; subject: string; multiple: number; onDate: string }
-  | { kind: "plateau"; subject: string };
+  | { kind: "plateau"; subject: PlateauSubjectKey };
 
 export type NarrativeInputs = {
   /** The 28-day recent-movement result (F1.2) — the activity + spend leads. */
@@ -106,8 +113,15 @@ export function composeNarrative(inputs: NarrativeInputs): Narrative {
 
   // ── 2. Agentic adoption (measured only) ──
   if (inputs.agentic.kind === "measured") {
+    // WINDOW-HONEST (review F1): the agentic rate covers its OWN 12-week
+    // window (AGENTIC_WINDOW_DAYS), not the 4-week movement period the lead
+    // sentence names — the sentence states its window explicitly so an 84-day
+    // figure is never framed as a 28-day one.
     sentences.push(
-      NARRATIVE_COPY.agentic({ ratePct: Math.round(inputs.agentic.ratePct) }),
+      NARRATIVE_COPY.agentic({
+        window: narrativePeriodPhrase(AGENTIC_WINDOW_DAYS),
+        ratePct: Math.round(inputs.agentic.ratePct),
+      }),
     );
   }
 
@@ -146,31 +160,51 @@ export function composeNarrative(inputs: NarrativeInputs): Narrative {
   }
 
   // ── 4. Notable events (directional — hedged) ──
-  for (const event of (inputs.notableEvents ?? []).slice(0, MAX_NOTABLE_EVENTS)) {
+  // Only the FIRST event claims "One thing worth a look" — a second identical
+  // lead would claim singularity twice in one paragraph (review F3).
+  const events = (inputs.notableEvents ?? []).slice(0, MAX_NOTABLE_EVENTS);
+  events.forEach((event, i) => {
+    const lead =
+      i === 0 ? NOTABLE_EVENT_LEADS.first : NOTABLE_EVENT_LEADS.subsequent;
     if (event.kind === "spike") {
       sentences.push(
         NARRATIVE_COPY.notableSpike({
+          lead,
           subject: event.subject,
           multiple: event.multiple,
           day: narrativeDayLabel(event.onDate),
         }),
       );
     } else {
-      sentences.push(NARRATIVE_COPY.notablePlateau({ subject: event.subject }));
+      sentences.push(
+        NARRATIVE_COPY.notablePlateau({
+          lead,
+          subjectLabel: PLATEAU_SUBJECT_LABELS[event.subject],
+        }),
+      );
     }
-  }
+  });
 
-  // ── 5. Close (attribution improving — measured) ──
+  // ── 5. Close (attribution coverage — measured, symmetric) ──
+  // BOTH directions render (review F8): a close that only ever reported
+  // improvement would be structurally good-news-only. Endpoints are weekly
+  // shares; the previous week is named by its absolute date, per the
+  // attribution-trend contract (review F1). A zero delta yields no close.
   if (
     inputs.attribution?.kind === "measured" &&
     inputs.attribution.delta.kind === "delta" &&
-    inputs.attribution.delta.deltaPct > 0
+    inputs.attribution.delta.deltaPct !== 0
   ) {
+    const d = inputs.attribution.delta;
+    const args = {
+      currentPct: Math.round(d.currentPct),
+      previousPct: Math.round(d.previousPct),
+      previousWeekLabel: narrativeDayLabel(d.previousWeekStart),
+    };
     sentences.push(
-      NARRATIVE_COPY.closeAttributionUp({
-        currentPct: Math.round(inputs.attribution.delta.currentPct),
-        previousPct: Math.round(inputs.attribution.delta.previousPct),
-      }),
+      d.deltaPct > 0
+        ? NARRATIVE_COPY.closeAttributionUp(args)
+        : NARRATIVE_COPY.closeAttributionDown(args),
     );
   }
 
