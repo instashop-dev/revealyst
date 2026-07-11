@@ -6,6 +6,7 @@ import {
   BookOpenText,
   Cable,
   CreditCard,
+  Gauge,
   LayoutDashboard,
   LogOut,
   ScanFace,
@@ -37,6 +38,7 @@ import { authClient } from "@/lib/auth-client";
 
 const NAV_ITEMS = [
   { title: "Overview", href: "/dashboard", icon: LayoutDashboard },
+  { title: "AI maturity", href: "/maturity", icon: Gauge },
   { title: "How scores work", href: "/methodology", icon: BookOpenText },
   { title: "Teams", href: "/teams", icon: UsersRound },
   { title: "People", href: "/people", icon: UserRound },
