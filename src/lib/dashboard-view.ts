@@ -1,4 +1,8 @@
 import type { forOrg } from "../db/org-scope";
+import {
+  computeAttributionTrend,
+  type AttributionTrend,
+} from "./attribution-trend";
 import { resolveBenchmarkSource, type BenchmarkSummary } from "./benchmarks";
 import {
   latestTeamScoresBySlug,
@@ -61,6 +65,13 @@ export type DashboardView = {
    * admin-set displayName, status) — same privacy rationale as `definitions`,
    * so `assertTeamOnlyPseudonymized` is unaffected. */
   connections: Awaited<ReturnType<OrgScope["connections"]["list"]>>;
+  /** Attribution-coverage trend (F1.7) — the person-attributed share of tracked
+   * usage over recent weeks, computed IN JS from the `active_day` rows already
+   * fetched below (`activeDayRecords`), so it adds zero DB reads. It carries
+   * only aggregate counts/percentages and week dates — no person identifiers of
+   * any kind — so, like `definitions` and `gaps`, it does not change what
+   * `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must inspect. */
+  attributionTrend: AttributionTrend;
 };
 
 export async function readDashboardView(
@@ -109,10 +120,16 @@ export async function readDashboardView(
       from: window.from,
       to: window.to,
     }),
+    // dim pinned to "" (active_day's undimmed catalog shape): the attribution
+    // trend counts each row as one usage-day, so if a future connector ever
+    // emitted dimmed active_day variants, unpinned rows would double-count
+    // subject-days. readDashboard is unaffected either way — it dedups these
+    // rows via subjectId/day sets, not row counts.
     scope.metrics.records({
       metricKey: "active_day",
       from: window.from,
       to: window.to,
+      dim: "",
     }),
     scope.metrics.records({
       metricKey: "feature_used",
@@ -189,5 +206,8 @@ export async function readDashboardView(
     definitions,
     gaps: collectGaps(runs),
     connections,
+    // Zero new reads: the person-attributed usage-day share is derived in JS
+    // from the same active_day rows readDashboard already consumed.
+    attributionTrend: computeAttributionTrend(activeDayRecords),
   };
 }

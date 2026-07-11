@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { Cable, Gauge, Info, TriangleAlert } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
+import { AttributionTrendCard } from "@/components/dashboard/attribution-trend-card";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
@@ -436,6 +437,7 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     definitions,
     gaps,
     connections,
+    attributionTrend,
   } = view;
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
@@ -538,6 +540,7 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
                 <ScoreTrend trends={trends} />
               </div>
             </div>
+            <AttributionTrendCard trend={attributionTrend} />
           </section>
 
           <section className="flex flex-col gap-3">
