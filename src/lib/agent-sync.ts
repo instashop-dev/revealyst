@@ -26,3 +26,9 @@ export function agentLoginCommand(token: string): string {
 export const AGENT_SYNC_COMMAND = `npx ${AGENT_RUN_SPEC} sync`;
 
 export const AGENT_DRY_RUN_COMMAND = `npx ${AGENT_RUN_SPEC} sync --dry-run`;
+
+/** Days after a local agent's last successful sync before its data is flagged
+ * possibly-incomplete — ½ of Claude Code's default 30-day cleanupPeriodDays
+ * local log retention (plan §5, assumption A2). The staleness badge AND the
+ * dashboard banner both consume THIS one constant so they can never disagree. */
+export const SYNC_STALE_AFTER_DAYS = 14;

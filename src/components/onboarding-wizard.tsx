@@ -2,14 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import {
-  AlertCircle,
-  ArrowRight,
-  Check,
-  Clock,
-  KeyRound,
-  TerminalSquare,
-} from "lucide-react";
+import { AlertCircle, ArrowRight, Check, Clock, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +11,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -26,7 +18,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { GithubAppConnectCard } from "@/components/github-app-connect-card";
-import { errorText, postJson } from "@/lib/client-fetch";
+import { SyncAgentCard } from "@/components/sync-agent-card";
 import { connectApiKeyVendor } from "@/lib/connect-vendor";
 import {
   connectedToolsLabel,
@@ -135,12 +127,12 @@ export function OnboardingWizard({
           );
         })}
 
-        <AgentConnectCard
+        <SyncAgentCard
           existingConnectionId={
             initialConnections.find((c) => c.vendor === "claude_code_local")
               ?.id ?? null
           }
-          initiallyPaired={Boolean(
+          paired={Boolean(
             usableConnection(initialConnections, "claude_code_local"),
           )}
           onConnected={() => markConnected("claude_code_local")}
@@ -300,146 +292,6 @@ function ApiKeyConnectCard({
             </div>
           </form>
         </CardContent>
-      )}
-    </Card>
-  );
-}
-
-function AgentConnectCard({
-  existingConnectionId,
-  initiallyPaired,
-  onConnected,
-}: {
-  existingConnectionId: string | null;
-  initiallyPaired: boolean;
-  onConnected: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [paired, setPaired] = useState(initiallyPaired);
-
-  async function setup() {
-    setBusy(true);
-    setError(null);
-    try {
-      // Reuse an existing agent connection (re-issue rotates its token)
-      // rather than creating a duplicate.
-      let connectionId = existingConnectionId;
-      if (!connectionId) {
-        const created = await postJson("/api/connections", {
-          vendor: "claude_code_local",
-          displayName: "Revealyst Agent",
-          authKind: "device_token",
-          config: {},
-        });
-        if (!created.ok) {
-          setError(
-            errorText(
-              created.payload,
-              `Could not set up the agent (${created.status})`,
-            ),
-          );
-          return;
-        }
-        connectionId = (
-          created.payload as { connection?: { id?: string } }
-        )?.connection?.id ?? null;
-        if (!connectionId) {
-          setError("Unexpected response creating the connection");
-          return;
-        }
-      }
-      const issued = await postJson(
-        `/api/connections/${connectionId}/agent-token`,
-      );
-      if (!issued.ok) {
-        setError(errorText(issued.payload, "Could not issue a device token"));
-        return;
-      }
-      const issuedToken = (issued.payload as { token?: string })?.token;
-      if (!issuedToken) {
-        setError("No token was returned — please try again");
-        return;
-      }
-      setToken(issuedToken);
-      setPaired(true);
-      onConnected();
-    } catch {
-      setError("Network error — check your connection and try again");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base">
-            Revealyst Agent (Claude Code)
-          </CardTitle>
-          {paired && (
-            <Badge variant="secondary">
-              <Check data-icon="inline-start" />
-              Paired
-            </Badge>
-          )}
-        </div>
-        <CardDescription>
-          Summarizes your local Claude Code sessions on your machine — never raw
-          prompt content — and pushes metrics with a device token.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {token ? (
-          <div className="flex flex-col gap-2">
-            <p className="text-sm text-muted-foreground">
-              Copy this token now — it is shown once. Then run the agent:
-            </p>
-            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
-              <code>{`REVEALYST_TOKEN=${token} npx revealyst-agent sync`}</code>
-            </pre>
-          </div>
-        ) : paired ? (
-          <p className="text-sm text-muted-foreground">
-            Agent already paired. Re-generate a token below if you need to set up
-            another machine — that rotates the previous one.
-          </p>
-        ) : (
-          error && (
-            <Alert variant="destructive">
-              <AlertCircle />
-              <AlertTitle>{error}</AlertTitle>
-            </Alert>
-          )
-        )}
-        {!token && (
-          <div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={setup}
-            >
-              {busy ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <TerminalSquare data-icon="inline-start" />
-              )}
-              {paired ? "Re-generate device token" : "Generate device token"}
-            </Button>
-          </div>
-        )}
-      </CardContent>
-      {token && (
-        <CardFooter>
-          <p className="text-xs text-muted-foreground">
-            Lost it? Re-generate from the connection later — that rotates the
-            token.
-          </p>
-        </CardFooter>
       )}
     </Card>
   );
