@@ -16,7 +16,12 @@ import {
 } from "../lib/digest-email";
 import type { ScoreSlug } from "../lib/metrics-glossary";
 import { DASHBOARD_SLUGS } from "../lib/dashboard-read";
-import { sendEmail, type EmailEnv, type EmailMessage } from "../lib/email";
+import {
+  isEmailConfigured,
+  sendEmail,
+  type EmailEnv,
+  type EmailMessage,
+} from "../lib/email";
 import { addUtcDays } from "../lib/raw-metric-delta";
 import { computeRecentMovement } from "../lib/recent-movement";
 import {
@@ -47,6 +52,10 @@ export type DigestRunResult = {
   recipients: number;
   suppressed: boolean;
   sent: number;
+  /** Set when the run bailed before ANY week-claim (e.g. SES unconfigured) —
+   * distinct from `suppressed` (a deliberate staleness decision) and from a
+   * normal 0-sent run (everyone opted out / already claimed). */
+  skipped?: "email-unconfigured";
 };
 
 /** Builds the per-preset-slug component rows the gated coaching engine needs,
@@ -94,6 +103,28 @@ export async function runWeeklyDigest(
 ): Promise<DigestRunResult> {
   const now = deps.now?.() ?? new Date();
   const send = deps.sendEmail ?? sendEmail;
+
+  // SES-config guard BEFORE any claim. `sendEmail` no-ops (warn) when SES is
+  // unconfigured, but this sender compare-and-sets last_sent_week BEFORE
+  // sending — so a Monday with missing secrets would burn every org's week on
+  // sends that silently went nowhere, logged as success. Bail here instead
+  // (nothing claimed → the week can still send once secrets are back). In
+  // local dev this same skip is the intended no-op — the log line is the dev
+  // signal, matching sendEmail's own warn path. Only guards the REAL sender;
+  // an injected test seam doesn't depend on SES config.
+  if (!deps.sendEmail && !isEmailConfigured(deps.emailEnv)) {
+    console.warn(
+      `[digest] org ${orgId}: SES not configured — skipped WITHOUT claiming the week (will send when configured)`,
+    );
+    return {
+      orgId,
+      lane: "personal",
+      recipients: 0,
+      suppressed: false,
+      sent: 0,
+      skipped: "email-unconfigured",
+    };
+  }
 
   const { recipients, memberCount } = await listDigestRecipients(db, orgId);
   const lane: DigestLane = memberCount > 1 ? "team" : "personal";
@@ -157,11 +188,16 @@ export async function runWeeklyDigest(
   const week = isoWeekString(now);
   const manageUrl = `${deps.appOrigin}/settings`;
   let sent = 0;
+  let skippedPrefs = 0; // disabled / lost the week-CAS (redelivery)
+  let failed = 0; // claimed but SES threw
   for (const recipient of recipients) {
     const pref = await scope.digestPreferences.getForUser(recipient.userId);
     // Absent-row LANE default: personal owner on, team admin off.
     const enabled = pref ? pref.digestEnabled : lane === "personal";
-    if (!enabled) continue;
+    if (!enabled) {
+      skippedPrefs += 1;
+      continue;
+    }
     // A default-on personal owner may have no row yet — create it so the CAS
     // below has a row to claim (and a token to rotate).
     if (!pref) {
@@ -174,7 +210,10 @@ export async function runWeeklyDigest(
       recipient.userId,
       week,
     );
-    if (!claim) continue;
+    if (!claim) {
+      skippedPrefs += 1;
+      continue;
+    }
     const unsubscribeUrl = `${deps.appOrigin}/api/digest/unsubscribe?token=${encodeURIComponent(
       claim.token,
     )}`;
@@ -191,11 +230,14 @@ export async function runWeeklyDigest(
       // One bad address must not block the rest or trigger a whole-message
       // retry that re-sends the already-claimed recipients. The week is already
       // claimed, so this recipient simply misses this week's digest (safe).
+      failed += 1;
       console.error(`[digest] org ${orgId}: send failed for a recipient`, error);
     }
   }
+  // sent = actually handed to SES; skippedPrefs = opted out or week already
+  // claimed (redelivery); failed = claimed but the send threw.
   console.log(
-    `[digest] org ${orgId}: lane=${lane} recipients=${recipients.length} sent=${sent}`,
+    `[digest] org ${orgId}: lane=${lane} recipients=${recipients.length} sent=${sent} skippedPrefs=${skippedPrefs} failed=${failed}`,
   );
   return { orgId, lane, recipients: recipients.length, suppressed: false, sent };
 }

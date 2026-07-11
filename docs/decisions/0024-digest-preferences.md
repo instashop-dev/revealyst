@@ -86,11 +86,15 @@ uses (capability read/write, not an ambient org-scoped read).
 
 ### Unsubscribe route (unauthenticated, one-click)
 
-`/api/digest/unsubscribe?token=…` (`getApiContext()`, no session): GET flips the pref off
-and shows a confirmation page; POST is the RFC 8058 one-click handler (200). Emails carry
-`List-Unsubscribe: <url>` + `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. `sendEmail`
-gains an additive optional `headers` field passed into the SES v2 `Content.Simple.Headers`
-(email.ts is not frozen).
+`/api/digest/unsubscribe?token=…` (`getApiContext()`, no session). **GET is READ-ONLY**:
+it verifies the token (`peekDigestUnsubscribe`) and renders a confirmation page whose
+`<form method="post">` button performs the unsubscribe — mail-security gateways (Outlook
+SafeLinks, Proofpoint) and inbox prefetchers GET every link on arrival, so a mutating GET
+would silently mass-unsubscribe every recipient behind such a gateway. **POST is the sole
+mutator** (`resolveDigestUnsubscribe`), serving both that confirm form and the RFC 8058
+`List-Unsubscribe-Post` one-click. Emails carry `List-Unsubscribe: <url>` +
+`List-Unsubscribe-Post: List-Unsubscribe=One-Click`. `sendEmail` gains an additive optional
+`headers` field passed into the SES v2 `Content.Simple.Headers` (email.ts is not frozen).
 
 ### Settings UI + API
 
@@ -133,5 +137,8 @@ None. All changes are additive; no workstream built against the absence of these
   reads the org's dashboard-view data live.
 - Rotating the unsubscribe token per send means only the most recent email's link is live —
   a prior week's link 404s. Accepted trade-off (low-sensitivity capability; more secure).
+- A local-channel org that syncs less often than `DIGEST_STALE_AFTER_DAYS` is suppressed
+  every week with only a console log — a "digest paused: data stale" surface on the
+  Settings card is the planned fast-follow so the user can see why no email arrives.
 - Migration `0023` / ADR `0024` are independent sequences claimed at build time; a parallel
   merge may shift either — re-checked before the PR.

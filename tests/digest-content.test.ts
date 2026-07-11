@@ -110,10 +110,53 @@ describe("assembleDigest lanes + honesty", () => {
   it("personal lane surfaces a new personal best; team lane never does", () => {
     const personal = assembleDigest({ ...base, lane: "personal" });
     const team = assembleDigest({ ...base, lane: "team" });
-    // 55 is the max AND the current value → new personal best (personal only).
+    // 55 STRICTLY exceeds the prior max (40) → new personal best (personal only).
     expect(personal.personalBest?.slug).toBe("adoption");
     expect(personal.personalBest?.isNewBest).toBe(true);
     expect(team.personalBest).toBeNull();
+  });
+
+  it("a flat trend never claims a new personal best (strict >, prior points only)", () => {
+    // The invariant-b regression: with best computed over ALL points and a
+    // `>=` compare, [55, 55] claimed "new personal best" every week forever.
+    const flat = assembleDigest({
+      ...base,
+      lane: "personal",
+      trends: [trend("adoption", [55, 55])],
+    });
+    expect(flat.personalBest).toBeNull();
+    const longFlat = assembleDigest({
+      ...base,
+      lane: "personal",
+      trends: [trend("adoption", [55, 55, 55, 55])],
+    });
+    expect(longFlat.personalBest).toBeNull();
+  });
+
+  it("a tie with the prior max is not a NEW best", () => {
+    // Current merely EQUALS an earlier high — nothing new was achieved.
+    const tied = assembleDigest({
+      ...base,
+      lane: "personal",
+      trends: [trend("adoption", [60, 40, 60])],
+    });
+    expect(tied.personalBest).toBeNull();
+  });
+
+  it("a genuine strict new max claims the best exactly once", () => {
+    const rising = assembleDigest({
+      ...base,
+      lane: "personal",
+      trends: [trend("adoption", [60, 40, 61])],
+    });
+    expect(rising.personalBest?.isNewBest).toBe(true);
+    // A single point has no prior baseline — never a "new best".
+    const single = assembleDigest({
+      ...base,
+      lane: "personal",
+      trends: [trend("adoption", [90])],
+    });
+    expect(single.personalBest).toBeNull();
   });
 
   it("team-lane HTML contains no person identifiers", () => {

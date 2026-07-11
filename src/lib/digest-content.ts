@@ -132,8 +132,19 @@ function scoreLine(trend: ScoreTrend): DigestScoreLine {
   const best = points.length > 0
     ? points.reduce((m, p) => (p.value > m ? p.value : m), points[0].value)
     : null;
+  // "New best" is STRICT: the current point must exceed the max of the PRIOR
+  // points only. Comparing against a max that includes the current point
+  // (`current >= best`) would claim "new personal best" every single week on
+  // a flat trend — a fabricated repeated achievement (invariant b). A tie
+  // with the prior max is not a NEW best either, so `>`, never `>=`.
+  const priorBest =
+    points.length > 1
+      ? points
+          .slice(0, -1)
+          .reduce((m, p) => (p.value > m ? p.value : m), points[0].value)
+      : null;
   const isNewBest =
-    current !== null && best !== null && current >= best && points.length > 1;
+    current !== null && priorBest !== null && current > priorBest;
   return {
     slug: trend.slug,
     label: slugLabel(trend.slug),

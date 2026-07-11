@@ -48,11 +48,14 @@ export const DIGEST_COPY = {
   noChange: "no change",
 
   /** Personal-best line (personal lane only). Grounded in the stored trend's
-   * own maximum — never a benchmark or "typical" org. */
+   * own maximum within the digest's ~six-month lookback — never a benchmark
+   * or "typical" org, never an all-time claim (the window is
+   * DIGEST_WINDOW_DAYS, not full history), and no "week" claim (the stored
+   * points are month/rolling-28d grain periods, not weeks). */
   newPersonalBest: (slug: string, value: number) =>
-    `New personal best for ${slug}: ${value}. This is your highest recorded week.`,
+    `New personal best for ${slug}: ${value} — your highest in the last six months.`,
   personalBestSoFar: (slug: string, value: number) =>
-    `Your best ${slug} week so far scored ${value}.`,
+    `Your best ${slug} score in the last six months is ${value}.`,
 
   /** "Data as of" line — always shown. */
   dataAsOf: (date: string) => `Data as of ${date}.`,
@@ -66,7 +69,10 @@ export const DIGEST_COPY = {
     `${tool} hasn't completed a sync yet, so it isn't reflected here.`,
 
   footer: {
-    why: "You're receiving this because you enabled the weekly digest in your Revealyst workspace settings.",
+    // Lane-agnostic and TRUE for both cohorts: a personal owner may be
+    // receiving this via the default-on lane without ever touching Settings,
+    // so "because you enabled it" would be a false claim for them (G7).
+    why: "You're receiving this because the weekly digest is on for your Revealyst workspace — you can manage it anytime in Settings.",
     manage: "Manage digest settings",
     unsubscribe: "Unsubscribe",
     honesty:

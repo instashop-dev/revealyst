@@ -28,6 +28,21 @@ export type EmailMessage = {
 const DEFAULT_FROM = "Revealyst <noreply@revealyst.com>";
 
 /**
+ * Can `sendEmail` actually deliver with this env? The SAME predicate
+ * `sendEmail` no-ops on, exported so a sender with pre-send side effects can
+ * check it FIRST: the weekly digest compare-and-sets its once-per-week claim
+ * BEFORE sending, so if SES were unconfigured (e.g. a Monday secret-sync
+ * failure) the claim would burn the week on a send that silently no-opped.
+ * Checking this up front lets the digest skip WITHOUT claiming, so the week
+ * can still send once secrets are back.
+ */
+export function isEmailConfigured(env: EmailEnv): boolean {
+  return Boolean(
+    env.SES_ACCESS_KEY_ID && env.SES_SECRET_ACCESS_KEY && env.SES_REGION,
+  );
+}
+
+/**
  * Send one transactional email. When SES is not configured (local dev, or
  * before secrets are synced) this no-ops. Outside production it also logs the
  * message body — including any link — so a developer can copy a
@@ -42,6 +57,8 @@ const DEFAULT_FROM = "Revealyst <noreply@revealyst.com>";
  * on it reaching the client.
  */
 export async function sendEmail(env: EmailEnv, msg: EmailMessage): Promise<void> {
+  // Inline (not isEmailConfigured) so TS narrows the fields below; keep the
+  // two checks in lockstep.
   if (!env.SES_ACCESS_KEY_ID || !env.SES_SECRET_ACCESS_KEY || !env.SES_REGION) {
     const detail =
       process.env.NODE_ENV === "production" ? "" : `\n${msg.html}`;

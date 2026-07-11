@@ -7,14 +7,22 @@ import { createFixtureOrg } from "../src/db/fixtures";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
 
-// Route-handler harness for PATCH /api/settings/digest (F2.2). Invokes the REAL
-// handler (role gate, body parse, org-scoped write); only appContext is mocked
-// (it needs the Workers runtime).
+// Route-handler harness for PATCH /api/settings/digest and the unauthenticated
+// GET/POST /api/digest/unsubscribe (F2.2). Invokes the REAL handlers (role
+// gate, body parse, token resolution, org-scoped writes); only the
+// request-context module is mocked (it needs the Workers runtime).
 
-const h = vi.hoisted(() => ({ ctx: null as unknown }));
-vi.mock("@/lib/api-context", () => ({ appContext: async () => h.ctx }));
+const h = vi.hoisted(() => ({ ctx: null as unknown, db: null as unknown }));
+vi.mock("@/lib/api-context", () => ({
+  appContext: async () => h.ctx,
+  getApiContext: () => ({ db: h.db, env: {} }),
+}));
 
 import { PATCH } from "@/app/api/settings/digest/route";
+import {
+  GET as unsubGET,
+  POST as unsubPOST,
+} from "@/app/api/digest/unsubscribe/route";
 
 let db: Db;
 let orgId: string;
@@ -44,6 +52,7 @@ beforeAll(async () => {
   const pglite = drizzle(new PGlite(), { schema });
   await migrate(pglite, { migrationsFolder: "./drizzle" });
   db = pglite as unknown as Db;
+  h.db = db; // the mocked getApiContext hands the routes this db
   orgId = (await createFixtureOrg(db, "digest-api-org", "personal")).id;
   await db
     .insert(schema.user)
@@ -84,5 +93,81 @@ describe("PATCH /api/settings/digest", () => {
     expect(res.status).toBe(200);
     const row = await forOrg(db, orgId).digestPreferences.getForUser(USER_ID);
     expect(row?.digestEnabled).toBe(false);
+  });
+});
+
+describe("GET/POST /api/digest/unsubscribe (RFC 8058 discipline)", () => {
+  const UNSUB_USER = "digest-unsub-route-user";
+  let token: string;
+
+  const unsubReq = (t: string | null) =>
+    new Request(
+      t === null
+        ? "https://app.example/api/digest/unsubscribe"
+        : `https://app.example/api/digest/unsubscribe?token=${encodeURIComponent(t)}`,
+    );
+
+  beforeAll(async () => {
+    await db.insert(schema.user).values({
+      id: UNSUB_USER,
+      name: "Unsub",
+      email: "unsub@fixture.example",
+    });
+    const scope = forOrg(db, orgId);
+    await scope.digestPreferences.setEnabled(UNSUB_USER, true);
+    const claim = await scope.digestPreferences.claimWeekAndRotateToken(
+      UNSUB_USER,
+      "2026-W28",
+    );
+    token = claim!.token;
+  });
+
+  it("a bare GET (link scanner / prefetch) NEVER changes the preference", async () => {
+    const res = await unsubGET(unsubReq(token));
+    expect(res.status).toBe(200);
+    // Read-only: the page offers a POST confirm form, the pref stays enabled.
+    const html = await res.text();
+    expect(html).toContain('method="post"');
+    const row = await forOrg(db, orgId).digestPreferences.getForUser(UNSUB_USER);
+    expect(row?.digestEnabled).toBe(true);
+    // Even repeated scanner GETs stay read-only.
+    await unsubGET(unsubReq(token));
+    const again = await forOrg(db, orgId).digestPreferences.getForUser(UNSUB_USER);
+    expect(again?.digestEnabled).toBe(true);
+  });
+
+  it("POST (one-click header or the confirm form) is the sole mutator", async () => {
+    const res = await unsubPOST(
+      new Request(
+        `https://app.example/api/digest/unsubscribe?token=${encodeURIComponent(token)}`,
+        { method: "POST" },
+      ),
+    );
+    expect(res.status).toBe(200);
+    const row = await forOrg(db, orgId).digestPreferences.getForUser(UNSUB_USER);
+    expect(row?.digestEnabled).toBe(false);
+    // Idempotent re-POST still succeeds (desired end state holds).
+    const res2 = await unsubPOST(
+      new Request(
+        `https://app.example/api/digest/unsubscribe?token=${encodeURIComponent(token)}`,
+        { method: "POST" },
+      ),
+    );
+    expect(res2.status).toBe(200);
+  });
+
+  it("unknown token: GET 404s read-only, POST 404s without effect; missing token 400s", async () => {
+    expect((await unsubGET(unsubReq("not-a-token"))).status).toBe(404);
+    expect(
+      (
+        await unsubPOST(
+          new Request(
+            "https://app.example/api/digest/unsubscribe?token=not-a-token",
+            { method: "POST" },
+          ),
+        )
+      ).status,
+    ).toBe(404);
+    expect((await unsubGET(unsubReq(null))).status).toBe(400);
   });
 });

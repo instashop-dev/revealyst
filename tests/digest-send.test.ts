@@ -147,6 +147,31 @@ describe("idempotency (at-least-once CAS)", () => {
   });
 });
 
+describe("SES-unconfigured skip (before any claim)", () => {
+  it("bails without claiming the week, so a later configured run still sends", async () => {
+    const orgId = await orgWithConnection("digest-ses-unconfigured");
+    const userId = await addMember(orgId, "admin", { verified: true });
+
+    // No sendEmail test seam AND an empty EmailEnv → the real-sender guard
+    // fires: skipped, nothing sent, and — critically — NO week claim burned.
+    const res = await runWeeklyDigest(db, orgId, {
+      emailEnv: {} as EmailEnv,
+      appOrigin: "https://app.example",
+      now: () => NOW,
+    });
+    expect(res.skipped).toBe("email-unconfigured");
+    expect(res.sent).toBe(0);
+    const pref = await forOrg(db, orgId).digestPreferences.getForUser(userId);
+    expect(pref?.lastSentWeek ?? null).toBeNull(); // week NOT claimed
+
+    // Secrets fixed later the same week → the digest still goes out.
+    const { deps, sent } = captureDeps();
+    const res2 = await runWeeklyDigest(db, orgId, deps);
+    expect(res2.sent).toBe(1);
+    expect(sent).toHaveLength(1);
+  });
+});
+
 describe("staleness suppression (G5)", () => {
   it("suppresses the whole send when no connection synced within the window", async () => {
     const orgId = await orgWithConnection("digest-stale", { stale: true });
