@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Cable, Gauge, Info, TriangleAlert } from "lucide-react";
+import { Cable, Gauge, Info, Lightbulb, TriangleAlert } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
@@ -12,7 +12,7 @@ import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
 import { EmptyState } from "@/components/empty-state";
 import { InfoTip } from "@/components/info-tip";
 import { PageHeader } from "@/components/page-header";
-import { ScoreCard } from "@/components/scores/score-card";
+import { ScoreCard, type ScoreCardData } from "@/components/scores/score-card";
 import {
   fromDashboardScore,
   fromPersonalScore,
@@ -22,6 +22,7 @@ import { ShareScoreButton } from "@/components/share-score-button";
 import { BudgetAlertBanner } from "@/components/spend/budget-alert-banner";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -80,15 +81,25 @@ function attentionActionLabel(href: string): string {
 
 function AttentionAlert({ item }: { item: AttentionItem }) {
   const isAction = item.severity === "action";
+  const isRecommendation = item.kind === "recommendation";
   return (
     <Alert>
       {isAction ? (
         <TriangleAlert />
+      ) : isRecommendation ? (
+        <Lightbulb className="text-muted-foreground" />
       ) : (
         <Info className="text-muted-foreground" />
       )}
       <AlertTitle className={isAction ? undefined : "text-muted-foreground"}>
-        {item.title}
+        <span className="inline-flex items-center gap-2">
+          {item.title}
+          {isRecommendation ? (
+            <Badge variant="outline" className="font-normal">
+              Guidance
+            </Badge>
+          ) : null}
+        </span>
       </AlertTitle>
       <AlertDescription>
         <p>{item.body}</p>
@@ -246,12 +257,70 @@ async function PersonalSelfView({
   const personId =
     summary.scores.find((s) => s.person)?.person?.id ?? null;
 
+  // Build each card's data once, up front, so the F1.1 coaching gate and the
+  // rendered cards read the SAME `componentRows` (one `formatComponentDetail`
+  // per score, zero new queries — these are the already-fetched score rows).
+  const cardData = new Map<ScoreSlug, ScoreCardData>(
+    SCORE_SLUGS.map((slug) => [
+      slug,
+      fromPersonalScore({
+        slug,
+        score: scores.get(slug) ?? null,
+        definitions,
+        delta: deltas.get(slug) ?? null,
+      }),
+    ]),
+  );
+  // Coaching recommendations only consider scores that actually exist (G4 — no
+  // guidance off a not-yet-computed score); gating (measured-and-weak) is
+  // centralized inside deriveAttention.
+  const scoreComponents = SCORE_SLUGS.filter((slug) => scores.has(slug)).map(
+    (slug) => ({ slug, components: cardData.get(slug)!.componentRows }),
+  );
+
+  // F1.3 driver attribution: the latest person-level month row for a slug in
+  // the previous-period window is the same row personDeltaResult diffed against
+  // — its stored breakdown + definition version let deriveAttention name the
+  // component that drove a drop, comparably-gated (zero new queries; prevScores
+  // is already fetched).
+  const defsById = new Map(definitions.map((d) => [d.id, d]));
+  const prevPersonRow = (slug: ScoreSlug) => {
+    const ids = new Set(
+      definitions.filter((d) => d.slug === slug).map((d) => d.id),
+    );
+    const matches = prevScores.filter(
+      (r) =>
+        r.subjectLevel === "person" &&
+        r.periodGrain === "month" &&
+        ids.has(r.definitionId),
+    );
+    return matches.length === 0
+      ? null
+      : matches.reduce((best, r) => (r.periodEnd > best.periodEnd ? r : best));
+  };
+
   const scoreDrops = SCORE_SLUGS.map((slug) => ({ slug, d: deltas.get(slug) }))
     .filter(
       (x): x is { slug: ScoreSlug; d: Extract<DeltaResult, { kind: "delta" }> } =>
         x.d?.kind === "delta",
     )
-    .map((x) => ({ slug: x.slug, delta: x.d.delta }));
+    .map((x) => {
+      const score = scores.get(x.slug);
+      const prevRow = prevPersonRow(x.slug);
+      return {
+        slug: x.slug,
+        delta: x.d.delta,
+        attribution:
+          score && prevRow
+            ? {
+                currentVersion: score.definitionVersion,
+                previousVersion: defsById.get(prevRow.definitionId)?.version,
+                currentComponents: score.components,
+                previousComponents: prevRow.components,
+              }
+            : undefined,
+      };
+    });
   // The identity-link callout is admin-gated the same way /reconcile itself
   // is — a non-admin member can't act on it, so it's never surfaced to them
   // (rather than shown and then dead-ending). It's further gated on having no
@@ -270,6 +339,7 @@ async function PersonalSelfView({
     gaps: summary.gaps,
     sharedAccountCount: 0,
     scoreDrops,
+    scoreComponents,
   });
 
   return (
@@ -300,15 +370,7 @@ async function PersonalSelfView({
 
       <div className="grid gap-4 md:grid-cols-3">
         {SCORE_SLUGS.map((slug) => (
-          <ScoreCard
-            key={slug}
-            data={fromPersonalScore({
-              slug,
-              score: scores.get(slug) ?? null,
-              definitions,
-              delta: deltas.get(slug) ?? null,
-            })}
-          />
+          <ScoreCard key={slug} data={cardData.get(slug)!} />
         ))}
       </div>
 
@@ -459,22 +521,61 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
       deriveDelta(trendsBySlug.get(slug)?.points ?? []),
     ]),
   );
+  // Build each card's data once so the F1.1 coaching gate and the rendered
+  // cards read the SAME `componentRows` (zero new queries — already-fetched
+  // score rows). `efficiency` alone carries the spend footer.
+  const cardData = new Map<ScoreSlug, ScoreCardData>([
+    ["adoption", fromDashboardScore({ slug: "adoption", score: adoption, definitions, delta: deltas.get("adoption") })],
+    ["fluency", fromDashboardScore({ slug: "fluency", score: fluency, definitions, delta: deltas.get("fluency") })],
+    ["efficiency", fromDashboardScore({ slug: "efficiency", score: efficiency, definitions, delta: deltas.get("efficiency"), footer: spendFooter })],
+  ]);
+  const scoreComponents = SCORE_SLUGS.filter((slug) => latest.get(slug)).map(
+    (slug) => ({ slug, components: cardData.get(slug)!.componentRows }),
+  );
+
+  // F1.3 driver attribution: the last two team-level rows for a slug are the
+  // same current/previous points `deriveDelta` diffed (both come from the one
+  // prefetched `scores.results` fetch) — their stored breakdowns let
+  // deriveAttention name the drop's driving component, comparably-gated.
+  const teamRowsForSlug = (slug: ScoreSlug) =>
+    summary.scores
+      .filter((s) => s.subjectLevel === "team" && s.definitionSlug === slug)
+      .sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
   const scoreDrops = SCORE_SLUGS.map((slug) => ({ slug, d: deltas.get(slug)! }))
     .filter(
       (x): x is { slug: ScoreSlug; d: Extract<DeltaResult, { kind: "delta" }> } =>
         x.d.kind === "delta",
     )
-    .map((x) => ({ slug: x.slug, delta: x.d.delta }));
+    .map((x) => {
+      const rows = teamRowsForSlug(x.slug);
+      const cur = rows[rows.length - 1];
+      const prev = rows[rows.length - 2];
+      return {
+        slug: x.slug,
+        delta: x.d.delta,
+        attribution:
+          cur && prev
+            ? {
+                currentVersion: cur.definitionVersion,
+                previousVersion: prev.definitionVersion,
+                currentComponents: cur.components,
+                previousComponents: prev.components,
+              }
+            : undefined,
+      };
+    });
   // Team's needs-attention strip surfaces the SAME connector honesty gaps the
   // personal self-view does (W4-W finding A5 — the composed team view now
   // fetches connector_runs and threads gaps through `view.gaps`), plus
-  // shared-account count, errored connections, and score drops. The
-  // unresolved-subjects/identity-link callout stays personal/admin-only.
+  // shared-account count, errored connections, score drops, and (F1.1)
+  // coaching recommendations. The unresolved-subjects/identity-link callout
+  // stays personal/admin-only.
   const attentionItems = deriveAttention({
     connections: connectionAttentionInputs(connections),
     gaps,
     sharedAccountCount: sharedAccounts.length,
     scoreDrops,
+    scoreComponents,
   });
 
   return (
@@ -500,31 +601,9 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
           <section className="flex flex-col gap-3">
             <SectionHeading>Scores &amp; benchmark</SectionHeading>
             <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
-              <ScoreCard
-                data={fromDashboardScore({
-                  slug: "adoption",
-                  score: adoption,
-                  definitions,
-                  delta: deltas.get("adoption"),
-                })}
-              />
-              <ScoreCard
-                data={fromDashboardScore({
-                  slug: "fluency",
-                  score: fluency,
-                  definitions,
-                  delta: deltas.get("fluency"),
-                })}
-              />
-              <ScoreCard
-                data={fromDashboardScore({
-                  slug: "efficiency",
-                  score: efficiency,
-                  definitions,
-                  delta: deltas.get("efficiency"),
-                  footer: spendFooter,
-                })}
-              />
+              <ScoreCard data={cardData.get("adoption")!} />
+              <ScoreCard data={cardData.get("fluency")!} />
+              <ScoreCard data={cardData.get("efficiency")!} />
               <BenchmarkPanel benchmarks={benchmarks} />
             </div>
           </section>

@@ -1,5 +1,9 @@
 import type { PeriodGrain } from "../contracts/scores";
 import type { ScoreComponent } from "../contracts/scores";
+import {
+  COACHING_GUIDANCE_SUFFIX,
+  findCoachingRecommendation,
+} from "./coaching-recommendations";
 import type { DefinitionRow, ScoreRow } from "./dashboard-read";
 import type { ScoreTrendPoint } from "./dashboard-trends";
 import {
@@ -276,6 +280,10 @@ export type AttentionItem = {
   title: string;
   body: string;
   href?: string;
+  /** Set only on coaching-recommendation items (F1.1) — lets the renderer add
+   * a "Guidance" affordance. Absent (undefined) on every other item kind, so
+   * `AttentionItem` stays backward-compatible. */
+  kind?: "recommendation";
 };
 
 /** A same-grain score drop below this many points is treated as worth a
@@ -284,7 +292,59 @@ export type AttentionItem = {
  * the fold." Adjustable without changing any stored data. */
 const MEANINGFUL_SCORE_DROP = 10;
 
+/** Coaching recommendations (F1.1) only fire for a component whose normalized
+ * value sits in the bottom reading band — the same 0–39 "low" cut
+ * `interpretScore` uses — AND that carries non-trivial weight. Presentational
+ * thresholds only; not benchmarks, not derived from any dataset. */
+const RECOMMENDATION_WEAK_NORMALIZED_MAX = 40;
+const RECOMMENDATION_MIN_WEIGHT = 0.2;
+/** At most this many recommendations surface at once — guidance is a nudge,
+ * not a checklist; more than two buries the real alerts above it. */
+const MAX_RECOMMENDATIONS = 2;
+
 type ScoredAttentionItem = AttentionItem & { impact: number };
+
+/** Coerces a stored `components` jsonb (typed on the team path, `unknown` on
+ * the person-level raw-row path) into an iterable record — or `null` when it
+ * isn't an object, so a malformed breakdown yields no driver rather than a
+ * throw. */
+function asComponentRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Names the component whose CONTRIBUTION fell the most between two score rows'
+ * stored breakdowns — the F1.3 score-drop driver. Only components MEASURED
+ * (present as a valid breakdown entry) on BOTH sides are eligible: a component
+ * that was omitted in either period, or newly omitted this period, is never
+ * blamed for the drop (that would conflate "no data" with "measured decline" —
+ * invariant b / the ratio-honesty rule). Returns `null` when nothing measured
+ * on both sides actually fell, so the caller falls back to the un-attributed
+ * drop copy rather than guessing a cause. Version comparability is the
+ * caller's gate (a cross-definition-version diff must never reach here).
+ */
+function topContributionDrop(
+  currentComponents: unknown,
+  previousComponents: unknown,
+): { key: string; contributionDelta: number } | null {
+  const current = asComponentRecord(currentComponents);
+  const previous = asComponentRecord(previousComponents);
+  if (!current || !previous) return null;
+  let worst: { key: string; contributionDelta: number } | null = null;
+  for (const [key, curValue] of Object.entries(current)) {
+    const prevValue = previous[key];
+    if (!isBreakdownEntry(curValue) || !isBreakdownEntry(prevValue)) continue;
+    const contributionDelta = round4(curValue.contribution - prevValue.contribution);
+    // Only a component that actually LOST contribution can drive a drop.
+    if (contributionDelta >= 0) continue;
+    if (!worst || contributionDelta < worst.contributionDelta) {
+      worst = { key, contributionDelta };
+    }
+  }
+  return worst;
+}
 
 export type AttentionConnection = { label: string; status: "error" | "paused" };
 
@@ -329,7 +389,30 @@ export function deriveAttention(input: {
   unresolvedUsage?: { count: number; viewerIsAdmin: boolean; scoresExist: boolean };
   gaps: { kind: string; detail?: string }[];
   sharedAccountCount: number;
-  scoreDrops: { slug: ScoreSlug; delta: number }[];
+  /** F1.3 — each drop may optionally carry the two score rows' component
+   * breakdowns it was derived from, so the single surfaced drop can NAME its
+   * driving component. Comparability is gated centrally here (not by the
+   * caller): a driver is named only when `currentVersion === previousVersion`
+   * (the same `notComparable` discipline `deriveDelta` applies) AND the
+   * driving component is measured on both sides — otherwise the un-attributed
+   * drop copy is used, never a guessed cause. `attribution` omitted → the
+   * plain drop copy (fully backward-compatible). */
+  scoreDrops: {
+    slug: ScoreSlug;
+    delta: number;
+    attribution?: {
+      currentVersion: number | undefined;
+      previousVersion: number | undefined;
+      currentComponents: unknown;
+      previousComponents: unknown;
+    };
+  }[];
+  /** F1.1 — per-score component rows (from `formatComponentDetail`) for the
+   * scores that currently exist. Gating for coaching recommendations lives
+   * HERE (measured-and-weak), not in how the caller shapes its input — same
+   * "gate centrally, pass raw facts" pattern as `unresolvedUsage`. Omitted (or
+   * empty) → no recommendations, so a no-scores-yet dashboard gets none. */
+  scoreComponents?: { slug: ScoreSlug; components: ComponentDetailRow[] }[];
 }): AttentionItem[] {
   const items: ScoredAttentionItem[] = [];
 
@@ -404,12 +487,66 @@ export function deriveAttention(input: {
   if (biggestDrop) {
     const label = biggestDrop.slug[0].toUpperCase() + biggestDrop.slug.slice(1);
     const roundedDrop = Math.round(Math.abs(biggestDrop.delta));
+    const points = `${roundedDrop} point${roundedDrop === 1 ? "" : "s"}`;
+    // Name the driving component ONLY across a same-definition-version pair —
+    // a version change makes contributions incomparable (invariant b), so the
+    // drop is reported un-attributed rather than blamed on a component whose
+    // meaning may have changed.
+    const attribution = biggestDrop.attribution;
+    const driver =
+      attribution &&
+      attribution.currentVersion !== undefined &&
+      attribution.previousVersion !== undefined &&
+      attribution.currentVersion === attribution.previousVersion
+        ? topContributionDrop(
+            attribution.currentComponents,
+            attribution.previousComponents,
+          )
+        : null;
+    const body = driver
+      ? `${label} fell ${points} versus the previous period of the same kind — the part that dropped most was ${componentLabel(driver.key)}.`
+      : `${label} fell ${points} versus the previous period of the same kind.`;
     items.push({
       severity: "info",
       title: `${label} dropped`,
-      body: `${label} fell ${roundedDrop} point${roundedDrop === 1 ? "" : "s"} versus the previous period of the same kind.`,
+      body,
       impact: roundedDrop,
     });
+  }
+
+  // Coaching recommendations (F1.1) sort BELOW every real signal: impact 1 is
+  // under paused connections (6), gaps (10), shared accounts (8), and any
+  // surfaced drop (≥10). At most MAX_RECOMMENDATIONS, weakest component first.
+  if (input.scoreComponents && input.scoreComponents.length > 0) {
+    const candidates: {
+      recommendation: ReturnType<typeof findCoachingRecommendation>;
+      normalized: number;
+    }[] = [];
+    for (const score of input.scoreComponents) {
+      for (const row of score.components) {
+        // Measured (not omitted) AND meaningfully weak (bottom band, non-
+        // trivial weight). An omitted component has no normalized value — it's
+        // "no data yet", never "measured low", so it's never coached on.
+        if (row.omitted || row.normalized === undefined) continue;
+        if (row.normalized >= RECOMMENDATION_WEAK_NORMALIZED_MAX) continue;
+        if (row.weight < RECOMMENDATION_MIN_WEIGHT) continue;
+        const recommendation = findCoachingRecommendation(score.slug, row.key);
+        if (recommendation) {
+          candidates.push({ recommendation, normalized: row.normalized });
+        }
+      }
+    }
+    candidates.sort((a, b) => a.normalized - b.normalized);
+    for (const { recommendation } of candidates.slice(0, MAX_RECOMMENDATIONS)) {
+      if (!recommendation) continue;
+      items.push({
+        severity: "info",
+        kind: "recommendation",
+        title: recommendation.title,
+        body: `${recommendation.body} ${COACHING_GUIDANCE_SUFFIX}`,
+        impact: 1,
+      });
+    }
   }
 
   items.sort((a, b) => {
