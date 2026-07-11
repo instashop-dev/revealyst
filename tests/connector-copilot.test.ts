@@ -37,6 +37,9 @@ import { processPollMessage } from "../src/poller/process";
 const usersFix = JSON.parse(
   readFileSync("fixtures/connectors/copilot/users-1-day.json", "utf8"),
 );
+const phaseFix = JSON.parse(
+  readFileSync("fixtures/connectors/copilot/users-1-day-with-phase.json", "utf8"),
+);
 const teamsFix = JSON.parse(
   readFileSync("fixtures/connectors/copilot/user-teams-1-day.json", "utf8"),
 );
@@ -187,6 +190,15 @@ describe("normalize: users-1-day (person metrics + agentic + credits)", () => {
     for (const f of ["code_completion", "chat_panel_agent_mode", "agent_edit", "vscode"]) {
       expect(record(batch, ALICE, "feature_used", `feature=${f}`), f).toBeUndefined();
     }
+    // F1.5 cohort harvest on the recorded fixture: alice carries
+    // ai_adoption_phase { phase: "power" } → a namespaced phase cohort dim.
+    expect(record(batch, ALICE, "feature_used", "feature=phase:power")?.value).toBe(1);
+    // Bob (no ai_adoption_phase) gets no cohort dim — absence, never guessed.
+    expect(
+      batch.records.some(
+        (r) => r.subject.externalId === BOB && r.dim.startsWith("feature=phase:"),
+      ),
+    ).toBe(false);
   });
 
   it("model mix is request counts per model; per-model tokens is a gap", () => {
@@ -223,6 +235,48 @@ describe("normalize: personal spend context (§6a.2)", () => {
     expect(record(batch, "login:dave", "ai_credits", "", "2026-06-25")?.value).toBe(5);
     expect(batch.records.every((r) => r.metricKey === "ai_credits")).toBe(true);
     expect(batch.records[0].attribution).toBe("person");
+  });
+});
+
+describe("normalize: ai_adoption_phase cohort harvest (F1.5)", () => {
+  const batch = normalizeCopilot({
+    kind: ENVELOPE_KINDS.usersDaily,
+    window: { start: "2026-06-20", end: "2026-06-20" },
+    payload: { surface: "users_daily", day: "2026-06-20", records: phaseFix.records },
+  });
+  const on = (id: string, dim: string) => record(batch, id, "feature_used", dim, "2026-06-20");
+
+  it("maps the phase label to a namespaced feature dim (snake_cased, punctuation-stripped)", () => {
+    // dave: phase "Agent First" → feature=phase:agent_first (flag value 1).
+    expect(on("user:2001", "feature=phase:agent_first")?.value).toBe(1);
+    // grace: phase "Power-User!" (phase_number 0) → punctuation collapses to
+    // one underscore; the string label wins over the number.
+    expect(on("user:2004", "feature=phase:power_user")?.value).toBe(1);
+    expect(on("user:2004", "feature=phase:phase_0")).toBeUndefined();
+  });
+
+  it("falls back to the numeric phase when no label is present", () => {
+    // erin: only phase_number 1 → feature=phase:phase_1.
+    expect(on("user:2002", "feature=phase:phase_1")?.value).toBe(1);
+  });
+
+  it("emits no cohort dim when ai_adoption_phase is absent (never guessed)", () => {
+    // frank has no ai_adoption_phase at all.
+    expect(
+      batch.records.some(
+        (r) => r.subject.externalId === "user:2003" && r.dim.startsWith("feature=phase:"),
+      ),
+    ).toBe(false);
+  });
+
+  it("the cohort dim is a flag (max), so a re-normalize does not accumulate", () => {
+    const again = normalizeCopilot({
+      kind: ENVELOPE_KINDS.usersDaily,
+      window: { start: "2026-06-20", end: "2026-06-20" },
+      payload: { surface: "users_daily", day: "2026-06-20", records: phaseFix.records },
+    });
+    expect(again).toEqual(batch); // deterministic + idempotent
+    expect(on("user:2001", "feature=phase:agent_first")?.value).toBe(1);
   });
 });
 
