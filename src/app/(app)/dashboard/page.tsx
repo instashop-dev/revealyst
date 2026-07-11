@@ -161,36 +161,36 @@ function SectionHeading({ children }: { children: ReactNode }) {
 export default async function DashboardPage() {
   const ctx = await requireAppContext();
 
-  // Only the personal-mode onboarding gate needs the connections list BEFORE
-  // the rest of the page, so it's fetched first ONLY on that branch. The team
-  // path doesn't stack a separate `connections.list()` round trip ahead of its
-  // data read: `readDashboardView` already fetches connections inside its
-  // depth-1 Promise.all and now returns them, so TeamOverview renders its
-  // Connections panel + attention strip from `view.connections` with no extra
-  // sequential hop (each avoided Workers→Hyperdrive→Neon round trip is
-  // ~250–500ms of authenticated TTFB).
+  // Neither branch stacks a separate `connections.list()` round trip ahead of
+  // its data read. The team path: `readDashboardView` already fetches
+  // connections inside its depth-1 Promise.all and returns them, so
+  // TeamOverview renders its Connections panel + attention strip from
+  // `view.connections`. The personal path: the connections read is started
+  // here (in flight) and FOLDED into PersonalSelfView's depth-1 Promise.all,
+  // where the onboarding gate is evaluated once it resolves — so the gate no
+  // longer costs a serial Workers→Hyperdrive→Neon hop (~250–500ms of
+  // authenticated TTFB) ahead of the page's other reads on the common
+  // already-connected login that lands here.
   if (ctx.org.kind === "personal") {
-    const connections = await ctx.scope.connections.list();
-    // A fresh personal workspace has nothing to show until a source is
-    // connected — send it to the focused onboarding flow (W2-H). An errored
-    // connection (e.g. a rejected key at first attempt) does NOT count as
-    // connected, so a bad first key can't strand the user on an empty
-    // dashboard. /onboarding itself never redirects here, so there is no loop.
-    const hasUsableConnection = connections.some((c) => c.status !== "error");
-    if (!hasUsableConnection) {
-      redirect("/onboarding");
-    }
-    return <PersonalSelfView ctx={ctx} connections={connections} />;
+    return (
+      <PersonalSelfView
+        ctx={ctx}
+        connectionsPromise={ctx.scope.connections.list()}
+      />
+    );
   }
   return <TeamOverview ctx={ctx} />;
 }
 
 async function PersonalSelfView({
   ctx,
-  connections,
+  connectionsPromise,
 }: {
   ctx: AppContext;
-  connections: Awaited<ReturnType<AppContext["scope"]["connections"]["list"]>>;
+  // Passed in flight (not awaited) so it overlaps the pageData batch below —
+  // resolved inside that batch's single Promise.all, then the onboarding gate
+  // is evaluated on the result before any card renders.
+  connectionsPromise: ReturnType<AppContext["scope"]["connections"]["list"]>;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const period = periodFor("month", today);
@@ -216,6 +216,7 @@ async function PersonalSelfView({
     .toISOString()
     .slice(0, 10);
   const [
+    connections,
     summary,
     verifiedBenchmarks,
     definitions,
@@ -227,6 +228,9 @@ async function PersonalSelfView({
     personalSpend,
   ] = await timeStage("pageData", () =>
       Promise.all([
+        // Onboarding-gate read, folded in here so it overlaps the rest of the
+        // batch instead of serializing ahead of the page (round-trip depth 1).
+        connectionsPromise,
         dashboardSummary(
           ctx.scope,
           ctx.org.visibilityMode,
@@ -282,6 +286,18 @@ async function PersonalSelfView({
         }),
       ]),
     );
+  // Onboarding gate (evaluated here, after the overlapped read above, rather
+  // than as a serial hop ahead of the batch): a fresh personal workspace with
+  // no usable connection has nothing to show — send it to the focused
+  // onboarding flow (W2-H) before rendering any card. An errored connection
+  // (e.g. a rejected key at first attempt) does NOT count as connected, so a
+  // bad first key can't strand the user on an empty dashboard; /onboarding
+  // itself never redirects here, so there is no loop. `redirect()` throws, so
+  // the batch's other (empty, on a fresh org) results are simply discarded.
+  const hasUsableConnection = connections.some((c) => c.status !== "error");
+  if (!hasUsableConnection) {
+    redirect("/onboarding");
+  }
   const agentic = computeAgenticAdoption({
     agentActiveRows: personalAgentActive,
     activeDayRows: personalActiveDay,

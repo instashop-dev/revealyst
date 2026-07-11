@@ -135,14 +135,50 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     });
     results.push(result);
 
-    // Recorded baseline: subscriptionsForOrg().current() (1 SELECT), then
-    // short-circuits on the team plan — the trackedUsers() count query
-    // never runs. A regression that drops the short-circuit would show up
-    // as a jump here (extra query on the entitled hot path this gate is
-    // explicitly optimized for).
+    // Recorded baseline: computeAccess now issues subscriptionsForOrg()
+    // .current() and the trackedUsers() count CONCURRENTLY (Promise.all), so
+    // for this team-plan org it runs subscription(1) + trackedUsers(2) = 3
+    // queries but at round-trip DEPTH 1 — the count result is discarded once
+    // the team plan resolves, a query-count trade for a depth win (see
+    // computeAccess's doc comment). What matters is depth stays 1: a
+    // regression that re-serialized the two reads (or reintroduced a fan-out)
+    // would push depth above 1 and trip the ceiling below.
     expect(result.total).toBeGreaterThan(0);
     expect(result.total).toBeLessThanOrEqual(4);
-    expect(result.sequentialDepth).toBeLessThanOrEqual(4);
+    expect(result.sequentialDepth).toBeLessThanOrEqual(1);
+  });
+
+  it("2b. shell (free-band) — computeAccess parallelizes its two reads", async () => {
+    // The dominant login population is free/personal orgs, for which BOTH of
+    // computeAccess's reads always run (no team short-circuit). Before the
+    // parallelization pass this was subscription→count = depth 2 (~1.0-1.3s of
+    // sequential Neon latency on Workers→Hyperdrive→Neon); folding them into
+    // one Promise.all collapses it to depth 1, removing a full ~500-670ms hop
+    // from every free-tier authenticated request. This scenario is the guard:
+    // a fresh free org (no subscription → plan "personal") measured through
+    // the exact production computeAccess.
+    const freeOrg = await createFixtureOrg(db, "perf-free-band", "team");
+    await loadFixture(db, freeOrg.id, buildTeamFixtureGraph(3));
+    const freeScope = forOrg(db, freeOrg.id);
+
+    const result = await measure(counter, "shell (free-band)", async () => {
+      // No subscription rows → resolveEntitlement returns plan "personal", so
+      // the count is the operative input (3 tracked ≤ FREE_TRACKED_USER_LIMIT
+      // of 5 → not blocked).
+      const access = await computeAccess(db, freeScope, {
+        id: freeOrg.id,
+        kind: "personal",
+      });
+      expect(access.blocked).toBe(false);
+    });
+    results.push(result);
+
+    // subscription.current() (1) + billing.trackedUsers() (2 internal, already
+    // parallel) = 3 queries, all issued concurrently → sequential DEPTH 1.
+    // Exact-equality on depth is the whole point of this scenario: it fails
+    // the moment the two reads re-serialize (the regression this pass fixes).
+    expect(result.total).toBe(3);
+    expect(result.sequentialDepth).toBe(1);
   });
 
   it("3. dashboard — readDashboardView", async () => {
@@ -181,7 +217,7 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
   });
 
   it("prints the baseline table", () => {
-    expect(results).toHaveLength(3);
+    expect(results).toHaveLength(4);
     // eslint-disable-next-line no-console
     console.log(`\nAuthenticated-page query baseline (org: ${PEOPLE_COUNT} tracked people, 30d window)\n${formatTable(results)}\n`);
   });
