@@ -49,11 +49,20 @@ contracts. Every session auto-loads this file — it is the interface between ag
   load-bearing for test resolution.
 - `next dev` hits a LOCAL Postgres, not Neon: `createDb` prefers the HYPERDRIVE
   binding, whose wrangler `localConnectionString` is `127.0.0.1:5432` — run
-  `npm run dev:db` (PGlite socket) first. That socket's postgres.js
-  prepared-statement bug (`08P01 … prepared statement`) breaks the authenticated
-  session query, so a logged-in app-shell flow can't be fully driven against
-  `dev:db` — unit-test that logic instead. `.dev.vars` is per-worktree
+  `npm run dev:db` (PGlite socket) first. The socket's historical postgres.js
+  prepared-statement failure (`08P01`) is FIXED by `prepare: false` in
+  `src/db/client.ts` — logged-in app-shell flows work against `dev:db` now
+  (verified 2026-07-11: sign-in + platform-admin `/admin/users` against a
+  `npm run dev:seed:demo`'d db; demo platform admin
+  `sam.reyes@revealyst.example` / `Demo-Pass-2026!`). Data is in-memory —
+  it vanishes when the `dev:db` process stops, and the demo seed NEVER
+  touches prod (its users/passwords are committed to the repo — do not seed
+  Neon with it). `.dev.vars` is per-worktree
   (gitignored); appending without a trailing newline concatenates onto the last key.
+  Embedded-browser gotcha: React 19 reveals streamed Suspense content via
+  requestAnimationFrame, and a hidden/unpainted pane never fires rAF — a page
+  can hold fully-streamed data in `div[hidden][id^=S:]` yet read as "empty";
+  assert on the streamed DOM, not innerText/screenshots.
 - A corrupted `.next/dev/types/validator.ts` (from an interrupted `next dev`) breaks
   `tsc --noEmit` repo-wide with unrelated syntax errors; `.next` isn't in tsconfig's
   exclude — `rm -rf .next` and retype checks clean.
