@@ -1,4 +1,12 @@
 import type { forOrg } from "../db/org-scope";
+import {
+  computeAgenticAdoption,
+  type AgenticAdoption,
+} from "./agentic-adoption";
+import {
+  computeAttributionTrend,
+  type AttributionTrend,
+} from "./attribution-trend";
 import { resolveBenchmarkSource, type BenchmarkSummary } from "./benchmarks";
 import {
   latestTeamScoresBySlug,
@@ -14,11 +22,23 @@ import {
 } from "./dashboard-signals";
 import { readScoreTrends, type ScoreTrend } from "./dashboard-trends";
 import { collectGaps, type CollectedGap } from "./honesty-gaps";
+import {
+  computeRecentMovement,
+  RECENT_PERIOD_DAYS,
+  type RecentMovement,
+} from "./recent-movement";
 import { resolveSegmentSource, type SegmentDistribution } from "./segments";
 import {
   resolveSharedAccountSource,
   type SharedAccountFlag,
 } from "./shared-account";
+import {
+  resolvePerPersonUsage,
+  summarizeUsageConcentration,
+  summarizeUsageDistribution,
+  type UsageConcentration,
+  type UsageDistribution,
+} from "./usage-distribution";
 import type { VisibilityMode } from "./visibility";
 
 type OrgScope = ReturnType<typeof forOrg>;
@@ -61,6 +81,35 @@ export type DashboardView = {
    * admin-set displayName, status) — same privacy rationale as `definitions`,
    * so `assertTeamOnlyPseudonymized` is unaffected. */
   connections: Awaited<ReturnType<OrgScope["connections"]["list"]>>;
+  /** Attribution-coverage trend (F1.7) — the person-attributed share of tracked
+   * usage over recent weeks, computed IN JS from the `active_day` rows already
+   * fetched below (`activeDayRecords`), so it adds zero DB reads. It carries
+   * only aggregate counts/percentages and week dates — no person identifiers of
+   * any kind — so, like `definitions` and `gaps`, it does not change what
+   * `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must inspect. */
+  attributionTrend: AttributionTrend;
+  /** Agentic-adoption view (F1.4 / research M6): the org-level share of active
+   * days on which an AI agent was used, plus a weekly trend. Derived in JS from
+   * the `agent_active` rows fetched in the stage-1 Promise.all below and the
+   * `active_day` rows already fetched for the summary — one new query, zero new
+   * sequential stages (G10). The value is aggregate-only: distinct subject-day
+   * COUNTS and per-connector day counts, never a person identifier or a
+   * per-person ranking — so, like `definitions`/`gaps`/`connections`, it does
+   * not change what `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must
+   * inspect, and the team surface stays aggregate-only (no per-person agentic
+   * ranking, per the F1.4 constraint). */
+  agentic: AgenticAdoption;
+  /** F1.2 analytics computed in stage-2 from rows already fetched below (zero
+   * new queries beyond one `prompts` read). All THREE are aggregate-only —
+   * period-over-period counts (M1), band tallies + org-relative percentiles
+   * (M3), and top-decile shares (M4) — carrying NO person id, pseudonym, name,
+   * or per-named-person value. Like `definitions`/`gaps`/`connections` above,
+   * they add nothing `assertTeamOnlyPseudonymized` (src/lib/visibility.ts)
+   * needs to inspect (that predicate audits person refs on scores, segment
+   * members, and shared-account identifiers — none of which appear here). */
+  recentMovement: RecentMovement;
+  usageDistribution: UsageDistribution;
+  usageConcentration: UsageConcentration;
 };
 
 export async function readDashboardView(
@@ -88,9 +137,11 @@ export async function readDashboardView(
     spendRecords,
     spendEstimatedRecords,
     activeDayRecords,
+    agentActiveRecords,
     featureRecords,
     volumeRecords,
     runs,
+    promptRecords,
   ] = await Promise.all([
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
@@ -109,8 +160,22 @@ export async function readDashboardView(
       from: window.from,
       to: window.to,
     }),
+    // dim pinned to "" (active_day's undimmed catalog shape): the attribution
+    // trend counts each row as one usage-day, so if a future connector ever
+    // emitted dimmed active_day variants, unpinned rows would double-count
+    // subject-days. readDashboard is unaffected either way — it dedups these
+    // rows via subjectId/day sets, not row counts.
     scope.metrics.records({
       metricKey: "active_day",
+      from: window.from,
+      to: window.to,
+      dim: "",
+    }),
+    // Agentic-adoption numerator (F1.4). One new stage-1 read — the denominator
+    // (active_day) is already fetched above, so the rate + weekly trend derive
+    // in JS with zero further queries and no new sequential stage (G10).
+    scope.metrics.records({
+      metricKey: "agent_active",
       from: window.from,
       to: window.to,
     }),
@@ -129,6 +194,14 @@ export async function readDashboardView(
     // (api-impl.ts `dashboardSummary`); the recent runs carry the deduped
     // gap set the poller wrote. Additive to the single-round-trip Promise.all.
     scope.connectorRuns.list({ limit: 200 }),
+    // F1.2 (M4): prompt volume per person feeds the usage-concentration
+    // module. The ONE new stage-1 read this feature adds — still round-trip
+    // depth 1 (it rides the existing Promise.all, no new sequential stage).
+    scope.metrics.records({
+      metricKey: "prompts",
+      from: window.from,
+      to: window.to,
+    }),
   ]);
 
   // One pass over the superset: the exact splits trends (team) and segments
@@ -178,6 +251,41 @@ export async function readDashboardView(
     { slug: "efficiency", value: latest.get("efficiency")?.value ?? null },
   ]);
 
+  // F1.2 stage-2 (M1/M3/M4): pure aggregation over rows already fetched above,
+  // zero further queries. `window.to` is today UTC (dashboardWindow), a
+  // partial day mid-ingestion — computeRecentMovement anchors both comparison
+  // windows at the last COMPLETE day (today − 1) so a flat org never renders
+  // a fabricated morning "decline". M3/M4 slice per-person usage over the
+  // SAME current window (taken from the movement result, so the two can't
+  // drift) — the whole "recent" story on the dashboard covers one window,
+  // and today is excluded from it everywhere.
+  const recentMovement = computeRecentMovement({
+    today: window.to,
+    spendReportedRecords: spendRecords,
+    activeDayRecords,
+    identities,
+  });
+  const inRecent = <T extends { day: string }>(rows: T[]) =>
+    rows.filter(
+      (r) =>
+        r.day >= recentMovement.currentFrom && r.day <= recentMovement.currentTo,
+    );
+  const recentUsage = resolvePerPersonUsage({
+    activeDayRows: inRecent(activeDayRecords),
+    promptRows: inRecent(promptRecords),
+    identities,
+  });
+  const usageDistribution = summarizeUsageDistribution(
+    recentUsage.perPerson,
+    RECENT_PERIOD_DAYS,
+  );
+  const usageConcentration = summarizeUsageConcentration(
+    recentUsage.perPerson,
+    // Volume the per-person math honestly could NOT attribute (unresolved
+    // keys/accounts + shared multi-person subjects) — disclosed on the panel.
+    recentUsage.excluded.unresolvedPrompts + recentUsage.excluded.sharedPrompts,
+  );
+
   return {
     summary,
     benchmarks,
@@ -189,5 +297,21 @@ export async function readDashboardView(
     definitions,
     gaps: collectGaps(runs),
     connections,
+    // Zero new reads: the person-attributed usage-day share is derived in JS
+    // from the same active_day rows readDashboard already consumed.
+    attributionTrend: computeAttributionTrend(activeDayRecords),
+    // Pure JS over already-fetched rows — no query. Identity links resolve
+    // subject-days to person-days (`identities` is already in the stage-1
+    // batch for readDashboard/shared-accounts, so this costs nothing); the
+    // lib slices to its own 12-week window ending at `window.to`.
+    agentic: computeAgenticAdoption({
+      agentActiveRows: agentActiveRecords,
+      activeDayRows: activeDayRecords,
+      identityLinks: identities,
+      windowTo: window.to,
+    }),
+    recentMovement,
+    usageDistribution,
+    usageConcentration,
   };
 }

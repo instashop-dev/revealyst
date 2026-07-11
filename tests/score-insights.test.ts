@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ScoreComponent } from "../src/contracts/scores";
+import { COACHING_GUIDANCE_SUFFIX } from "../src/lib/coaching-recommendations";
 import type { ScoreTrendPoint } from "../src/lib/dashboard-trends";
 import { SCORE_SLUGS } from "../src/lib/metrics-glossary";
 import {
@@ -10,8 +11,39 @@ import {
   formatDelta,
   interpretScore,
   personDeltaResult,
+  type ComponentDetailRow,
 } from "../src/lib/score-insights";
 import { BANNED_PHRASING } from "./helpers/banned-phrasing";
+
+// ─── Shared builders for the F1.3 (score-drop attribution) + F1.1 (coaching)
+// deriveAttention cases below ───
+
+type Breakdown = Record<
+  string,
+  { raw: number; normalized: number; weight: number; contribution: number }
+>;
+
+/** One stored breakdown entry; only `contribution` matters for driver
+ * attribution, the rest are filled with plausible numbers. */
+function entry(contribution: number): Breakdown[string] {
+  return { raw: contribution, normalized: contribution, weight: 0.5, contribution };
+}
+
+function componentRow(
+  key: string,
+  opts: { normalized?: number; weight?: number; omitted?: boolean },
+): ComponentDetailRow {
+  const omitted = opts.omitted ?? false;
+  return {
+    key,
+    label: key,
+    kind: "plain",
+    omitted,
+    normalized: omitted ? undefined : opts.normalized,
+    weight: opts.weight ?? 0.5,
+    calcSimple: `calc for ${key}`,
+  };
+}
 
 // Pure-function suite: no DB, no I/O.
 
@@ -662,5 +694,360 @@ describe("connectionAttentionInputs", () => {
 
   it("empty input → []", () => {
     expect(connectionAttentionInputs([])).toEqual([]);
+  });
+});
+
+describe("deriveAttention — F1.3 score-drop attribution", () => {
+  const base = { connections: [], gaps: [], sharedAccountCount: 0 };
+
+  it("names the component whose contribution fell most, using its glossary label", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreDrops: [
+        {
+          slug: "efficiency",
+          delta: -35,
+          attribution: {
+            currentVersion: 1,
+            previousVersion: 1,
+            // output_per_spend fell 30; engagement_per_spend fell 5.
+            currentComponents: {
+              output_per_spend: entry(10),
+              engagement_per_spend: entry(30),
+            } satisfies Breakdown,
+            previousComponents: {
+              output_per_spend: entry(40),
+              engagement_per_spend: entry(35),
+            } satisfies Breakdown,
+          },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe("Efficiency dropped");
+    // "Output per spend" is the glossary label for output_per_spend — a raw
+    // key must never leak into the copy.
+    expect(items[0].body).toContain("the part that dropped most was Output per spend");
+    expect(items[0].body).not.toContain("output_per_spend");
+  });
+
+  it("a definition-version change → no driver claim (un-attributed drop copy, never a cross-version guess)", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreDrops: [
+        {
+          slug: "efficiency",
+          delta: -35,
+          attribution: {
+            currentVersion: 2,
+            previousVersion: 1,
+            currentComponents: { output_per_spend: entry(10) } satisfies Breakdown,
+            previousComponents: { output_per_spend: entry(40) } satisfies Breakdown,
+          },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].body).toContain("versus the previous period of the same kind.");
+    expect(items[0].body).not.toContain("the part that dropped most");
+  });
+
+  it("a component omitted on one side is never blamed — the honest stopped-being-measurable copy renders instead", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreDrops: [
+        {
+          slug: "efficiency",
+          delta: -35,
+          attribution: {
+            currentVersion: 1,
+            previousVersion: 1,
+            // engagement_per_spend ROSE; output_per_spend is omitted this
+            // period (present previously) — the real cause is unattributable,
+            // so no component is guessed as the driver; the measurability
+            // asymmetry itself is stated instead.
+            currentComponents: { engagement_per_spend: entry(25) } satisfies Breakdown,
+            previousComponents: {
+              engagement_per_spend: entry(20),
+              output_per_spend: entry(45),
+            } satisfies Breakdown,
+          },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].body).not.toContain("the part that dropped most");
+    expect(items[0].body).toContain("isn't measurable this period");
+  });
+
+  it("omission asymmetry (reviewer scenario, verbatim): a 2-point breadth dip is never blamed for a 32-point drop whose cause is a component that stopped being measurable", () => {
+    // prev fluency {breadth:20, depth:25, effectiveness:30} = 75; current
+    // {breadth:18, depth:25} with effectiveness OMITTED (vendor funnel stopped
+    // reporting). Breadth explains 2 of 32 points — naming it would be a
+    // fabricated causal claim.
+    const items = deriveAttention({
+      ...base,
+      scoreDrops: [
+        {
+          slug: "fluency",
+          delta: -32,
+          attribution: {
+            currentVersion: 1,
+            previousVersion: 1,
+            currentComponents: {
+              breadth: entry(18),
+              depth: entry(25),
+            } satisfies Breakdown,
+            previousComponents: {
+              breadth: entry(20),
+              depth: entry(25),
+              effectiveness: entry(30),
+            } satisfies Breakdown,
+          },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].body).not.toContain("the part that dropped most");
+    expect(items[0].body).not.toContain("Breadth");
+    expect(items[0].body).toContain(
+      "A part of this score that was measured last period isn't measurable this period, so the drop isn't pinned on any one part.",
+    );
+  });
+
+  it("materiality floor: a small faller below half the drop is never named (un-attributed copy, no omission involved)", () => {
+    // Every component measured on both sides; worst faller is effectiveness at
+    // -3 against a -12 drop — below the 0.5 × |delta| = 6 floor, so nothing is
+    // named (the breakdown genuinely can't account for the drop).
+    const items = deriveAttention({
+      ...base,
+      scoreDrops: [
+        {
+          slug: "fluency",
+          delta: -12,
+          attribution: {
+            currentVersion: 1,
+            previousVersion: 1,
+            currentComponents: {
+              breadth: entry(18),
+              depth: entry(25),
+              effectiveness: entry(27),
+            } satisfies Breakdown,
+            previousComponents: {
+              breadth: entry(20),
+              depth: entry(25),
+              effectiveness: entry(30),
+            } satisfies Breakdown,
+          },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].body).not.toContain("the part that dropped most");
+    expect(items[0].body).not.toContain("isn't measurable");
+    expect(items[0].body).toContain("versus the previous period of the same kind.");
+  });
+
+  it("sign guard: a large RISING component never outranks a small material faller", () => {
+    // output_per_spend ROSE 90; engagement_per_spend fell 10 against a -15
+    // drop (≥ the 7.5 floor) — Engagement per spend is named, never the riser.
+    const items = deriveAttention({
+      ...base,
+      scoreDrops: [
+        {
+          slug: "efficiency",
+          delta: -15,
+          attribution: {
+            currentVersion: 1,
+            previousVersion: 1,
+            currentComponents: {
+              output_per_spend: entry(100),
+              engagement_per_spend: entry(30),
+            } satisfies Breakdown,
+            previousComponents: {
+              output_per_spend: entry(10),
+              engagement_per_spend: entry(40),
+            } satisfies Breakdown,
+          },
+        },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].body).toContain("the part that dropped most was Engagement per spend");
+    expect(items[0].body).not.toContain("Output per spend");
+  });
+
+  it("no attribution supplied → the plain drop copy (backward-compatible)", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreDrops: [{ slug: "fluency", delta: -20 }],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].body).toContain("versus the previous period of the same kind.");
+    expect(items[0].body).not.toContain("the part that dropped most");
+  });
+});
+
+describe("deriveAttention — F1.1 coaching recommendations", () => {
+  const base = { connections: [], gaps: [], sharedAccountCount: 0, scoreDrops: [] };
+
+  it("a measured, weak, non-trivial-weight component → one info recommendation carrying the honesty suffix and kind", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreComponents: [
+        { slug: "adoption", components: [componentRow("active_days", { normalized: 20, weight: 0.5 })] },
+      ],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0].severity).toBe("info");
+    expect(items[0].kind).toBe("recommendation");
+    expect(items[0].title).toBe("Make AI part of the daily routine");
+    expect(items[0].body.endsWith(COACHING_GUIDANCE_SUFFIX)).toBe(true);
+    expect(items[0].href).toBeUndefined();
+  });
+
+  it("an omitted component is never coached on (no data ≠ measured-low)", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreComponents: [
+        { slug: "adoption", components: [componentRow("active_days", { omitted: true })] },
+      ],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("a component at or above the weak band (normalized ≥ 40) gets no recommendation", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreComponents: [
+        { slug: "adoption", components: [componentRow("active_days", { normalized: 40, weight: 0.5 })] },
+      ],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("a trivial-weight component gets no recommendation even when weak", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreComponents: [
+        { slug: "adoption", components: [componentRow("active_days", { normalized: 5, weight: 0.1 })] },
+      ],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("a weak component with no mapped recommendation is skipped, not fabricated", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreComponents: [
+        { slug: "adoption", components: [componentRow("no_such_component", { normalized: 5, weight: 0.5 })] },
+      ],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("at most two recommendations surface, weakest component first", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreComponents: [
+        {
+          slug: "fluency",
+          components: [
+            componentRow("breadth", { normalized: 30, weight: 0.33 }),
+            componentRow("depth", { normalized: 10, weight: 0.33 }),
+            componentRow("effectiveness", { normalized: 20, weight: 0.34 }),
+          ],
+        },
+      ],
+    });
+    const recs = items.filter((i) => i.kind === "recommendation");
+    expect(recs).toHaveLength(2);
+    // depth (10) is weakest, then effectiveness (20) — breadth (30) is cut.
+    expect(recs[0].title).toBe("Use AI on more days, not just more per day");
+    expect(recs[1].title).toBe("Look at why suggestions are being turned down");
+  });
+
+  it("same-signal components never burn both slots (reviewer scenario): adoption.active_days + fluency.depth dedupe to one, letting tool-coverage through", () => {
+    // adoption.active_days and fluency.depth read the SAME 0–20 `active_day`
+    // signal — both weak at 10, they'd tie and consume both slots with
+    // near-identical advice, cutting the distinct tool-coverage guidance (20).
+    const items = deriveAttention({
+      ...base,
+      scoreComponents: [
+        {
+          slug: "adoption",
+          components: [
+            componentRow("active_days", { normalized: 10, weight: 0.5 }),
+            componentRow("tool_coverage", { normalized: 20, weight: 0.5 }),
+          ],
+        },
+        {
+          slug: "fluency",
+          components: [componentRow("depth", { normalized: 10, weight: 0.33 })],
+        },
+      ],
+    });
+    const recs = items.filter((i) => i.kind === "recommendation");
+    expect(recs).toHaveLength(2);
+    const titles = recs.map((r) => r.title);
+    // Exactly ONE active-days-signal recommendation…
+    expect(
+      titles.filter(
+        (t) =>
+          t === "Make AI part of the daily routine" ||
+          t === "Use AI on more days, not just more per day",
+      ),
+    ).toHaveLength(1);
+    // …and the distinct feature-breadth guidance survives the cap.
+    expect(titles).toContain("Broaden which AI features get used");
+  });
+
+  it("recommendations sort BELOW real alerts — action first, then every other info item, then guidance", () => {
+    const items = deriveAttention({
+      ...base,
+      connections: [{ label: "Cursor", status: "error" }],
+      gaps: [{ kind: "sub_daily_unavailable" }],
+      sharedAccountCount: 2,
+      scoreDrops: [{ slug: "fluency", delta: -20 }],
+      scoreComponents: [
+        { slug: "adoption", components: [componentRow("active_days", { normalized: 10, weight: 0.5 })] },
+      ],
+    });
+    // The recommendation is the very last item, and everything above it is a
+    // non-recommendation.
+    const last = items[items.length - 1];
+    expect(last.kind).toBe("recommendation");
+    expect(items.slice(0, -1).every((i) => i.kind !== "recommendation")).toBe(true);
+    // The single action item still leads.
+    expect(items[0].severity).toBe("action");
+  });
+
+  it("no scoreComponents (scores not computed yet) → no recommendations", () => {
+    expect(deriveAttention({ ...base })).toEqual([]);
+    expect(deriveAttention({ ...base, scoreComponents: [] })).toEqual([]);
+  });
+
+  it("every rendered recommendation body passes the banned-phrasing sweep", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreComponents: SCORE_SLUGS.map((slug) => ({
+        slug,
+        components: [
+          componentRow("active_days", { normalized: 5, weight: 0.5 }),
+          componentRow("tool_coverage", { normalized: 5, weight: 0.5 }),
+          componentRow("breadth", { normalized: 5, weight: 0.33 }),
+          componentRow("depth", { normalized: 5, weight: 0.33 }),
+          componentRow("effectiveness", { normalized: 5, weight: 0.34 }),
+          componentRow("output_per_spend", { normalized: 5, weight: 0.5 }),
+          componentRow("engagement_per_spend", { normalized: 5, weight: 0.5 }),
+        ],
+      })),
+    });
+    const recs = items.filter((i) => i.kind === "recommendation");
+    expect(recs.length).toBeGreaterThan(0);
+    for (const rec of recs) {
+      expect(BANNED_PHRASING.test(rec.title)).toBe(false);
+      expect(BANNED_PHRASING.test(rec.body)).toBe(false);
+    }
   });
 });

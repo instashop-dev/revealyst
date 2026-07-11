@@ -29,6 +29,11 @@ import { GithubAppConnectCard } from "@/components/github-app-connect-card";
 import { errorText, postJson } from "@/lib/client-fetch";
 import { connectApiKeyVendor } from "@/lib/connect-vendor";
 import {
+  connectedToolsLabel,
+  SCORE_TIMING_COPY,
+  scoreTimingChannel,
+} from "@/lib/onboarding-guide";
+import {
   COMING_SOON,
   GITHUB_APP_VENDORS,
   KEY_VENDORS,
@@ -80,6 +85,22 @@ export function OnboardingWizard({
   }
 
   const anyConnected = connected.size > 0;
+  // Channel- AND sync-state-aware end-state copy (F1.6). Statuses come from
+  // the server-loaded rows, NOT from this session's connect events: an agent
+  // paired in this session has only had a token issued — its connection is
+  // `pending` (markSynced flips it to `active` on the first real push), so
+  // the copy says "waiting for your agent's first sync", never "your data is
+  // in". Poll vendors connected this session are genuinely in-flight (the
+  // connect flow kicks off their first poll), so `pending` is fine for them
+  // — the lib treats pending poll connections as usable.
+  const channelInputs = Array.from(connected).map((vendor) => {
+    const initial = initialConnections.find(
+      (c) => c.vendor === vendor && c.status !== "error",
+    );
+    return { vendor, status: initial?.status ?? ("pending" as const) };
+  });
+  const timing = SCORE_TIMING_COPY[scoreTimingChannel(channelInputs)];
+  const connectedLabel = connectedToolsLabel(channelInputs);
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
@@ -166,9 +187,17 @@ export function OnboardingWizard({
           </Button>
         )}
         {anyConnected && (
-          <p className="text-xs text-muted-foreground">
-            Backfilling your history now — scores fill in as data lands.
-          </p>
+          <div className="flex max-w-md flex-col items-center gap-1 text-center">
+            <p className="text-sm font-medium">{timing.headline}</p>
+            <p className="text-balance text-xs text-muted-foreground">
+              {timing.detail}
+            </p>
+            {connectedLabel && (
+              <p className="text-xs text-muted-foreground">
+                Connected: {connectedLabel}
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>

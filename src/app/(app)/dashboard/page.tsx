@@ -1,18 +1,24 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Cable, Gauge, Info, TriangleAlert } from "lucide-react";
+import { Cable, Gauge, Info, Lightbulb, TriangleAlert } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
+import { AgenticAdoptionCard } from "@/components/dashboard/agentic-adoption-card";
+import { AttributionTrendCard } from "@/components/dashboard/attribution-trend-card";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
+import { RecentMovementPanel } from "@/components/dashboard/recent-movement-panel";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
 import { SharedAccountFlags } from "@/components/dashboard/shared-account-flags";
 import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
+import { UsageConcentrationPanel } from "@/components/dashboard/usage-concentration-panel";
+import { UsageDistributionPanel } from "@/components/dashboard/usage-distribution-panel";
 import { EmptyState } from "@/components/empty-state";
 import { InfoTip } from "@/components/info-tip";
+import { OnboardingInterim } from "@/components/onboarding-interim";
 import { PageHeader } from "@/components/page-header";
-import { ScoreCard } from "@/components/scores/score-card";
+import { ScoreCard, type ScoreCardData } from "@/components/scores/score-card";
 import {
   fromDashboardScore,
   fromPersonalScore,
@@ -22,6 +28,7 @@ import { ShareScoreButton } from "@/components/share-score-button";
 import { BudgetAlertBanner } from "@/components/spend/budget-alert-banner";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -31,6 +38,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { listBenchmarks } from "@/db/benchmarks";
+import {
+  AGENTIC_WINDOW_DAYS,
+  computeAgenticAdoption,
+} from "@/lib/agentic-adoption";
 import { requireAppContext, type AppContext } from "@/lib/api-context";
 import { dashboardSummary } from "@/lib/api-impl";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
@@ -43,12 +54,15 @@ import {
   SCORE_SLUGS,
   type ScoreSlug,
 } from "@/lib/metrics-glossary";
+import { isUsableConnection, syncedToolCount } from "@/lib/onboarding-guide";
 import { timeStage } from "@/lib/request-timing";
 import {
   connectionAttentionInputs,
   deriveAttention,
   deriveDelta,
   personDeltaResult,
+  personScoreDropAttribution,
+  teamScoreDropAttribution,
   type AttentionItem,
   type DeltaResult,
 } from "@/lib/score-insights";
@@ -80,15 +94,25 @@ function attentionActionLabel(href: string): string {
 
 function AttentionAlert({ item }: { item: AttentionItem }) {
   const isAction = item.severity === "action";
+  const isRecommendation = item.kind === "recommendation";
   return (
     <Alert>
       {isAction ? (
         <TriangleAlert />
+      ) : isRecommendation ? (
+        <Lightbulb className="text-muted-foreground" />
       ) : (
         <Info className="text-muted-foreground" />
       )}
       <AlertTitle className={isAction ? undefined : "text-muted-foreground"}>
-        {item.title}
+        <span className="inline-flex items-center gap-2">
+          {item.title}
+          {isRecommendation ? (
+            <Badge variant="outline" className="font-normal">
+              Guidance
+            </Badge>
+          ) : null}
+        </span>
       </AlertTitle>
       <AlertDescription>
         <p>{item.body}</p>
@@ -179,8 +203,24 @@ async function PersonalSelfView({
   // while staying at round-trip depth 1 (dashboardSummary awaits the same
   // in-flight promise rather than starting a second query).
   const definitionsPromise = ctx.scope.scores.definitions();
-  const [summary, verifiedBenchmarks, definitions, prevScores, budgetAlert] =
-    await timeStage("pageData", () =>
+  // A wider window than the current-month summary, purely so the agentic
+  // adoption card has ~12 weeks to draw a real trend line (the lib slices to
+  // its own AGENTIC_WINDOW_DAYS window ending today — this fetch matches it).
+  // Org-of-one, so these rows are the viewer's own — the person-day rate IS
+  // their personal rate.
+  const agenticFrom = new Date(Date.now() - (AGENTIC_WINDOW_DAYS - 1) * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+  const [
+    summary,
+    verifiedBenchmarks,
+    definitions,
+    prevScores,
+    budgetAlert,
+    personalActiveDay,
+    personalAgentActive,
+    personalIdentities,
+  ] = await timeStage("pageData", () =>
       Promise.all([
         dashboardSummary(
           ctx.scope,
@@ -207,8 +247,31 @@ async function PersonalSelfView({
         // — for a member the read is skipped entirely, not fetched-then-hidden.
         // Null also when no budget is set or no threshold is crossed.
         readBudgetAlertForRole(ctx.scope, ctx.role, today),
+        // Agentic adoption inputs (F1.4). Numerator + denominator over the
+        // wider trend window; the rate + weekly trend derive in JS below.
+        ctx.scope.metrics.records({
+          metricKey: "active_day",
+          from: agenticFrom,
+          to: today,
+        }),
+        ctx.scope.metrics.records({
+          metricKey: "agent_active",
+          from: agenticFrom,
+          to: today,
+        }),
+        // Identity links resolve the agentic rows' subject-days to
+        // person-days — the same human often spans several vendor subjects
+        // (review F1). Fetched inside this flat Promise.all: +1 query, still
+        // round-trip depth 1.
+        ctx.scope.identities.all(),
       ]),
     );
+  const agentic = computeAgenticAdoption({
+    agentActiveRows: personalAgentActive,
+    activeDayRows: personalActiveDay,
+    identityLinks: personalIdentities,
+    windowTo: today,
+  });
   const scores = new Map<string, PersonalScore>(
     summary.scores
       .filter((s) => s.subjectLevel === "person" && s.periodGrain === "month")
@@ -246,12 +309,53 @@ async function PersonalSelfView({
   const personId =
     summary.scores.find((s) => s.person)?.person?.id ?? null;
 
+  // Build each card's data once, up front, so the F1.1 coaching gate and the
+  // rendered cards read the SAME `componentRows` (one `formatComponentDetail`
+  // per score, zero new queries — these are the already-fetched score rows).
+  const cardData = new Map<ScoreSlug, ScoreCardData>(
+    SCORE_SLUGS.map((slug) => [
+      slug,
+      fromPersonalScore({
+        slug,
+        score: scores.get(slug) ?? null,
+        definitions,
+        delta: deltas.get(slug) ?? null,
+      }),
+    ]),
+  );
+  // Coaching recommendations only consider scores that actually exist (G4 — no
+  // guidance off a not-yet-computed score); gating (measured-and-weak) is
+  // centralized inside deriveAttention.
+  const scoreComponents = SCORE_SLUGS.filter((slug) => scores.has(slug)).map(
+    (slug) => ({ slug, components: cardData.get(slug)!.componentRows }),
+  );
+
+  // F1.3 driver attribution: personScoreDropAttribution resolves the previous
+  // row through the SAME selection personDeltaResult diffs against (shared
+  // selector in score-insights.ts), so the named driver can't desynchronize
+  // from the delta beside it. Zero new queries — prevScores is already fetched.
   const scoreDrops = SCORE_SLUGS.map((slug) => ({ slug, d: deltas.get(slug) }))
     .filter(
       (x): x is { slug: ScoreSlug; d: Extract<DeltaResult, { kind: "delta" }> } =>
         x.d?.kind === "delta",
     )
-    .map((x) => ({ slug: x.slug, delta: x.d.delta }));
+    .map((x) => {
+      const score = scores.get(x.slug);
+      return {
+        slug: x.slug,
+        delta: x.d.delta,
+        attribution: score
+          ? personScoreDropAttribution({
+              currentVersion: score.definitionVersion,
+              currentComponents: score.components,
+              prevRows: prevScores,
+              definitions,
+              slug: x.slug,
+              grain: "month",
+            })
+          : undefined,
+      };
+    });
   // The identity-link callout is admin-gated the same way /reconcile itself
   // is — a non-admin member can't act on it, so it's never surfaced to them
   // (rather than shown and then dead-ending). It's further gated on having no
@@ -270,6 +374,7 @@ async function PersonalSelfView({
     gaps: summary.gaps,
     sharedAccountCount: 0,
     scoreDrops,
+    scoreComponents,
   });
 
   return (
@@ -298,19 +403,33 @@ async function PersonalSelfView({
 
       <AttentionSection items={attentionItems} />
 
+      {scores.size === 0 && (
+        // Connected, but no person scores computed yet — the F1.6 cliff. The
+        // interim bridge renders ABOVE the still-computing score cards (the
+        // grid below stays — its null-state cards explain each score): an
+        // honest, sync-state-aware "here's what we ingested; first scores
+        // by …" plus the first-week checklist. Ingestion evidence derives
+        // from data already in hand (summary + connections) — zero new reads.
+        // Renders nothing when no usable (non-errored, non-paused) connection
+        // exists (buildOnboardingInterim's `none` channel).
+        <OnboardingInterim
+          connections={connections}
+          ingestionEvidence={{
+            activePeople: summary.activePeople,
+            unresolvedSubjects: summary.unresolvedSubjects,
+            connectionsSynced: syncedToolCount(connections),
+          }}
+          isAdmin={ctx.role === "admin"}
+        />
+      )}
+
       <div className="grid gap-4 md:grid-cols-3">
         {SCORE_SLUGS.map((slug) => (
-          <ScoreCard
-            key={slug}
-            data={fromPersonalScore({
-              slug,
-              score: scores.get(slug) ?? null,
-              definitions,
-              delta: deltas.get(slug) ?? null,
-            })}
-          />
+          <ScoreCard key={slug} data={cardData.get(slug)!} />
         ))}
       </div>
+
+      <AgenticAdoptionCard data={agentic} />
 
       <Card>
         <CardHeader>
@@ -436,6 +555,11 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     definitions,
     gaps,
     connections,
+    attributionTrend,
+    agentic,
+    recentMovement,
+    usageDistribution,
+    usageConcentration,
   } = view;
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
@@ -459,22 +583,48 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
       deriveDelta(trendsBySlug.get(slug)?.points ?? []),
     ]),
   );
+  // Build each card's data once so the F1.1 coaching gate and the rendered
+  // cards read the SAME `componentRows` (zero new queries — already-fetched
+  // score rows). `efficiency` alone carries the spend footer.
+  const cardData = new Map<ScoreSlug, ScoreCardData>([
+    ["adoption", fromDashboardScore({ slug: "adoption", score: adoption, definitions, delta: deltas.get("adoption") })],
+    ["fluency", fromDashboardScore({ slug: "fluency", score: fluency, definitions, delta: deltas.get("fluency") })],
+    ["efficiency", fromDashboardScore({ slug: "efficiency", score: efficiency, definitions, delta: deltas.get("efficiency"), footer: spendFooter })],
+  ]);
+  const scoreComponents = SCORE_SLUGS.filter((slug) => latest.get(slug)).map(
+    (slug) => ({ slug, components: cardData.get(slug)!.componentRows }),
+  );
+
+  // F1.3 driver attribution: teamScoreDropAttribution picks the SAME
+  // last-two-by-periodEnd pair `deriveDelta` compares (shared selector in
+  // score-insights.ts), so the named driver can't desynchronize from the
+  // delta beside it. Zero new queries — summary.scores is already fetched.
   const scoreDrops = SCORE_SLUGS.map((slug) => ({ slug, d: deltas.get(slug)! }))
     .filter(
       (x): x is { slug: ScoreSlug; d: Extract<DeltaResult, { kind: "delta" }> } =>
         x.d.kind === "delta",
     )
-    .map((x) => ({ slug: x.slug, delta: x.d.delta }));
+    .map((x) => ({
+      slug: x.slug,
+      delta: x.d.delta,
+      attribution: teamScoreDropAttribution(
+        summary.scores.filter(
+          (s) => s.subjectLevel === "team" && s.definitionSlug === x.slug,
+        ),
+      ),
+    }));
   // Team's needs-attention strip surfaces the SAME connector honesty gaps the
   // personal self-view does (W4-W finding A5 — the composed team view now
   // fetches connector_runs and threads gaps through `view.gaps`), plus
-  // shared-account count, errored connections, and score drops. The
-  // unresolved-subjects/identity-link callout stays personal/admin-only.
+  // shared-account count, errored connections, score drops, and (F1.1)
+  // coaching recommendations. The unresolved-subjects/identity-link callout
+  // stays personal/admin-only.
   const attentionItems = deriveAttention({
     connections: connectionAttentionInputs(connections),
     gaps,
     sharedAccountCount: sharedAccounts.length,
     scoreDrops,
+    scoreComponents,
   });
 
   return (
@@ -500,33 +650,16 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
           <section className="flex flex-col gap-3">
             <SectionHeading>Scores &amp; benchmark</SectionHeading>
             <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
-              <ScoreCard
-                data={fromDashboardScore({
-                  slug: "adoption",
-                  score: adoption,
-                  definitions,
-                  delta: deltas.get("adoption"),
-                })}
-              />
-              <ScoreCard
-                data={fromDashboardScore({
-                  slug: "fluency",
-                  score: fluency,
-                  definitions,
-                  delta: deltas.get("fluency"),
-                })}
-              />
-              <ScoreCard
-                data={fromDashboardScore({
-                  slug: "efficiency",
-                  score: efficiency,
-                  definitions,
-                  delta: deltas.get("efficiency"),
-                  footer: spendFooter,
-                })}
-              />
+              <ScoreCard data={cardData.get("adoption")!} />
+              <ScoreCard data={cardData.get("fluency")!} />
+              <ScoreCard data={cardData.get("efficiency")!} />
               <BenchmarkPanel benchmarks={benchmarks} />
             </div>
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <SectionHeading>Recent movement</SectionHeading>
+            <RecentMovementPanel movement={recentMovement} />
           </section>
 
           <section className="flex flex-col gap-3">
@@ -535,9 +668,11 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
               <ActivityHeatmap heatmap={heatmap} />
               <div className="grid gap-4">
                 <ToolCoveragePanel coverage={coverage} />
+                <AgenticAdoptionCard data={agentic} />
                 <ScoreTrend trends={trends} />
               </div>
             </div>
+            <AttributionTrendCard trend={attributionTrend} />
           </section>
 
           <section className="flex flex-col gap-3">
@@ -545,9 +680,30 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
             <div className="grid gap-4 lg:grid-cols-2">
               <SegmentBreakdown distribution={segments} />
               <SharedAccountFlags flags={sharedAccounts} />
+              <UsageDistributionPanel distribution={usageDistribution} />
+              <UsageConcentrationPanel concentration={usageConcentration} />
             </div>
           </section>
         </>
+      ) : connections.some(isUsableConnection) ? (
+        // Usable (non-errored, non-paused — the lib's definition) connections
+        // exist but no scores yet — the "connected → first scores" cliff
+        // (F1.6). Show the interim bridge: what's ingested so far, honest
+        // sync-state-aware timing, and the first-week checklist. Ingestion
+        // evidence derives from the already-fetched view (zero new reads):
+        // activePeople/unresolvedSubjects from the summary, the synced count
+        // as distinct usable vendors with a last_success_at. An org with only
+        // paused/errored connections falls through to the plain EmptyState —
+        // nothing is ingesting, so no bridge that implies progress.
+        <OnboardingInterim
+          connections={connections}
+          ingestionEvidence={{
+            activePeople: summary.activePeople,
+            unresolvedSubjects: summary.unresolvedSubjects,
+            connectionsSynced: syncedToolCount(connections),
+          }}
+          isAdmin={ctx.role === "admin"}
+        />
       ) : (
         <EmptyState
           icon={Gauge}

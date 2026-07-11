@@ -149,6 +149,22 @@ function normalizeUsersDaily(records: CopilotUserDayRecord[]): NormalizedBatch {
       }
     }
 
+    // ai_adoption_phase (F1.5 harvest, evaluated and SKIPPED): GitHub's
+    // per-user maturity cohort (phase_number 0–3 + label) is fetched (see
+    // types.ts) but deliberately NOT emitted. The only dim-carrying flag key
+    // in the frozen catalog is feature_used, and the live score presets
+    // (drizzle/0009_seed-score-presets.sql; ADOPTION_TOOL_COVERAGE +
+    // FLUENCY_BREADTH in src/lib/metrics-glossary.ts) aggregate feature_used
+    // with `distinct_dims` — src/scoring/evaluate.ts counts EVERY non-empty
+    // dim with no namespace filter. A `feature=phase:<label>` dim would
+    // therefore inflate Adoption/Fluency breadth merely because GitHub
+    // CLASSIFIED a user (even a phase-0 "low adoption" cohort would RAISE
+    // the org's Adoption score), and would render as a nonsense chip in the
+    // tool-coverage panel's "features in use". There is no score-inert
+    // dim-carrying home for a cohort without a catalog ADR (out of scope for
+    // F1.5) — skipping beats mismapping (invariant b).
+    // tests/connector-copilot.test.ts pins that no phase dim is ever emitted.
+
     // Model mix — from the per-model breakdown. Requests only: Copilot exposes
     // per-model tokens nowhere per-user (CLI tokens are un-split), so
     // model_tokens is a documented gap and never fabricated. `||` (not `??`)

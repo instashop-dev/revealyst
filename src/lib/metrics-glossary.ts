@@ -755,6 +755,58 @@ export const CONCEPT_GLOSSARY: Record<
   },
 };
 
+// ─── Agentic adoption (F1.4 / research M6) ───
+
+/**
+ * Copy for the agentic-adoption card (share of AI-active person-days on which
+ * an AI AGENT — not just autocomplete or chat — was used). Lives here, not
+ * inline in the component, so the InfoTip body, the honest empty states, and
+ * any future methodology mention share one source of truth (G7 copy
+ * discipline).
+ *
+ * Precision matters here (review F2 — copy is a claim surface): the rate is
+ * measured across IDENTITY-RESOLVED person-days only (usage from accounts not
+ * linked to a person is excluded and disclosed, never guessed), over the last
+ * 12 weeks, and the denominator includes active days from tools that emit no
+ * agent signal at all — those days count as non-agentic, which the card says
+ * outright instead of claiming the rate covers "agent-capable tools only".
+ *
+ * The empty-state copy names the vendors that actually emit the cross-vendor
+ * `agent_active` flag, verified against the connector normalizers:
+ * Claude Code (src/connectors/anthropic/normalize.ts), GitHub Copilot
+ * (used_agent / coding-agent), and Cursor (agent-mode requests). OpenAI usage
+ * emits no agent signal — so a zero here is "no agent-capable telemetry yet",
+ * NOT a measured-zero adoption claim (G4 honesty).
+ */
+export const AGENTIC_ADOPTION_COPY = {
+  title: "Agentic adoption",
+  windowLabel: "last 12 weeks",
+  shortWhat:
+    "The share of days people used an AI agent — not just autocomplete or chat — out of their AI-active days, over the last 12 weeks.",
+  detail:
+    "Counted as distinct person-days with agent activity divided by distinct person-days with any AI activity, across identity-resolved people over the last 12 weeks. Usage from accounts not yet linked to a person is not included. A day counts once no matter how many agent requests it held.",
+  /** The honest limit of the denominator: it is NOT filtered to agent-capable
+   * tools — days spent only in tools that emit no agent signal read as
+   * non-agentic. Stated, not hidden. */
+  toolsNote:
+    "Not every tool reports agent activity — days spent only in tools that don't report it count as non-agentic here.",
+  /** Resolved active person-days exist but no vendor reported agent activity. */
+  emptyNoAgentic: {
+    title: "No agentic usage recorded yet",
+    body: "Not every connected tool reports agent activity. Claude Code, GitHub Copilot, and Cursor report when an AI agent was used; some tools (for example OpenAI usage) emit no agent signal at all. This fills in once an agent-capable tool syncs a day with agent activity — it is not a measured zero.",
+  },
+  /** Nothing has synced in the window at all. */
+  emptyNoActivity: {
+    title: "No activity recorded yet",
+    body: "Agentic adoption compares agent-used days against AI-active days across identity-resolved people, over the last 12 weeks. Once your connected tools sync usage, this rate appears here.",
+  },
+  /** Usage exists in the window, but none of it is linked to a person. */
+  emptyUnresolvedOnly: {
+    title: "Activity isn't linked to people yet",
+    body: "Usage was recorded in this window, but none of it is linked to a person yet. Agentic adoption is measured across identity-resolved people — link accounts to people on the Reconcile page to see this rate.",
+  },
+} as const;
+
 // ─── Lookup helpers ───
 
 /** Any preset component key -> plain label; falls back to a humanized key. */
