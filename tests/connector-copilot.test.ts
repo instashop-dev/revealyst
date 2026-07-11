@@ -37,6 +37,9 @@ import { processPollMessage } from "../src/poller/process";
 const usersFix = JSON.parse(
   readFileSync("fixtures/connectors/copilot/users-1-day.json", "utf8"),
 );
+const phaseFix = JSON.parse(
+  readFileSync("fixtures/connectors/copilot/users-1-day-with-phase.json", "utf8"),
+);
 const teamsFix = JSON.parse(
   readFileSync("fixtures/connectors/copilot/user-teams-1-day.json", "utf8"),
 );
@@ -187,6 +190,13 @@ describe("normalize: users-1-day (person metrics + agentic + credits)", () => {
     for (const f of ["code_completion", "chat_panel_agent_mode", "agent_edit", "vscode"]) {
       expect(record(batch, ALICE, "feature_used", `feature=${f}`), f).toBeUndefined();
     }
+    // F1.5: ai_adoption_phase (alice carries { phase: "power" }) is a
+    // COHORT, not a capability — never a feature_used dim, because the live
+    // presets count every distinct dim into Adoption/Fluency breadth
+    // (see the skip note in normalize.ts). Pinned: no phase dim, ever.
+    expect(
+      batch.records.some((r) => r.dim.includes("phase")),
+    ).toBe(false);
   });
 
   it("model mix is request counts per model; per-model tokens is a gap", () => {
@@ -223,6 +233,49 @@ describe("normalize: personal spend context (§6a.2)", () => {
     expect(record(batch, "login:dave", "ai_credits", "", "2026-06-25")?.value).toBe(5);
     expect(batch.records.every((r) => r.metricKey === "ai_credits")).toBe(true);
     expect(batch.records[0].attribution).toBe("person");
+  });
+});
+
+describe("normalize: ai_adoption_phase is a harvest SKIP (F1.5 negative pin)", () => {
+  // The fixture carries every ai_adoption_phase shape (string label,
+  // punctuation-heavy label, number-only, absent). None of them may reach the
+  // normalized output: feature_used dims feed the presets' distinct_dims
+  // breadth (Adoption tool_coverage / Fluency breadth), so a cohort dim would
+  // inflate scores merely because GitHub classified a user — a phase-0 "low
+  // adoption" cohort would RAISE the Adoption score. Score-inert homes need a
+  // catalog ADR; until then the field stays unread (see normalize.ts).
+  const batch = normalizeCopilot({
+    kind: ENVELOPE_KINDS.usersDaily,
+    window: { start: "2026-06-20", end: "2026-06-20" },
+    payload: { surface: "users_daily", day: "2026-06-20", records: phaseFix.records },
+  });
+
+  it("emits NO phase dim for any user, whatever the phase shape", () => {
+    expect(batch.records.some((r) => r.dim.includes("phase"))).toBe(false);
+  });
+
+  it("phase-bearing users still get exactly their honest capability dims", () => {
+    // dave/erin/grace/frank all have used_chat + generation counts, and no
+    // other capability signals — the full dim set is chat + completion only,
+    // regardless of their ai_adoption_phase values.
+    const dims = new Set(
+      batch.records.filter((r) => r.metricKey === "feature_used").map((r) => r.dim),
+    );
+    expect(dims).toEqual(new Set(["feature=chat", "feature=completion"]));
+  });
+
+  it("ignoring the phase field does not disturb the rest of the row", () => {
+    // dave (phase "Agent First") normalizes identically on every other key.
+    const dave = batch.records.filter((r) => r.subject.externalId === "user:2001");
+    expect(dave.map((r) => `${r.metricKey}|${r.dim}`).sort()).toEqual([
+      "active_day|",
+      "feature_used|feature=chat",
+      "feature_used|feature=completion",
+      "prompts|",
+      "suggestions_accepted|",
+      "suggestions_offered|",
+    ]);
+    expect(dave.find((r) => r.metricKey === "prompts")?.value).toBe(42);
   });
 });
 

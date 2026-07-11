@@ -97,6 +97,39 @@ function normalizeDailyUsage(rows: CursorDailyUsageRow[]): NormalizedBatch {
     acc.add(subject, attribution, "lines_added", day, "", row.totalLinesAdded);
     acc.add(subject, attribution, "lines_removed", day, "", row.totalLinesDeleted);
 
+    // F1.5 harvest — fields fetched but deliberately NOT given a metric key
+    // or dim, because no existing representation is an honest home
+    // (invariant b; a new key is a catalog ADR, out of scope):
+    //   • acceptedLinesAdded / acceptedLinesDeleted (AI-accepted LoC):
+    //     lines_added/removed already carry totalLinesAdded/Deleted, so a
+    //     second mapping there would double-count; and lines_suggested is the
+    //     completion-funnel *offered* denominator (per the glossary), so
+    //     folding ACCEPTED lines into it would corrupt the LoC-acceptance
+    //     ratio. There is no lines_accepted key — these are skipped, not
+    //     mismapped.
+    //   • totalApplies: apply-actions of AI output. NOT an edit_actions_*
+    //     count — the apply→accept/reject funnel already lands in
+    //     edit_actions_accepted/rejected (totalAccepts/totalRejects), so
+    //     counting applies there would double-count the acceptance family.
+    //     And NOT a `feature=apply` breadth dim either: the live presets
+    //     (drizzle/0009_seed-score-presets.sql; ADOPTION_TOOL_COVERAGE +
+    //     FLUENCY_BREADTH in src/lib/metrics-glossary.ts) aggregate
+    //     feature_used with `distinct_dims`, and src/scoring/evaluate.ts
+    //     counts EVERY non-empty dim with no filter — since
+    //     totalAccepts > 0 implies totalApplies > 0, every engaged Cursor
+    //     user would get +1 distinct dim for free, inflating Adoption/
+    //     Fluency and skewing Cursor vs other vendors. Same class of
+    //     double-count as the granular chat_inline overlap this file
+    //     already bans. Skipped until an ADR adds a score-inert home.
+    //   • subscriptionIncludedReqs / apiKeyReqs / usageBasedReqs: a billing
+    //     PARTITION of the very requests already summed into `prompts`.
+    //     Readers sum every dim row of a key, so emitting these as `prompts`
+    //     dims (or any existing count) would double-count the request volume.
+    //     No billing-bucket key exists — skipped until an ADR adds one.
+    //   (`mostUsedModel` stays excluded too — see the model-mix note below.)
+    // tests/connector-cursor.test.ts pins these skips (exact row-set
+    // assertions + no feature=apply dim).
+
     // Feature adoption flags — set only for surfaces the person actually
     // touched (dim carries which surface).
     for (const [feature, count] of [
