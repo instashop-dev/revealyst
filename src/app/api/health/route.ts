@@ -46,11 +46,11 @@ async function runPoolDiagnostic(): Promise<Response> {
       // Warm once so a prepare:true client's statement cache is hot for the
       // timed run (distinct SQL texts via .unsafe → each is its own statement).
       await Promise.all(
-        Array.from({ length: N }, (_, i) => c.unsafe(`select ${i}::int as n`)),
+        Array.from({ length: N }, (_, i) => c.unsafe(`select ${i}::int as n, clock_timestamp() as t`)),
       );
       const t0 = performance.now();
       await Promise.all(
-        Array.from({ length: N }, (_, i) => c.unsafe(`select ${i}::int as n`)),
+        Array.from({ length: N }, (_, i) => c.unsafe(`select ${i}::int as n, clock_timestamp() as t`)),
       );
       results[combo.label] = { batchMs: Math.round(performance.now() - t0) };
     } catch (e) {
