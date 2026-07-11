@@ -14,6 +14,7 @@ import {
 import type { Db } from "../db/client";
 import { forOrg, type SubjectDescriptor } from "../db/org-scope";
 import type { CredentialEnv } from "../lib/credentials";
+import type { EmailEnv } from "../lib/email";
 import type { PaddleServerConfig } from "../lib/paddle";
 import { previousDay } from "../scoring";
 import { addDays, chunkForCursor } from "./backfill";
@@ -63,6 +64,11 @@ export type PollDeps = {
   /** Resolved Paddle server config for meter-subscription messages (PR5);
    * absent when Paddle isn't configured for this environment. */
   paddleConfig?: PaddleServerConfig;
+  /** SES env for the weekly-digest sender (F2.2), threaded from the worker
+   * consumer like credentialEnv; absent for non-digest messages. */
+  emailEnv?: EmailEnv;
+  /** App origin for the digest's unsubscribe/manage links (BETTER_AUTH_URL). */
+  appOrigin?: string;
 };
 
 /** connections.auth_kind → the credential row kind that stores its secret.

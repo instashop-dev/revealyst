@@ -56,7 +56,11 @@
 			// Daily seat metering (W3-M PR5): src/worker.ts enqueues one
 			// meter-subscription per active/trialing subscription; the consumer
 			// reports the current tracked_user count to Paddle when it changed.
-			"0 3 * * *"
+			"0 3 * * *",
+			// Weekly digest (F2.2): Monday 14:00 UTC. src/worker.ts enqueues one
+			// digest-weekly per org onto the existing revealyst-poll queue; the
+			// consumer assembles + sends each org's digest (no new queue).
+			"0 14 * * 1"
 		]
 	},
 	"queues": {

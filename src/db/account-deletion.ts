@@ -77,6 +77,7 @@ export const PURGE_EXEMPT_TABLES = new Set([
   "subscriptions",
   "audit_log",
   "budgets",
+  "digest_preferences",
 ]);
 
 /**

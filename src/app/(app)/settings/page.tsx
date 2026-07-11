@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
+import { DigestPreferencesForm } from "@/components/settings/digest-preferences-form";
 import { VisibilityModeControl } from "@/components/settings/visibility-mode-control";
 import { WorkspaceNameForm } from "@/components/settings/workspace-name-form";
+import { listDigestRecipients } from "@/db/system";
 import {
   Card,
   CardContent,
@@ -28,6 +30,18 @@ export default async function SettingsPage() {
   // into personal UX. Show only the workspace rename card there.
   const isPersonal = ctx.org.kind === "personal";
 
+  // Weekly-digest opt-in state. When no preference row exists yet, fall back to
+  // the SAME lane default the sender uses (single-member org = on, multi-member
+  // = off) — computed from member count, not org.kind, so the toggle can't
+  // disagree with what the digest sender actually does.
+  const [digestPref, digestAudience] = await Promise.all([
+    ctx.scope.digestPreferences.getForUser(ctx.user.id),
+    listDigestRecipients(ctx.db, ctx.org.id),
+  ]);
+  const digestEnabled = digestPref
+    ? digestPref.digestEnabled
+    : digestAudience.memberCount <= 1;
+
   return (
     <>
       <PageHeader
@@ -46,6 +60,20 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent>
             <WorkspaceNameForm name={ctx.org.name} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Weekly digest</CardTitle>
+            <CardDescription>
+              A Monday-morning email with your workspace&rsquo;s AI-adoption
+              trends versus its own past{isPersonal ? "" : " (aggregate only — no named individuals)"}. Suppressed automatically when your
+              connected tools haven&rsquo;t synced recently.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DigestPreferencesForm initialEnabled={digestEnabled} />
           </CardContent>
         </Card>
 

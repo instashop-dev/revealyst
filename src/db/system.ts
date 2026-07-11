@@ -5,10 +5,12 @@ import {
   connectionCredentials,
   connections,
   connectorRuns,
+  orgMembers,
   orgs,
   pollHeartbeats,
   rawPayloads,
   subscriptions,
+  user,
 } from "./schema";
 
 // System-level maintenance jobs. These run across orgs by design (raw
@@ -112,6 +114,41 @@ export async function listSubscriptionsToMeter(
     })
     .from(subscriptions)
     .where(inArray(subscriptions.status, ["active", "trialing"]));
+}
+
+/**
+ * Weekly-digest recipients for one org (F2.2). Returns the org's admin members
+ * with a VERIFIED email — the only people the digest is ever sent to — plus the
+ * total member count so the sender can pick the lane (single member = personal
+ * lane, multiple = aggregate-only team lane) and resolve the absent-row default.
+ *
+ * System-level by design (it joins the auth `user` table, which is read outside
+ * src/db only via the org-scope seam) and invoked from the queue consumer, like
+ * the other cross-org reads here. Never sends to an unverified address: an
+ * admin who hasn't confirmed their email is excluded from `recipients` but
+ * still counted in `memberCount`.
+ */
+export async function listDigestRecipients(
+  db: Db,
+  orgId: string,
+): Promise<{
+  recipients: Array<{ userId: string; email: string }>;
+  memberCount: number;
+}> {
+  const rows = await db
+    .select({
+      userId: orgMembers.userId,
+      role: orgMembers.role,
+      email: user.email,
+      emailVerified: user.emailVerified,
+    })
+    .from(orgMembers)
+    .innerJoin(user, eq(orgMembers.userId, user.id))
+    .where(eq(orgMembers.orgId, orgId));
+  const recipients = rows
+    .filter((r) => r.role === "admin" && r.emailVerified)
+    .map((r) => ({ userId: r.userId, email: r.email }));
+  return { recipients, memberCount: rows.length };
 }
 
 /**
