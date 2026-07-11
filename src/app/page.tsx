@@ -26,6 +26,12 @@ import {
 } from "@/components/ui/card";
 import { ScoreCardMock } from "@/components/marketing/score-card-mock";
 import { Section } from "@/components/marketing/section";
+import {
+  MATURITY_AXIS_COPY,
+  MATURITY_LEVEL_COPY,
+  MATURITY_LEVELS,
+  MATURITY_NOT_SCORED,
+} from "@/lib/maturity-glossary";
 import { NLV_PENDING_VENDORS } from "@/lib/vendor-connect-meta";
 import { VENDOR_LABELS, vendorLabel } from "@/lib/vendor-labels";
 
@@ -107,13 +113,32 @@ const SCORES = [
   },
   {
     name: "Efficiency",
-    question: "Are we getting our money's worth?",
+    question: "Is usage keeping pace with the spend?",
     detail:
-      "Value signals per unit of spend — the one place cost data does real work. Consolidated across every tool, so the answer is one number, not four dashboards.",
+      "Measured usage — accepted output and active engagement — per dollar of billed spend, consolidated across every tool into one number instead of four dashboards. A cost-efficiency read, not an ROI verdict: we never estimate the value your team produced.",
     components: ["output / spend", "engagement / spend"],
     flagship: false,
   },
 ];
+
+// The maturity section derives its level ladder, axis list, and
+// "what we don't measure" strip from src/lib/maturity-glossary.ts — the same
+// vetted, adversarially fact-checked copy the in-product AI Maturity report
+// renders — so the landing narrative can never drift from what the report
+// actually claims (levels modeled/directional, axes measured, outcomes refused).
+const MATURITY_LADDER = MATURITY_LEVELS.map((level) => ({
+  rung: `L${level}`,
+  name: MATURITY_LEVEL_COPY[level].name,
+  tagline: MATURITY_LEVEL_COPY[level].tagline,
+}));
+const MATURITY_AXES = Object.values(MATURITY_AXIS_COPY).map((axis) => ({
+  label: axis.label,
+  shortWhat: axis.shortWhat,
+}));
+const MATURITY_NOT_MEASURED = MATURITY_NOT_SCORED.map((item) => ({
+  label: item.label,
+  what: item.what,
+}));
 
 const ATTRIBUTION_LADDER = [
   {
@@ -385,7 +410,7 @@ export default function Home() {
               step: "Score",
               icon: Scale,
               detail:
-                "Adoption, Fluency, and Efficiency compute from versioned definitions you can inspect — with benchmarks, so a 78 means something.",
+                "Adoption, Fluency, and Efficiency compute from versioned definitions you can inspect — every number tied to the exact formula that produced it, so a 78 is something you can trace.",
             },
           ].map((item, i) => (
             <li key={item.step} className="flex flex-col gap-3">
@@ -410,7 +435,7 @@ export default function Home() {
         index="03"
         eyebrow="The three scores"
         title="Three numbers that answer the board's question."
-        lead="Every score is computed from a versioned definition you can inspect. You can see which formula produced which number — and history recomputes when definitions improve."
+        lead="These scores measure adoption and usage sophistication — a leading indicator of where AI value can come from, not a measure of realized productivity. Every one is computed from a versioned definition you can inspect: you can see which formula produced which number, and history recomputes when definitions improve."
       >
         <div className="grid gap-6 md:grid-cols-3">
           {SCORES.map((score) => (
@@ -442,9 +467,82 @@ export default function Home() {
         </div>
       </Section>
 
-      {/* Attribution honesty */}
+      {/* AI maturity model — the board-level read on top of the scores */}
       <Section
         index="04"
+        eyebrow="AI maturity model"
+        title="The question every CTO is being asked: are we the 95% still stuck in pilots, or the 5% getting real leverage?"
+        lead="Your connected tools already hold the answer. The AI Maturity model reads them into one board-level level — Dormant through Amplified — across three measured axes. The levels are modeled and directional, not a certified grade; naming what they can't show is the point."
+      >
+        <div className="flex flex-col gap-10">
+          {/* L0 → L4 ladder */}
+          <div className="flex flex-col overflow-hidden rounded-xl border">
+            {MATURITY_LADDER.map((rung) => (
+              <div
+                key={rung.rung}
+                className="grid gap-2 border-b bg-card p-5 last:border-b-0 md:grid-cols-[5rem_9rem_1fr] md:items-baseline md:gap-6"
+              >
+                <span className="font-mono text-sm font-medium text-muted-foreground">
+                  {rung.rung}
+                </span>
+                <span className="font-heading text-base font-semibold">
+                  {rung.name}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {rung.tagline}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Three measured axes */}
+          <div className="flex flex-col gap-4">
+            <h3 className="font-heading text-lg font-semibold">
+              Placed on three measured axes
+            </h3>
+            <div className="grid gap-6 md:grid-cols-3">
+              {MATURITY_AXES.map((axis) => (
+                <div key={axis.label} className="flex flex-col gap-2">
+                  <span className="font-heading text-base font-semibold">
+                    {axis.label}
+                  </span>
+                  <p className="text-sm text-muted-foreground">
+                    {axis.shortWhat}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* What we deliberately don't measure — the honesty differentiator */}
+          <div className="flex flex-col gap-4 rounded-xl border bg-muted/50 p-6">
+            <div className="flex flex-col gap-2">
+              <h3 className="font-heading text-lg font-semibold">
+                What we don&apos;t measure — and won&apos;t guess
+              </h3>
+              <p className="max-w-2xl text-sm text-muted-foreground">
+                A maturity level is a leading indicator of usage sophistication,
+                not a business-outcome number. Where telemetry can&apos;t honestly
+                support a figure, we name the gap instead of inventing one.
+              </p>
+            </div>
+            <dl className="grid gap-4 sm:grid-cols-2">
+              {MATURITY_NOT_MEASURED.map((item) => (
+                <div key={item.label} className="flex flex-col gap-1">
+                  <dt className="text-sm font-medium text-foreground">
+                    {item.label}
+                  </dt>
+                  <dd className="text-sm text-muted-foreground">{item.what}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </div>
+      </Section>
+
+      {/* Attribution honesty */}
+      <Section
+        index="05"
         eyebrow="Attribution honesty"
         title="Numbers you can defend, because we refuse to invent them."
         lead="Every metric carries an attribution-confidence tag: the granularity the data honestly supports. When it only supports key-level truth, that's what you see. Revealyst never fabricates per-user numbers — a gap is shown as a gap, not a guess."
@@ -479,7 +577,7 @@ export default function Home() {
 
       {/* Privacy */}
       <Section
-        index="05"
+        index="06"
         eyebrow="Privacy model"
         title="Built to pass the works-council test."
         lead="Scoring people is near the EU AI Act line even without reading content — so privacy is architecture here, not a settings page."
@@ -501,7 +599,7 @@ export default function Home() {
 
       {/* Personal mode / share loop */}
       <Section
-        index="06"
+        index="07"
         eyebrow="Personal mode"
         title="Start with your own score."
         lead="Revealyst is free forever for individuals. Connect your own API keys or Claude Code, get your own Adoption and Fluency scores, and — if you choose — share the card."
@@ -521,8 +619,9 @@ export default function Home() {
             </p>
             <p className="text-sm text-muted-foreground">
               Curious how you compare? Opt into anonymized benchmarks to help
-              build the published comparison set — verified industry norms
-              appear alongside your scores as they land.
+              build the published comparison set — verified benchmarks appear
+              alongside your scores only once they&apos;re confirmed against a
+              primary source, never before.
             </p>
             <Button
               variant="outline"
@@ -539,7 +638,7 @@ export default function Home() {
 
       {/* Pricing */}
       <Section
-        index="07"
+        index="08"
         eyebrow="Pricing"
         title="The cheapest answer in the category, on purpose."
         lead="Value scales with headcount, so pricing is per tracked user — an identity-resolved person with real usage in the period. Unresolved keys and shared accounts are surfaced, never billed."
