@@ -4,7 +4,7 @@ import {
 } from "../contracts/attribution";
 
 // F1.7 "Honesty-gap trend" — the honesty machinery made into visible progress:
-// what share of tracked usage Revealyst can honestly tie to a SPECIFIC person,
+// what share of tracked usage the vendors attribute to a SPECIFIC individual,
 // over time. This is a MEASURED number (G2's confidence tier): every usage-day
 // below is a real, stored `active_day` metric_records row carrying the vendor's
 // honest attribution level — nothing is inferred, derived, or directional.
@@ -16,10 +16,21 @@ import {
 // person (the team-dashboard privacy predicate is unaffected).
 //
 // Denominator = usage-days (one `active_day` row = one subject active on one
-// UTC calendar day). currentPct = person-attributed usage-days ÷ all
-// usage-days. Attribution is the frozen ladder (person > key_project >
-// account, src/contracts/attribution.ts); "person" is the only rung that means
-// "resolved to a specific individual", so it is the coverage numerator.
+// UTC calendar day). The headline `currentPct` = person-attributed usage-days ÷
+// all usage-days IN THE LATEST WEEK of usage — the same weekly basis every
+// trend point and the "up from" delta use, so the headline can never read
+// against a different denominator than the delta it sits next to. The
+// multi-week aggregate is returned separately (`windowPct`, `personDays`,
+// `totalDays`, `byLevel`) as explicitly labeled secondary context.
+//
+// Attribution is the frozen ladder (person > key_project > account,
+// src/contracts/attribution.ts). "person" means the VENDOR reported the row at
+// per-individual granularity (assigned at ingest by the connector) — it does
+// NOT mean that individual has been identity-resolved to a tracked person in
+// /reconcile. Copy on any surface rendering this must say "person-attributed" /
+// "attributed by the vendor to a specific individual", never
+// "identity-resolved" (invariant b — that would overclaim what the numerator
+// measures).
 
 /** How many recent ISO weeks of usage the trend surfaces at most. Presentation
  * bound only — keeps the sparkline to a bounded, recent trajectory. Not derived
@@ -53,18 +64,23 @@ export type AttributionTrendPoint = {
  * measurement over the frozen ladder with no grain or definition-version axis,
  * so every week IS comparable to every other — the only two honest states are
  * "one week so far" and "a real delta between two weeks".
+ *
+ * Both endpoints are WEEKLY shares — the same basis as the headline
+ * `currentPct` — so "N%, up from M%" always compares like with like. No
+ * relative "N weeks ago" figure is carried: measured against the last usage
+ * week it lies whenever a connector is stale (usage stops, "weeks ago" stays
+ * frozen), and measured against today it drifts the moment the card is cached
+ * — callers render the absolute `previousWeekStart` date instead.
  */
 export type AttributionCoverageDelta =
   | {
       kind: "delta";
-      /** Most-recent displayed week's pct. */
+      /** Most-recent displayed week's pct (identical to the headline). */
       currentPct: number;
       /** Earliest displayed week's pct — the "up from" figure. */
       previousPct: number;
       /** currentPct − previousPct, signed, 1 d.p. */
       deltaPct: number;
-      /** Calendar weeks between the two endpoints. */
-      weeksApart: number;
       previousWeekStart: string;
     }
   | { kind: "first" };
@@ -78,9 +94,19 @@ export type AttributionTrend =
   | { kind: "empty" }
   | {
       kind: "measured";
-      /** Person-attributed share across all displayed weeks, 0–100 (1 d.p.).
-       * Equal to `byLevel.person.pct` by construction. */
+      /** HEADLINE: person-attributed share of the LATEST displayed week's
+       * usage-days, 0–100 (1 d.p.). Same weekly basis as `trend` points and
+       * `delta` endpoints — equal to `trend[trend.length - 1].pct` by
+       * construction. */
       currentPct: number;
+      /** Monday (UTC) of the week `currentPct` measures. */
+      currentWeekStart: string;
+      /** SECONDARY context: person-attributed share across ALL displayed
+       * weeks' usage-days, 0–100 (1 d.p.). Equal to `byLevel.person.pct` by
+       * construction. Renderers must label this as the multi-week aggregate
+       * — never present it as "current". */
+      windowPct: number;
+      /** Aggregate usage-day counts across all displayed weeks. */
       personDays: number;
       totalDays: number;
       /** Per-rung usage-day counts + shares across the displayed weeks; the
@@ -91,8 +117,6 @@ export type AttributionTrend =
       trend: AttributionTrendPoint[];
       delta: AttributionCoverageDelta;
     };
-
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
@@ -114,13 +138,6 @@ function weekStartUtc(day: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-function weeksBetween(fromWeekStart: string, toWeekStart: string): number {
-  const ms =
-    new Date(`${toWeekStart}T00:00:00.000Z`).getTime() -
-    new Date(`${fromWeekStart}T00:00:00.000Z`).getTime();
-  return Math.round(ms / WEEK_MS);
-}
-
 type WeekBucket = {
   total: number;
   person: number;
@@ -131,7 +148,8 @@ type WeekBucket = {
  * Attribution-coverage trend over pre-fetched usage-day rows (recommend
  * `active_day` metric_records). Buckets usage-days into UTC ISO weeks, keeps
  * the most recent `weeks` weeks that actually have usage, and reports the
- * person-attributed share overall + per week + the ladder breakdown.
+ * person-attributed share of the latest week (headline) + per week + the
+ * window aggregate and ladder breakdown (secondary context).
  *
  * Honesty rules baked in:
  *  - No usage rows at all → `{ kind: "empty" }` (the card shows an honest
@@ -139,6 +157,10 @@ type WeekBucket = {
  *  - A single measured week → `delta: { kind: "first" }` (no "up from" claim).
  *  - Weeks with zero usage-days are simply absent, never plotted as 0% (0/0 is
  *    "no data", not "0% person-attributed").
+ *  - Headline and delta endpoints are all weekly shares — one shared-key burst
+ *    in a middle week can depress the window aggregate, but it can never make
+ *    the headline contradict the "up from" endpoints (they are the same
+ *    series).
  */
 export function computeAttributionTrend(
   rows: readonly UsageDayRow[],
@@ -183,9 +205,8 @@ export function computeAttributionTrend(
     };
   });
 
-  // Headline currentPct + byLevel aggregate over the SAME displayed weeks, so
-  // the big number and the trend can never tell different stories about the
-  // same span.
+  // Window aggregate + byLevel over the SAME displayed weeks — secondary
+  // context only; the headline is the latest week's share (below).
   let totalDays = 0;
   let personDays = 0;
   const levelDays: Record<AttributionLevel, number> = {
@@ -210,25 +231,27 @@ export function computeAttributionTrend(
     };
   }
 
+  const latest = trend[trend.length - 1];
+
   let delta: AttributionCoverageDelta;
   if (trend.length < 2) {
     delta = { kind: "first" };
   } else {
     const first = trend[0];
-    const last = trend[trend.length - 1];
     delta = {
       kind: "delta",
-      currentPct: last.pct,
+      currentPct: latest.pct,
       previousPct: first.pct,
-      deltaPct: round1(last.pct - first.pct),
-      weeksApart: weeksBetween(first.weekStart, last.weekStart),
+      deltaPct: round1(latest.pct - first.pct),
       previousWeekStart: first.weekStart,
     };
   }
 
   return {
     kind: "measured",
-    currentPct: pctOf(personDays, totalDays),
+    currentPct: latest.pct,
+    currentWeekStart: latest.weekStart,
+    windowPct: pctOf(personDays, totalDays),
     personDays,
     totalDays,
     byLevel,

@@ -120,10 +120,16 @@ export async function readDashboardView(
       from: window.from,
       to: window.to,
     }),
+    // dim pinned to "" (active_day's undimmed catalog shape): the attribution
+    // trend counts each row as one usage-day, so if a future connector ever
+    // emitted dimmed active_day variants, unpinned rows would double-count
+    // subject-days. readDashboard is unaffected either way — it dedups these
+    // rows via subjectId/day sets, not row counts.
     scope.metrics.records({
       metricKey: "active_day",
       from: window.from,
       to: window.to,
+      dim: "",
     }),
     scope.metrics.records({
       metricKey: "feature_used",

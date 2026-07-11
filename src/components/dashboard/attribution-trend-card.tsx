@@ -19,13 +19,24 @@ import {
   methodologyAnchor,
 } from "@/lib/metrics-glossary";
 
-// F1.7 — attribution coverage over time: what share of tracked usage Revealyst
-// can honestly tie to a specific person, and whether that share is climbing.
-// Every number here is MEASURED (counted from stored active_day rows), so the
-// card says so — no inferred/derived figure appears. Team-only surface (see the
-// dashboard page): "how completely can we resolve usage to people across the
-// fleet" is a CTO-scoped completeness question, not something a single person's
-// self-view is asking about their own scores.
+// F1.7 — attribution coverage over time: what share of tracked usage the
+// vendors attribute to a specific individual, and whether that share is
+// climbing. Every number here is MEASURED (counted from stored active_day
+// rows), so the card says so — no inferred/derived figure appears. Team-only
+// surface (see the dashboard page): "how completely can usage be attributed
+// across the fleet" is a CTO-scoped completeness question, not something a
+// single person's self-view is asking about their own scores.
+//
+// Copy discipline (invariant b): "person-attributed" means the VENDOR reported
+// the usage at per-individual granularity — it does NOT mean the individual is
+// identity-resolved to a tracked person in /reconcile. This card must never
+// say "identity-resolved" (the same page can honestly show unresolved subjects
+// alongside 100% person-attributed usage).
+//
+// Headline basis: the big % is the LATEST week's share — the same weekly
+// series the sparkline and the "up from" endpoints are drawn from, so the
+// headline can never contradict the delta beside it. The multi-week aggregate
+// renders below, explicitly labeled as the window average.
 
 const W = 200;
 const H = 36;
@@ -71,18 +82,18 @@ function CoverageSparkline({ trend }: { trend: AttributionTrendPoint[] }) {
 
 /** The "up from N%" line — rendered only for a real two-endpoint delta with a
  * non-zero move. A single week ({ kind: "first" }) or a flat delta says
- * nothing here (silence, not a fabricated "no change" boast). */
+ * nothing here (silence, not a fabricated "no change" boast). The comparison
+ * week is named by its absolute date only — a relative "N weeks ago" would go
+ * stale the moment a connector stops syncing. */
 function CoverageDelta({ delta }: { delta: AttributionCoverageDelta }) {
   if (delta.kind !== "delta" || delta.deltaPct === 0) return null;
   const up = delta.deltaPct > 0;
   const magnitude = Math.abs(delta.deltaPct);
-  const weeksLabel =
-    delta.weeksApart === 1 ? "1 week ago" : `${delta.weeksApart} weeks ago`;
   const srText = `Person-attributed share ${
     up ? "rose" : "fell"
   } ${magnitude} percentage point${magnitude === 1 ? "" : "s"} versus the week of ${fmtWeek(
     delta.previousWeekStart,
-  )} (${weeksLabel}), when it was ${delta.previousPct}%.`;
+  )}, when it was ${delta.previousPct}%.`;
   return (
     <p className="text-xs text-muted-foreground">
       <span
@@ -92,7 +103,7 @@ function CoverageDelta({ delta }: { delta: AttributionCoverageDelta }) {
         {up ? "▲" : "▼"} {up ? "up" : "down"} from {delta.previousPct}%
       </span>{" "}
       <span aria-hidden="true">
-        the week of {fmtWeek(delta.previousWeekStart)} ({weeksLabel})
+        the week of {fmtWeek(delta.previousWeekStart)}
       </span>
       <span className="sr-only">{srText}</span>
     </p>
@@ -100,9 +111,10 @@ function CoverageDelta({ delta }: { delta: AttributionCoverageDelta }) {
 }
 
 /**
- * Attribution coverage: the share of tracked usage tied to a specific person,
- * over time. `trend.kind === "empty"` renders an honest empty state (why it's
- * empty + what fills it), never a placeholder percentage.
+ * Attribution coverage: the share of tracked usage the vendors attribute to a
+ * specific individual, over time. `trend.kind === "empty"` renders an honest
+ * empty state (why it's empty + what fills it), never a placeholder
+ * percentage.
  */
 export function AttributionTrendCard({ trend }: { trend: AttributionTrend }) {
   return (
@@ -113,20 +125,21 @@ export function AttributionTrendCard({ trend }: { trend: AttributionTrend }) {
           <InfoTip
             label="Attribution coverage"
             short={CONCEPT_GLOSSARY.attribution.shortWhat}
-            detail="Share of usage-days tied to a specific, identity-resolved person versus a shared key/project or whole account. Higher means more of your usage can be honestly reported per person."
+            detail="Share of usage-days your vendors attribute to a specific individual, versus a shared key/project or a whole account. Higher means more of your usage can be honestly reported per person. Vendor attribution is separate from linking those individuals to people in Reconcile."
             learnMoreHref={`/methodology#${methodologyAnchor("attribution")}`}
           />
         </CardTitle>
         <CardDescription>
-          How much of your tracked usage is tied to a specific person — measured,
-          not estimated.
+          How much of your tracked usage vendors attribute to a specific
+          individual — measured, not estimated.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 text-sm">
         {trend.kind === "empty" ? (
           <p className="text-muted-foreground">
-            No usage recorded yet. Once a connected tool syncs activity, this
-            shows what share of it can be tied to a specific person.
+            No usage in the period this dashboard covers. Once a connected tool
+            syncs activity, this shows what share of it vendors attribute to a
+            specific individual.
           </p>
         ) : (
           <>
@@ -141,15 +154,20 @@ export function AttributionTrendCard({ trend }: { trend: AttributionTrend }) {
                   </span>
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  of usage tied to a specific person
-                  {trend.trend.length > 1
-                    ? `, across ${trend.trend.length} weeks`
-                    : ""}
+                  of usage person-attributed, week of{" "}
+                  {fmtWeek(trend.currentWeekStart)}
                 </span>
                 <CoverageDelta delta={trend.delta} />
               </div>
               <CoverageSparkline trend={trend.trend} />
             </div>
+
+            {trend.trend.length > 1 ? (
+              <p className="text-xs text-muted-foreground">
+                Across all {trend.trend.length} weeks shown: {trend.windowPct}%
+                of {trend.totalDays} usage-days person-attributed.
+              </p>
+            ) : null}
 
             <dl className="flex flex-col gap-1.5">
               {ATTRIBUTION_LEVELS.filter(

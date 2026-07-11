@@ -7,6 +7,9 @@ import {
 
 // F1.7 — pure attribution-coverage trend over usage-day (`active_day`) rows.
 // Denominator = usage-days; numerator = person-attributed usage-days. All UTC.
+// HEADLINE BASIS (review F1): `currentPct` is the LATEST week's share — the
+// same weekly series as the trend points and the delta endpoints — never the
+// multi-week aggregate (that is `windowPct`, secondary context).
 
 const day = (d: string, attribution: string): UsageDayRow => ({
   day: d,
@@ -21,7 +24,7 @@ function mondayPlus(weeks: number): string {
 }
 
 describe("computeAttributionTrend", () => {
-  it("returns empty (no card) when there are no usage rows", () => {
+  it("returns empty (no card number) when there are no usage rows", () => {
     expect(computeAttributionTrend([])).toEqual({ kind: "empty" });
   });
 
@@ -40,6 +43,8 @@ describe("computeAttributionTrend", () => {
     ]);
     if (result.kind !== "measured") throw new Error("expected measured");
     expect(result.currentPct).toBe(100);
+    expect(result.currentWeekStart).toBe("2026-06-01");
+    expect(result.windowPct).toBe(100);
     expect(result.personDays).toBe(2);
     expect(result.totalDays).toBe(2);
     expect(result.byLevel.person).toEqual({ days: 2, pct: 100 });
@@ -61,6 +66,7 @@ describe("computeAttributionTrend", () => {
     if (result.kind !== "measured") throw new Error("expected measured");
     expect(result.totalDays).toBe(4);
     expect(result.currentPct).toBe(50);
+    expect(result.windowPct).toBe(50);
     expect(result.byLevel.person).toEqual({ days: 2, pct: 50 });
     expect(result.byLevel.key_project).toEqual({ days: 1, pct: 25 });
     expect(result.byLevel.account).toEqual({ days: 1, pct: 25 });
@@ -70,8 +76,8 @@ describe("computeAttributionTrend", () => {
       result.byLevel.key_project.days +
       result.byLevel.account.days;
     expect(summed).toBe(result.totalDays);
-    // currentPct is exactly byLevel.person.pct by construction.
-    expect(result.currentPct).toBe(result.byLevel.person.pct);
+    // windowPct is exactly byLevel.person.pct by construction.
+    expect(result.windowPct).toBe(result.byLevel.person.pct);
   });
 
   it("buckets usage-days into UTC ISO weeks anchored on Monday", () => {
@@ -88,7 +94,7 @@ describe("computeAttributionTrend", () => {
     ]);
   });
 
-  it("produces a real 'up from' delta across two weeks (rising)", () => {
+  it("headline = latest week's share, and delta endpoints share that basis", () => {
     const result = computeAttributionTrend([
       // Week of 2026-06-01: 1 person of 2 -> 50%.
       day("2026-06-01", "person"),
@@ -98,16 +104,53 @@ describe("computeAttributionTrend", () => {
       day("2026-06-16", "person"),
     ]);
     if (result.kind !== "measured") throw new Error("expected measured");
+    // Headline is the LATEST week (100%), never the window aggregate (75%).
+    expect(result.currentPct).toBe(100);
+    expect(result.currentWeekStart).toBe("2026-06-15");
     expect(result.delta).toEqual({
       kind: "delta",
       currentPct: 100,
       previousPct: 50,
       deltaPct: 50,
-      weeksApart: 2,
       previousWeekStart: "2026-06-01",
     });
-    // Aggregate headline over both displayed weeks: 3 person of 4 = 75%.
-    expect(result.currentPct).toBe(75);
+    // The delta's currentPct is the SAME number as the headline.
+    if (result.delta.kind !== "delta") throw new Error("expected delta");
+    expect(result.delta.currentPct).toBe(result.currentPct);
+    // The window aggregate is separate, labeled context: 3 of 4 = 75%.
+    expect(result.windowPct).toBe(75);
+  });
+
+  it("review F1 regression: a shared-key burst in a middle week cannot make the headline contradict the delta", () => {
+    const rows: UsageDayRow[] = [];
+    // Week A (2026-06-01): 1 person, 1 account -> 50%.
+    rows.push(day("2026-06-01", "person"), day("2026-06-02", "account"));
+    // Week B (2026-06-08): shared-key burst — 10 person, 90 account -> 10%.
+    for (let i = 0; i < 5; i++) {
+      rows.push(day("2026-06-08", "person"), day("2026-06-09", "person"));
+    }
+    for (let i = 0; i < 45; i++) {
+      rows.push(day("2026-06-10", "account"), day("2026-06-11", "account"));
+    }
+    // Week C (2026-06-15): 3 person, 2 account -> 60%.
+    rows.push(
+      day("2026-06-15", "person"),
+      day("2026-06-16", "person"),
+      day("2026-06-17", "person"),
+      day("2026-06-18", "account"),
+      day("2026-06-19", "account"),
+    );
+    const result = computeAttributionTrend(rows);
+    if (result.kind !== "measured") throw new Error("expected measured");
+    // Headline is week C's 60% — NOT the burst-depressed aggregate (~13%).
+    expect(result.currentPct).toBe(60);
+    if (result.delta.kind !== "delta") throw new Error("expected delta");
+    expect(result.delta.previousPct).toBe(50);
+    expect(result.delta.currentPct).toBe(60);
+    expect(result.delta.deltaPct).toBe(10);
+    // The burst still shows up honestly — in the labeled window aggregate.
+    expect(result.totalDays).toBe(107);
+    expect(result.windowPct).toBe(13.1);
   });
 
   it("produces a falling delta when coverage drops between weeks", () => {
@@ -122,6 +165,7 @@ describe("computeAttributionTrend", () => {
     expect(result.delta.previousPct).toBe(100);
     expect(result.delta.currentPct).toBe(50);
     expect(result.delta.deltaPct).toBe(-50);
+    expect(result.currentPct).toBe(50);
   });
 
   it("rounds percentages to one decimal place", () => {
@@ -136,7 +180,7 @@ describe("computeAttributionTrend", () => {
     expect(result.byLevel.account.pct).toBe(66.7);
   });
 
-  it("caps the trend to the most recent `weeks`, and computes headline/byLevel over ONLY those weeks", () => {
+  it("caps the trend to the most recent `weeks`, and computes window/byLevel over ONLY those weeks", () => {
     // 15 distinct weeks, one usage-day each. The 3 OLDEST weeks are account-
     // attributed (0% person); the 12 newest are person-attributed (100%).
     const rows: UsageDayRow[] = [];
@@ -149,10 +193,11 @@ describe("computeAttributionTrend", () => {
     expect(result.trend).toHaveLength(12);
     expect(result.trend[0].weekStart).toBe(mondayPlus(3));
     expect(result.trend[11].weekStart).toBe(mondayPlus(14));
-    // ...so the older account-only weeks never leak into the headline: all 12
+    // ...so the older account-only weeks never leak into the window: all 12
     // displayed usage-days are person-attributed -> 100%, totalDays 12 (not 15).
     expect(result.totalDays).toBe(12);
     expect(result.currentPct).toBe(100);
+    expect(result.windowPct).toBe(100);
     expect(result.byLevel.account.days).toBe(0);
   });
 
