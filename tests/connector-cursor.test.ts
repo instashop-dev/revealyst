@@ -85,11 +85,13 @@ describe("normalize: daily-usage-data (prompts/acceptance/lines, no tokens)", ()
     }
   });
 
-  it("F1.5: totalApplies is a breadth flag (feature=apply), never an edit_actions count", () => {
-    // alice has totalApplies: 10 → the apply flag fires (value 1, max).
-    expect(record(batch, ALICE, "feature_used", "2026-06-11", "feature=apply")?.value).toBe(1);
-    // Applies are NOT counted into the acceptance family — edit_actions stay
-    // exactly totalAccepts (8) / totalRejects (2), not inflated by 10 applies.
+  it("F1.5: totalApplies is a harvest SKIP — no feature=apply dim, no edit_actions count", () => {
+    // alice has totalApplies: 10, yet NO apply dim exists: totalAccepts>0
+    // implies totalApplies>0, so a feature=apply dim would hand every engaged
+    // Cursor user +1 distinct_dims breadth in the live presets (see the skip
+    // note in normalize.ts). And applies never land in the acceptance family
+    // — edit_actions stay exactly totalAccepts (8) / totalRejects (2).
+    expect(record(batch, ALICE, "feature_used", "2026-06-11", "feature=apply")).toBeUndefined();
     expect(record(batch, ALICE, "edit_actions_accepted", "2026-06-11")?.value).toBe(8);
     expect(record(batch, ALICE, "edit_actions_rejected", "2026-06-11")?.value).toBe(2);
   });
@@ -125,7 +127,11 @@ describe("normalize: daily-usage-data (prompts/acceptance/lines, no tokens)", ()
   });
 });
 
-describe("normalize: F1.5 harvest on the extended daily-usage fixture", () => {
+describe("normalize: F1.5 skips pinned on the extended daily-usage fixture", () => {
+  // The fixture populates every harvested-then-skipped field (acceptedLines,
+  // totalApplies, the billing request splits). None of them may add a row or
+  // dim — these are NEGATIVE pins against future re-introduction without the
+  // catalog ADR the skip notes in normalize.ts call for.
   const batch = normalizeCursor({
     kind: ENVELOPE_KINDS.dailyUsage,
     window: { start: "2026-06-12", end: "2026-06-12" },
@@ -135,18 +141,18 @@ describe("normalize: F1.5 harvest on the extended daily-usage fixture", () => {
   const DAN = "email:dan@example.com";
   const day = "2026-06-12";
 
-  it("emits feature=apply only when totalApplies > 0", () => {
-    // carol: totalApplies 12 → apply flag; dan: totalApplies 0 → no apply flag.
-    expect(record(batch, CAROL, "feature_used", day, "feature=apply")?.value).toBe(1);
-    expect(record(batch, DAN, "feature_used", day, "feature=apply")).toBeUndefined();
+  it("emits NO feature=apply dim, whatever totalApplies holds", () => {
+    // carol: totalApplies 12; dan: totalApplies 0 — neither gets an apply dim.
+    expect(batch.records.some((r) => r.dim === "feature=apply")).toBe(false);
     // dan still gets his real touched surface (composerRequests 4).
     expect(record(batch, DAN, "feature_used", day, "feature=composer")?.value).toBe(1);
   });
 
-  it("accepted-LoC & billing-split fields add NO metric rows (only honest keys)", () => {
+  it("accepted-LoC, applies & billing splits add NO metric rows (exact row set)", () => {
     // The complete set of metric keys emitted for carol — proves acceptedLines
-    // (80/15) and the request splits (30/5/4) produced nothing extra, and
-    // lines_added/removed reflect the TOTALS (100/20), not accepted subsets.
+    // (80/15), totalApplies (12), and the request splits (30/5/4) produced
+    // nothing, and lines_added/removed reflect the TOTALS (100/20), not
+    // accepted subsets.
     const carolKeys = new Set(
       batch.records
         .filter((r) => r.subject.externalId === CAROL)
@@ -168,7 +174,6 @@ describe("normalize: F1.5 harvest on the extended daily-usage fixture", () => {
         "feature_used|feature=chat",
         "feature_used|feature=agent",
         "feature_used|feature=cmdk",
-        "feature_used|feature=apply",
       ]),
     );
     expect(record(batch, CAROL, "lines_added", day)?.value).toBe(100);

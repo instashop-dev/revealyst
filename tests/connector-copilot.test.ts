@@ -190,14 +190,12 @@ describe("normalize: users-1-day (person metrics + agentic + credits)", () => {
     for (const f of ["code_completion", "chat_panel_agent_mode", "agent_edit", "vscode"]) {
       expect(record(batch, ALICE, "feature_used", `feature=${f}`), f).toBeUndefined();
     }
-    // F1.5 cohort harvest on the recorded fixture: alice carries
-    // ai_adoption_phase { phase: "power" } → a namespaced phase cohort dim.
-    expect(record(batch, ALICE, "feature_used", "feature=phase:power")?.value).toBe(1);
-    // Bob (no ai_adoption_phase) gets no cohort dim — absence, never guessed.
+    // F1.5: ai_adoption_phase (alice carries { phase: "power" }) is a
+    // COHORT, not a capability — never a feature_used dim, because the live
+    // presets count every distinct dim into Adoption/Fluency breadth
+    // (see the skip note in normalize.ts). Pinned: no phase dim, ever.
     expect(
-      batch.records.some(
-        (r) => r.subject.externalId === BOB && r.dim.startsWith("feature=phase:"),
-      ),
+      batch.records.some((r) => r.dim.includes("phase")),
     ).toBe(false);
   });
 
@@ -238,45 +236,46 @@ describe("normalize: personal spend context (§6a.2)", () => {
   });
 });
 
-describe("normalize: ai_adoption_phase cohort harvest (F1.5)", () => {
+describe("normalize: ai_adoption_phase is a harvest SKIP (F1.5 negative pin)", () => {
+  // The fixture carries every ai_adoption_phase shape (string label,
+  // punctuation-heavy label, number-only, absent). None of them may reach the
+  // normalized output: feature_used dims feed the presets' distinct_dims
+  // breadth (Adoption tool_coverage / Fluency breadth), so a cohort dim would
+  // inflate scores merely because GitHub classified a user — a phase-0 "low
+  // adoption" cohort would RAISE the Adoption score. Score-inert homes need a
+  // catalog ADR; until then the field stays unread (see normalize.ts).
   const batch = normalizeCopilot({
     kind: ENVELOPE_KINDS.usersDaily,
     window: { start: "2026-06-20", end: "2026-06-20" },
     payload: { surface: "users_daily", day: "2026-06-20", records: phaseFix.records },
   });
-  const on = (id: string, dim: string) => record(batch, id, "feature_used", dim, "2026-06-20");
 
-  it("maps the phase label to a namespaced feature dim (snake_cased, punctuation-stripped)", () => {
-    // dave: phase "Agent First" → feature=phase:agent_first (flag value 1).
-    expect(on("user:2001", "feature=phase:agent_first")?.value).toBe(1);
-    // grace: phase "Power-User!" (phase_number 0) → punctuation collapses to
-    // one underscore; the string label wins over the number.
-    expect(on("user:2004", "feature=phase:power_user")?.value).toBe(1);
-    expect(on("user:2004", "feature=phase:phase_0")).toBeUndefined();
+  it("emits NO phase dim for any user, whatever the phase shape", () => {
+    expect(batch.records.some((r) => r.dim.includes("phase"))).toBe(false);
   });
 
-  it("falls back to the numeric phase when no label is present", () => {
-    // erin: only phase_number 1 → feature=phase:phase_1.
-    expect(on("user:2002", "feature=phase:phase_1")?.value).toBe(1);
+  it("phase-bearing users still get exactly their honest capability dims", () => {
+    // dave/erin/grace/frank all have used_chat + generation counts, and no
+    // other capability signals — the full dim set is chat + completion only,
+    // regardless of their ai_adoption_phase values.
+    const dims = new Set(
+      batch.records.filter((r) => r.metricKey === "feature_used").map((r) => r.dim),
+    );
+    expect(dims).toEqual(new Set(["feature=chat", "feature=completion"]));
   });
 
-  it("emits no cohort dim when ai_adoption_phase is absent (never guessed)", () => {
-    // frank has no ai_adoption_phase at all.
-    expect(
-      batch.records.some(
-        (r) => r.subject.externalId === "user:2003" && r.dim.startsWith("feature=phase:"),
-      ),
-    ).toBe(false);
-  });
-
-  it("the cohort dim is a flag (max), so a re-normalize does not accumulate", () => {
-    const again = normalizeCopilot({
-      kind: ENVELOPE_KINDS.usersDaily,
-      window: { start: "2026-06-20", end: "2026-06-20" },
-      payload: { surface: "users_daily", day: "2026-06-20", records: phaseFix.records },
-    });
-    expect(again).toEqual(batch); // deterministic + idempotent
-    expect(on("user:2001", "feature=phase:agent_first")?.value).toBe(1);
+  it("ignoring the phase field does not disturb the rest of the row", () => {
+    // dave (phase "Agent First") normalizes identically on every other key.
+    const dave = batch.records.filter((r) => r.subject.externalId === "user:2001");
+    expect(dave.map((r) => `${r.metricKey}|${r.dim}`).sort()).toEqual([
+      "active_day|",
+      "feature_used|feature=chat",
+      "feature_used|feature=completion",
+      "prompts|",
+      "suggestions_accepted|",
+      "suggestions_offered|",
+    ]);
+    expect(dave.find((r) => r.metricKey === "prompts")?.value).toBe(42);
   });
 });
 

@@ -149,28 +149,21 @@ function normalizeUsersDaily(records: CopilotUserDayRecord[]): NormalizedBatch {
       }
     }
 
-    // AI-adoption-phase cohort (F1.5 harvest). GitHub classifies each user
-    // into a coarse maturity phase per day (phase_number 0–3 + a label);
-    // fetched today but never read until now. Emitted as a NAMESPACED
-    // feature_used dim (feature=phase:<label>) — a per-day flag (value 1,
-    // max), so it can never double-count a capability count, and the
-    // `phase:` prefix never string-collides with the coarse capability dims
-    // above (so the granular-double-count rule that excludes chat_inline &
-    // co. is preserved: a cohort marker is not a capability). This is the
-    // depth/maturity signal F1.4 + the maturity model consume. Prefer the
-    // vendor's phase label; fall back to the numeric phase; emit nothing when
-    // both are absent — a missing cohort is never guessed (invariant b).
-    const phase = record.ai_adoption_phase;
-    if (phase) {
-      let label =
-        typeof phase.phase === "string" ? normalizePhaseLabel(phase.phase) : "";
-      if (!label && typeof phase.phase_number === "number") {
-        label = `phase_${phase.phase_number}`;
-      }
-      if (label) {
-        acc.add(subject, attribution, "feature_used", day, `feature=phase:${label}`, 1, "max");
-      }
-    }
+    // ai_adoption_phase (F1.5 harvest, evaluated and SKIPPED): GitHub's
+    // per-user maturity cohort (phase_number 0–3 + label) is fetched (see
+    // types.ts) but deliberately NOT emitted. The only dim-carrying flag key
+    // in the frozen catalog is feature_used, and the live score presets
+    // (drizzle/0009_seed-score-presets.sql; ADOPTION_TOOL_COVERAGE +
+    // FLUENCY_BREADTH in src/lib/metrics-glossary.ts) aggregate feature_used
+    // with `distinct_dims` — src/scoring/evaluate.ts counts EVERY non-empty
+    // dim with no namespace filter. A `feature=phase:<label>` dim would
+    // therefore inflate Adoption/Fluency breadth merely because GitHub
+    // CLASSIFIED a user (even a phase-0 "low adoption" cohort would RAISE
+    // the org's Adoption score), and would render as a nonsense chip in the
+    // tool-coverage panel's "features in use". There is no score-inert
+    // dim-carrying home for a cohort without a catalog ADR (out of scope for
+    // F1.5) — skipping beats mismapping (invariant b).
+    // tests/connector-copilot.test.ts pins that no phase dim is ever emitted.
 
     // Model mix — from the per-model breakdown. Requests only: Copilot exposes
     // per-model tokens nowhere per-user (CLI tokens are un-split), so
@@ -217,18 +210,6 @@ function normalizePersonalSpend(
     }
   }
   return { records: acc.records(), signals: [], gaps: [] };
-}
-
-/** Lowercase snake_case of a vendor AI-adoption-phase label so the dim is
- * stable across label churn: "Agent First" / "agent-first" → "agent_first".
- * Returns "" for a blank/punctuation-only label so the caller can fall back
- * to the numeric phase (never emit an empty cohort dim). */
-function normalizePhaseLabel(s: string): string {
-  return s
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
 }
 
 /** Adds a metric only when the vendor field is a real number (absence stays
