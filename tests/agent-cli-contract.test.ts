@@ -180,8 +180,15 @@ describe("CLI batch lands end-to-end", () => {
       identity,
       agentVersion: "0.1.0",
     });
-    // Vacuity guard: the pin actually fired.
+    // Vacuity guard: the pin actually fired…
     expect(wide.window).toEqual({ start: "2026-06-20", end: "2026-06-20" });
+    // …and disclosed itself (ADR 0025). This is the seam assertion keeping
+    // the CLI mirror, the frozen zod enum, and the emission logic in
+    // lockstep: the ingest below only accepts the batch if the frozen
+    // schema knows the kind.
+    expect(
+      wide.gaps.some((g) => g.kind === "sync_window_incomplete"),
+    ).toBe(true);
     expect(
       await ingestAgentBatch(db, ENV, token, wide),
     ).toMatchObject({ ok: true });

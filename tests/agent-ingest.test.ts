@@ -523,6 +523,48 @@ describe("agent ingest — operator controls", () => {
   });
 });
 
+describe("agent ingest — honesty-gap sink (ADR 0025)", () => {
+  it("an accepted push lands a completed agent_ingest run row carrying the gaps", async () => {
+    const batch = makeBatch({
+      gaps: [
+        {
+          kind: "sync_window_incomplete",
+          detail: "local logs only cover from 2026-07-01",
+        },
+        { kind: "other", detail: "spend estimate uses list prices" },
+      ],
+    });
+    expect((await ingestAgentBatch(db, ENV, tokenA, batch)).ok).toBe(true);
+
+    const run = await forOrg(db, orgA).connectorRuns.latest(connA);
+    expect(run).toMatchObject({
+      kind: "agent_ingest",
+      status: "success",
+      windowStart: "2026-07-01",
+      windowEnd: "2026-07-02",
+      subjectsSeen: 1,
+      recordsUpserted: 3,
+      signalsUpserted: 1,
+    });
+    // The gaps are no longer buried in raw_payloads — they sit exactly
+    // where collectGaps (both dashboard readers) collects from.
+    expect(run.gaps).toEqual(batch.gaps);
+  });
+
+  it("a rejected push writes no run row", async () => {
+    const before = await forOrg(db, orgA).connectorRuns.list({
+      connectionId: connA,
+    });
+    const bad = makeBatch();
+    bad.records[0].day = "2026-06-15"; // outside window → 400
+    expect((await ingestAgentBatch(db, ENV, tokenA, bad)).ok).toBe(false);
+    const after = await forOrg(db, orgA).connectorRuns.list({
+      connectionId: connA,
+    });
+    expect(after).toHaveLength(before.length);
+  });
+});
+
 describe("agent ingest — score-recompute enqueue (Fix 2, plan PR2)", () => {
   const collect = () => {
     const sent: PollMessage[] = [];

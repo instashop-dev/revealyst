@@ -21,7 +21,7 @@ import { pushBatch } from "./push";
 import { parseSessionFilesStreaming } from "./stream";
 import { runSync } from "./sync-run";
 
-const AGENT_VERSION = "0.2.0";
+const AGENT_VERSION = "0.2.1";
 const DEFAULT_API = "https://app.revealyst.com";
 const DEFAULT_DAYS = 30;
 

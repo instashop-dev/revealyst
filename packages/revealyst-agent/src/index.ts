@@ -97,6 +97,17 @@ export function buildIngestRequest(opts: BuildOptions): AgentIngestRequest {
       detail: `log parse drift: ${skippedLines} lines skipped, ${unknownTypes} unknown record types`,
     });
   }
+  // ADR 0025: when the pin narrowed the window, say so honestly — the days
+  // between the requested start and the covered start were left untouched
+  // server-side (never zeroed), and the dashboard should be able to say why.
+  if (window.start !== opts.window.start) {
+    allGaps.push({
+      kind: "sync_window_incomplete",
+      detail:
+        `local logs only cover from ${window.start}; requested lookback ` +
+        `started ${opts.window.start} — earlier days were left untouched`,
+    });
+  }
 
   return {
     agentVersion: opts.agentVersion,

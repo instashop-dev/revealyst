@@ -611,6 +611,10 @@ export const HONESTY_GAP_GLOSSARY: Record<HonestyGapKind, { label: string; short
     label: "No hour-by-hour detail available",
     shortWhat: "This vendor only reports daily totals, so Revealyst cannot show activity by time of day for it.",
   },
+  sync_window_incomplete: {
+    label: "Sync covered less than requested",
+    shortWhat: "The last manual sync could not cover its full lookback because older local logs were already pruned — days before the covered window were left untouched, not zeroed.",
+  },
   other: {
     label: "Other known limitation",
     shortWhat: "A vendor-specific gap that does not fit the other categories — see the detail for specifics.",

@@ -12,6 +12,10 @@ export const AGENT_PACKAGE_NAME = "@revealyst/agent";
 /** Minimum published version the in-app copy pins. Pinning tightens the
  * "fresh parser per sync" guarantee (a warm npx cache may lag — plan A6)
  * and bounds the blast radius of a bad publish (R7). */
+// ORDERING RULE: bump this only AFTER that version is live on npm — the
+// caret range resolves the newest matching release automatically, but a
+// floor ahead of the registry makes `npx` fail notarget for EVERY user
+// between deploy and publish (review finding, ADR 0025 PR).
 export const AGENT_PIN_VERSION = "0.2.0";
 
 /** What users actually type after `npx `. The unscoped `revealyst-agent`

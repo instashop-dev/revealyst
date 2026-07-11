@@ -212,6 +212,25 @@ export async function ingestAgentBatch(
     );
     await txScoped.connections.markSynced(connection.id);
 
+    // ADR 0025 gap sink: land the batch's honesty gaps where the dashboard
+    // readers actually collect them (connector_runs.gaps → collectGaps) —
+    // previously agent-pushed gaps were validated and then silently buried
+    // in the raw_payloads blob, invisible to every reader. One completed
+    // run row per accepted push (append-only, like poll attempts);
+    // read-time dedupe collapses repeats across runs.
+    const run = await txScoped.connectorRuns.start({
+      connectionId: connection.id,
+      kind: "agent_ingest",
+      windowStart: body.window.start,
+      windowEnd: body.window.end,
+    });
+    await txScoped.connectorRuns.finish(run.id, {
+      subjectsSeen: subjectRows.length,
+      recordsUpserted: body.records.length,
+      signalsUpserted: body.signals.length,
+      gaps: body.gaps,
+    });
+
     return {
       subjects: subjectRows.length,
       records: body.records.length,

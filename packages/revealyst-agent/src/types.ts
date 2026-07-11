@@ -54,6 +54,7 @@ export type HonestyGap = {
     | "shared_key_not_person_level"
     | "service_accounts_unresolved"
     | "sub_daily_unavailable"
+    | "sync_window_incomplete" // ADR 0025: lookback exceeded surviving local logs
     | "other";
   detail?: string;
 };

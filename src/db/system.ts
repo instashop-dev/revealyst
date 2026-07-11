@@ -344,7 +344,11 @@ export async function purgeExpiredRetention(
         .from(connectorRuns)
         .where(
           and(
-            eq(connectorRuns.kind, "poll"),
+            // High-frequency append-only kinds age out; backfill rows stay
+            // (bounded one-shot history). agent_ingest is one row per manual
+            // sync (ADR 0025) — without retention it grows unbounded on a
+            // channel users can re-run at will.
+            inArray(connectorRuns.kind, ["poll", "agent_ingest"]),
             lt(connectorRuns.startedAt, connectorCutoff),
           ),
         )

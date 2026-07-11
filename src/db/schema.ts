@@ -722,7 +722,10 @@ export const connectorRuns = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     orgId: uuid("org_id").notNull(),
     connectionId: uuid("connection_id").notNull(),
-    kind: text("kind", { enum: ["poll", "backfill"] }).notNull(),
+    // "agent_ingest" (ADR 0025): one row per accepted Revealyst Agent push —
+    // the gap sink the dashboard readers collect from. Type-level enum on a
+    // plain text column; no SQL migration.
+    kind: text("kind", { enum: ["poll", "backfill", "agent_ingest"] }).notNull(),
     status: text("status", { enum: ["running", "success", "error"] })
       .notNull()
       .default("running"),
