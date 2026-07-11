@@ -218,6 +218,189 @@ export function summarizeModelVolume(modelTokenRows: ModelRow[]): ModelVolume[] 
     .sort((a, b) => b.tokens - a.tokens);
 }
 
+// ─── Run-rate projection (F1.2 / M2) ───
+
+/**
+ * Straight-line month-end projection from vendor-reported month-to-date spend
+ * (M2). DERIVED, not measured: it assumes the rest of the month spends at the
+ * same daily rate as the month so far — surfaced with the "derived,
+ * straight-line" confidence label, never presented as a bill. Returns null
+ * when there is no reported spend yet (never projects a month-end figure from
+ * nothing — G4 honest empty). Uses vendor-reported cents only; estimated spend
+ * never feeds the projection (invariant b).
+ */
+export type SpendProjection = {
+  /** Projected end-of-month vendor-reported spend, in cents. */
+  projectedMonthEndCents: number;
+  /** The reported month-to-date spend the projection extrapolates from. */
+  reportedMtdCents: number;
+  /** 1-based day of the month `today` falls on (days elapsed incl. today). */
+  dayOfMonth: number;
+  /** Total calendar days in `today`'s month. */
+  daysInMonth: number;
+};
+
+export function projectMonthEndSpend(
+  reportedMtdCents: number,
+  today: string,
+): SpendProjection | null {
+  if (!DAY_RE.test(today)) {
+    throw new Error(`projectMonthEndSpend expects YYYY-MM-DD, got "${today}"`);
+  }
+  if (reportedMtdCents <= 0) return null; // no reported spend → don't project
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7)); // 1-based
+  const dayOfMonth = Number(today.slice(8, 10));
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const projectedMonthEndCents = Math.round(
+    (reportedMtdCents / dayOfMonth) * daysInMonth,
+  );
+  return { projectedMonthEndCents, reportedMtdCents, dayOfMonth, daysInMonth };
+}
+
+// ─── Cost-per-unit (F1.2 / M5) ───
+
+/**
+ * Org-level cost-per-unit from vendor-reported spend (M5). RATIO HONESTY: a
+ * ratio needs real data on BOTH sides — if reported spend is zero (no billed
+ * rows) OR the unit count is zero, the ratio is OMITTED (null), never floored
+ * or divided-by-zero. Computed from vendor-reported cents only; estimated
+ * spend never participates (invariant b). `units` is a summed count (active
+ * subject-days, or prompt volume) for the same window as `reportedCents`.
+ */
+export type CostPerUnit = {
+  reportedCents: number;
+  units: number;
+  /** Vendor-reported cents per unit (spend ÷ units). */
+  centsPerUnit: number;
+};
+
+export function costPerUnit(
+  reportedCents: number,
+  units: number,
+): CostPerUnit | null {
+  if (reportedCents <= 0 || units <= 0) return null;
+  return { reportedCents, units, centsPerUnit: reportedCents / units };
+}
+
+// ─── Model-mix trend (F1.2 / M7) ───
+
+/** UTC Monday (YYYY-MM-DD) of the ISO week a day falls in. */
+function isoWeekStart(day: string): string {
+  const d = new Date(`${day}T00:00:00.000Z`);
+  const mondayOffset = (d.getUTCDay() + 6) % 7; // 0 = Monday
+  d.setUTCDate(d.getUTCDate() - mondayOffset);
+  return d.toISOString().slice(0, 10);
+}
+
+type ModelTrendRow = { dim: string; day: string; value: number };
+
+export type ModelWeekShare = { model: string; tokens: number; sharePct: number };
+export type ModelWeekBucket = { weekStart: string; totalTokens: number; models: ModelWeekShare[] };
+
+/** A per-model share shift between the first and last populated week of the
+ * trend window — "Opus share 31% → 44%". Directional token-volume mix, NOT a
+ * dollar split (no vendor reports per-model spend). */
+export type ModelShareShift = {
+  model: string;
+  firstWeekSharePct: number;
+  lastWeekSharePct: number;
+  /** lastWeekSharePct − firstWeekSharePct (percentage points). */
+  shiftPct: number;
+  totalTokens: number;
+};
+
+export type ModelMixTrend =
+  | { available: false }
+  | { available: true; weeks: ModelWeekBucket[]; shifts: ModelShareShift[] };
+
+/**
+ * Multi-window extension of `summarizeModelVolume` (M7): buckets model_tokens
+ * rows into ISO weeks and reports, per model, the share shift between the
+ * first and last populated week. Same honesty posture as `summarizeModelVolume`
+ * — this is vendor-reported TOKEN volume, never a per-model dollar split. Rows
+ * with a non-`model=` dim are ignored. Fewer than two populated weeks →
+ * `available: false` (a "trend" needs at least two points; G4 honest empty).
+ * A model absent from a given week counts as 0% that week — that IS the shift
+ * the surface is meant to show, not a gap.
+ */
+export function summarizeModelMixTrend(rows: ModelTrendRow[]): ModelMixTrend {
+  const byWeek = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    if (!r.dim.startsWith("model=")) continue;
+    const model = r.dim.slice("model=".length) || "(unspecified)";
+    const week = isoWeekStart(r.day);
+    let models = byWeek.get(week);
+    if (!models) {
+      models = new Map();
+      byWeek.set(week, models);
+    }
+    models.set(model, (models.get(model) ?? 0) + r.value);
+  }
+  const weekKeys = [...byWeek.keys()].sort();
+  if (weekKeys.length < 2) return { available: false };
+
+  const weeks: ModelWeekBucket[] = weekKeys.map((weekStart) => {
+    const models = byWeek.get(weekStart)!;
+    const totalTokens = [...models.values()].reduce((a, b) => a + b, 0);
+    return {
+      weekStart,
+      totalTokens,
+      models: [...models.entries()]
+        .map(([model, tokens]) => ({
+          model,
+          tokens,
+          sharePct: totalTokens > 0 ? (tokens / totalTokens) * 100 : 0,
+        }))
+        .sort((a, b) => b.tokens - a.tokens),
+    };
+  });
+
+  const first = weeks[0];
+  const last = weeks[weeks.length - 1];
+  const shareIn = (week: ModelWeekBucket, model: string) =>
+    week.models.find((m) => m.model === model)?.sharePct ?? 0;
+  const totalsByModel = new Map<string, number>();
+  for (const week of weeks) {
+    for (const m of week.models) {
+      totalsByModel.set(m.model, (totalsByModel.get(m.model) ?? 0) + m.tokens);
+    }
+  }
+  const shifts: ModelShareShift[] = [...totalsByModel.entries()]
+    .map(([model, totalTokens]) => {
+      const firstWeekSharePct = shareIn(first, model);
+      const lastWeekSharePct = shareIn(last, model);
+      return {
+        model,
+        firstWeekSharePct,
+        lastWeekSharePct,
+        shiftPct: lastWeekSharePct - firstWeekSharePct,
+        totalTokens,
+      };
+    })
+    .sort((a, b) => b.totalTokens - a.totalTokens);
+
+  return { available: true, weeks, shifts };
+}
+
+/** The trailing window (ending at `today`, inclusive) the model-mix trend
+ * buckets into weeks. Eight weeks gives enough points for a share-shift read
+ * without pulling unbounded history. */
+export const MODEL_TREND_DAYS = 56;
+
+export function modelTrendWindow(today: string): { from: string; to: string } {
+  if (!DAY_RE.test(today)) {
+    throw new Error(`modelTrendWindow expects YYYY-MM-DD, got "${today}"`);
+  }
+  const from = new Date(
+    new Date(`${today}T00:00:00.000Z`).getTime() -
+      (MODEL_TREND_DAYS - 1) * 24 * 60 * 60 * 1000,
+  )
+    .toISOString()
+    .slice(0, 10);
+  return { from, to: today };
+}
+
 /** The composed spend-governance view for the /spend page. */
 export type SpendGovernanceView = {
   budget: BudgetRow | undefined;
@@ -229,6 +412,16 @@ export type SpendGovernanceView = {
   alert: BudgetAlert | null;
   byTool: ToolSpend[];
   byModel: ModelVolume[];
+  /** M2: derived straight-line month-end projection, or null when there's no
+   * reported spend to project from. */
+  projection: SpendProjection | null;
+  /** M5: vendor-reported cost per active subject-day, or null (ratio honesty:
+   * either side missing → omitted). */
+  costPerActiveDay: CostPerUnit | null;
+  /** M5: vendor-reported cost per prompt, or null when either side is missing. */
+  costPerPrompt: CostPerUnit | null;
+  /** M7: model-mix share-shift trend over a trailing multi-week window. */
+  modelMixTrend: ModelMixTrend;
 };
 
 /**
@@ -244,11 +437,21 @@ export async function readSpendGovernance(
   today: string,
 ): Promise<SpendGovernanceView> {
   const window = monthToDateWindow(today);
-  const [mtd, modelTokenRows, connections] = await Promise.all([
-    readMonthToDateSpend(scope, today),
-    scope.metrics.records({ metricKey: "model_tokens", ...window }),
-    scope.connections.list(),
-  ]);
+  const trendWindow = modelTrendWindow(today);
+  // One flat Promise.all (round-trip depth 1). The M5 unit denominators
+  // (active_day, prompts) share the MTD window with reported spend so the
+  // ratio's two sides cover the same period; the M7 trend pulls model_tokens
+  // over a longer trailing window (a share SHIFT needs multiple weeks, which
+  // the month-to-date window can't supply early in a month).
+  const [mtd, modelTokenRows, connections, activeDayRows, promptRows, modelTrendRows] =
+    await Promise.all([
+      readMonthToDateSpend(scope, today),
+      scope.metrics.records({ metricKey: "model_tokens", ...window }),
+      scope.connections.list(),
+      scope.metrics.records({ metricKey: "active_day", ...window }),
+      scope.metrics.records({ metricKey: "prompts", ...window }),
+      scope.metrics.records({ metricKey: "model_tokens", ...trendWindow }),
+    ]);
 
   return {
     budget: mtd.budget,
@@ -258,6 +461,10 @@ export async function readSpendGovernance(
     alert: budgetAlertFor(mtd.budget, mtd.reportedCents),
     byTool: summarizeSpendByTool(mtd.reportedRows, mtd.estimatedRows, connections),
     byModel: summarizeModelVolume(modelTokenRows),
+    projection: projectMonthEndSpend(mtd.reportedCents, today),
+    costPerActiveDay: costPerUnit(mtd.reportedCents, sumValues(activeDayRows)),
+    costPerPrompt: costPerUnit(mtd.reportedCents, sumValues(promptRows)),
+    modelMixTrend: summarizeModelMixTrend(modelTrendRows),
   };
 }
 
