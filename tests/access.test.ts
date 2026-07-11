@@ -58,11 +58,57 @@ describe("computeAccess", () => {
     expect(access.blocked).toBe(false);
   });
 
-  it("short-circuits for a Team org — never runs the count query", async () => {
+  it("a Team-plan org is entitled regardless of count (count now runs concurrently, discarded)", async () => {
     const org = await createFixtureOrg(db, "acc-team", "personal");
     await applyPaddleSubscriptionEvent(db, {
       orgId: org.id,
       paddleSubscriptionId: "sub_acc",
+      occurredAt: new Date(),
+      status: "active",
+      priceId: "pri_test",
+      quantity: 3,
+    });
+    // computeAccess now issues the subscription read and the tracked-user
+    // count CONCURRENTLY (parallelized to collapse the free-band gate to
+    // round-trip depth 1 — see its doc comment). For a team-plan org the
+    // count is discarded: even a count far over the free limit must NOT block,
+    // because the entitlement short-circuits the decision once the
+    // subscription resolves. A returning stub (over the limit) proves the plan
+    // short-circuit still wins over the count that now runs alongside it.
+    const access = await computeAccess(
+      db,
+      scopeReturning(FREE_TRACKED_USER_LIMIT + 100),
+      { id: org.id, kind: "personal" },
+    );
+    expect(access.blocked).toBe(false);
+    // The entitled path returns 0, not the (concurrently fetched) count.
+    expect(access.trackedUsers).toBe(0);
+  });
+
+  it("never blocks a system org — and never runs the count for it", async () => {
+    // System orgs stay a genuine query short-circuit: `computeAccess` skips
+    // the speculative count entirely for kind === "system", so a throwing
+    // count stub must never fire here.
+    const org = await createFixtureOrg(db, "acc-sys", "personal");
+    const access = await computeAccess(db, scopeThatThrows, {
+      id: org.id,
+      kind: "system",
+    });
+    expect(access.blocked).toBe(false);
+  });
+
+  it("a failing count does NOT fail an entitled org (speculative read is discarded)", async () => {
+    // The count now runs concurrently with the subscription read, but its
+    // result is discarded for a team-plan org — so a failure of that
+    // speculative read must not turn an entitled org's request into a 500
+    // (it never ran for entitled orgs before the parallelization). This is
+    // the resilience the sequential short-circuit gave for free; the fix
+    // maps the speculative read's rejection to a captured error and only
+    // re-surfaces it on the un-entitled path.
+    const org = await createFixtureOrg(db, "acc-team-throws", "personal");
+    await applyPaddleSubscriptionEvent(db, {
+      orgId: org.id,
+      paddleSubscriptionId: "sub_throws",
       occurredAt: new Date(),
       status: "active",
       priceId: "pri_test",
@@ -75,12 +121,13 @@ describe("computeAccess", () => {
     expect(access.blocked).toBe(false);
   });
 
-  it("never blocks a system org", async () => {
-    const org = await createFixtureOrg(db, "acc-sys", "personal");
-    const access = await computeAccess(db, scopeThatThrows, {
-      id: org.id,
-      kind: "system",
-    });
-    expect(access.blocked).toBe(false);
+  it("a failing count DOES surface on the un-entitled path (count is required)", async () => {
+    // For a free org the count is the operative input, so its failure must
+    // propagate — silently treating a failed count as "0 tracked users"
+    // would wrongly unblock an over-limit org (invariant b: never fabricate).
+    const org = await createFixtureOrg(db, "acc-free-throws", "personal");
+    await expect(
+      computeAccess(db, scopeThatThrows, { id: org.id, kind: "personal" }),
+    ).rejects.toThrow("count query should not run for an entitled org");
   });
 });
