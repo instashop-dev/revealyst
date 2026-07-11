@@ -347,7 +347,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
       "How many days you (or your team) used AI tools, and how many different tools or features got reached for.",
     what: "Adoption combines two signals: how many distinct days you (or your team) had any AI activity, and how many different tools or features got used at least once. It is a breadth-and-consistency measure, not a quality measure.",
     whyItMatters:
-      "Before you can ask whether AI use is effective, you need to know it's actually happening — Adoption is the baseline read on how broadly and how regularly your tools are being reached for.",
+      "Before you can ask whether AI use is effective, you need to know it's actually happening — Adoption is the baseline read on how broadly and how regularly your tools are being reached for. It's a leading indicator of reach, not a measure of the output that use produced.",
     howCalculatedSimple:
       "Half the score comes from active days (more days with any activity scores higher, up to a cap); half comes from tool coverage (more distinct tools or features touched, up to a cap).",
     howCalculatedDetailed:
@@ -413,7 +413,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     shortWhat: "How broadly, how deeply, and how effectively you (or your team) use AI tools, in one blended score.",
     what: "Fluency blends three components: Breadth (how many distinct features get used), Depth (how many days had any activity), and Effectiveness (how often AI suggestions actually get accepted).",
     whyItMatters:
-      "Adoption alone does not tell you if AI use is actually working — Fluency adds an effectiveness signal on top of breadth and depth, so using AI a lot but rejecting most suggestions does not look identical to use whose suggestions are landing.",
+      "Adoption tells you AI is being used; it doesn't tell you how skillfully. Fluency adds an effectiveness signal on top of breadth and depth, so using AI a lot but rejecting most suggestions does not look identical to use whose suggestions are landing. It reads usage sophistication — a leading indicator of where value can come from — not the productivity or output your team actually realized.",
     howCalculatedSimple:
       "Breadth is about a third of the score, Depth about a third, and Effectiveness a bit more than a third — the weights are 0.33 / 0.33 / 0.34, not an even three-way split.",
     howCalculatedDetailed:
@@ -498,7 +498,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     shortWhat: "Output and engagement per dollar of AI spend, blended into one score.",
     what: "Efficiency blends two components: Output per spend (suggestions accepted per cent of billed spend) and Engagement per spend (active days per cent of billed spend).",
     whyItMatters:
-      "Spend without context does not tell you if AI is paying for itself — pairing accepted-output and engagement against spend gives a rough read on value per dollar.",
+      "Spend on its own does not tell you whether usage is keeping pace with cost — pairing accepted-output and engagement against billed spend gives a rough cost-efficiency read: how much measured usage you're getting per dollar. It's a leading indicator, not a return-on-investment claim, and Revealyst never estimates the value or time your team actually produced.",
     howCalculatedSimple: "Half the score is Output per spend, half is Engagement per spend.",
     howCalculatedDetailed:
       "Two components, each 50%: Output per spend (accepted suggestions ÷ billed spend in cents, scaled to 100 at a ratio of 0.2 or higher) and Engagement per spend (active days ÷ billed spend in cents, scaled to 100 at a ratio of 0.01 or higher). Both use vendor-authoritative billed spend only — never estimated spend — and are only computed when that billed-spend data exists for the period, since a ratio needs data on both sides.",
@@ -506,16 +506,16 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
     excluded:
       "A tool that only reports estimated spend (never a vendor bill) contributes nothing to either denominator, the same as a tool with no spend data at all. If no connected tool has billed spend for the period, both components are omitted entirely.",
     howToInterpret:
-      "A higher Efficiency score means more accepted output and more active engagement per dollar of billed spend — read it alongside Adoption and Fluency, since a small, highly engaged user base can score higher here than a larger but less engaged one.",
+      "A higher Efficiency score means more accepted output and more active engagement per dollar of billed spend — read it alongside Adoption and Fluency, since a small, highly engaged user base can score higher here than a larger but less engaged one. It measures usage against spend, not the dollar value AI produced, so treat it as a cost-efficiency signal, never an ROI figure.",
     example:
       "1,200 accepted suggestions against $50 (5,000 cents) of billed spend is a ratio of 0.24, which clamps to 100 on Output per spend before weighting.",
     misconception:
       "Efficiency's denominator is always billed, vendor-authoritative spend (spend_cents) — estimated spend is a separate figure shown alongside it and never feeds either ratio, no matter how confident the estimate is.",
     relatedKeys: ["output_per_spend", "engagement_per_spend"],
     interpretBands: {
-      low: "Value per dollar is low relative to spend right now — that can mean low usage, but it can also mean spend is high relative to usage, so check the spend figures alongside it.",
-      building: "Value per dollar is building relative to spend — usage and spend are starting to balance out.",
-      strong: "Value per dollar is strong relative to spend — accepted output and engagement are high for what's being spent.",
+      low: "Measured usage per dollar of spend is low right now — that can mean low usage, but it can also mean spend is high relative to usage, so check the spend figures alongside it.",
+      building: "Measured usage per dollar of spend is building — usage and spend are starting to balance out.",
+      strong: "Measured usage per dollar of spend is strong — accepted output and engagement are high for what's being spent.",
     },
     components: {
       output_per_spend: {
@@ -524,7 +524,7 @@ export const SCORE_GLOSSARY: Record<ScoreSlug, ScoreGlossaryEntry> = {
         shortWhat: describeCalculation(EFFICIENCY_OUTPUT_PER_SPEND).simple,
         what: "Suggestions accepted, divided by billed spend in cents, over the period — how much accepted output you are getting per dollar billed.",
         whyItMatters:
-          "This is the closest Efficiency comes to a direct 'value for spend' read: accepted suggestions per dollar billed.",
+          "This is the closest Efficiency comes to a direct 'usage for spend' read: accepted suggestions per dollar billed.",
         howCalculatedSimple: describeCalculation(EFFICIENCY_OUTPUT_PER_SPEND).simple,
         howCalculatedDetailed: describeCalculation(EFFICIENCY_OUTPUT_PER_SPEND).detailed,
         included: "Accepted-suggestion and billed-spend rows from connected tools that report both.",
