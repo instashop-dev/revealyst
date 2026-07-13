@@ -12,6 +12,14 @@ to be read by a customer, not just an engineer: if a founder or a CTO asks
 > [`scoring-explained.md`](scoring-explained.md); for a copy-paste tester
 > template, see [`scoring-verification-worksheet.md`](scoring-verification-worksheet.md).
 
+> **The number is a diagnostic, not the headline** (Spec V4 §7.1). On the
+> individual Companion surface the raw 0–100 is demoted behind a
+> "diagnostic details" expander; the person leads with their **maturity band,
+> a plain-English narrative, and one next step** — never "Score 74". These
+> definitions remain the exact, published methodology *behind* that band; the
+> engine is unchanged, only its presentation. Team and Executive surfaces keep
+> the numbers (the maturity model is the Team/Exec pillar).
+
 ## Purpose and non-goals
 
 Revealyst measures *AI adoption at the team level* — how broadly a tool is

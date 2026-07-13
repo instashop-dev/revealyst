@@ -26,6 +26,12 @@ export default function LegalLayout({
           <Link href="/legal/privacy" className="hover:text-foreground">
             Privacy
           </Link>
+          <Link
+            href="/legal/what-we-collect"
+            className="hover:text-foreground"
+          >
+            What we collect
+          </Link>
         </nav>
       </div>
 
