@@ -1,5 +1,11 @@
 # 0014 — Add batch read methods to org-scope: identities.all() and teams.allMembers()
 
+> **Numbering collision:** two accepted ADRs share number 0014 (this one and
+> [0014-personal-person-level-presets](0014-personal-person-level-presets.md)) — a
+> parallel-fan-out artifact, kept as-is because code comments cite "ADR 0014" for both.
+> Cite 0014 by slug, never by bare number. Numbers are claimed at build time (G8).
+
+
 - **Status:** Accepted
 - **Date:** 2026-07-08
 - **Deciders:** Founder

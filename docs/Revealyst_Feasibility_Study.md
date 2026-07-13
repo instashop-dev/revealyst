@@ -1,5 +1,10 @@
 # Revealyst — Business & Technical Feasibility Study
 
+> **Superseded positioning (2026-07-13):** the product framing in this study (CTO analytics
+> dashboard, "AI Fluency Score" as flagship) is superseded by the V4 pivot —
+> [Product Spec V4](Revealyst_Product_Spec_V4.md) §1–§2 (Personal AI Companion first). The
+> business-feasibility math and competitive citations remain the historical record.
+
 **Version:** 1.2 · **Date:** July 4, 2026
 **Subject:** Revealyst — AI Workforce Intelligence Platform (per `Revealyst_Product_Spec_V1.docx`; superseded positioning now in [Revealyst_Product_Spec_V2.md](Revealyst_Product_Spec_V2.md))
 **Operating constraint:** Solo founder, bootstrapped (funded by revenue from other SaaS products). **Build is now executed by parallel AI coding agents** orchestrated by the founder; sell and support remain solo (see Section 8).

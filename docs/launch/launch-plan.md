@@ -1,5 +1,11 @@
 # Revealyst V1 launch plan (W3-P)
 
+> **Positioning note (2026-07-13):** the copy in this plan predates the V4 pivot — the
+> share-card headline "My AI Fluency: 78" is exactly the raw-score-first framing
+> [Product Spec V4](../Revealyst_Product_Spec_V4.md) §1 retires. Re-cut every artifact and
+> message against V4 §1–§2 (Personal AI Companion, band-first) before executing any step
+> ([V4 Execution Plan](../Revealyst_Execution_Plan_V4.md) W5-N owns the rewrite).
+
 Solo-founder plan, sequenced so each step feeds the next and everything funnels
 to the landing page → sign-up → share-card loop. Copy source of truth:
 `.agents/product-marketing-context.md`. Announcement text: `announcements.md`.

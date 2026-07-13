@@ -1,5 +1,11 @@
 # Revealyst — V1 Execution Plan
 
+> **Status (2026-07-13):** waves W0–W3 are complete and shipped (V1.5/W4 waves: Spec V3 §16).
+> The active plan is the [V4 Execution Plan](Revealyst_Execution_Plan_V4.md) (waves W5–W6 for
+> [Product Spec V4](Revealyst_Product_Spec_V4.md)). This document remains the historical record
+> and the authoritative home of orchestration rules 1–7 and the seven scope tripwires, which
+> bind every V4 workstream verbatim.
+
 **Version:** 2.1 · **Date:** July 4, 2026
 **Basis:** [Revealyst Product Spec V2.3](Revealyst_Product_Spec_V2.md)
 **Execution model:** The entire app is built by **AI agents running in parallel**. This plan is therefore organized as a **dependency graph of workstreams**, not a calendar. Waves are ordered by hard dependencies only; everything inside a wave runs concurrently. No timelines — a wave completes when its exit gate passes.
