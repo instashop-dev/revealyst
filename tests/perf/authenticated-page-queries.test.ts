@@ -10,6 +10,7 @@ import * as schema from "../../src/db/schema";
 import { applyPaddleSubscriptionEvent } from "../../src/db/subscriptions";
 import { computeAccess } from "../../src/lib/access";
 import { readDashboardView } from "../../src/lib/dashboard-view";
+import { readMaturityView } from "../../src/lib/maturity";
 import { periodFor, recomputeOrg } from "../../src/scoring";
 import { buildTeamFixtureGraph } from "./fixture-graph";
 import { formatTable, instrumentPglite, measure, type ScenarioResult } from "./query-counter";
@@ -216,8 +217,57 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     expect(result.sequentialDepth).toBeLessThanOrEqual(3);
   });
 
+  it("4. companion (personal surface) — readMaturityView threads into ONE depth-1 batch", async () => {
+    // The W5-C Personal Companion surface adds ONE new read to the personal
+    // dashboard: the modeled maturity LEVEL. It is threaded into the page's
+    // EXISTING single flat Promise.all (round-trip depth 1, G10) rather than
+    // run as a second sequential stage — the perf law's hard rule is "never
+    // readDashboardView + readMaturityView back-to-back". readMaturityView
+    // does its own internal flat Promise.all; because it is CALLED as an
+    // element of an outer Promise.all, its internal reads are kicked off
+    // synchronously (before its first await) alongside the sibling reads, so
+    // the whole batch stays depth 1. This scenario is the guard: it fires
+    // readMaturityView CONCURRENTLY with a representative slice of the personal
+    // batch and pins sequentialDepth to exactly 1 — a regression that
+    // serialized maturity behind the other reads (a second stage) would push
+    // depth to 2 and fail here.
+    let placed = false;
+    const result = await measure(counter, "companion", async () => {
+      const [maturity] = await Promise.all([
+        readMaturityView(scope, "2026-06-30"),
+        scope.connections.list(),
+        scope.scores.definitions(),
+        scope.metrics.records({
+          metricKey: "active_day",
+          from: WINDOW.from,
+          to: WINDOW.to,
+        }),
+        scope.metrics.records({
+          metricKey: "agent_active",
+          from: WINDOW.from,
+          to: WINDOW.to,
+        }),
+        scope.metrics.records({
+          metricKey: "spend_cents",
+          from: WINDOW.from,
+          to: WINDOW.to,
+        }),
+      ]);
+      expect(maturity.numbers).toBeDefined();
+      placed = maturity.currentWindow.to.length > 0;
+    });
+    results.push(result);
+    expect(placed).toBe(true);
+
+    // Exact-equality on depth is the whole point: the companion surface must
+    // add NO sequential round-trip stage. Every read above overlaps in one
+    // batch → sequentialDepth 1.
+    expect(result.total).toBeGreaterThan(0);
+    expect(result.sequentialDepth).toBe(1);
+  });
+
   it("prints the baseline table", () => {
-    expect(results).toHaveLength(4);
+    expect(results).toHaveLength(5);
     // eslint-disable-next-line no-console
     console.log(`\nAuthenticated-page query baseline (org: ${PEOPLE_COUNT} tracked people, 30d window)\n${formatTable(results)}\n`);
   });

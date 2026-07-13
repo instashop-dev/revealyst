@@ -3,6 +3,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Cable, Gauge, Info, Lightbulb, TriangleAlert } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
+import { CoachingCard } from "@/components/companion/coaching-card";
+import { DailyNudgeCard } from "@/components/companion/daily-nudge-card";
+import { DiagnosticDetails } from "@/components/companion/diagnostic-details";
+import { GrowthJourneyCard } from "@/components/companion/growth-journey-card";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { AgenticAdoptionCard } from "@/components/dashboard/agentic-adoption-card";
 import { AttributionTrendCard } from "@/components/dashboard/attribution-trend-card";
@@ -48,8 +52,13 @@ import { SYNC_STALE_AFTER_DAYS } from "@/lib/agent-sync";
 import { detectDailySpike } from "@/lib/anomaly";
 import { requireAppContext, type AppContext } from "@/lib/api-context";
 import { dashboardSummary } from "@/lib/api-impl";
+import {
+  buildDailyNudge,
+  COMPANION_HEADER,
+} from "@/lib/companion-glossary";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
 import { readDashboardView } from "@/lib/dashboard-view";
+import { readMaturityView } from "@/lib/maturity";
 import { formatCents } from "@/lib/format";
 import { readBudgetAlertForRole, todayUtc } from "@/lib/spend-governance";
 import {
@@ -226,6 +235,7 @@ async function PersonalSelfView({
     personalAgentActive,
     personalIdentities,
     personalSpend,
+    maturity,
   ] = await timeStage("pageData", () =>
       Promise.all([
         // Onboarding-gate read, folded in here so it overlaps the rest of the
@@ -284,6 +294,15 @@ async function PersonalSelfView({
           from: agenticFrom,
           to: today,
         }),
+        // Growth Journey headline (W5-C): the modeled maturity LEVEL — for an
+        // org-of-one it is personally true (errata §1.2(6)). readMaturityView
+        // does its OWN flat Promise.all internally, and because it is CALLED
+        // here as an element of this outer Promise.all its internal reads are
+        // kicked off synchronously (before its first await) alongside the
+        // reads above — so the whole batch stays round-trip depth 1 (G10). We
+        // never call readDashboardView + readMaturityView back-to-back; the
+        // personal path composes maturity into this single existing stage.
+        readMaturityView(ctx.scope, today),
       ]),
     );
   // Onboarding gate (evaluated here, after the overlapped read above, rather
@@ -308,10 +327,6 @@ async function PersonalSelfView({
     summary.scores
       .filter((s) => s.subjectLevel === "person" && s.periodGrain === "month")
       .map((s) => [s.definitionSlug, s]),
-  );
-  const monthLabel = new Date(`${period.periodStart}T00:00:00Z`).toLocaleDateString(
-    "en-US",
-    { month: "long", year: "numeric", timeZone: "UTC" },
   );
   const prevMonthLabel = new Date(
     `${prevPeriod.periodStart}T00:00:00Z`,
@@ -420,12 +435,33 @@ async function PersonalSelfView({
     scoreComponents,
     anomalies,
   });
+  // W5-C companion composition (positive-first, level-forward): the coaching
+  // recommendations get their OWN dedicated card + seed the Growth Journey's
+  // single next step, so they are PULLED OUT of the generic attention strip
+  // (which keeps only the action alerts + early-warning signals — no
+  // duplication). The top rec is the headline next step.
+  const coachingRecs = attentionItems.filter(
+    (i) => i.kind === "recommendation",
+  );
+  const attentionStripItems = attentionItems.filter(
+    (i) => i.kind !== "recommendation",
+  );
+  const topNextStep = coachingRecs[0] ?? null;
+  // Daily nudge: ONE fresh fact from the last sync (never a dashboard, never a
+  // freshness demand — principle 7). Built purely from data already in hand;
+  // `maturity.dataAsOf` is the freshest successful sync across connections.
+  const dailyNudge = buildDailyNudge({
+    freshestSyncAt: maturity.dataAsOf,
+    agentic,
+    spendCents: summary.spendCents,
+    hasScores: scores.size > 0,
+  });
 
   return (
     <>
       <PageHeader
-        title="Your AI self-view"
-        description={`${monthLabel} — three scores from your connected tools. Tap the info icon next to any number for a plain-English explanation.`}
+        title={COMPANION_HEADER.title}
+        description={COMPANION_HEADER.description}
       >
         {fluencyComputed && personId && (
           <ShareScoreButton
@@ -447,7 +483,24 @@ async function PersonalSelfView({
 
       <SyncStalenessBanner connections={connections} />
 
-      <AttentionSection items={attentionItems} />
+      {/* Action alerts + early-warning signals only — coaching recommendations
+       * moved to their dedicated CoachingCard below (no duplication). */}
+      <AttentionSection items={attentionStripItems} />
+
+      {/* The companion headline: level-forward, positive-first. Leads with the
+       * modeled maturity level + the single next step (the first-sync aha —
+       * "You're at <level>, here's the one thing to try next" — NOT a raw
+       * score). No blended per-person "AI health" number anywhere (errata
+       * §1.2(9)). */}
+      <GrowthJourneyCard
+        level={maturity.level}
+        stale={maturity.stale}
+        nextStep={topNextStep}
+      />
+
+      <DailyNudgeCard nudge={dailyNudge} />
+
+      <CoachingCard recommendations={coachingRecs} />
 
       {scores.size === 0 && (
         // Connected, but no person scores computed yet — the F1.6 cliff. The
@@ -469,11 +522,16 @@ async function PersonalSelfView({
         />
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {SCORE_SLUGS.map((slug) => (
-          <ScoreCard key={slug} data={cardData.get(slug)!} />
-        ))}
-      </div>
+      {/* The raw 0–100 scores are DEMOTED behind an expander (W5-C deliverable
+       * 4): collapsed by default, so the number is never the headline of the
+       * default render — the level + next step above are. */}
+      <DiagnosticDetails>
+        <div className="grid gap-4 md:grid-cols-3">
+          {SCORE_SLUGS.map((slug) => (
+            <ScoreCard key={slug} data={cardData.get(slug)!} />
+          ))}
+        </div>
+      </DiagnosticDetails>
 
       <AgenticAdoptionCard data={agentic} />
 
