@@ -55,7 +55,7 @@ jobs:
           # fixtures/: ADDING files is fine (new coverage); modifying or
           # deleting existing shapes is a contract change.
           modified=$(git diff --name-only --diff-filter=MDR "$base" HEAD)
-          frozen=$(printf '%s\n' "$changed" | grep -E '^(src/contracts/|src/db/schema\.ts$|src/db/org-scope\.ts$|src/lib/credentials\.ts$|drizzle/|docs/connector-facts\.md$)' || true)
+          frozen=$(printf '%s\n' "$changed" | grep -E '^(src/contracts/|src/db/schema\.ts$|src/db/org-scope(\.ts$|/)|src/lib/credentials\.ts$|drizzle/|docs/connector-facts\.md$)' || true)
           frozen_fixtures=$(printf '%s\n' "$modified" | grep -E '^fixtures/' || true)
           all_frozen=$(printf '%s\n%s\n' "$frozen" "$frozen_fixtures" | grep -v '^$' || true)
           if [ -n "$all_frozen" ]; then

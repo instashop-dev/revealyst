@@ -14,7 +14,6 @@
 import { createDb } from "../src/db/client";
 import { forOrg } from "../src/db/org-scope";
 import { periodFor, recomputeOrg } from "../src/scoring";
-import { segmentTeams } from "../src/scoring/segment";
 
 const DEV_DB_URL =
   process.env.DATABASE_URL ??
@@ -81,12 +80,15 @@ async function main() {
     }
   }
 
-  const segments = await segmentTeams(db, orgId, period);
-  for (const s of segments) {
-    console.log(
-      `  segment team=${s.teamId} adoption=${s.adoption} fluency=${s.fluency} segment=${s.segment ?? "(none — insufficient data)"}`,
-    );
-  }
+  // W5-A (ADR 0027): the team-segment breakdown that used to print here relied
+  // on `segmentTeams` (src/scoring/segment.ts), which was removed as app-dead
+  // (this was its only live consumer). It was not ported onto the person-level
+  // src/lib/segments.ts vocabulary because that classifies a single signal
+  // (adoption bands), whereas the retired path calibrated the team two-signal
+  // (adoption × fluency) SEGMENT_THRESHOLDS_V1 — porting would have changed
+  // what is being calibrated. The score-value dump above remains the
+  // calibration signal; re-introduce a team-segment print alongside any future
+  // team-level segmentation job.
 }
 
 main()

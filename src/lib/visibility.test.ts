@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { toPersonRef } from "./visibility";
+import {
+  assertTeamOnlyPseudonymized,
+  identityManifestGaps,
+  IDENTITY_BEARING_MANIFEST,
+  TEAM_VISIBLE_IDENTITY_SURFACES,
+  toPersonRef,
+  type TeamVisibleView,
+} from "./visibility";
 
 // §7 privacy enforced by shape: the single pseudonymisation gate. `private`
 // (the default) hides real names; the strict personRefSchema means nothing
@@ -40,5 +47,92 @@ describe("toPersonRef", () => {
     } as unknown as Parameters<typeof toPersonRef>[0];
     const ref = toPersonRef(leaky, "full");
     expect(Object.keys(ref).sort()).toEqual(["displayName", "id", "pseudonym"]);
+  });
+});
+
+// W5-A: the §7 audit predicate is now a registry of identity-bearing surfaces
+// with a completeness tripwire, so a 4th team-visible identity surface added
+// later can no longer pass the audit vacuously (the old hand-written check's
+// gap, Spec §9.4a). These pin the registry to the manifest and prove each
+// registered surface actually throws when it leaks.
+describe("assertTeamOnlyPseudonymized surface registry", () => {
+  const PID = "550e8400-e29b-41d4-a716-446655440000";
+  // A PersonRef carrying (or hiding) a real name — "full" passes displayName
+  // through, so this mints a leaking or a clean ref as needed.
+  const ref = (displayName: string | null) =>
+    toPersonRef({ id: PID, pseudonym: "brisk-otter", displayName }, "full");
+
+  /** A fully-pseudonymized (private-default) view: nothing leaks. */
+  const cleanView = (): TeamVisibleView => ({
+    summary: { scores: [{ person: ref(null) }] },
+    segments: { segments: [{ members: [] }] },
+    sharedAccounts: [{ externalId: null }],
+  });
+
+  it("the manifest is covered by the registry exactly (completeness tripwire)", () => {
+    expect(
+      identityManifestGaps(
+        IDENTITY_BEARING_MANIFEST,
+        TEAM_VISIBLE_IDENTITY_SURFACES,
+      ),
+    ).toEqual({ missing: [], extra: [] });
+  });
+
+  it("a synthetic UNREGISTERED identity surface fails the tripwire", () => {
+    // Simulate a 4th identity-bearing field added to the view + manifest but
+    // NOT registered as a surface — the acceptance criterion. `missing`
+    // (non-empty) is exactly what the completeness test asserts against.
+    const withNewSurface = [
+      ...IDENTITY_BEARING_MANIFEST,
+      "summary.leaderboard[].person.displayName",
+    ];
+    const gaps = identityManifestGaps(
+      withNewSurface,
+      TEAM_VISIBLE_IDENTITY_SURFACES,
+    );
+    expect(gaps.missing).toEqual([
+      "summary.leaderboard[].person.displayName",
+    ]);
+    expect(gaps.extra).toEqual([]);
+  });
+
+  it("a stale REGISTERED surface absent from the manifest also fails", () => {
+    const shrunkManifest = IDENTITY_BEARING_MANIFEST.filter(
+      (f) => f !== "sharedAccounts[].externalId",
+    );
+    const gaps = identityManifestGaps(
+      shrunkManifest,
+      TEAM_VISIBLE_IDENTITY_SURFACES,
+    );
+    expect(gaps.extra).toEqual(["sharedAccounts[].externalId"]);
+    expect(gaps.missing).toEqual([]);
+  });
+
+  it("passes for a fully-pseudonymized view", () => {
+    expect(() => assertTeamOnlyPseudonymized(cleanView())).not.toThrow();
+  });
+
+  it("throws when the score surface leaks a real name", () => {
+    const view = cleanView();
+    view.summary = { scores: [{ person: ref("Grace Hopper") }] };
+    expect(() => assertTeamOnlyPseudonymized(view)).toThrow(
+      /score exposes a real name/,
+    );
+  });
+
+  it("throws when the segments surface lists an individual member", () => {
+    const view = cleanView();
+    view.segments = { segments: [{ members: [ref("Ada")] }] };
+    expect(() => assertTeamOnlyPseudonymized(view)).toThrow(
+      /segment surfaces 1 individual member/,
+    );
+  });
+
+  it("throws when the shared-account surface exposes an identifier", () => {
+    const view = cleanView();
+    view.sharedAccounts = [{ externalId: "shared-team-login" }];
+    expect(() => assertTeamOnlyPseudonymized(view)).toThrow(
+      /shared-account flag exposes a real account identifier/,
+    );
   });
 });

@@ -1,7 +1,3 @@
-import type { Db } from "../db/client";
-import { forOrg } from "../db/org-scope";
-import type { Period } from "./periods";
-
 // W2-I: segments a team into an adoption/fluency-derived persona label.
 // Thresholds are versioned DATA, not a user-facing rule engine (rule 7) —
 // same "not a DSL" posture as score components. Absence handling mirrors
@@ -63,86 +59,11 @@ export function segmentFor(
   return "casual";
 }
 
-export type TeamSegment = {
-  teamId: string;
-  adoption: number | null;
-  fluency: number | null;
-  segment: Segment | null;
-};
-
-/**
- * Segments every team in the org for one period, reading only through the
- * existing, unmodified `forOrg(...).scores` surface (rule 2 / no new
- * org-scope method). Looks up the org's active 'adoption' and 'fluency'
- * definitions (org-custom if present, else the global preset) and joins
- * their team-level results for the period.
- */
-export async function segmentTeams(
-  db: Db,
-  orgId: string,
-  period: Pick<Period, "periodStart" | "periodEnd">,
-  thresholds: SegmentThresholds = SEGMENT_THRESHOLDS_V1,
-): Promise<TeamSegment[]> {
-  const scoped = forOrg(db, orgId);
-  const definitions = await scoped.scores.definitions();
-
-  const activeDefinitionId = (slug: string) =>
-    definitions
-      .filter(
-        (d) =>
-          d.slug === slug && d.status === "active" && d.subjectLevel === "team",
-      )
-      // Prefer this org's own definition over the global preset; highest
-      // version wins within that preference.
-      .sort((a, b) => {
-        if ((a.orgId === orgId) !== (b.orgId === orgId)) {
-          return a.orgId === orgId ? -1 : 1;
-        }
-        return b.version - a.version;
-      })[0]?.id;
-
-  const adoptionDefinitionId = activeDefinitionId("adoption");
-  const fluencyDefinitionId = activeDefinitionId("fluency");
-
-  const [adoptionResults, fluencyResults] = await Promise.all([
-    adoptionDefinitionId
-      ? scoped.scores.results({
-          definitionId: adoptionDefinitionId,
-          subjectLevel: "team",
-          from: period.periodStart,
-          to: period.periodEnd,
-        })
-      : Promise.resolve([]),
-    fluencyDefinitionId
-      ? scoped.scores.results({
-          definitionId: fluencyDefinitionId,
-          subjectLevel: "team",
-          from: period.periodStart,
-          to: period.periodEnd,
-        })
-      : Promise.resolve([]),
-  ]);
-
-  const adoptionByTeam = new Map(
-    adoptionResults
-      .filter((r) => r.teamId !== null)
-      .map((r) => [r.teamId as string, r.value]),
-  );
-  const fluencyByTeam = new Map(
-    fluencyResults
-      .filter((r) => r.teamId !== null)
-      .map((r) => [r.teamId as string, r.value]),
-  );
-
-  const teams = await scoped.teams.list();
-  return teams.map((team) => {
-    const adoption = adoptionByTeam.get(team.id) ?? null;
-    const fluency = fluencyByTeam.get(team.id) ?? null;
-    return {
-      teamId: team.id,
-      adoption,
-      fluency,
-      segment: segmentFor(adoption, fluency, thresholds),
-    };
-  });
-}
+// W5-A (ADR 0027): the team-level `segmentTeams` org-read helper was removed as
+// app-dead — it had zero application callers and only one live consumer,
+// scripts/calibrate-scores.ts (offline preset calibration). It was NOT ported
+// onto src/lib/segments.ts's person-level `segmentFor` (single-signal adoption
+// bands) because that would change what SEGMENT_THRESHOLDS_V1 calibrates (team
+// two-signal adoption×fluency), so the calibration path was retired instead.
+// The pure `segmentFor` classifier above is kept (unit-tested, the canonical
+// thresholds vocabulary for a future re-introduction).
