@@ -1,3 +1,4 @@
+import { OnboardingCompanionPitch } from "@/components/onboarding-companion-pitch";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { requireAppContext } from "@/lib/api-context";
 import {
@@ -14,7 +15,11 @@ export default async function OnboardingPage() {
   const connections = await ctx.scope.connections.list();
 
   return (
-    <main className="flex min-h-dvh flex-col justify-center p-6">
+    <main className="flex min-h-dvh flex-col justify-center gap-10 p-6 py-12">
+      {/* Onboarding inversion (errata §1.2(2)): the companion pitch leads, the
+       * connect cards follow — "meet your companion" before "connect your
+       * tools". */}
+      <OnboardingCompanionPitch />
       <OnboardingWizard
         initialConnections={connections.map((c) => ({
           id: c.id,
