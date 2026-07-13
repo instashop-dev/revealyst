@@ -14,6 +14,7 @@ import {
   people,
   pollHeartbeats,
   rawPayloads,
+  recInteractionState,
   scoreDefinitions,
   scoreResults,
   shareLinks,
@@ -47,6 +48,9 @@ export const PURGE_TABLES = [
   metricRecords,
   subjectDaySignals,
   identities,
+  // W5-D: person-scoped, FK'd to people (not orgs) — must be deleted BEFORE
+  // people below (its composite FK would otherwise block the people delete).
+  recInteractionState,
   shareLinks,
   subjects,
   rawPayloads,

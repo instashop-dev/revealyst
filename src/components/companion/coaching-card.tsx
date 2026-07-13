@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { COACHING_COPY } from "@/lib/companion-glossary";
 import type { AttentionItem } from "@/lib/score-insights";
+import { RecInteractionActions } from "./rec-interaction-actions";
 
 /**
  * The persistent coaching card (W5-C deliverable 2). Today coaching
@@ -20,13 +21,27 @@ import type { AttentionItem } from "@/lib/score-insights";
  * `kind === "recommendation"` (the gated, measured-and-weak, task-focused
  * guidance) — never the action alerts, which stay in the attention strip.
  * Server-safe, pure props.
+ *
+ * W5-D: on the personal self-view the caller passes `personId`, which turns on
+ * per-rec snooze/dismiss/mark-tried affordances (self-view only — a manager
+ * surface passes no personId, so no affordances and no interaction state ever
+ * render). Dismissed/actively-snoozed recs are already filtered out UPSTREAM by
+ * the caller; `triedRecIds` marks the ones kept-but-tried.
  */
 export function CoachingCard({
   recommendations,
+  personId,
+  triedRecIds,
 }: {
   /** Pre-filtered to `kind === "recommendation"` by the caller. */
   recommendations: AttentionItem[];
+  /** The signed-in person (personal self-view only). Present → render the
+   * interaction affordances; absent → read-only card (manager/no-person). */
+  personId?: string | null;
+  /** Rec ids the person has marked "tried" — shown with a static indicator. */
+  triedRecIds?: readonly string[];
 }) {
+  const tried = new Set(triedRecIds ?? []);
   return (
     <Card>
       <CardHeader>
@@ -68,6 +83,13 @@ export function CoachingCard({
                   >
                     Take a look
                   </Button>
+                ) : null}
+                {personId && item.recId ? (
+                  <RecInteractionActions
+                    personId={personId}
+                    recId={item.recId}
+                    tried={tried.has(item.recId)}
+                  />
                 ) : null}
               </li>
             ))}

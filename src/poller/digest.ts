@@ -138,15 +138,29 @@ export async function runWeeklyDigest(
   const from = addUtcDays(to, -DIGEST_WINDOW_DAYS);
 
   // EVERY read the digest needs, in ONE Promise.all — round-trip depth 1 (G10).
-  const [rawScores, definitions, connections, spendRecords, activeDayRecords, identities] =
-    await Promise.all([
-      scope.scores.results({ from, to }),
-      scope.scores.definitions(),
-      scope.connections.list(),
-      scope.metrics.records({ metricKey: "spend_cents", from, to }),
-      scope.metrics.records({ metricKey: "active_day", from, to, dim: "" }),
-      scope.identities.all(),
-    ]);
+  // W5-D: dismissed rec ids join the batch so a dismissed rec never re-mails.
+  // Only the personal lane (org of one) applies them — a team digest's
+  // recommendations are org aggregates, not one person's, so we don't read
+  // anyone's per-person dismissals there.
+  const [
+    rawScores,
+    definitions,
+    connections,
+    spendRecords,
+    activeDayRecords,
+    identities,
+    dismissedRecIds,
+  ] = await Promise.all([
+    scope.scores.results({ from, to }),
+    scope.scores.definitions(),
+    scope.connections.list(),
+    scope.metrics.records({ metricKey: "spend_cents", from, to }),
+    scope.metrics.records({ metricKey: "active_day", from, to, dim: "" }),
+    scope.identities.all(),
+    lane === "personal"
+      ? scope.recInteractions.dismissedRecIdsForOrg()
+      : Promise.resolve<string[]>([]),
+  ]);
 
   const teamRows = rawScores.filter((r) => r.subjectLevel === "team");
   const trends = await readScoreTrends(
@@ -174,6 +188,7 @@ export async function runWeeklyDigest(
     movement,
     trends,
     scoreComponents,
+    dismissedRecIds: new Set(dismissedRecIds),
   });
 
   // G5 staleness gate: no usable connection synced within the window → suppress

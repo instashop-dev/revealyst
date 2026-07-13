@@ -458,6 +458,28 @@ export const apiRoutes = {
     }),
   },
 
+  // Recommendation interaction state (W5-D, ADR 0028) — the Outcomes-loop
+  // forerunner (§8.3). A person snoozes / dismisses / marks-tried ONE coaching
+  // recommendation. SELF-VIEW ONLY: `personId` must be the caller's OWN person
+  // (people.auth_user_id === session user) — the handler 403s otherwise, so a
+  // manager can never write (or, by the absence of any read route, read)
+  // another person's state. `recId` must be a known static-map id. `snoozeDays`
+  // applies only to `snoozed` (server clamps + defaults it); the server derives
+  // the absolute `snooze_until`, never the client. WRITE-ONLY by shape: only
+  // `ok` comes back — there is no interaction-state read route anywhere in this
+  // contract (the state is folded into the self-view page server-side).
+  recInteractionSet: {
+    method: "POST",
+    path: "/api/recommendations/interaction",
+    request: z.object({
+      personId: uuid,
+      recId: z.string().min(1),
+      state: z.enum(["snoozed", "dismissed", "tried"]),
+      snoozeDays: z.number().int().min(1).max(90).optional(),
+    }),
+    response: ok,
+  },
+
   // Paddle hosted customer portal: creates a fresh authenticated session (ADR
   // 0011) and returns its links. Generated per request, never cached.
   billingPortal: {

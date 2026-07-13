@@ -58,6 +58,19 @@ export const subscriptionStatusEnum = pgEnum("subscription_status", [
   "canceled",
 ]);
 
+// How a person has acted on a coaching recommendation (W5-D, ADR 0028). A
+// closed set — the Outcomes-loop forerunner (§8.3). `snoozed` hides the rec
+// until `snooze_until`; `dismissed` hides it permanently (and never re-mails in
+// the digest); `tried` is positive feedback that keeps the rec visible with a
+// "tried" affordance. Growing this set post-freeze requires an ADR.
+// Type name is `_kind`-suffixed: a table `rec_interaction_state` auto-creates a
+// composite type of that name, so the enum can't share it (Postgres 42710).
+export const recInteractionStateEnum = pgEnum("rec_interaction_state_kind", [
+  "snoozed",
+  "dismissed",
+  "tried",
+]);
+
 // W0-C core schema. Every application table carries org_id; child tables
 // reference their parent via composite (org_id, parent_id) FKs so a
 // cross-org reference is unrepresentable at the DB level, not merely
@@ -997,6 +1010,59 @@ export const digestPreferences = pgTable(
     index("digest_preferences_unsubscribe_token_hash_idx").on(
       t.unsubscribeTokenHash,
     ),
+  ],
+);
+
+// Recommendation interaction state (W5-D, ADR 0028) — the Outcomes-loop
+// forerunner (§8.3). ONE row per (org, person, recommendation): how this
+// person acted on a coaching recommendation (snoozed/dismissed/tried). Keyed
+// (org_id, person_id, rec_id) so a person can hold at most one state per rec;
+// `set` upserts on that key. `rec_id` is the STABLE static-map id from
+// src/lib/coaching-recommendations.ts (survives the future W6-C catalog
+// migration unchanged) — a plain text column, never an FK to a catalog table
+// that doesn't exist yet. `snooze_until` is set only for `snoozed` rows (null
+// otherwise); once it passes, the rec resurfaces (snooze expiry). org_id sits
+// IN the primary key and the composite tenant FK points (org_id, person_id) at
+// people(org_id, id), so a row referencing a person from another org is
+// unrepresentable. SELF-VIEW ONLY: this is never on a team/manager-visible
+// surface — a manager never reads another person's interaction state (§8.3).
+export const recInteractionState = pgTable(
+  "rec_interaction_state",
+  {
+    orgId: uuid("org_id").notNull(),
+    personId: uuid("person_id").notNull(),
+    // The static-map recommendation id (COACHING_RECOMMENDATIONS[].id).
+    recId: text("rec_id").notNull(),
+    state: recInteractionStateEnum("state").notNull(),
+    // When the person last acted (snoozed/dismissed/tried). Defaults to now;
+    // rewritten on each `set` so the latest action's time is what's stored.
+    actedAt: timestamp("acted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    // Only meaningful for `snoozed`: the rec resurfaces once this passes. Null
+    // for `dismissed`/`tried`.
+    snoozeUntil: timestamp("snooze_until", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    // At most one state per (org, person, rec); the `set` upsert conflict
+    // target. org_id is load-bearing IN the key — cross-org rows can't exist.
+    primaryKey({ columns: [t.orgId, t.personId, t.recId] }),
+    // Composite tenant FK: the person must belong to the SAME org (D1a). A
+    // person delete (account teardown, identity churn) cascades their state.
+    foreignKey({
+      name: "rec_interaction_state_org_person_fk",
+      columns: [t.orgId, t.personId],
+      foreignColumns: [people.orgId, people.id],
+    }).onDelete("cascade"),
+    // Per-person lookup (the self-view read + the digest dismiss scan).
+    index("rec_interaction_state_org_person_idx").on(t.orgId, t.personId),
   ],
 );
 
