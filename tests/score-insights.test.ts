@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ScoreComponent } from "../src/contracts/scores";
 import type { SpikeSignal } from "../src/lib/anomaly";
-import { COACHING_GUIDANCE_SUFFIX } from "../src/lib/coaching-recommendations";
+import { COACHING_GUIDANCE_SUFFIX } from "../src/lib/recommendation-catalog";
 import type { ScoreTrendPoint } from "../src/lib/dashboard-trends";
+import { LEGACY_CATALOG_RECOMMENDATIONS } from "./fixtures/recommendation-catalog";
 import { SCORE_SLUGS } from "../src/lib/metrics-glossary";
 import {
   connectionAttentionInputs,
@@ -890,7 +891,15 @@ describe("deriveAttention — F1.3 score-drop attribution", () => {
 });
 
 describe("deriveAttention — F1.1 coaching recommendations", () => {
-  const base = { connections: [], gaps: [], sharedAccountCount: 0, scoreDrops: [] };
+  // W6-C: deriveAttention no longer imports a static map — it receives catalog
+  // rows. The legacy fixture (verbatim static-map content) drives these cases.
+  const base = {
+    connections: [],
+    gaps: [],
+    sharedAccountCount: 0,
+    scoreDrops: [],
+    recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
+  };
 
   it("a measured, weak, non-trivial-weight component → one info recommendation carrying the honesty suffix and kind", () => {
     const items = deriveAttention({
@@ -1083,6 +1092,9 @@ describe("deriveAttention — F2.3 anomaly/plateau integration", () => {
     gaps: [],
     sharedAccountCount: 0,
     scoreDrops: [],
+    // W6-C: catalog rows supplied so the "anomalies sort above recommendations"
+    // case can produce a rec; cases with no scoreComponents stay empty.
+    recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
   };
 
   it("backward compatible: no anomalies/plateau inputs → unchanged (empty)", () => {

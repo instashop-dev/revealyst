@@ -9,6 +9,7 @@ import { renderDigestEmail } from "../src/lib/digest-email";
 import type { ScoreTrend } from "../src/lib/dashboard-trends";
 import type { RecentMovement } from "../src/lib/recent-movement";
 import type { ComponentDetailRow } from "../src/lib/score-insights";
+import { LEGACY_CATALOG_RECOMMENDATIONS } from "./fixtures/recommendation-catalog";
 
 // Pure honesty tests for the weekly-digest assembly (F2.2): staleness
 // suppression (G5), the aggregate-only team lane (no per-person data), and the
@@ -244,6 +245,7 @@ describe("reserved coaching slot (errata §1.2(7))", () => {
       movement: emptyMovement(),
       trends: [],
       scoreComponents: [weakActiveDays()],
+      recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
     });
     expect(content.suppressed).toBe(false);
     const coaching = content.recommendations.filter(
@@ -264,6 +266,7 @@ describe("reserved coaching slot (errata §1.2(7))", () => {
       movement: emptyMovement(),
       trends: [],
       scoreComponents: [weakActiveDays()],
+      recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
     });
     const html = renderDigestEmail(content, {
       unsubscribeUrl: "https://app.example/u",

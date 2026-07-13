@@ -309,6 +309,7 @@ async function PersonalSelfView({
     personalSpend,
     maturity,
     recInteractions,
+    recommendations,
   ] = await timeStage("pageData", () =>
       Promise.all([
         // Onboarding-gate read, folded in here so it overlaps the rest of the
@@ -383,6 +384,10 @@ async function PersonalSelfView({
         // Self-view by construction: returns only the caller's OWN person's
         // states (empty when no person is linked yet).
         ctx.scope.recInteractions.statesForUser(ctx.user.id),
+        // W6-C (ADR 0033): the per-org recommendation catalog — ONE read folded
+        // into this flat Promise.all (+1 query, still round-trip depth 1),
+        // evaluated in memory by `deriveAttention` below (§8.2 perf floor).
+        ctx.scope.catalog.list(),
       ]),
     );
   // Onboarding gate (evaluated here, after the overlapped read above, rather
@@ -513,6 +518,9 @@ async function PersonalSelfView({
     sharedAccountCount: 0,
     scoreDrops,
     scoreComponents,
+    // W6-C: the per-org catalog fetched in this same flat Promise.all,
+    // evaluated in memory here (§8.2 perf floor).
+    recommendations,
     anomalies,
   });
   // W5-C companion composition (positive-first, level-forward): the coaching
@@ -811,6 +819,7 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     usagePlateau,
     narrative,
     correlations,
+    recommendations,
   } = view;
 
   // Signal coverage (W5-H card e) — computed from rows ALREADY in the view
@@ -902,6 +911,9 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     sharedAccountCount: sharedAccounts.length,
     scoreDrops,
     scoreComponents,
+    // W6-C: the per-org catalog fetched inside readDashboardView's single
+    // round-trip, evaluated in memory here (§8.2 perf floor).
+    recommendations,
     anomalies,
     plateau,
   });

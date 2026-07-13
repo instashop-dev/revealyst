@@ -15,6 +15,7 @@ import {
   pollHeartbeats,
   rawPayloads,
   recInteractionState,
+  recommendationCatalog,
   roleAssignments,
   scoreDefinitions,
   scoreResults,
@@ -69,6 +70,12 @@ export const PURGE_TABLES = [
   teams,
   people,
   scoreDefinitions,
+  // W6-C (ADR 0033): org-AUTHORED catalog rows (org_id set) are purged here,
+  // scoped to this org — a NO ACTION FK to orgs would otherwise block the org
+  // delete. Global presets (org_id NULL) are reference data: the `WHERE org_id
+  // = orgId` never matches them, so they survive, exactly like score_definitions
+  // presets and metric_catalog.
+  recommendationCatalog,
   pollHeartbeats,
   orgMembers,
 ] as const;

@@ -4,9 +4,10 @@ import type { SpikeSignal } from "./anomaly";
 import { plateauAttentionCopy, spikeAttentionCopy } from "./anomaly-glossary";
 import {
   COACHING_GUIDANCE_SUFFIX,
-  findCoachingRecommendation,
-  type CoachingRecommendation,
-} from "./coaching-recommendations";
+  evaluateRequiredSignals,
+  indexBySlugComponent,
+  type CatalogRecommendation,
+} from "./recommendation-catalog";
 import type { PlateauResult } from "./plateau";
 import type { DefinitionRow, ScoreRow } from "./dashboard-read";
 import type { ScoreTrendPoint } from "./dashboard-trends";
@@ -460,14 +461,16 @@ export type AttentionItem = {
  * the fold." Adjustable without changing any stored data. */
 const MEANINGFUL_SCORE_DROP = 10;
 
-/** Coaching recommendations (F1.1) only fire for a component whose normalized
- * value sits in the bottom reading band — the same 0–39 "low" cut
- * `interpretScore` uses — AND that carries non-trivial weight. Presentational
- * thresholds only; not benchmarks, not derived from any dataset. */
-const RECOMMENDATION_WEAK_NORMALIZED_MAX = 40;
-const RECOMMENDATION_MIN_WEIGHT = 0.2;
+/** Coaching recommendations (F1.1 / W6-C) only fire for a component whose
+ * normalized value sits in the bottom reading band AND carries non-trivial
+ * weight. Those thresholds are NO LONGER module constants: they live per row in
+ * the catalog's `required_signals` (the closed comparator vocabulary —
+ * measured · normalized-below 40 · min-weight 0.2), evaluated by
+ * `evaluateRequiredSignals`. Presentational thresholds only; not benchmarks. */
 /** At most this many recommendations surface at once — guidance is a nudge,
- * not a checklist; more than two buries the real alerts above it. */
+ * not a checklist; more than two buries the real alerts above it. This is
+ * EVALUATOR behavior (a cap over already-selected candidates), not per-row
+ * catalog data, so it stays a code constant. */
 const MAX_RECOMMENDATIONS = 2;
 
 type ScoredAttentionItem = AttentionItem & { impact: number };
@@ -606,6 +609,16 @@ export function deriveAttention(input: {
    * "gate centrally, pass raw facts" pattern as `unresolvedUsage`. Omitted (or
    * empty) → no recommendations, so a no-scores-yet dashboard gets none. */
   scoreComponents?: { slug: ScoreSlug; components: ComponentDetailRow[] }[];
+  /** W6-C (ADR 0033) — the recommendation CATALOG rows, loaded via ONE per-org
+   * read (`forOrg(...).catalog.list()`) folded into the caller's existing flat
+   * Promise.all (dashboard + digest) and evaluated here IN MEMORY per person —
+   * never re-queried per person (§8.2 perf floor). Replaces the retired static
+   * map: `deriveAttention` no longer imports coaching content, it receives it.
+   * Each candidate is gated on its OWN `required_signals` (the closed
+   * comparator vocabulary), so the thresholds are catalog data, not code.
+   * Omitted/empty → no recommendations (a caller that doesn't load the catalog,
+   * or an org with none, gets none) — fully backward-compatible. */
+  recommendations?: readonly CatalogRecommendation[];
   /** F2.3 (I2) — spend/prompt spikes ALREADY gated by src/lib/anomaly.ts
    * (`detectDailySpike` handles the G5 staleness gate + the statistical
    * floors, so only genuine spikes reach here — the "gate centrally, pass raw
@@ -767,23 +780,37 @@ export function deriveAttention(input: {
   // so when both are weak they'd tie and burn both slots on near-identical
   // advice, cutting distinct guidance. Weakest entry per signal group wins;
   // then at most MAX_RECOMMENDATIONS, weakest first.
-  if (input.scoreComponents && input.scoreComponents.length > 0) {
+  if (
+    input.scoreComponents &&
+    input.scoreComponents.length > 0 &&
+    input.recommendations &&
+    input.recommendations.length > 0
+  ) {
+    // ONE map built from the per-org catalog rows already in hand — the lookup
+    // the retired static map's `findCoachingRecommendation` used to do, now over
+    // passed-in data (no import of coaching content, no per-person query).
+    const byKey = indexBySlugComponent(input.recommendations);
     const candidates: {
-      recommendation: CoachingRecommendation;
+      recommendation: CatalogRecommendation;
       normalized: number;
     }[] = [];
     for (const score of input.scoreComponents) {
       for (const row of score.components) {
-        // Measured (not omitted) AND meaningfully weak (bottom band, non-
-        // trivial weight). An omitted component has no normalized value — it's
-        // "no data yet", never "measured low", so it's never coached on.
-        if (row.omitted || row.normalized === undefined) continue;
-        if (row.normalized >= RECOMMENDATION_WEAK_NORMALIZED_MAX) continue;
-        if (row.weight < RECOMMENDATION_MIN_WEIGHT) continue;
-        const recommendation = findCoachingRecommendation(score.slug, row.key);
-        if (recommendation) {
-          candidates.push({ recommendation, normalized: row.normalized });
+        const recommendation = byKey.get(`${score.slug}::${row.key}`);
+        if (!recommendation) continue;
+        // Gate on the row's OWN `required_signals` (measured · weak · weighted)
+        // — the closed comparator vocabulary, catalog-driven. An omitted
+        // component has no normalized value → the `measured` comparator fails:
+        // "no data yet" is never coached on as "measured low".
+        if (!evaluateRequiredSignals(recommendation.requiredSignals, row)) {
+          continue;
         }
+        // The candidate ranking needs a measured value; the `measured`
+        // comparator guarantees it for every seeded row, but guard so a
+        // (future) row without that comparator can't push an unrankable
+        // candidate.
+        if (row.normalized === undefined) continue;
+        candidates.push({ recommendation, normalized: row.normalized });
       }
     }
     candidates.sort((a, b) => a.normalized - b.normalized);

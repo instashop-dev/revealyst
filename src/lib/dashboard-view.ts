@@ -38,6 +38,7 @@ import {
   type RecentMovement,
 } from "./recent-movement";
 import { detectPlateau, type PlateauResult } from "./plateau";
+import type { CatalogRecommendation } from "./recommendation-catalog";
 import { resolveSegmentSource, type SegmentDistribution } from "./segments";
 import {
   resolveSharedAccountSource,
@@ -165,6 +166,14 @@ export type DashboardView = {
    * leaves the privacy predicate unaffected. Explicitly non-causal (see
    * correlation.ts / CORRELATION_COPY). */
   correlations: CorrelationResult[];
+  /** W6-C (ADR 0033) — the per-org recommendation catalog (global presets ∪
+   * this org's rows), fetched in the depth-1 Promise.all below (+1 query, no new
+   * sequential stage) and evaluated per-person IN MEMORY by `deriveAttention`
+   * on the page — never re-queried per person (§8.2 perf floor). Rows are
+   * global/org reference content (title/body/metadata) with NO person data, so
+   * like `definitions`/`gaps` they add nothing `assertTeamOnlyPseudonymized`
+   * (src/lib/visibility.ts) must inspect. */
+  recommendations: CatalogRecommendation[];
 };
 
 export async function readDashboardView(
@@ -197,6 +206,7 @@ export async function readDashboardView(
     volumeRecords,
     runs,
     promptRecords,
+    recommendations,
   ] = await Promise.all([
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
@@ -257,6 +267,10 @@ export async function readDashboardView(
       from: window.from,
       to: window.to,
     }),
+    // W6-C (ADR 0033): the per-org recommendation catalog — ONE read folded
+    // into this single round-trip (§8.2 perf floor), evaluated per-person in
+    // memory by `deriveAttention` on the page. Global presets ∪ this org's rows.
+    scope.catalog.list(),
   ]);
 
   // One pass over the superset: the exact splits trends (team) and segments
@@ -447,5 +461,6 @@ export async function readDashboardView(
     usagePlateau,
     narrative,
     correlations,
+    recommendations,
   };
 }

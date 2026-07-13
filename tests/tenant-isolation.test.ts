@@ -138,6 +138,18 @@ const SCOPED_READS: Array<{
     tables: ["role_assignments"],
     run: (s) => s.roles.assignments(),
   },
+  // Recommendation catalog (ADR 0033): a nullable-org_id reference table like
+  // score_definitions — global presets (org_id NULL) ∪ this org's own rows.
+  // `list()` maps each row to the evaluator shape whose `id` IS the row's
+  // `slug`, so B seeds an org-authored row with a UUID-valued slug (below): the
+  // slug then joins the B-id leak universe AND is what `list()` returns, so a
+  // dropped org filter would deterministically surface it (non-vacuous, the
+  // score_definitions analogue for a content-mapping read).
+  {
+    name: "catalog.list",
+    tables: ["recommendation_catalog"],
+    run: (s) => s.catalog.list(),
+  },
   { name: "connectorRuns.list", tables: ["connector_runs"], run: (s) => s.connectorRuns.list() },
   { name: "connectorRuns.latest(B)", tables: ["connector_runs"], run: (s, c) => s.connectorRuns.latest(c.B.connections.anthropic) },
   // Credentials are read-only via withCredential, which throws for foreign
@@ -306,6 +318,34 @@ beforeAll(async () => {
     })
     .returning();
   bDefinitionId = bDef.id;
+  // W6-C (ADR 0033): an org-AUTHORED catalog row for B. Its `slug` is a UUID
+  // string so it lands in the B-id leak universe (the beforeAll collects
+  // uuid-shaped strings from B's rows) AND is exactly what `catalog.list()`
+  // returns as each row's `id` — so org A's `catalog.list()` leaking B's row
+  // would surface this uuid. Global presets (org_id NULL) are reference data,
+  // shared by both orgs, and correctly outside the leak universe.
+  await db.insert(schema.recommendationCatalog).values({
+    orgId: orgB,
+    slug: "11111111-1111-4111-8111-111111111111",
+    version: 1,
+    scoreSlug: "adoption",
+    componentKey: "active_days",
+    signalGroup: "active-days",
+    title: "B org custom rec",
+    body: "The active-days part of Adoption is measuring low.",
+    requiredSignals: {
+      comparators: [
+        { kind: "measured" },
+        { kind: "normalized-below", value: 40 },
+        { kind: "min-weight", value: 0.2 },
+      ],
+    },
+    benefit: "high",
+    difficulty: "low",
+    confidence: "high",
+    insightKind: "adoption",
+    suggestedActionType: "in-product-setting",
+  });
   await forOrg(db, orgB).scores.upsertResults([
     {
       definitionId: bDef.id,

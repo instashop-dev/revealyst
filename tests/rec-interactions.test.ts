@@ -6,13 +6,12 @@ import {
 import type { ScoreTrend } from "../src/lib/dashboard-trends";
 import type { RecentMovement } from "../src/lib/recent-movement";
 import type { ComponentDetailRow } from "../src/lib/score-insights";
-import { COACHING_RECOMMENDATIONS } from "../src/lib/coaching-recommendations";
+import { LEGACY_CATALOG_RECOMMENDATIONS } from "./fixtures/recommendation-catalog";
 import {
   DEFAULT_SNOOZE_DAYS,
   deriveRecInteractionView,
   isRecSuppressed,
   snoozeUntilFrom,
-  VALID_REC_IDS,
 } from "../src/lib/rec-interactions";
 
 // W5-D pure state-transition rules (snooze expiry, dismissed-never-remails) and
@@ -75,15 +74,9 @@ describe("snoozeUntilFrom", () => {
   });
 });
 
-describe("VALID_REC_IDS", () => {
-  it("is exactly the static coaching-map ids", () => {
-    expect([...VALID_REC_IDS].sort()).toEqual(
-      COACHING_RECOMMENDATIONS.map((r) => r.id).sort(),
-    );
-    // A made-up id is rejected (the API edge uses this set).
-    expect(VALID_REC_IDS.has("made-up-rec")).toBe(false);
-  });
-});
+// (W6-C, ADR 0033) VALID_REC_IDS is retired: the recommendation route now
+// validates `recId` against the per-org catalog (`forOrg(...).catalog.list()`),
+// covered by the catalog seed + isolation tests — no static id mirror to assert.
 
 describe("deriveRecInteractionView", () => {
   it("partitions rows into suppressed (dismissed + live snooze) and tried", () => {
@@ -145,6 +138,8 @@ describe("assembleDigest dismiss-filter (W5-D)", () => {
     scoreComponents: [
       { slug: "adoption" as const, components: [weakComponent("active_days")] },
     ],
+    // W6-C: the catalog rows the digest engine selects from (was the static map).
+    recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
   };
 
   it("surfaces the coaching rec when nothing is dismissed", () => {

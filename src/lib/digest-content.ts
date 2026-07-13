@@ -9,6 +9,7 @@ import type { ScoreTrend } from "./dashboard-trends";
 import { isUsableConnection } from "./onboarding-guide";
 import type { ScoreSlug } from "./metrics-glossary";
 import type { RecentMovement } from "./recent-movement";
+import type { CatalogRecommendation } from "./recommendation-catalog";
 import {
   connectionAttentionInputs,
   deriveDelta,
@@ -192,6 +193,11 @@ export function assembleDigest(input: {
    * gated coaching recommendations — measured-and-weak gating lives inside
    * `deriveAttention`. */
   scoreComponents: { slug: ScoreSlug; components: ComponentDetailRow[] }[];
+  /** W6-C (ADR 0033) — the per-org recommendation catalog, read by the sender
+   * (src/poller/digest.ts) in its ONE flat Promise.all and passed here so the
+   * gated `deriveAttention` engine selects from catalog DATA, not the retired
+   * static map. Empty/undefined → no coaching recs in the digest. */
+  recommendations?: readonly CatalogRecommendation[];
   /** Rec ids the recipient has DISMISSED (W5-D, ADR 0028): a dismissed rec
    * never re-mails. The caller passes this ONLY for the personal lane (org of
    * one — these are the single owner's dismissals); undefined/empty leaves the
@@ -223,6 +229,7 @@ export function assembleDigest(input: {
     sharedAccountCount: 0,
     scoreDrops,
     scoreComponents: input.scoreComponents,
+    recommendations: input.recommendations,
   })
     // W5-D: a dismissed coaching rec never re-mails. Filtered by the stable
     // rec id BEFORE the cap, so a dismissed rec can't occupy one of the 1–3

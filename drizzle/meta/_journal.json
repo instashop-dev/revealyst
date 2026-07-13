@@ -204,6 +204,13 @@
       "when": 1783970034979,
       "tag": "0028_exec-report-state",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1783971051453,
+      "tag": "0029_recommendation-catalog",
+      "breakpoints": true
     }
   ]
 }
