@@ -87,6 +87,7 @@ function minimalDigest(): DigestContent {
     scores: [],
     personalBest: null,
     recommendations: [],
+    milestones: [],
   };
 }
 
