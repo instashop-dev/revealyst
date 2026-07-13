@@ -220,6 +220,55 @@ describe("normalize: users-1-day (person metrics + agentic + credits)", () => {
   });
 });
 
+describe("W5-E stays-dropped pins: extra harvested fields (§1.2 (4) + double-count audit)", () => {
+  const extraFix = JSON.parse(
+    readFileSync("fixtures/connectors/copilot/users-1-day-extra-fields.json", "utf8"),
+  );
+  const HEIDI = "user:2101";
+  const day = "2026-06-21";
+  const batch = normalizeCopilot({
+    kind: ENVELOPE_KINDS.usersDaily,
+    window: { start: day, end: day },
+    payload: { surface: "users_daily", day, records: extraFix.records },
+  });
+
+  it("loc_suggested_to_delete_sum is DROPPED — lines_suggested is the add funnel only", () => {
+    // heidi: loc_suggested_to_add_sum 500, loc_suggested_to_delete_sum 140.
+    // lines_suggested must be exactly the ADD side (500), never 640 — folding
+    // deletes in would corrupt the loc_added/lines_suggested acceptance ratio.
+    expect(record(batch, HEIDI, "lines_suggested", "", day)?.value).toBe(500);
+    // Actual removed stays loc_deleted_sum (45); suggested-delete adds nothing.
+    expect(record(batch, HEIDI, "lines_removed", "", day)?.value).toBe(45);
+  });
+
+  it("totals_by_ide (§1.2 (4)) never becomes a feature dim — IDEs are editors", () => {
+    for (const ide of ["vscode", "intellij"]) {
+      expect(record(batch, HEIDI, "feature_used", `feature=${ide}`, day)).toBeUndefined();
+    }
+  });
+
+  it("totals_by_language_feature / totals_by_model_feature add no rows (double-count audit)", () => {
+    // The ONLY feature dims are the coarse capabilities (heidi used chat +
+    // completion) — the granular cross-tab feature strings never appear.
+    const featureDims = new Set(
+      batch.records
+        .filter((r) => r.subject.externalId === HEIDI && r.metricKey === "feature_used")
+        .map((r) => r.dim),
+    );
+    expect(featureDims).toEqual(new Set(["feature=chat", "feature=completion"]));
+    // No language axis dim ever (dimKind is only model|feature).
+    expect(batch.records.some((r) => r.dim.includes("language"))).toBe(false);
+    // model_requests come from totals_by_language_model ONLY (25 / 15), never
+    // doubled by the model×feature cross-tab.
+    expect(record(batch, HEIDI, "model_requests", "model=gpt-5-copilot", day)?.value).toBe(25);
+    expect(record(batch, HEIDI, "model_requests", "model=claude-sonnet-5", day)?.value).toBe(15);
+    const modelRows = batch.records.filter(
+      (r) => r.subject.externalId === HEIDI && r.metricKey === "model_requests",
+    );
+    expect(modelRows).toHaveLength(2);
+  });
+});
+
 describe("normalize: personal spend context (§6a.2)", () => {
   const batch = normalizeCopilot({
     kind: ENVELOPE_KINDS.personalSpend,

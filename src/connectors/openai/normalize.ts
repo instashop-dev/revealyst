@@ -7,7 +7,13 @@ import type {
   MetricRecordInput,
   SubjectDaySignalInput,
 } from "../../contracts/metrics";
-import type { CompletionsBucket, CostsBucket, OpenAiRaw } from "./types";
+import type {
+  CodeInterpreterSessionsBucket,
+  CompletionsBucket,
+  CostsBucket,
+  OpenAiRaw,
+  WebSearchCallsBucket,
+} from "./types";
 
 // PURE normalize for the OpenAI org admin surface — shared verbatim by the
 // personal-key mode (W1-D) and the org-admin mode (W2-J): the modes differ
@@ -40,6 +46,10 @@ export function normalizeOpenAi(
       return normalizeCompletions(raw.payload.page.data);
     case "costs":
       return normalizeCosts(raw.payload.page.data);
+    case "usage_web_search":
+      return normalizeWebSearch(raw.payload.page.data);
+    case "usage_code_interpreter":
+      return normalizeCodeInterpreter(raw.payload.page.data);
   }
 }
 
@@ -148,6 +158,60 @@ function normalizeCosts(buckets: CostsBucket[]): NormalizedBatch {
       // Float USD → cents. numeric(24,6) absorbs the decimals; /costs is
       // the authoritative spend (usage × price ≠ costs — facts quirk).
       acc.add(ORG_SUBJECT, "account", "spend_cents", day, "", result.amount.value * 100);
+    }
+  }
+  return { records: acc.records(), signals: [], gaps: [] };
+}
+
+/**
+ * Web-search-call usage (W5-E re-scope, §1.2 (3)) → a `feature_used` flag
+ * (feature=web_search) per subject. Double-count justification: web search is
+ * a distinct tool CAPABILITY on its own endpoint, counted by no completions
+ * metric; the flag adds only breadth, deduped by distinct_dims, and is the
+ * OpenAI analog of the Anthropic web_search feature (cross-vendor consistent).
+ * Person attribution when the key is user-owned (user_id present); otherwise
+ * key/org, with the shared-key gap surfaced — identical honesty to completions.
+ */
+function normalizeWebSearch(buckets: WebSearchCallsBucket[]): NormalizedBatch {
+  const acc = new Accumulator();
+  let sawKeyLevel = false;
+  for (const bucket of buckets) {
+    const day = new Date(bucket.start_time * 1000).toISOString().slice(0, 10);
+    for (const result of bucket.results) {
+      const calls = result.num_calls ?? result.num_model_requests ?? 0;
+      if (calls <= 0) continue; // absence/idle is never a fabricated flag
+      const { subject, attribution, personLevel } = subjectForUsage(result);
+      sawKeyLevel ||= !personLevel && subject !== ORG_SUBJECT;
+      acc.add(subject, attribution, "feature_used", day, "feature=web_search", 1, "max");
+    }
+  }
+  return {
+    records: acc.records(),
+    signals: [],
+    gaps: sawKeyLevel ? [SHARED_KEY_GAP] : [],
+  };
+}
+
+/**
+ * Code-interpreter-session usage → an org-level `feature_used` flag
+ * (feature=code_interpreter). This family has NO user/key dimension
+ * (project_id only — connector-facts §4), so it is emitted on the ORG_SUBJECT
+ * at account attribution and NEVER per person (that would fabricate person
+ * detail the surface cannot support, invariant b). The vendor `num_sessions`
+ * count is deliberately NOT mapped to the `sessions` metric: the completions
+ * surface documents "no sessions concept" for person-level scoring, and an
+ * org-level account `sessions` number has no honest score home — presence
+ * (breadth) is the honest, score-consumed signal.
+ */
+function normalizeCodeInterpreter(
+  buckets: CodeInterpreterSessionsBucket[],
+): NormalizedBatch {
+  const acc = new Accumulator();
+  for (const bucket of buckets) {
+    const day = new Date(bucket.start_time * 1000).toISOString().slice(0, 10);
+    for (const result of bucket.results) {
+      if ((result.num_sessions ?? 0) <= 0) continue;
+      acc.add(ORG_SUBJECT, "account", "feature_used", day, "feature=code_interpreter", 1, "max");
     }
   }
   return { records: acc.records(), signals: [], gaps: [] };

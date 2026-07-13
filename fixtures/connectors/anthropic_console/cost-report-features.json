@@ -1,0 +1,44 @@
+{
+  "data": [
+    {
+      "starting_at": "2026-06-11T00:00:00Z",
+      "ending_at": "2026-06-12T00:00:00Z",
+      "results": [
+        {
+          "amount": "1000.00",
+          "currency": "USD",
+          "description": "Claude Opus 4 usage",
+          "cost_type": "tokens",
+          "workspace_id": null,
+          "model": "claude-opus-4"
+        },
+        {
+          "amount": "50.00",
+          "currency": "USD",
+          "description": "Web search",
+          "cost_type": "web_search",
+          "workspace_id": null,
+          "model": null
+        },
+        {
+          "amount": "25.00",
+          "currency": "USD",
+          "description": "Code execution",
+          "cost_type": "code_execution",
+          "workspace_id": null,
+          "model": null
+        },
+        {
+          "amount": "5.00",
+          "currency": "USD",
+          "description": "Session usage",
+          "cost_type": "session_usage",
+          "workspace_id": null,
+          "model": null
+        }
+      ]
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}

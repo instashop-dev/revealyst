@@ -10,11 +10,13 @@ import {
   callSpacing,
   CALL_SPACING_MS,
   checkAdminKey,
+  fetchCodeInterpreterUsage,
   fetchCompletionsUsage,
   fetchCosts,
   fetchOrgUsers,
   fetchProjectApiKeys,
   fetchProjects,
+  fetchWebSearchUsage,
   type FetchFn,
 } from "./client";
 import { normalizeOpenAi } from "./normalize";
@@ -127,6 +129,36 @@ export const openAiConnector: Connector<OpenAiRaw> = {
         payload: { surface: "costs", page },
       });
     }
+    await callSpacing(CALL_SPACING_MS);
+
+    // W5-E re-scope (§1.2 (3)): two previously-unfetched usage families that
+    // serve the wedge — web-search calls (per-subject feature signal) and
+    // code-interpreter sessions (org-level feature presence). Both land as
+    // feature_used flags in normalize(); audio/images/embeddings/moderations/
+    // vector_stores/file_search stay unfetched (cut order: no score consumes
+    // them yet).
+    const webSearchPages = await fetchWebSearchUsage(ctx.credential, window, fetchFn);
+    for (const page of webSearchPages) {
+      envelopes.push({
+        kind: ENVELOPE_KINDS.webSearch,
+        window,
+        payload: { surface: "usage_web_search", page },
+      });
+    }
+    await callSpacing(CALL_SPACING_MS);
+
+    const codeInterpreterPages = await fetchCodeInterpreterUsage(
+      ctx.credential,
+      window,
+      fetchFn,
+    );
+    for (const page of codeInterpreterPages) {
+      envelopes.push({
+        kind: ENVELOPE_KINDS.codeInterpreter,
+        window,
+        payload: { surface: "usage_code_interpreter", page },
+      });
+    }
     ctx.log(
       `openai: ${envelopes.length} envelopes for ${window.start}..${window.end}`,
     );
@@ -139,8 +171,9 @@ export const openAiConnector: Connector<OpenAiRaw> = {
 export const openAiEntry: RegisteredConnector = {
   connector: openAiConnector as Connector,
   sourceConnector: "openai@1",
-  // Per covered day: 1h usage buckets (168/request → ~1 call per week) +
-  // costs (180d/request) + pagination headroom ≈ 2.
-  maxCallsPerDay: 2,
+  // Per covered day: 1h completions buckets (168/request → ~1 call per week) +
+  // costs (180d/request) + web-search-calls (1d) + code-interpreter-sessions
+  // (1d) + pagination headroom ≈ 4 (W5-E added the two usage families).
+  maxCallsPerDay: 4,
   pollIntervalMinutes: 60,
 };

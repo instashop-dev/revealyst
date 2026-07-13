@@ -1,0 +1,50 @@
+{
+  "usageEvents": [
+    {
+      "timestamp": "1781168400000",
+      "userEmail": "alice@example.com",
+      "serviceAccountId": null,
+      "serviceAccountName": null,
+      "model": "claude-sonnet-5",
+      "kind": "agent",
+      "maxMode": false,
+      "isHeadless": true,
+      "isTokenBasedCall": true,
+      "isChargeable": true,
+      "requestsCosts": 1,
+      "tokenUsage": {
+        "inputTokens": 1000,
+        "outputTokens": 500,
+        "cacheWriteTokens": 0,
+        "cacheReadTokens": 0,
+        "totalCents": 12.5,
+        "discountPercentOff": 0
+      },
+      "chargedCents": 12.5,
+      "cursorTokenFee": 0
+    },
+    {
+      "timestamp": "1781168420000",
+      "userEmail": "alice@example.com",
+      "serviceAccountId": null,
+      "serviceAccountName": null,
+      "model": "gpt-5",
+      "kind": "chat",
+      "maxMode": false,
+      "isHeadless": false,
+      "isTokenBasedCall": true,
+      "isChargeable": false,
+      "requestsCosts": 0,
+      "tokenUsage": {
+        "inputTokens": 400,
+        "outputTokens": 200,
+        "cacheWriteTokens": 0,
+        "cacheReadTokens": 0,
+        "totalCents": 0,
+        "discountPercentOff": 0
+      },
+      "chargedCents": 0,
+      "cursorTokenFee": 0
+    }
+  ]
+}

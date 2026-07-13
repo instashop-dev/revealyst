@@ -127,6 +127,69 @@ describe("normalize: costs (authoritative, org-level only)", () => {
   });
 });
 
+describe("W5-E re-scope (§1.2 (3)): web_search_calls + code_interpreter_sessions", () => {
+  const webSearchBatch = normalizeOpenAi({
+    kind: ENVELOPE_KINDS.webSearch,
+    window: { start: "2026-06-11", end: "2026-06-11" },
+    payload: { surface: "usage_web_search", page: fixture("usage-web-search-1d.json") },
+  });
+  const codeInterpreterBatch = normalizeOpenAi({
+    kind: ENVELOPE_KINDS.codeInterpreter,
+    window: { start: "2026-06-11", end: "2026-06-11" },
+    payload: {
+      surface: "usage_code_interpreter",
+      page: fixture("usage-code-interpreter-1d.json"),
+    },
+  });
+
+  it("web_search_calls → feature=web_search, person for user-owned keys", () => {
+    const r = record(webSearchBatch, "user:user-alpha", "feature_used", "2026-06-11", "feature=web_search");
+    expect(r?.value).toBe(1);
+    expect(r?.subject.kind).toBe("person");
+    expect(r?.attribution).toBe("person");
+  });
+
+  it("web_search_calls: service-key usage stays key-level + surfaces the shared-key gap", () => {
+    const r = record(webSearchBatch, "key_svc", "feature_used", "2026-06-11", "feature=web_search");
+    expect(r?.subject.kind).toBe("api_key");
+    expect(r?.attribution).toBe("key_project");
+    expect(webSearchBatch.gaps).toContainEqual(
+      expect.objectContaining({ kind: "shared_key_not_person_level" }),
+    );
+    // The zero-call row (user-idle) never fabricates a flag.
+    expect(
+      webSearchBatch.records.some((r) => r.subject.externalId === "user:user-idle"),
+    ).toBe(false);
+  });
+
+  it("code_interpreter_sessions → org-level feature=code_interpreter, never per person", () => {
+    const r = record(codeInterpreterBatch, ORG_SUBJECT.externalId, "feature_used", "2026-06-11", "feature=code_interpreter");
+    expect(r?.value).toBe(1);
+    expect(r?.subject.kind).toBe("account");
+    expect(r?.attribution).toBe("account");
+    // No sessions metric fabricated (num_sessions is project-only, no person),
+    // and the zero-session project adds nothing.
+    expect(codeInterpreterBatch.records.some((r) => r.metricKey === "sessions")).toBe(false);
+    expect(codeInterpreterBatch.records).toHaveLength(1);
+  });
+
+  it("both new surfaces are pure/deterministic", () => {
+    expect(
+      normalizeOpenAi({
+        kind: ENVELOPE_KINDS.webSearch,
+        window: null,
+        payload: { surface: "usage_web_search", page: fixture("usage-web-search-1d.json") },
+      }),
+    ).toEqual(
+      normalizeOpenAi({
+        kind: ENVELOPE_KINDS.webSearch,
+        window: null,
+        payload: { surface: "usage_web_search", page: fixture("usage-web-search-1d.json") },
+      }),
+    );
+  });
+});
+
 describe("determinism + registration", () => {
   it("same envelope in, deep-equal batch out", () => {
     expect(normalizeOpenAi(usageEnvelope)).toEqual(normalizeOpenAi(usageEnvelope));

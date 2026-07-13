@@ -98,12 +98,55 @@ export type ProjectApiKeysList = {
   last_id?: string | null;
 };
 
+/** /v1/organization/usage/web_search_calls — one 1d bucket (W5-E re-scope,
+ * §1.2 (3)). Newer endpoint; the exact result-object name is NLV-O10, and the
+ * call-count field name is unverified — the normalizer reads it leniently. Can
+ * be grouped by user_id/api_key_id (NOT in the project-only restriction), so it
+ * carries the same person/key/org attribution dims as completions. */
+export type WebSearchCallsBucket = {
+  start_time: number;
+  end_time: number;
+  results: WebSearchCallsResult[];
+};
+
+export type WebSearchCallsResult = {
+  object?: string;
+  /** Call count — vendor field name unverified (NLV-O10); both spellings read. */
+  num_calls?: number;
+  num_model_requests?: number;
+  project_id: string | null;
+  user_id: string | null;
+  api_key_id: string | null;
+};
+
+/** /v1/organization/usage/code_interpreter_sessions — one 1d bucket. Grouped by
+ * `project_id` ONLY: it has NO user/key dimension (connector-facts §4), so it is
+ * NEVER presented per person — org-level feature presence only. */
+export type CodeInterpreterSessionsBucket = {
+  start_time: number;
+  end_time: number;
+  results: CodeInterpreterSessionsResult[];
+};
+
+export type CodeInterpreterSessionsResult = {
+  object?: string;
+  num_sessions?: number;
+  project_id: string | null;
+};
+
 /** Discriminated raw union the connector's envelopes carry. */
 export type OpenAiRaw =
   | { surface: "usage_completions"; page: OpenAiPage<CompletionsBucket> }
-  | { surface: "costs"; page: OpenAiPage<CostsBucket> };
+  | { surface: "costs"; page: OpenAiPage<CostsBucket> }
+  | { surface: "usage_web_search"; page: OpenAiPage<WebSearchCallsBucket> }
+  | {
+      surface: "usage_code_interpreter";
+      page: OpenAiPage<CodeInterpreterSessionsBucket>;
+    };
 
 export const ENVELOPE_KINDS = {
   completions: "openai.usage.completions.1h",
   costs: "openai.costs.1d",
+  webSearch: "openai.usage.web_search_calls.1d",
+  codeInterpreter: "openai.usage.code_interpreter_sessions.1d",
 } as const;

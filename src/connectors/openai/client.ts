@@ -1,12 +1,14 @@
 import { RetryableConnectorError } from "../../poller/run";
 import { withTimeout } from "../http";
 import type {
+  CodeInterpreterSessionsBucket,
   CompletionsBucket,
   CostsBucket,
   OpenAiPage,
   OrgProjectsList,
   OrgUsersList,
   ProjectApiKeysList,
+  WebSearchCallsBucket,
 } from "./types";
 
 // Thin HTTP layer for the OpenAI org admin surface. Error policy per
@@ -278,6 +280,55 @@ export async function fetchCosts(
       end_time: unixStart(nextDay(window.end)),
       bucket_width: "1d",
       limit: "180",
+    },
+    fetchFn,
+  );
+}
+
+/**
+ * Web-search-call usage, 1d buckets over [start, end] inclusive UTC days
+ * (W5-E re-scope, §1.2 (3)). Grouped by user_id/api_key_id so the per-person
+ * feature attribution survives (this family is NOT in the project-only
+ * restriction — connector-facts §4).
+ */
+export async function fetchWebSearchUsage(
+  credential: string,
+  window: { start: string; end: string },
+  fetchFn: FetchFn = fetch,
+): Promise<Array<OpenAiPage<WebSearchCallsBucket>>> {
+  return paginatePages<WebSearchCallsBucket>(
+    credential,
+    "/v1/organization/usage/web_search_calls",
+    {
+      start_time: unixStart(window.start),
+      end_time: unixStart(nextDay(window.end)),
+      bucket_width: "1d",
+      group_by: ["user_id", "api_key_id"],
+      limit: "31",
+    },
+    fetchFn,
+  );
+}
+
+/**
+ * Code-interpreter-session usage, 1d buckets. This family has NO user/key
+ * dimension (project_id only — connector-facts §4), so it is org-level: the
+ * normalizer emits a feature-presence flag on the org subject, never per person.
+ */
+export async function fetchCodeInterpreterUsage(
+  credential: string,
+  window: { start: string; end: string },
+  fetchFn: FetchFn = fetch,
+): Promise<Array<OpenAiPage<CodeInterpreterSessionsBucket>>> {
+  return paginatePages<CodeInterpreterSessionsBucket>(
+    credential,
+    "/v1/organization/usage/code_interpreter_sessions",
+    {
+      start_time: unixStart(window.start),
+      end_time: unixStart(nextDay(window.end)),
+      bucket_width: "1d",
+      group_by: ["project_id"],
+      limit: "31",
     },
     fetchFn,
   );

@@ -115,6 +115,22 @@ describe("normalize: usage_report/messages (1h buckets)", () => {
       batch.signals.some((s) => s.subject.externalId === "apikey_01IDLE"),
     ).toBe(false);
   });
+
+  it("W5-E: server_tool_use.web_search_requests → feature=web_search only when >0", () => {
+    // apikey_01AAA had web_search_requests: 2 on 2026-06-11 (feature fires),
+    // and 0 on the 14:00 bucket → still exactly one flag (max mode).
+    expect(
+      record(batch, "apikey_01AAA", "feature_used", "2026-06-11", "feature=web_search")?.value,
+    ).toBe(1);
+    // svcacct_01CCC had web_search_requests: 1 on 2026-06-12.
+    expect(
+      record(batch, "svcacct_01CCC", "feature_used", "2026-06-12", "feature=web_search")?.value,
+    ).toBe(1);
+    // acct_01BBB never used web search (0) → no flag, never fabricated.
+    expect(
+      record(batch, "acct:acct_01BBB", "feature_used", "2026-06-11", "feature=web_search"),
+    ).toBeUndefined();
+  });
 });
 
 describe("normalize: cost_report (authoritative org spend)", () => {
@@ -132,6 +148,83 @@ describe("normalize: cost_report (authoritative org spend)", () => {
 
   it("never invents per-person spend from an org-level report", () => {
     expect(batch.records.every((r) => r.subject.kind === "account")).toBe(true);
+  });
+});
+
+describe("W5-E: cost_type split → org-level feature flags (never per-category spend)", () => {
+  const featuresPage = fixture("cost-report-features.json");
+  const batch = normalizeAnthropic({
+    kind: ENVELOPE_KINDS.cost,
+    window: { start: "2026-06-11", end: "2026-06-11" },
+    payload: { surface: "cost_report", page: featuresPage },
+  });
+
+  it("emits feature=web_search + feature=code_execution on the org subject", () => {
+    expect(
+      record(batch, ORG_SUBJECT.externalId, "feature_used", "2026-06-11", "feature=web_search")
+        ?.value,
+    ).toBe(1);
+    expect(
+      record(batch, ORG_SUBJECT.externalId, "feature_used", "2026-06-11", "feature=code_execution")
+        ?.value,
+    ).toBe(1);
+    // Feature flags stay account-attributed on the org subject.
+    expect(
+      record(batch, ORG_SUBJECT.externalId, "feature_used", "2026-06-11", "feature=web_search")
+        ?.subject.kind,
+    ).toBe("account");
+  });
+
+  it("the authoritative spend total is unchanged — no per-category spend dims", () => {
+    // Single dimensionless spend_cents row summing ALL cost types
+    // (1000 + 50 + 25 + 5 = 1080), never split into per-type spend dims.
+    const spend = batch.records.filter((r) => r.metricKey === "spend_cents");
+    expect(spend).toHaveLength(1);
+    expect(spend[0].dim).toBe("");
+    expect(spend[0].value).toBeCloseTo(1080, 6);
+  });
+
+  it("STAYS DROPPED: `tokens` and undocumented `session_usage` cost types are not features", () => {
+    const featureDims = batch.records
+      .filter((r) => r.metricKey === "feature_used")
+      .map((r) => r.dim);
+    expect(featureDims).not.toContain("feature=tokens");
+    expect(featureDims).not.toContain("feature=session_usage");
+    // description is freeform prose — never a dim.
+    expect(featureDims.every((d) => !d.includes("usage") || d === "")).toBe(true);
+  });
+});
+
+describe("W5-E stays-dropped pins: claude_code terminal_type + model_breakdown.tokens (§1.2 (4))", () => {
+  // claude-code-daily.json carries terminal_type (vscode / iTerm.app) AND
+  // model_breakdown[].tokens on every actor. Neither may reach normalized
+  // output — terminal_type is an editor identity (breadth inflation, the
+  // Copilot-IDE class), and model_breakdown tokens double-count the usage
+  // report (the single canonical token source). "Fixing" either into emission
+  // is a regression (invariant b).
+  const batch = normalizeAnthropic(claudeCodeEnvelope);
+
+  it("emits NO terminal dim for any actor", () => {
+    expect(batch.records.some((r) => r.dim.includes("terminal"))).toBe(false);
+    // The only feature dim on this surface is the coarse claude_code capability.
+    const featureDims = new Set(
+      batch.records.filter((r) => r.metricKey === "feature_used").map((r) => r.dim),
+    );
+    expect(featureDims).toEqual(new Set(["feature=claude_code"]));
+  });
+
+  it("emits NO token metric from model_breakdown (usage report is canonical)", () => {
+    const tokenKeys = new Set([
+      "tokens_input",
+      "tokens_output",
+      "tokens_cache_read",
+      "tokens_cache_write",
+      "model_tokens",
+      "model_requests",
+    ]);
+    expect(batch.records.some((r) => tokenKeys.has(r.metricKey))).toBe(false);
+    // ...yet the estimated-spend derived from model_breakdown still lands.
+    expect(record(batch, "alice@example.com", "spend_cents_estimated", "2026-06-11")?.value).toBe(95);
   });
 });
 

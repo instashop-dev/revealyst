@@ -87,6 +87,32 @@ describe("COACHING_RECOMMENDATIONS", () => {
   });
 });
 
+describe("W5-E optimization metadata (§8.2 catalog columns)", () => {
+  const IMPACT = new Set(["high", "medium", "low"]);
+  const DIFFICULTY = new Set(["low", "medium", "high"]);
+  const CONFIDENCE = new Set(["high", "medium", "low"]);
+  const ACTION_TYPES = new Set(["link-out", "in-product-setting", "vendor-deep-link"]);
+
+  it("every entry carries impact/difficulty/confidence from the closed vocabularies", () => {
+    for (const rec of COACHING_RECOMMENDATIONS) {
+      expect(IMPACT.has(rec.impact), `${rec.id} impact`).toBe(true);
+      expect(DIFFICULTY.has(rec.difficulty), `${rec.id} difficulty`).toBe(true);
+      expect(CONFIDENCE.has(rec.confidence), `${rec.id} confidence`).toBe(true);
+    }
+  });
+
+  it("actionType is exactly the §8.2 three-value suggested-action taxonomy", () => {
+    for (const rec of COACHING_RECOMMENDATIONS) {
+      expect(ACTION_TYPES.has(rec.actionType), `${rec.id} actionType`).toBe(true);
+    }
+    // All three action shapes are exercised across the seven entries — the
+    // catalog isn't collapsed to one value.
+    expect(new Set(COACHING_RECOMMENDATIONS.map((r) => r.actionType))).toEqual(
+      ACTION_TYPES,
+    );
+  });
+});
+
 describe("findCoachingRecommendation", () => {
   it("resolves a real (slug, component) pattern", () => {
     const rec = findCoachingRecommendation("adoption", "active_days");

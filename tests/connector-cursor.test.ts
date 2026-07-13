@@ -230,6 +230,31 @@ describe("normalize: filtered-usage-events (tokens/spend/model + signals)", () =
   });
 });
 
+describe("W5-E: isHeadless → feature=headless; isChargeable stays dropped", () => {
+  const headlessRes = fixture("filtered-usage-events-headless.json");
+  const batch = normalizeCursor({
+    kind: ENVELOPE_KINDS.usageEvents,
+    window: { start: "2026-06-11", end: "2026-06-11" },
+    payload: { surface: "usage_events", events: headlessRes.usageEvents },
+  });
+
+  it("a headless (automated/background) event → feature=headless on the person", () => {
+    // Alice's first event isHeadless:true (kind=agent); second isHeadless:false
+    // (kind=chat). feature=headless fires once; feature=agent + feature=chat too.
+    expect(record(batch, ALICE, "feature_used", "2026-06-11", "feature=headless")?.value).toBe(1);
+    expect(record(batch, ALICE, "feature_used", "2026-06-11", "feature=agent")?.value).toBe(1);
+    expect(record(batch, ALICE, "feature_used", "2026-06-11", "feature=chat")?.value).toBe(1);
+  });
+
+  it("STAYS DROPPED: isChargeable never becomes a feature dim (billing attribute)", () => {
+    expect(batch.records.some((r) => r.dim === "feature=chargeable")).toBe(false);
+    // Spend stays authoritative via chargedCents — the non-chargeable event
+    // (chargedCents 0) simply adds nothing, and only the chargeable event's
+    // 12.5c lands.
+    expect(record(batch, ALICE, "spend_cents", "2026-06-11")?.value).toBeCloseTo(12.5, 4);
+  });
+});
+
 describe("determinism + registration", () => {
   it("same envelope in, deep-equal batch out", () => {
     expect(normalizeCursor(eventsEnvelope)).toEqual(normalizeCursor(eventsEnvelope));

@@ -35,6 +35,21 @@ export type CoachingSignalGroup =
   | "output-per-spend"
   | "engagement-per-spend";
 
+/** W5-E optimization metadata (§8.2). Closed-vocabulary catalog columns that
+ * become seeded `recommendation_catalog` rows in W6-C — kept as static,
+ * G6-compliant data here (no DSL, no per-user generation). They describe the
+ * ADVICE PATTERN, never a person: `impact` is the typical adoption upside of
+ * following it, `difficulty` the typical effort, `confidence` how well-evidenced
+ * the guidance is, `actionType` the shape of the suggested next step. */
+export type CoachingImpact = "high" | "medium" | "low";
+export type CoachingDifficulty = "low" | "medium" | "high";
+export type CoachingConfidence = "high" | "medium" | "low";
+/** §8.2's 3-value suggested-action taxonomy — a CLOSED enum. `link-out` =
+ * points at external docs/guidance; `in-product-setting` = a change the user
+ * makes inside Revealyst or their own workflow; `vendor-deep-link` = a jump
+ * into the connected vendor's own surface. */
+export type CoachingActionType = "link-out" | "in-product-setting" | "vendor-deep-link";
+
 export type CoachingRecommendation = {
   /** Stable pattern id, unique across the map. */
   id: string;
@@ -49,6 +64,14 @@ export type CoachingRecommendation = {
   title: string;
   /** One-to-three sentences of task-focused guidance. */
   body: string;
+  /** Typical adoption upside of following this pattern (W5-E; §8.2). */
+  impact: CoachingImpact;
+  /** Typical effort to act on it (W5-E; §8.2). */
+  difficulty: CoachingDifficulty;
+  /** How well-evidenced the guidance is (W5-E; §8.2). */
+  confidence: CoachingConfidence;
+  /** Shape of the suggested next step (W5-E; §8.2 closed taxonomy). */
+  actionType: CoachingActionType;
 };
 
 /** Appended to every rendered recommendation body by `deriveAttention` so the
@@ -68,6 +91,10 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     signalGroup: "active-days",
     title: "Make AI part of the daily routine",
     body: "The active-days part of Adoption is measuring low. Adoption grows when AI tools get reached for on more days, not just more within a single day. A common starting point is routing one recurring task — a standup summary, a first-draft email, a code-review comment — through an AI tool each day.",
+    impact: "high",
+    difficulty: "low",
+    confidence: "high",
+    actionType: "in-product-setting",
   },
   {
     id: "adoption-tool-coverage",
@@ -76,6 +103,10 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     signalGroup: "feature-breadth",
     title: "Broaden which AI features get used",
     body: "The tool-coverage part of Adoption is measuring low, which usually means usage leans on one or two features. Trying an additional connected feature — chat, inline completion, or an agent mode — for a task it fits is a common way to widen coverage.",
+    impact: "medium",
+    difficulty: "low",
+    confidence: "high",
+    actionType: "in-product-setting",
   },
   {
     id: "fluency-breadth",
@@ -84,6 +115,10 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     signalGroup: "feature-breadth",
     title: "Explore more of what the connected tools can do",
     body: "The breadth part of Fluency is measuring low. Reaching for more distinct features across the connected tools — rather than one narrow use — is what moves it. Picking one unused feature and finding a real task for it is a common approach.",
+    impact: "medium",
+    difficulty: "medium",
+    confidence: "high",
+    actionType: "link-out",
   },
   {
     id: "fluency-depth",
@@ -92,6 +127,10 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     signalGroup: "active-days",
     title: "Use AI on more days, not just more per day",
     body: "The depth part of Fluency — how many days had any activity — is measuring low. More regular, day-to-day use tends to build steadier habits than occasional bursts, so spreading AI use across more days is a common way to raise it.",
+    impact: "high",
+    difficulty: "low",
+    confidence: "high",
+    actionType: "in-product-setting",
   },
   {
     id: "fluency-effectiveness",
@@ -100,6 +139,10 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     signalGroup: "effectiveness",
     title: "Look at why suggestions are being turned down",
     body: "The effectiveness part of Fluency — how often AI suggestions get accepted — is measuring low. Reviewing the kinds of tasks where suggestions get rejected, and adjusting how those tasks are framed to the tool, is a common way to raise acceptance.",
+    impact: "high",
+    difficulty: "medium",
+    confidence: "medium",
+    actionType: "link-out",
   },
   {
     id: "efficiency-output-per-spend",
@@ -108,6 +151,10 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     signalGroup: "output-per-spend",
     title: "Weigh accepted output against what's being spent",
     body: "The output-per-spend part of Efficiency is measuring low. That can mean low acceptance or high spend relative to accepted output — comparing the accepted-suggestion counts against the billed spend for each tool is a common place to start.",
+    impact: "medium",
+    difficulty: "medium",
+    confidence: "medium",
+    actionType: "vendor-deep-link",
   },
   {
     id: "efficiency-engagement-per-spend",
@@ -116,6 +163,10 @@ export const COACHING_RECOMMENDATIONS: readonly CoachingRecommendation[] = [
     signalGroup: "engagement-per-spend",
     title: "Check active engagement against what's being spent",
     body: "The engagement-per-spend part of Efficiency is measuring low. Reviewing whether the tools with the most spend are the ones people are actually active in — and rightsizing seats or plans that see little use — is a common way to improve it.",
+    impact: "high",
+    difficulty: "medium",
+    confidence: "high",
+    actionType: "vendor-deep-link",
   },
 ];
 
