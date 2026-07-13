@@ -3,7 +3,17 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeAll, describe, expect, it } from "vitest";
-import { buildIngestRequest } from "../packages/revealyst-agent/src/index";
+import {
+  AGENT_COLLECTION_FIELDS as CLI_COLLECTION_FIELDS,
+  AGENT_NEVER_COLLECTED as CLI_NEVER_COLLECTED,
+  buildIngestRequest,
+  composeSyncReward,
+  summarizeBatchHighlights,
+} from "../packages/revealyst-agent/src/index";
+import {
+  AGENT_COLLECTION_FIELDS as APP_COLLECTION_FIELDS,
+  AGENT_NEVER_COLLECTED as APP_NEVER_COLLECTED,
+} from "../src/lib/agent-collection-schema";
 import { agentIngestRequestSchema } from "../src/contracts/api";
 import type { Db } from "../src/db/client";
 import { forOrg } from "../src/db/org-scope";
@@ -76,6 +86,37 @@ describe("CLI batch ↔ frozen contract", () => {
     });
     // No events → no records, but the envelope itself must stay valid.
     expect(agentIngestRequestSchema.safeParse(fallback).success).toBe(true);
+  });
+});
+
+describe("collection allowlist mirror (W5-G)", () => {
+  // The app never imports the CLI package at runtime, so the transparency
+  // panel reads an app-side mirror of the on-device allowlist. This binds
+  // the two: the panel (and the W5-N schema page) cannot drift from the
+  // agent's parse allowlist, which is itself pinned to parse.ts by the CLI
+  // package's own allowlist.test.ts.
+  it("the app mirror is byte-identical to the CLI collection allowlist", () => {
+    expect(APP_COLLECTION_FIELDS).toEqual(CLI_COLLECTION_FIELDS);
+    expect(APP_NEVER_COLLECTED).toEqual(CLI_NEVER_COLLECTED);
+  });
+});
+
+describe("same-click reward echoes the server response (W5-G)", () => {
+  // Deliverable 1: the reward is composed from the ingest RESPONSE counts
+  // (echoed by the server) plus the batch the CLI built. Prove the loop with
+  // a real built batch: the response `records` count drives the headline.
+  it("headline uses the server-echoed record count and the pushed window", () => {
+    const highlights = summarizeBatchHighlights(request);
+    const reward = composeSyncReward({
+      records: request.records.length,
+      signals: request.signals.length,
+      subjects: request.subjects.length,
+      window: request.window,
+      highlights,
+    });
+    expect(reward.headline).toContain(`${request.records.length} records`);
+    expect(reward.headline).toContain(request.window.start);
+    expect(reward.headline).toContain(request.window.end);
   });
 });
 

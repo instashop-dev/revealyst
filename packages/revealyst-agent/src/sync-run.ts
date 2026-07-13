@@ -10,6 +10,11 @@ import type { SessionFileRef } from "./discover";
 import { resolveLocalIdentity } from "./identity";
 import { buildIngestRequest } from "./index";
 import type { pushBatch } from "./push";
+import {
+  composeSyncReward,
+  summarizeBatchHighlights,
+  transparencyUrl,
+} from "./reward";
 import type { StreamParseResult } from "./stream";
 import { trailingWindow } from "./window";
 
@@ -143,5 +148,21 @@ export async function runSync(
     `Pushed: ${result.records} records, ${result.signals} signals, ` +
       `${result.subjects} subject(s) upserted.`,
   );
+
+  // The same-click reward (Spec §10): factual counts from the server's echo
+  // plus one honesty-gated superlative from the batch we just built. Never a
+  // sync nag; never a fabricated positive on thin data.
+  const reward = composeSyncReward({
+    records: result.records,
+    signals: result.signals,
+    subjects: result.subjects,
+    window: batch.window,
+    highlights: summarizeBatchHighlights(batch),
+  });
+  deps.log(reward.headline);
+  if (reward.positive) {
+    deps.log(reward.positive);
+  }
+  deps.log(`See exactly what this sync sent: ${transparencyUrl(config.apiBaseUrl)}`);
   return { kind: "ok" };
 }
