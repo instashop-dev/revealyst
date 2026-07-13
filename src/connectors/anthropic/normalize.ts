@@ -34,6 +34,18 @@ const OAUTH_GAP: HonestyGap = {
 /** The whole-org subject the org-level cost report lands on. */
 export const ORG_SUBJECT = { kind: "account", externalId: "org" } as const;
 
+/** W5-E: cost_report `cost_type` values that name a genuine tool CAPABILITY
+ * (as opposed to plain `tokens` spend). `code_execution` appears ONLY in the
+ * cost report (connector-facts §3), so this is its single honest surface; the
+ * value maps to the canonical feature dim. `tokens` (not a feature) and the
+ * undocumented `session_usage` (NLV-A7 — semantics unverified) are deliberately
+ * NOT mapped. The `description` field is freeform, high-cardinality vendor prose
+ * (e.g. "Claude Opus 4 usage") — never a dim (it would pollute distinct_dims). */
+const FEATURE_COST_TYPES: Record<string, string> = {
+  web_search: "web_search",
+  code_execution: "code_execution",
+};
+
 type Subject = MetricRecordInput["subject"];
 
 export function normalizeAnthropic(
@@ -105,6 +117,17 @@ function normalizeUsage(buckets: UsageBucket[]): NormalizedBatch {
       if (result.model) {
         acc.add(subject, attribution, "model_tokens", day, `model=${result.model}`, totalTokens);
       }
+      // W5-E: server-side web-search tool use → a first-class `feature_used`
+      // flag (feature=web_search). Double-count justification (connector-facts
+      // §3 "server_tool_use.web_search_requests"): it is a distinct agentic
+      // tool CAPABILITY, represented by no token/spend/model metric — the
+      // tokens it consumes already land in tokens_*; the flag adds only the
+      // "this subject used web search" breadth bit. `distinct_dims` (evaluate.ts)
+      // dedupes by dim value, so the same feature=web_search emitted for a
+      // subject from BOTH this surface and the org cost report counts once.
+      if ((result.server_tool_use?.web_search_requests ?? 0) > 0) {
+        acc.add(subject, attribution, "feature_used", day, "feature=web_search", 1, "max");
+      }
       if (totalTokens > 0) {
         acc.add(subject, attribution, "active_day", day, "", 1, "max");
         const key = `${subject.kind}:${subject.externalId}:${day}`;
@@ -143,7 +166,24 @@ function normalizeCost(buckets: CostBucket[]): NormalizedBatch {
       }
       // The cost report has NO person dimension — org-level, account
       // attribution, and that is the honest ceiling for authoritative spend.
+      // The authoritative total stays dimensionless (spend_cents is a
+      // dimKind:null catalog metric): the cost_type SPLIT is surfaced as
+      // feature flags (below), never as per-category spend dims — splitting
+      // dimensionless spend would need a new catalog key (ADR), and readers
+      // sum every dim of a key, so a per-type spend dim would double-count.
       acc.add(ORG_SUBJECT, "account", "spend_cents", day, "", cents);
+
+      // cost_type/description SPLIT (W5-E): emit a `feature_used` flag for the
+      // feature-bearing cost types — the org-level "this org used web search /
+      // code execution" breadth bit, at account attribution on the org subject.
+      // Set-deduped by distinct_dims, so it never double-counts the per-subject
+      // feature=web_search the usage surface already emits.
+      const feature = result.cost_type
+        ? FEATURE_COST_TYPES[result.cost_type]
+        : undefined;
+      if (feature) {
+        acc.add(ORG_SUBJECT, "account", "feature_used", day, `feature=${feature}`, 1, "max");
+      }
     }
   }
   return { records: acc.records(), signals: [], gaps: [] };
@@ -189,6 +229,21 @@ function normalizeClaudeCode(records: ClaudeCodeRecord[]): NormalizedBatch {
     acc.add(subject, attribution, "lines_added", day, "", core.lines_of_code.added);
     acc.add(subject, attribution, "lines_removed", day, "", core.lines_of_code.removed);
     acc.add(subject, attribution, "feature_used", day, "feature=claude_code", 1, "max");
+
+    // W5-E harvest, EVALUATED and SKIPPED: `terminal_type` (vscode, iTerm.app,
+    // Apple_Terminal, tmux, …). It names the EDITOR/terminal environment, not a
+    // capability — exactly the class the Copilot connector drops as
+    // `totals_by_ide` ("IDEs are editors, not features"). The only dim-carrying
+    // flag key is feature_used, and the live presets count EVERY distinct
+    // feature_used dim into Adoption/Fluency breadth (evaluate.ts distinct_dims,
+    // no namespace filter). A `feature=terminal:<type>` dim would hand every
+    // Claude Code user +1 breadth for merely running in a terminal (and more
+    // for switching terminals) — the same breadth inflation the Copilot IDE
+    // drop prevents (invariant b). No score-inert dim-carrying home exists
+    // without a catalog ADR (out of scope). tests pin that no terminal dim is
+    // ever emitted. The `model_breakdown.tokens.*` under this record likewise
+    // stays dropped — the usage report is the single canonical token source
+    // (see the estimated-spend note below; §1.2 (4) protected drop).
 
     let accepted = 0;
     let rejected = 0;

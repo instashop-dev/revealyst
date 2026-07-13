@@ -215,6 +215,25 @@ function normalizeUsageEvents(events: CursorUsageEvent[]): NormalizedBatch {
     if (event.kind) {
       acc.add(subject, attribution, "feature_used", day, `feature=${event.kind}`, 1, "max");
     }
+    // W5-E: `isHeadless` → feature=headless. A headless event is an
+    // automated/background (agent/CI) invocation — a genuinely DISTINCT
+    // workflow, orthogonal to `kind` (composer/chat/agent describe WHAT was
+    // asked; headless describes HOW it ran). Double-count justification
+    // (connector-facts §2 `isHeadless`): it overlaps no other emitted metric
+    // (unlike the banned feature=apply, which `totalAccepts>0` implies), and
+    // distinct_dims dedupes it — a headless-heavy subject gets exactly +1
+    // breadth for the headless workflow, once. This is the surfaced
+    // "workflow diversity" signal W5-E promotes.
+    if (event.isHeadless) {
+      acc.add(subject, attribution, "feature_used", day, "feature=headless", 1, "max");
+    }
+    // `isChargeable` is EVALUATED and SKIPPED (W5-E): it is a BILLING attribute,
+    // not a capability. Spend is already authoritative via `chargedCents`
+    // (summed above), so a chargeable count adds no honest spend signal; and as
+    // a feature dim `feature=chargeable` would inflate distinct_dims breadth
+    // with a billing status — the same class as the banned
+    // subscriptionIncludedReqs/usageBasedReqs billing-partition skips above.
+    // tests pin that no feature=chargeable dim is ever emitted.
 
     const dayKey = `${subject.kind}:${subject.externalId}:${day}`;
     let entry = perDay.get(dayKey);

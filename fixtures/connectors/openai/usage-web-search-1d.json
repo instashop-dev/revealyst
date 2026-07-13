@@ -1,0 +1,34 @@
+{
+  "object": "page",
+  "data": [
+    {
+      "start_time": 1781136000,
+      "end_time": 1781222400,
+      "results": [
+        {
+          "object": "organization.usage.web_search_calls.result",
+          "num_calls": 9,
+          "project_id": "proj_alpha",
+          "user_id": "user-alpha",
+          "api_key_id": "key_01"
+        },
+        {
+          "object": "organization.usage.web_search_calls.result",
+          "num_calls": 4,
+          "project_id": "proj_alpha",
+          "user_id": null,
+          "api_key_id": "key_svc"
+        },
+        {
+          "object": "organization.usage.web_search_calls.result",
+          "num_calls": 0,
+          "project_id": "proj_alpha",
+          "user_id": "user-idle",
+          "api_key_id": "key_idle"
+        }
+      ]
+    }
+  ],
+  "has_more": false,
+  "next_page": null
+}

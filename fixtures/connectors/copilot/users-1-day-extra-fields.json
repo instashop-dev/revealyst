@@ -1,0 +1,35 @@
+{
+  "report_day": "2026-06-21",
+  "records": [
+    {
+      "day": "2026-06-21",
+      "organization_id": 4242,
+      "user_id": 2101,
+      "user_login": "heidi",
+      "user_initiated_interaction_count": 40,
+      "code_generation_activity_count": 120,
+      "code_acceptance_activity_count": 60,
+      "loc_suggested_to_add_sum": 500,
+      "loc_suggested_to_delete_sum": 140,
+      "loc_added_sum": 300,
+      "loc_deleted_sum": 45,
+      "used_chat": true,
+      "totals_by_ide": [
+        { "feature": "vscode", "user_initiated_interaction_count": 30 },
+        { "feature": "intellij", "user_initiated_interaction_count": 10 }
+      ],
+      "totals_by_language_feature": [
+        { "feature": "code_completion", "user_initiated_interaction_count": 25 },
+        { "feature": "chat_inline", "user_initiated_interaction_count": 15 }
+      ],
+      "totals_by_model_feature": [
+        { "model": "gpt-5-copilot", "feature": "code_completion", "user_initiated_interaction_count": 25 },
+        { "model": "claude-sonnet-5", "feature": "chat_panel_ask_mode", "user_initiated_interaction_count": 15 }
+      ],
+      "totals_by_language_model": [
+        { "model": "gpt-5-copilot", "user_initiated_interaction_count": 25 },
+        { "model": "claude-sonnet-5", "user_initiated_interaction_count": 15 }
+      ]
+    }
+  ]
+}

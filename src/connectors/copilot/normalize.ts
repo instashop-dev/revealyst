@@ -85,6 +85,26 @@ function normalizeUsersDaily(records: CopilotUserDayRecord[]): NormalizedBatch {
     add(acc, subject, "lines_added", day, record.loc_added_sum);
     add(acc, subject, "lines_removed", day, record.loc_deleted_sum);
 
+    // W5-E harvest, EVALUATED and SKIPPED (each justified against double-count):
+    //  • loc_suggested_to_delete_sum: suggested DELETIONS. lines_suggested is
+    //    the completion-funnel *offered* denominator for the LoC-acceptance
+    //    ratio loc_added/lines_suggested (metrics-glossary.ts), which is the
+    //    ADD side only — folding suggested-deletes into it would corrupt that
+    //    ratio (mixing add-offered with delete-offered). There is no
+    //    lines_suggested_removed key; a parallel delete funnel
+    //    (loc_deleted_sum / suggested-to-delete) needs a new catalog key = ADR.
+    //    Skipped, not mismapped (invariant b).
+    //  • totals_by_language_feature / totals_by_model_feature: cross-tab
+    //    breakdowns of the SAME interactions already counted by
+    //    totals_by_language_model (→ model_requests) and the used_* capability
+    //    flags. Emitting model_requests from totals_by_model_feature would
+    //    double-count the model mix; the `language` axis has no catalog dim
+    //    home (dimKind is only model|feature), and the `feature` axis overlaps
+    //    the coarse capability flags exactly like the banned granular
+    //    totals_by_feature strings. No honest home → skipped until an ADR.
+    // tests/connector-copilot.test.ts pins these skips on the extra-fields
+    // fixture (no delete-suggested lines, no language/model-feature rows).
+
     // Spend: native AI Credits (NOT dollars). Emit only when the field is
     // present — earlier days are absence, never a measured zero (facts §1).
     if (typeof record.ai_credits_used === "number") {
