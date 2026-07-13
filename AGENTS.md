@@ -43,9 +43,26 @@ it is the interface between agents.
 > factories (public API unchanged, ADR 0027) + `assertTeamOnlyPseudonymized` generalized to a
 > completeness-tripwire surface registry. **OTel receiver spike** decided GO / OTLP-HTTP-JSON
 > (`docs/research/2026-07-13-claude-code-otel-receiver-spike.md`; fixture capture founder-gated).
-> Latest migration **0025**, latest ADR **0029**. **Next up (W6, gated):** the §14 6-week
-> dogfood clock gates W6-A (Companion-in-Team-orgs + dual-source dedup); W6-B/C (Roles→catalog),
-> W6-D (OTel receiver, needs founder telemetry capture), W6-E/F/G proceed per plan §4.
+> Latest W5 migration **0025**, ADR **0029**. Prod deployed + §14 dogfood clock running since
+> 2026-07-14; OTel telemetry configured founder-side (capture harness: `scripts/otel-capture.mjs`).
+
+> **V4 Wave 6 (V1) — non-gated slice shipped — 2026-07-14** (PRs #199–#202): **Roles** (`roles`
+> global reference + `role_assignments`, engineering-only seed, Settings assignment — mig 0026,
+> ADR 0030). **Recommendation catalog** (`recommendation_catalog`, seeded VERBATIM from the
+> retired 7-entry static map + §8.2 metadata; `deriveAttention` reads it via ONE per-org batched
+> read, in-memory per-person eval; migration-equivalence test pins identical output; `score_slug`
+> ≠ `slug` — mig 0029, ADR 0033). **Monthly Executive narrative** one-pager (email + `/api/exec-report`
+> export; `exec_report_state` org-level opt-in + month CAS; `composeExecReport` wraps `composeNarrative`;
+> cron `0 16 1 * *` — mig 0028, ADR 0031). **Renewal reminders** (user-entered `connections.renewal_date`,
+> honestly labeled unverifiable; `renewal_reminder_state` CAS; T-30/T-7 emails; cron `0 13 * * *` — mig
+> 0027, ADR 0032). Latest migration **0029**, latest ADR **0033**. **Parallel-frozen-contract merge
+> lesson (repeat of W4):** these four all appended to `schema.ts`/migrations/`org-scope.ts`/
+> `tenant-isolation`; serialize the BUILDS (not just merges) next time — the parallel builds forced
+> heavy per-rebase migration renumbering (G→0027, F→0028) + a snapshot-drift bug (a regenerated
+> migration re-created a sibling's table until the sibling snapshot was restored before `drizzle-kit
+> generate`). **Still GATED (cannot force):** W6-A (Companion-in-Team-orgs + dual-source dedup)
+> on the §14 ~6-week dogfood outcome; W6-D (OTel receiver) on founder OTel fixture capture; W6-E
+> (measured proficiency) on W6-C + W6-D.
 
 ## Stack facts
 - Next.js / TypeScript monolith, deployed to **Cloudflare Workers** via OpenNext.
