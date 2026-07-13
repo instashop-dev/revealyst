@@ -14,8 +14,11 @@ vi.mock("sonner", () => ({
 import { CoachingCard } from "./coaching-card";
 import { DailyNudgeCard } from "./daily-nudge-card";
 import { GrowthJourneyCard } from "./growth-journey-card";
+import { MilestoneCard } from "./milestone-card";
 import { buildDailyNudge } from "@/lib/companion-glossary";
 import { MATURITY_LEVEL_COPY } from "@/lib/maturity-glossary";
+import { detectMilestones, type Milestone } from "@/lib/milestones";
+import { compareWorkflowDiversity } from "@/lib/workflow-diversity";
 import type { AttentionItem } from "@/lib/score-insights";
 
 const NEXT_STEP: AttentionItem = {
@@ -142,6 +145,34 @@ describe("CoachingCard — W5-D interaction affordances (self-view only)", () =>
       state: "dismissed",
     });
     await waitFor(() => expect(routerRefresh).toHaveBeenCalled());
+  });
+});
+
+describe("MilestoneCard — positive-first celebration (W5-F)", () => {
+  it("renders each grounded milestone with its badge", () => {
+    const milestones: Milestone[] = detectMilestones({
+      firstAgentSession: true,
+      breadth: compareWorkflowDiversity(5, 4),
+    });
+    render(<MilestoneCard milestones={milestones} />);
+    expect(screen.getByText(/Agents showed up in your work/i)).toBeTruthy();
+    expect(screen.getByText(/spanning more of your AI tools/i)).toBeTruthy();
+    expect(screen.getAllByText("Milestone").length).toBeGreaterThan(0);
+  });
+
+  it("ABSENCE: renders NOTHING when there are no milestones (no empty shell)", () => {
+    const { container } = render(<MilestoneCard milestones={[]} />);
+    expect(container.textContent).toBe("");
+  });
+
+  it("the weekly-cadence milestone shows NO streak counter (no-streak decision)", () => {
+    const milestones = detectMilestones({ activeWeeks: 8 });
+    const { container } = render(<MilestoneCard milestones={milestones} />);
+    const text = container.textContent ?? "";
+    expect(text).toMatch(/steady weekly rhythm/i);
+    // No digit anywhere — no "8 weeks", no streak count.
+    expect(text).not.toMatch(/\d/);
+    expect(text.toLowerCase()).not.toMatch(/streak|xp|league/);
   });
 });
 

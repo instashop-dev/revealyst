@@ -364,6 +364,57 @@ export function formatComponentDetail(
   });
 }
 
+// ─── Feature-breadth extraction (W5-F milestone input) ───
+
+/** The score components whose `raw` IS the distinct-workflow count: both read
+ * `feature_used` with `distinct_dims` (src/scoring/evaluate.ts), so their `raw`
+ * equals W5-E's surfaced "N workflows" number by construction. Either component
+ * (Adoption's `tool_coverage`, Fluency's `breadth`) yields the same count. */
+const FEATURE_BREADTH_COMPONENT_KEYS = ["breadth", "tool_coverage"] as const;
+
+/**
+ * The distinct-workflow count from a set of already-formatted component rows —
+ * the current-period feature breadth, read straight off the `distinct_dims`
+ * component's `raw` (no new query, no re-aggregation). Returns null when no such
+ * component is measured (omitted / absent) — absence is never a fabricated 0.
+ * Takes the max across the known keys so a partially-omitted component never
+ * undercounts.
+ */
+export function featureBreadthFromRows(
+  rows: readonly ComponentDetailRow[],
+): number | null {
+  let best: number | null = null;
+  for (const row of rows) {
+    if (
+      (FEATURE_BREADTH_COMPONENT_KEYS as readonly string[]).includes(row.key) &&
+      !row.omitted &&
+      row.raw !== undefined
+    ) {
+      best = best === null ? row.raw : Math.max(best, row.raw);
+    }
+  }
+  return best;
+}
+
+/**
+ * The distinct-workflow count from a STORED breakdown jsonb (a prior period's
+ * `score_results.components`) — the same `raw` read from the `distinct_dims`
+ * component entry. Returns null when the breakdown is malformed or carries no
+ * breadth component, so a missing prior baseline never fabricates a crossing.
+ */
+export function featureBreadthFromBreakdown(components: unknown): number | null {
+  const rec = asComponentRecord(components);
+  if (!rec) return null;
+  let best: number | null = null;
+  for (const key of FEATURE_BREADTH_COMPONENT_KEYS) {
+    const entry = rec[key];
+    if (isBreakdownEntry(entry)) {
+      best = best === null ? entry.raw : Math.max(best, entry.raw);
+    }
+  }
+  return best;
+}
+
 // ─── Attention list ───
 
 export type AttentionItem = {
@@ -371,11 +422,30 @@ export type AttentionItem = {
   title: string;
   body: string;
   href?: string;
-  /** Set on coaching-recommendation items (F1.1 — a "Guidance" affordance) and
-   * on the F2.3 early-warning kinds (`anomaly` = spend/prompt spike, `plateau`
-   * = declining active-people cohort). Absent (undefined) on every other item
-   * kind, so `AttentionItem` stays backward-compatible. */
-  kind?: "recommendation" | "anomaly" | "plateau";
+  /** The named V4 §7.3 insight taxonomy, first-class on the item so UI and
+   * prioritization treat kinds consistently (W5-F deliverable 2).
+   *  - `recommendation` — a gated coaching nudge (F1.1 "Guidance" affordance).
+   *  - `anomaly` / `plateau` — the F2.3 early-warning kinds (spend/prompt spike;
+   *    declining active-people cohort).
+   *  - `milestone` / `agentic-transition` — the positive/celebratory taxonomy
+   *    (W5-F, §8.4). Concrete milestones live in the dedicated `Milestone` type
+   *    (src/lib/milestones.ts, with a finer `MilestoneKind`) and render on their
+   *    own celebratory surface — deliberately NOT in `deriveAttention`'s "needs
+   *    attention" list (a warn strip is no place to celebrate). These kinds name
+   *    that taxonomy first-class so any attention-item consumer can branch on it.
+   *  - `spend` — the taxonomy's retroactive label for the spend-spike anomaly,
+   *    made first-class. The anomaly path still EMITS `anomaly` for back-compat
+   *    (the existing kinds stay intact per the W5-F mandate); `spend` names the
+   *    signal in the shared vocabulary.
+   * Absent (undefined) on every other item, so `AttentionItem` stays
+   * backward-compatible. */
+  kind?:
+    | "recommendation"
+    | "anomaly"
+    | "plateau"
+    | "milestone"
+    | "spend"
+    | "agentic-transition";
   /** Set ONLY on `kind === "recommendation"` items (W5-D): the stable
    * static-map recommendation id, so the companion card can attach snooze/
    * dismiss/mark-tried affordances and the digest can filter dismissed recs.

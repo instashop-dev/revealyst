@@ -20,6 +20,8 @@ const INK = "#1f2937"; // slate-800
 const MUTED = "#6b7280"; // slate-500
 const HAIRLINE = "#e5e7eb"; // slate-200
 const PANEL = "#f9fafb"; // slate-50
+const POSITIVE = "#15803d"; // green-700 — the celebratory milestone accent
+const WARN = "#b45309"; // amber-700 — the "needs attention" accent (readable both modes)
 
 function esc(s: string): string {
   return s
@@ -115,31 +117,64 @@ export function renderDigestEmail(
     }
   }
 
-  // Personal best (personal lane only)
-  if (content.personalBest && content.personalBest.best !== null) {
-    rows.push(sectionHeading(DIGEST_COPY.sections.personalBest));
+  // Your growth journey (W5-F): the celebratory Growth-Journey section — the
+  // digest is now the delivery channel it's specced to be (§8.4). Milestones
+  // subsume the old standalone "Personal best" block (a new personal best is
+  // simply the `new-best` milestone). Each gets a positive accent, visually
+  // distinct from the "What to focus on" alerts below.
+  if (content.milestones.length > 0) {
+    rows.push(sectionHeading(DIGEST_COPY.sections.growthJourney));
     rows.push(
-      `<tr><td style="padding:8px 0;font:400 15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${INK}">${esc(
-        DIGEST_COPY.newPersonalBest(
-          content.personalBest.label,
-          Math.round(content.personalBest.best),
-        ),
+      `<tr><td style="padding:2px 0 8px;font:400 14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${MUTED}">${esc(
+        DIGEST_COPY.growthJourneyLead,
       )}</td></tr>`,
     );
+    for (const milestone of content.milestones) {
+      rows.push(
+        `<tr><td style="padding:10px 0;border-bottom:1px solid ${HAIRLINE}">
+          <div style="border-left:3px solid ${POSITIVE};padding-left:12px">
+            <div style="font:600 15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${INK}">${esc(
+              milestone.title,
+            )}</div>
+            <div style="font:400 14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${MUTED};margin-top:4px">${esc(
+              milestone.body,
+            )}</div>
+          </div>
+        </td></tr>`,
+      );
+    }
   }
 
-  // What to focus on
+  // What to focus on — kind-aware (W5-F / errata §1.2(7)): a coaching rec is
+  // tagged "Guidance" with a muted accent; a must-act alert (an errored
+  // connection, `severity: "action"`) is tagged "Needs attention" with a
+  // warn accent. The two are no longer rendered identically.
   if (content.recommendations.length > 0) {
     rows.push(sectionHeading(DIGEST_COPY.sections.focus));
     for (const item of content.recommendations) {
+      const isAction = item.severity === "action";
+      const isGuidance = item.kind === "recommendation";
+      const accent = isAction ? WARN : isGuidance ? BRAND : MUTED;
+      const label = isGuidance
+        ? DIGEST_COPY.focusLabels.guidance
+        : isAction
+          ? DIGEST_COPY.focusLabels.actionNeeded
+          : null;
+      const pill = label
+        ? `<span style="display:inline-block;margin-left:8px;padding:1px 8px;border-radius:999px;font:600 11px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;letter-spacing:.02em;color:${accent};border:1px solid ${accent}">${esc(
+            label,
+          )}</span>`
+        : "";
       rows.push(
         `<tr><td style="padding:10px 0;border-bottom:1px solid ${HAIRLINE}">
-          <div style="font:600 15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${INK}">${esc(
-            item.title,
-          )}</div>
-          <div style="font:400 14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${MUTED};margin-top:4px">${esc(
-            item.body,
-          )}</div>
+          <div style="border-left:3px solid ${accent};padding-left:12px">
+            <div style="font:600 15px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${INK}">${esc(
+              item.title,
+            )}${pill}</div>
+            <div style="font:400 14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${MUTED};margin-top:4px">${esc(
+              item.body,
+            )}</div>
+          </div>
         </td></tr>`,
       );
     }

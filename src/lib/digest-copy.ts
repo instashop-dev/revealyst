@@ -31,9 +31,24 @@ export const DIGEST_COPY = {
     movement: "Recent movement",
     scores: "Score trends",
     personalBest: "Personal best",
+    /** W5-F: the digest as Growth-Journey channel — the celebratory section. */
+    growthJourney: "Your growth journey",
     focus: "What to focus on",
     freshness: "Data freshness",
   },
+
+  /** W5-F kind-aware labels for the "What to focus on" section: a coaching rec
+   * is tagged as optional GUIDANCE, visually distinct from a must-act alert like
+   * a failing connection (errata §1.2(7)). */
+  focusLabels: {
+    guidance: "Guidance",
+    actionNeeded: "Needs attention",
+  },
+
+  /** W5-F growth-journey lead — a positive, forward framing above the
+   * milestones. Lane-agnostic and true for both cohorts. */
+  growthJourneyLead:
+    "Progress worth noticing this period — measured against your own past.",
 
   /** Movement metric labels — aggregate quantities, no per-person values. */
   movementLabels: {

@@ -8,6 +8,7 @@ import {
 import { renderDigestEmail } from "../src/lib/digest-email";
 import type { ScoreTrend } from "../src/lib/dashboard-trends";
 import type { RecentMovement } from "../src/lib/recent-movement";
+import type { ComponentDetailRow } from "../src/lib/score-insights";
 
 // Pure honesty tests for the weekly-digest assembly (F2.2): staleness
 // suppression (G5), the aggregate-only team lane (no per-person data), and the
@@ -39,6 +40,25 @@ function emptyMovement(): RecentMovement {
         unit: "count",
         current: 20,
         delta: { kind: "delta", current: 20, previous: 16, delta: 4, pctChange: 25, previousPeriodLabel: "May 11–Jun 7" },
+      },
+    ],
+  };
+}
+
+/** A weak, measured component that maps to a real CoachingRecommendation
+ * (adoption.active_days) — so `deriveAttention` emits a coaching rec. */
+function weakActiveDays(): { slug: "adoption"; components: ComponentDetailRow[] } {
+  return {
+    slug: "adoption",
+    components: [
+      {
+        key: "active_days",
+        label: "active_days",
+        kind: "plain",
+        omitted: false,
+        normalized: 5,
+        weight: 0.5,
+        calcSimple: "calc",
       },
     ],
   };
@@ -201,6 +221,110 @@ describe("assembleDigest lanes + honesty", () => {
   it("always exposes a data-as-of date when something synced", () => {
     const content = assembleDigest({ ...base, lane: "personal" });
     expect(content.dataAsOfDate).toBe("2026-07-05");
+  });
+});
+
+describe("reserved coaching slot (errata §1.2(7))", () => {
+  const fresh = new Date(NOW.getTime() - 1 * DAY);
+
+  it("a week WITH connection errors still ships ≥1 coaching rec (W5-F acceptance)", () => {
+    // Three errored connections (impact 100 each) would fill all 3 slots under
+    // the old flat slice, burying coaching (impact 1). The reserve guarantees
+    // guidance still gets through. A fresh active connection keeps the digest
+    // from staleness-suppressing.
+    const content = assembleDigest({
+      now: NOW,
+      lane: "personal",
+      connections: [
+        conn("openai", "active", fresh),
+        conn("cursor", "error", fresh),
+        conn("copilot", "error", fresh),
+        conn("gemini", "error", fresh),
+      ],
+      movement: emptyMovement(),
+      trends: [],
+      scoreComponents: [weakActiveDays()],
+    });
+    expect(content.suppressed).toBe(false);
+    const coaching = content.recommendations.filter(
+      (r) => r.kind === "recommendation",
+    );
+    expect(coaching.length).toBeGreaterThanOrEqual(1);
+    // The action alerts are still present (they weren't dropped for coaching).
+    expect(content.recommendations.some((r) => r.severity === "action")).toBe(true);
+    // Never exceeds the cap.
+    expect(content.recommendations.length).toBeLessThanOrEqual(3);
+  });
+
+  it("kind-aware email: coaching renders as 'Guidance', an errored connection as 'Needs attention'", () => {
+    const content = assembleDigest({
+      now: NOW,
+      lane: "personal",
+      connections: [conn("openai", "active", fresh), conn("cursor", "error", fresh)],
+      movement: emptyMovement(),
+      trends: [],
+      scoreComponents: [weakActiveDays()],
+    });
+    const html = renderDigestEmail(content, {
+      unsubscribeUrl: "https://app.example/u",
+      manageUrl: "https://app.example/settings",
+    });
+    expect(html).toContain("Guidance");
+    expect(html).toContain("Needs attention");
+  });
+});
+
+describe("Growth-Journey milestones (W5-F)", () => {
+  const fresh = new Date(NOW.getTime() - 1 * DAY);
+  const base = {
+    now: NOW,
+    connections: [conn("openai", "active", fresh)],
+    movement: emptyMovement(),
+    scoreComponents: [] as { slug: "adoption"; components: ComponentDetailRow[] }[],
+  };
+
+  it("a strict new best becomes a new-best milestone (subsumes personal best)", () => {
+    const content = assembleDigest({
+      ...base,
+      lane: "personal",
+      trends: [trend("adoption", [40, 55])],
+    });
+    const newBest = content.milestones.find((m) => m.kind === "new-best");
+    expect(newBest).toBeTruthy();
+    expect(newBest!.body).toMatch(/reached 55/);
+    // Still reflected in the personalBest field (back-compat).
+    expect(content.personalBest?.isNewBest).toBe(true);
+  });
+
+  it("a flat trend celebrates NO new-best milestone (strict >, never >=)", () => {
+    const content = assembleDigest({
+      ...base,
+      lane: "personal",
+      trends: [trend("adoption", [55, 55])],
+    });
+    expect(content.milestones.some((m) => m.kind === "new-best")).toBe(false);
+  });
+
+  it("a sustained rhythm adds a COUNT-FREE weekly-cadence milestone (no-streak)", () => {
+    // emptyMovement's active_days delta has previous 16 > 0 and current 20 > 0.
+    const content = assembleDigest({ ...base, lane: "personal", trends: [] });
+    const cadence = content.milestones.find((m) => m.kind === "weekly-cadence");
+    expect(cadence).toBeTruthy();
+    expect(/\d/.test(cadence!.body)).toBe(false); // no counter surfaced
+  });
+
+  it("renders a 'Your growth journey' section in the email", () => {
+    const content = assembleDigest({
+      ...base,
+      lane: "personal",
+      trends: [trend("adoption", [40, 55])],
+    });
+    const html = renderDigestEmail(content, {
+      unsubscribeUrl: "https://app.example/u",
+      manageUrl: "https://app.example/settings",
+    });
+    expect(html).toContain("Your growth journey");
+    expect(html).toContain("New high for Adoption");
   });
 });
 

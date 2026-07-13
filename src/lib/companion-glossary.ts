@@ -107,6 +107,18 @@ export const COACHING_COPY = {
   },
 } as const;
 
+// ─── Milestones card (W5-F) ───────────────────────────────────────────────────
+
+export const MILESTONE_COPY = {
+  title: "Milestones",
+  /** Positive-first subtitle — celebrations, grounded in the person's own
+   * measured progress, never a benchmark or a comparison to others. */
+  subtitle:
+    "Progress worth celebrating, measured against your own past. Each one is drawn from real, attributed activity — never a comparison to anyone else.",
+  /** Small badge on each milestone. */
+  badge: "Milestone",
+} as const;
+
 // ─── Daily nudge card ─────────────────────────────────────────────────────────
 
 export const DAILY_NUDGE_COPY = {
