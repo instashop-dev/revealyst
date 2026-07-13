@@ -24,7 +24,13 @@ import { sendInBatches } from "./poller/queue";
 import { retryDelaySeconds, RetryableConnectorError } from "./poller/run";
 import { previousDay } from "./scoring";
 import { resolveRedirect } from "./lib/domains";
-import { isLandingPageView, writeLaunchEvent } from "./lib/launch-events";
+import { parseAdminUserIds, type AdminEnv } from "./lib/admin-access";
+import {
+  digestReturnDim,
+  isCompanionRevisit,
+  isLandingPageView,
+  writeLaunchEvent,
+} from "./lib/launch-events";
 import {
   createRequestTimingStore,
   formatServerTiming,
@@ -39,6 +45,9 @@ const METERING_CRON = "0 3 * * *";
 // Weekly digest (F2.2): Monday 14:00 UTC (a humane send hour) — one message per
 // org, fanned out through the existing revealyst-poll queue.
 const DIGEST_CRON = "0 14 * * 1";
+// Weekly §14 flywheel report (W5-I): Monday 15:00 UTC (after the digest fan-out)
+// — ONE system message emailing the platform admins the adoption funnel.
+const FLYWHEEL_CRON = "0 15 * * 1";
 
 /** Paddle server config for the consumer, or undefined when unconfigured —
  * resolved safely so a missing key never breaks non-metering queue work. */
@@ -90,6 +99,26 @@ export default {
     // HEAD `/`. writeLaunchEvent never throws and no-ops without the binding.
     if (isLandingPageView(request.method, url.pathname, isRsc)) {
       writeLaunchEvent(env.LAUNCH_EVENTS, "landing_view", undefined, url.hostname);
+    }
+
+    // §14 flywheel instrumentation (W5-I), fired at this same edge seam (after
+    // the host-split 308, so each counts only on its canonical host) and, like
+    // landing_view, immune to content blockers and free of any page-render cost:
+    //  - digest_return: a click-through from a weekly-digest CTA (?src=digest),
+    //    dim = the coarse ISO week the digest was sent.
+    //  - companion_revisit: a full-document view of the companion surface
+    //    (/dashboard) — the returning-engagement signal, no identity attached.
+    const digestDim = digestReturnDim(
+      request.method,
+      isRsc,
+      url.searchParams.get("src"),
+      url.searchParams.get("wk"),
+    );
+    if (digestDim !== null) {
+      writeLaunchEvent(env.LAUNCH_EVENTS, "digest_return", digestDim, url.hostname);
+    }
+    if (isCompanionRevisit(request.method, url.pathname, isRsc)) {
+      writeLaunchEvent(env.LAUNCH_EVENTS, "companion_revisit", undefined, url.hostname);
     }
 
     // Request-lifecycle instrumentation (incident: authenticated pages >7s
@@ -211,6 +240,12 @@ export default {
       await sendInBatches(env.POLL_QUEUE, messages);
       return;
     }
+    if (controller.cron === FLYWHEEL_CRON) {
+      // Weekly §14 flywheel report: ONE system-level message (not per org) —
+      // the consumer reads the cross-org funnel and emails platform admins.
+      await env.POLL_QUEUE.send({ kind: "flywheel-report" } satisfies PollMessage);
+      return;
+    }
     await env.POLL_QUEUE.send({
       kind: "noop-poll",
       orgId: SYSTEM_ORG_ID,
@@ -245,6 +280,7 @@ export default {
           credentialEnv: env as unknown as CredentialEnv,
           emailEnv: env as unknown as EmailEnv,
           appOrigin: (env as unknown as { BETTER_AUTH_URL?: string }).BETTER_AUTH_URL ?? "",
+          adminUserIds: parseAdminUserIds(env as unknown as AdminEnv),
           send: async (m, opts) => {
             await env.POLL_QUEUE.send(
               m,

@@ -232,7 +232,13 @@ export async function runWeeklyDigest(
     const unsubscribeUrl = `${deps.appOrigin}/api/digest/unsubscribe?token=${encodeURIComponent(
       claim.token,
     )}`;
-    const html = renderDigestEmail(content, { unsubscribeUrl, manageUrl });
+    // isoWeek tags the app-return CTA with `wk` for digest return-rate
+    // instrumentation (W5-I) — href-only, no layout change.
+    const html = renderDigestEmail(content, {
+      unsubscribeUrl,
+      manageUrl,
+      isoWeek: week,
+    });
     try {
       await send(deps.emailEnv, {
         to: recipient.email,

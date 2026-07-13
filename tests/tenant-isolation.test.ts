@@ -85,6 +85,15 @@ const SCOPED_READS: Array<{
   // seed a budget below, so B's budget id is in the leak universe — org A's
   // get() must surface only A's row.
   { name: "budgets.get", tables: ["budgets"], run: (s) => s.budgets.get() },
+  // Budget-alert crossing state (ADR 0029): one row per (org, month), keyed on
+  // the scope's orgId. Both orgs seed a claim for the same month below, so B's
+  // row id is in the leak universe — org A's get() for that month must surface
+  // only A's row (non-vacuous, mirrors budgets.get).
+  {
+    name: "budgetAlertState.get",
+    tables: ["budget_alert_state"],
+    run: (s) => s.budgetAlertState.get(PERIOD.start.slice(0, 7)),
+  },
   // Digest preferences (ADR 0024): one row per (org, user), keyed on the
   // scope's orgId. Both orgs seed an enabled row below, so B's row id is in the
   // leak universe — org A's list() must surface only A's rows.
@@ -166,6 +175,10 @@ beforeAll(async () => {
     // A budget per org (ADR 0020) so budget ids join the leak universe and the
     // budgets sweep is non-vacuous.
     await scoped.budgets.set({ monthlyLimitCents: 100_000 });
+    // A budget-alert crossing-state row per org (ADR 0029) for the same month,
+    // so its row id joins the leak universe and the budgetAlertState sweep is
+    // non-vacuous.
+    await scoped.budgetAlertState.claimThreshold(PERIOD.start.slice(0, 7), 50);
     // A pending invite per org so the sweep's B-id universe includes one.
     const [inviter] = await db
       .insert(schema.user)

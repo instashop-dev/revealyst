@@ -82,6 +82,9 @@ export const PURGE_EXEMPT_TABLES = new Set([
   "audit_log",
   "budgets",
   "digest_preferences",
+  // W5-I (ADR 0029): cascade-deleted with the org (org_id → orgs, cascade),
+  // like budgets/digest_preferences — the final `orgs` delete removes it.
+  "budget_alert_state",
 ]);
 
 /**

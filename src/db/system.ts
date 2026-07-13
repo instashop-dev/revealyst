@@ -1,14 +1,18 @@
-import { and, desc, eq, exists, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, exists, inArray, lt, min, ne, sql } from "drizzle-orm";
 import type { Db } from "./client";
+import type { OrgFunnelRow } from "../lib/launch-funnel";
 import {
   auditLog,
   connectionCredentials,
   connections,
   connectorRuns,
+  invites,
   orgMembers,
   orgs,
   pollHeartbeats,
   rawPayloads,
+  scoreResults,
+  shareLinks,
   subscriptions,
   user,
 } from "./schema";
@@ -149,6 +153,112 @@ export async function listDigestRecipients(
     .filter((r) => r.role === "admin" && r.emailVerified)
     .map((r) => ({ userId: r.userId, email: r.email }));
   return { recipients, memberCount: rows.length };
+}
+
+/**
+ * Every non-system org's funnel row for the §14 flywheel report (W5-I) — the
+ * scheduled weekly funnel's one cross-org read, mirroring the manual
+ * scripts/launch-metrics.ts gather (same anchors: first-connection,
+ * first-SUCCESSFUL-backfill for time-to-first-insight, score-row EXISTENCE for
+ * activation — never score_results.computed_at, which the nightly recompute
+ * rewrites; see src/lib/launch-funnel.ts). System-level by design (cross-org
+ * aggregate, not an application query surface); the pure derivation +
+ * privacy-safe reporting happen in the poller. One flat Promise.all.
+ */
+export async function readLaunchFunnelRows(db: Db): Promise<OrgFunnelRow[]> {
+  const orgRows = await db
+    .select({ id: orgs.id, kind: orgs.kind, createdAt: orgs.createdAt })
+    .from(orgs)
+    .where(ne(orgs.kind, "system"));
+
+  const [conn, backfill, score, share, members, invited] = await Promise.all([
+    db
+      .select({ orgId: connections.orgId, at: min(connections.createdAt) })
+      .from(connections)
+      .groupBy(connections.orgId),
+    db
+      .select({ orgId: connectorRuns.orgId, at: min(connectorRuns.finishedAt) })
+      .from(connectorRuns)
+      .where(
+        and(
+          eq(connectorRuns.kind, "backfill"),
+          eq(connectorRuns.status, "success"),
+        ),
+      )
+      .groupBy(connectorRuns.orgId),
+    db
+      .select({ orgId: scoreResults.orgId })
+      .from(scoreResults)
+      .groupBy(scoreResults.orgId),
+    db
+      .select({ orgId: shareLinks.orgId, n: count() })
+      .from(shareLinks)
+      .groupBy(shareLinks.orgId),
+    db
+      .select({ orgId: orgMembers.orgId, n: count() })
+      .from(orgMembers)
+      .groupBy(orgMembers.orgId),
+    db
+      .select({
+        orgId: invites.orgId,
+        sent: count(),
+        accepted:
+          sql<number>`count(*) filter (where ${invites.acceptedAt} is not null)`.mapWith(
+            Number,
+          ),
+      })
+      .from(invites)
+      .groupBy(invites.orgId),
+  ]);
+
+  const byOrg = <T extends { orgId: string }>(list: T[]) =>
+    new Map(list.map((r) => [r.orgId, r]));
+  const connBy = byOrg(conn);
+  const backfillBy = byOrg(backfill);
+  const scoredOrgs = new Set(score.map((r) => r.orgId));
+  const shareBy = byOrg(share);
+  const membersBy = byOrg(members);
+  const invitedBy = byOrg(invited);
+
+  return orgRows.map((o) => ({
+    orgId: o.id,
+    kind: o.kind as "personal" | "team",
+    createdAt: o.createdAt,
+    firstConnectionAt: connBy.get(o.id)?.at ?? null,
+    firstBackfillSuccessAt: backfillBy.get(o.id)?.at ?? null,
+    hasScore: scoredOrgs.has(o.id),
+    shareLinks: shareBy.get(o.id)?.n ?? 0,
+    members: membersBy.get(o.id)?.n ?? 0,
+    invitesSent: invitedBy.get(o.id)?.sent ?? 0,
+    invitesAccepted: invitedBy.get(o.id)?.accepted ?? 0,
+  }));
+}
+
+/**
+ * Verified emails of the platform admins the §14 flywheel report is sent to
+ * (W5-I). Platform staff = `user.role === "admin"` OR an id in `ADMIN_USER_IDS`
+ * (the bootstrap path — src/lib/admin-access.ts). Only VERIFIED addresses are
+ * returned (never mail an unconfirmed address, like the digest). System-level:
+ * the report is a founder-facing aggregate, not tenant data.
+ */
+export async function listPlatformAdminRecipients(
+  db: Db,
+  adminUserIds: string[],
+): Promise<string[]> {
+  const idSet = new Set(adminUserIds);
+  const rows = await db
+    .select({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      emailVerified: user.emailVerified,
+    })
+    .from(user);
+  return rows
+    .filter(
+      (r) => r.emailVerified && (r.role === "admin" || idSet.has(r.id)),
+    )
+    .map((r) => r.email);
 }
 
 /**

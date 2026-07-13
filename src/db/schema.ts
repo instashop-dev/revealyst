@@ -1066,6 +1066,51 @@ export const recInteractionState = pgTable(
   ],
 );
 
+// Budget-alert crossing state (W5-I, ADR 0029) — the compare-and-set that
+// stops the threshold-alert EMAIL re-firing on every poll. ONE row per
+// (org, month): `highest_alerted_threshold` is the highest percent-of-budget
+// threshold already emailed for that calendar month. NOT a spend ledger and
+// NOT the budget config (that's `budgets`) — purely delivery de-dup state,
+// mirroring digest_preferences.last_sent_week. The sender compare-and-sets
+// this BEFORE sending (claim-then-send), so an at-least-once poll redelivery
+// that re-crosses the same threshold is a no-op and a threshold emails exactly
+// once per (org, month, threshold). `month_key` is "YYYY-MM" (UTC), so a new
+// month starts a fresh row and the monthly budget's thresholds re-alert.
+// Cascade-deleted with the org (org_id) — like budgets/digest_preferences, it
+// carries no data that must outlive the workspace.
+export const budgetAlertState = pgTable(
+  "budget_alert_state",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    // Calendar month the crossings are tracked for, "YYYY-MM" (UTC). Text (not
+    // a date) because it is a bucket key, compared only for equality.
+    monthKey: text("month_key").notNull(),
+    // Highest percent-of-budget threshold already emailed this month. 0 means
+    // nothing emailed yet; the CAS only advances it upward (never re-alerts a
+    // threshold at or below the stored value within the same month).
+    highestAlertedThreshold: integer("highest_alerted_threshold")
+      .notNull()
+      .default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    // Anchor for composite tenant FKs, per D1a — kept even without child
+    // tables so the shape matches every other org-scoped table.
+    unique("budget_alert_state_org_id_id_uq").on(t.orgId, t.id),
+    // One crossing-state row per (org, month): the CAS upsert conflict target.
+    unique("budget_alert_state_org_month_uq").on(t.orgId, t.monthKey),
+  ],
+);
+
 // Auth tables last: auth-schema imports orgs from this module, so the
 // re-export must come after orgs is initialized (circular-import order).
 export * from "./auth-schema";

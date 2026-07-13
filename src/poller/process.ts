@@ -8,6 +8,7 @@ import {
 } from "../db/system";
 import { meterSubscription } from "../metering/meter";
 import { runWeeklyDigest } from "./digest";
+import { runFlywheelReport } from "./flywheel-report";
 import { periodFor, recomputeOrg } from "../scoring";
 import {
   SYSTEM_ORG_ID,
@@ -125,6 +126,22 @@ export async function processPollMessage(
       await runWeeklyDigest(db, message.orgId, {
         emailEnv: d.emailEnv,
         appOrigin: d.appOrigin,
+      });
+      return;
+    }
+    case "flywheel-report": {
+      const d = requireDeps(deps, message.kind);
+      // Soft skip (log-and-ack), NOT a throw: a missing email env is an
+      // environment gap and throwing would dead-letter the report weekly with
+      // no recovery. runFlywheelReport makes no state mutation and guards SES
+      // itself, so skipping is safe — the report sends once the env is fixed.
+      if (!d.emailEnv) {
+        console.warn("[flywheel] missing email env — skipped");
+        return;
+      }
+      await runFlywheelReport(db, {
+        emailEnv: d.emailEnv,
+        adminUserIds: d.adminUserIds ?? [],
       });
       return;
     }

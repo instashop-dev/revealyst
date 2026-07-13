@@ -60,7 +60,11 @@
 			// Weekly digest (F2.2): Monday 14:00 UTC. src/worker.ts enqueues one
 			// digest-weekly per org onto the existing revealyst-poll queue; the
 			// consumer assembles + sends each org's digest (no new queue).
-			"0 14 * * 1"
+			"0 14 * * 1",
+			// Weekly §14 flywheel report (W5-I): Monday 15:00 UTC. src/worker.ts
+			// enqueues ONE flywheel-report system message; the consumer reads the
+			// cross-org funnel and emails the platform admins the aggregate.
+			"0 15 * * 1"
 		]
 	},
 	"queues": {
