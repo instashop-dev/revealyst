@@ -12,11 +12,8 @@ import {
   ScanFace,
   Settings,
   ShieldCheck,
-  SlidersHorizontal,
-  UserRound,
   UserRoundCog,
   UserRoundPlus,
-  UsersRound,
   Wallet,
   Wrench,
 } from "lucide-react";
@@ -36,12 +33,13 @@ import {
 } from "@/components/ui/sidebar";
 import { authClient } from "@/lib/auth-client";
 
+// W5-H dashboard-itis fold: the roster pages (/teams, /people) are RETIRED from
+// nav — their data folds into Team Intelligence cards + Settings' people & teams
+// management card (routes still resolve, reached in ≤2 clicks from Settings).
 const NAV_ITEMS = [
   { title: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { title: "AI maturity", href: "/maturity", icon: Gauge },
   { title: "How scores work", href: "/methodology", icon: BookOpenText },
-  { title: "Teams", href: "/teams", icon: UsersRound },
-  { title: "People", href: "/people", icon: UserRound },
   { title: "Connections", href: "/connections", icon: Cable },
   { title: "Account", href: "/account", icon: UserRoundCog },
 ];
@@ -52,10 +50,10 @@ const NAV_ITEMS = [
 // it needs no server-side gate — unlike its data-reading siblings.
 const ADMIN_NAV_ITEMS = [
   { title: "Members", href: "/members", icon: UserRoundPlus },
-  // Custom Index Builder (W4-U): admin-only AND server-side role-gated on the
-  // page (it reads/writes org score definitions). Team-paid entitlement is
-  // enforced in the page + API, not in nav.
-  { title: "Custom indexes", href: "/indexes", icon: SlidersHorizontal },
+  // Custom Index Builder (W4-U) is DEMOTED out of nav prominence (W5-H
+  // deliverable 3 / errata §2 deprecate-keep-shipping): the feature and its
+  // route (/indexes) stay intact and server-gated, but it no longer occupies a
+  // top-level admin nav slot. Reach it from Settings.
   { title: "Reconcile", href: "/reconcile", icon: ScanFace },
   { title: "Spend", href: "/spend", icon: Wallet },
   { title: "Billing", href: "/billing", icon: CreditCard },

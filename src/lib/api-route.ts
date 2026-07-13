@@ -49,7 +49,14 @@ export async function respondWith(
   ctx: AppContext,
 ): Promise<NextResponse> {
   try {
-    return NextResponse.json(await fn(ctx));
+    const result = await fn(ctx);
+    // A handler that needs a non-JSON body (e.g. the CSV export) may return a
+    // ready-made Response — pass it through untouched. All the pre-checks
+    // (401/403/402) in handleApi still ran, so a raw Response is still gated.
+    if (result instanceof Response) {
+      return result as NextResponse;
+    }
+    return NextResponse.json(result);
   } catch (error) {
     if (error instanceof ApiError) {
       return NextResponse.json(
