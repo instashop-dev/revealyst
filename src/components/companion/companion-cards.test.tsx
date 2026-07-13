@@ -1,6 +1,15 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const routerRefresh = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: routerRefresh }),
+}));
+vi.mock("sonner", () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
 
 import { CoachingCard } from "./coaching-card";
 import { DailyNudgeCard } from "./daily-nudge-card";
@@ -15,6 +24,9 @@ const NEXT_STEP: AttentionItem = {
   title: "Make AI part of the daily routine",
   body: "The active-days part of Adoption is measuring low. A common starting point is routing one recurring task through an AI tool each day.",
 };
+
+// A rec carrying its stable id — the shape the W5-D affordances key on.
+const REC_WITH_ID: AttentionItem = { ...NEXT_STEP, recId: "adoption-active-days" };
 
 describe("GrowthJourneyCard — level-forward headline (W5-C)", () => {
   it("PRESENCE: leads with the maturity level NAME (from maturity-glossary) and the next step", () => {
@@ -78,6 +90,58 @@ describe("CoachingCard — dedicated coaching home (W5-C)", () => {
   it("shows an honest empty state when there are no recommendations", () => {
     render(<CoachingCard recommendations={[]} />);
     expect(screen.getByText(/No coaching to show yet/i)).toBeTruthy();
+  });
+});
+
+describe("CoachingCard — W5-D interaction affordances (self-view only)", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders snooze/dismiss/mark-tried when a personId is provided", () => {
+    render(<CoachingCard recommendations={[REC_WITH_ID]} personId="p-1" />);
+    expect(screen.getByRole("button", { name: /Mark as tried/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Snooze/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Dismiss/i })).toBeTruthy();
+  });
+
+  it("ABSENCE: renders NO affordances without a personId (manager/no-person)", () => {
+    render(<CoachingCard recommendations={[REC_WITH_ID]} />);
+    expect(screen.queryByRole("button", { name: /Mark as tried/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Snooze/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Dismiss/i })).toBeNull();
+  });
+
+  it("a tried rec shows a static indicator, not the mark-tried button", () => {
+    render(
+      <CoachingCard
+        recommendations={[REC_WITH_ID]}
+        personId="p-1"
+        triedRecIds={["adoption-active-days"]}
+      />,
+    );
+    expect(screen.getByText(/Marked as tried/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Mark as tried/i })).toBeNull();
+    // Snooze/dismiss stay available on a tried rec.
+    expect(screen.getByRole("button", { name: /Dismiss/i })).toBeTruthy();
+  });
+
+  it("clicking Dismiss POSTs the dismiss state and refreshes", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CoachingCard recommendations={[REC_WITH_ID]} personId="p-1" />);
+    await user.click(screen.getByRole("button", { name: /Dismiss/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/recommendations/interaction");
+    expect(JSON.parse((init as { body: string }).body)).toEqual({
+      personId: "p-1",
+      recId: "adoption-active-days",
+      state: "dismissed",
+    });
+    await waitFor(() => expect(routerRefresh).toHaveBeenCalled());
   });
 });
 

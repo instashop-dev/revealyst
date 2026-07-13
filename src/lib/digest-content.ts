@@ -171,6 +171,11 @@ export function assembleDigest(input: {
    * gated coaching recommendations — measured-and-weak gating lives inside
    * `deriveAttention`. */
   scoreComponents: { slug: ScoreSlug; components: ComponentDetailRow[] }[];
+  /** Rec ids the recipient has DISMISSED (W5-D, ADR 0028): a dismissed rec
+   * never re-mails. The caller passes this ONLY for the personal lane (org of
+   * one — these are the single owner's dismissals); undefined/empty leaves the
+   * recommendation lane untouched (full backward-compat). */
+  dismissedRecIds?: ReadonlySet<string>;
 }): DigestContent {
   const { lane, now } = input;
   const fresh = digestFreshness(input.connections, now);
@@ -188,6 +193,7 @@ export function assembleDigest(input: {
     )
     .map((s) => ({ slug: s.slug as ScoreSlug, delta: s.delta.delta }));
 
+  const dismissed = input.dismissedRecIds;
   const recommendations = deriveAttention({
     connections: connectionAttentionInputs(
       input.connections.map((c) => ({ vendor: c.vendor, status: c.status, id: "" })),
@@ -196,7 +202,21 @@ export function assembleDigest(input: {
     sharedAccountCount: 0,
     scoreDrops,
     scoreComponents: input.scoreComponents,
-  }).slice(0, MAX_DIGEST_RECOMMENDATIONS);
+  })
+    // W5-D: a dismissed coaching rec never re-mails. Filtered by the stable
+    // rec id BEFORE the cap, so a dismissed rec can't occupy one of the 1–3
+    // slots. Only recommendation items carry a recId; every other attention
+    // item passes through untouched.
+    .filter(
+      (item) =>
+        !(
+          item.kind === "recommendation" &&
+          item.recId !== undefined &&
+          dismissed !== undefined &&
+          dismissed.has(item.recId)
+        ),
+    )
+    .slice(0, MAX_DIGEST_RECOMMENDATIONS);
 
   const personalBest =
     lane === "personal" ? (scores.find((s) => s.isNewBest) ?? null) : null;

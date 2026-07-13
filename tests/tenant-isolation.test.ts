@@ -93,6 +93,15 @@ const SCOPED_READS: Array<{
     tables: ["digest_preferences"],
     run: (s) => s.digestPreferences.list(),
   },
+  // Rec interaction state (ADR 0028): one row per (org, person, rec). Both orgs
+  // seed a row for their own alice below, so keying `list` on B's alice puts a
+  // B-owned personId in the leak universe — a dropped org filter would surface
+  // B's row (non-vacuous, mirrors identities.forPerson(B)).
+  {
+    name: "recInteractions.list(B)",
+    tables: ["rec_interaction_state"],
+    run: (s, c) => s.recInteractions.list(c.B.people.alice),
+  },
   { name: "connectorRuns.list", tables: ["connector_runs"], run: (s) => s.connectorRuns.list() },
   { name: "connectorRuns.latest(B)", tables: ["connector_runs"], run: (s, c) => s.connectorRuns.latest(c.B.connections.anthropic) },
   // Credentials are read-only via withCredential, which throws for foreign
@@ -183,6 +192,14 @@ beforeAll(async () => {
     // An enabled digest preference per org (ADR 0024) so its row id joins the
     // leak universe and the digestPreferences sweep is non-vacuous.
     await scoped.digestPreferences.setEnabled(inviter.id, true);
+    // A rec interaction row per org (ADR 0028) keyed on this org's alice, so
+    // the B-side row carries a B personId and the recInteractions sweep is
+    // non-vacuous.
+    await scoped.recInteractions.set({
+      personId: loaded.people.alice,
+      recId: "adoption-active-days",
+      state: "dismissed",
+    });
     // An audit row per org (ADR 0010) whose target is a fixture team id, so
     // the B-side row carries a B id and the auditLog sweep is non-vacuous.
     await scoped.auditLog.record({

@@ -169,6 +169,13 @@
       "when": 1783757448104,
       "tag": "0023_digest-preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783955809675,
+      "tag": "0024_rec-interaction-state",
+      "breakpoints": true
     }
   ]
 }

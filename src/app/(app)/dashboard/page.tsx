@@ -79,6 +79,7 @@ import {
   type AttentionItem,
   type DeltaResult,
 } from "@/lib/score-insights";
+import { deriveRecInteractionView } from "@/lib/rec-interactions";
 import { vendorLabel } from "@/lib/vendor-labels";
 import { VISIBILITY_MODE_INFO } from "@/lib/visibility-playbook";
 import { periodFor, previousDay } from "@/scoring";
@@ -236,6 +237,7 @@ async function PersonalSelfView({
     personalIdentities,
     personalSpend,
     maturity,
+    recInteractions,
   ] = await timeStage("pageData", () =>
       Promise.all([
         // Onboarding-gate read, folded in here so it overlaps the rest of the
@@ -303,6 +305,13 @@ async function PersonalSelfView({
         // never call readDashboardView + readMaturityView back-to-back; the
         // personal path composes maturity into this single existing stage.
         readMaturityView(ctx.scope, today),
+        // W5-D: the signed-in person's recommendation interaction state
+        // (snoozed/dismissed/tried), resolved by auth user INSIDE the query so
+        // it needs no personId (unknown until `summary` resolves) and folds
+        // into this flat Promise.all — +1 query, still round-trip depth 1 (G10).
+        // Self-view by construction: returns only the caller's OWN person's
+        // states (empty when no person is linked yet).
+        ctx.scope.recInteractions.statesForUser(ctx.user.id),
       ]),
     );
   // Onboarding gate (evaluated here, after the overlapped read above, rather
@@ -440,8 +449,20 @@ async function PersonalSelfView({
   // single next step, so they are PULLED OUT of the generic attention strip
   // (which keeps only the action alerts + early-warning signals — no
   // duplication). The top rec is the headline next step.
-  const coachingRecs = attentionItems.filter(
+  const allCoachingRecs = attentionItems.filter(
     (i) => i.kind === "recommendation",
+  );
+  // W5-D: honour this person's interaction state — a dismissed rec, and a
+  // snoozed one whose snooze hasn't expired, drop off the card entirely (and so
+  // never seed the Growth Journey's next step below). A "tried" rec stays,
+  // flagged so the card shows a "tried" indicator instead of the mark-tried
+  // button. Pure derivation from the already-fetched rows (no new query).
+  const { suppressedRecIds, triedRecIds } = deriveRecInteractionView(
+    recInteractions,
+    new Date(),
+  );
+  const coachingRecs = allCoachingRecs.filter(
+    (i) => !(i.recId && suppressedRecIds.has(i.recId)),
   );
   const attentionStripItems = attentionItems.filter(
     (i) => i.kind !== "recommendation",
@@ -500,7 +521,11 @@ async function PersonalSelfView({
 
       <DailyNudgeCard nudge={dailyNudge} />
 
-      <CoachingCard recommendations={coachingRecs} />
+      <CoachingCard
+        recommendations={coachingRecs}
+        personId={personId}
+        triedRecIds={[...triedRecIds]}
+      />
 
       {scores.size === 0 && (
         // Connected, but no person scores computed yet — the F1.6 cliff. The

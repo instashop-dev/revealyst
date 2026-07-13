@@ -376,6 +376,12 @@ export type AttentionItem = {
    * = declining active-people cohort). Absent (undefined) on every other item
    * kind, so `AttentionItem` stays backward-compatible. */
   kind?: "recommendation" | "anomaly" | "plateau";
+  /** Set ONLY on `kind === "recommendation"` items (W5-D): the stable
+   * static-map recommendation id, so the companion card can attach snooze/
+   * dismiss/mark-tried affordances and the digest can filter dismissed recs.
+   * Absent on every other item kind, so `AttentionItem` stays backward-
+   * compatible. */
+  recId?: string;
 };
 
 /** A same-grain score drop below this many points is treated as worth a
@@ -721,6 +727,8 @@ export function deriveAttention(input: {
       items.push({
         severity: "info",
         kind: "recommendation",
+        // The stable rec id (W5-D): lets the card/digest key interaction state.
+        recId: recommendation.id,
         title: recommendation.title,
         body: `${recommendation.body} ${COACHING_GUIDANCE_SUFFIX}`,
         impact: 1,
