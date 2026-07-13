@@ -18,6 +18,7 @@ import type { EmailEnv } from "../lib/email";
 import type { PaddleServerConfig } from "../lib/paddle";
 import { previousDay } from "../scoring";
 import { addDays, chunkForCursor } from "./backfill";
+import { maybeSendBudgetAlert } from "./budget-alert";
 import type {
   ConnectorBackfillMessage,
   ConnectorPollMessage,
@@ -69,6 +70,9 @@ export type PollDeps = {
   emailEnv?: EmailEnv;
   /** App origin for the digest's unsubscribe/manage links (BETTER_AUTH_URL). */
   appOrigin?: string;
+  /** Platform-admin ids (ADMIN_USER_IDS) — the §14 flywheel report's audience
+   * (W5-I), threaded from the worker consumer like emailEnv. */
+  adminUserIds?: string[];
 };
 
 /** connections.auth_kind → the credential row kind that stores its secret.
@@ -134,6 +138,30 @@ export async function runConnectorPoll(
     } catch (error) {
       console.warn(
         `score-recompute enqueue after poll failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  // Budget-threshold alert on spend refresh (W5-I). A successful poll may have
+  // just landed fresh spend_cents rows, so re-evaluate the org's budget and
+  // email admins when a NEW threshold has crossed. Best-effort like the
+  // recompute enqueue above: the ingest already committed, so a failure here
+  // must NOT rethrow (it would re-poll the vendor to retry an email). The CAS
+  // in budget_alert_state makes a re-evaluation on the next poll idempotent, so
+  // a lost run self-heals. Only when the worker consumer supplied the email env
+  // + app origin (absent for non-worker callers and most tests).
+  if (outcome === "success" && deps.emailEnv && deps.appOrigin) {
+    try {
+      await maybeSendBudgetAlert(db, message.orgId, {
+        emailEnv: deps.emailEnv,
+        appOrigin: deps.appOrigin,
+        now: deps.now,
+      });
+    } catch (error) {
+      console.warn(
+        `budget-alert evaluation after poll failed: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );

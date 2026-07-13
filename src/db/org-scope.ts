@@ -3,6 +3,7 @@ import type { Db } from "./client";
 import { orgMembers, orgs, scoreDefinitions } from "./schema";
 import { auditLogNamespace } from "./org-scope/audit-log";
 import { billingNamespace } from "./org-scope/billing";
+import { budgetAlertStateNamespace } from "./org-scope/budget-alert-state";
 import { budgetsNamespace } from "./org-scope/budgets";
 import { connectionsNamespace } from "./org-scope/connections";
 import { connectorRunsNamespace } from "./org-scope/connector-runs";
@@ -170,6 +171,7 @@ export function forOrg(db: Db, orgId: string) {
     auditLog: auditLogNamespace(db, orgId),
     heartbeats: heartbeatsNamespace(db, orgId),
     budgets: budgetsNamespace(db, orgId),
+    budgetAlertState: budgetAlertStateNamespace(db, orgId),
     digestPreferences: digestPreferencesNamespace(db, orgId),
     recInteractions: recInteractionsNamespace(db, orgId),
   };

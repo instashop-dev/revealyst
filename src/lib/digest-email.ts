@@ -31,6 +31,21 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Digest return-rate instrumentation (W5-I): tag an app-return CTA href with
+ * `?src=digest&wk=<isoWeek>` so a click that lands back on the app fires the
+ * server-side week-keyed `digest_return` event (src/worker.ts + launch-events.ts)
+ * — click-through, the honest signal (an open pixel is defeated by privacy mail
+ * clients). PURE string edit only (no layout change): the `wk` value is the ISO
+ * week of THIS send, passed by the sender; when absent (a direct
+ * renderDigestEmail caller) only `src` is tagged. Preserves any existing query.
+ */
+export function appendDigestUtm(href: string, isoWeek?: string): string {
+  const sep = href.includes("?") ? "&" : "?";
+  const wk = isoWeek ? `&wk=${encodeURIComponent(isoWeek)}` : "";
+  return `${href}${sep}src=digest${wk}`;
+}
+
 function centsToUsd(cents: number): string {
   return `$${(cents / 100).toLocaleString("en-US", {
     minimumFractionDigits: 2,
@@ -97,7 +112,14 @@ function metricRow(label: string, value: string, delta: string): string {
  */
 export function renderDigestEmail(
   content: DigestContent,
-  urls: { unsubscribeUrl: string; manageUrl: string },
+  urls: {
+    unsubscribeUrl: string;
+    manageUrl: string;
+    /** ISO week of this send (e.g. "2026-W28") — appended to the app-return
+     * CTA as `wk` for digest return-rate instrumentation (W5-I). Optional so a
+     * direct caller/test can omit it (then only `src=digest` is tagged). */
+    isoWeek?: string;
+  },
 ): string {
   const rows: string[] = [];
 
@@ -220,7 +242,7 @@ export function renderDigestEmail(
           DIGEST_COPY.footer.why,
         )}</p>
         <p style="margin:0;font:400 12px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${MUTED}">
-          <a href="${esc(urls.manageUrl)}" style="color:${BRAND};text-decoration:underline">${esc(
+          <a href="${esc(appendDigestUtm(urls.manageUrl, urls.isoWeek))}" style="color:${BRAND};text-decoration:underline">${esc(
             DIGEST_COPY.footer.manage,
           )}</a>
           &nbsp;·&nbsp;

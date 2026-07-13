@@ -41,6 +41,19 @@ export function todayUtc(): string {
 }
 
 /**
+ * The calendar-month bucket key ("YYYY-MM", UTC) a given "today" falls in — the
+ * key the budget-alert crossing-state CAS (W5-I, ADR 0029) de-dups threshold
+ * emails per month on. Single source of truth so the sender and the
+ * `budget_alert_state` row always agree on the month boundary.
+ */
+export function monthKeyForDay(today: string): string {
+  if (!DAY_RE.test(today)) {
+    throw new Error(`monthKeyForDay expects YYYY-MM-DD, got "${today}"`);
+  }
+  return today.slice(0, 7);
+}
+
+/**
  * The UTC month-to-date window for a given "today" (YYYY-MM-DD): first calendar
  * day of that month through today, inclusive. This is the window observed spend
  * is summed over for the budget — a record dated in a prior month never counts,

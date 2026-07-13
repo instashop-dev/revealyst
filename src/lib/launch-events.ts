@@ -24,7 +24,19 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 export type LaunchEventName =
   | "landing_view"
   | "share_card_view"
-  | "share_card_og_view";
+  | "share_card_og_view"
+  // W5-I flywheel instrumentation. Both fire at the src/worker.ts edge seam
+  // (no session, no page render), so they are content-free by construction:
+  //  - digest_return: a click-through from a weekly-digest CTA back into the
+  //    app (the honest return signal — an open pixel is defeated by privacy
+  //    mail clients). Dim = the coarse ISO week the digest was sent (`wk`),
+  //    never a user/org id.
+  //  - companion_revisit: a full-document view of the companion surface
+  //    (/dashboard) — the returning-engagement signal for an AUTHENTICATED
+  //    surface. No dim, no identity: repeated views by returning users are
+  //    exactly what the count measures.
+  | "digest_return"
+  | "companion_revisit";
 
 /**
  * True for a landing-page view to count under §15 `landing_view`. The Worker
@@ -60,6 +72,48 @@ export function isLandingPageView(
   return (
     (method === "GET" || method === "HEAD") &&
     pathname === "/" &&
+    !isRscRequest
+  );
+}
+
+/**
+ * Digest return-rate signal (W5-I): the coarse dimension to record for a
+ * `digest_return` event, or null when this request is not a digest click-
+ * through. A click-through is a document GET/HEAD (RSC soft-navs excluded, like
+ * landing_view) carrying `?src=digest` — the tag `appendDigestUtm` puts on the
+ * digest's app-return CTA. The dim is the `wk` value (the ISO week the digest
+ * was sent, e.g. "2026-W28") — a coarse bucket, never a user/org id; an empty
+ * string when the link somehow lacks `wk`. Pathname is NOT checked: the CTA can
+ * target any app path, and `src=digest` is the unambiguous marker.
+ */
+export function digestReturnDim(
+  method: string,
+  isRscRequest: boolean,
+  src: string | null,
+  wk: string | null,
+): string | null {
+  if (method !== "GET" && method !== "HEAD") return null;
+  if (isRscRequest) return null;
+  if (src !== "digest") return null;
+  return wk ?? "";
+}
+
+/**
+ * Companion revisit signal (W5-I): true when this request is a full-document
+ * view of the companion surface (`/dashboard`) to count under
+ * `companion_revisit`. Same shape as isLandingPageView — GET/HEAD, exact path,
+ * RSC soft-navigations excluded (a client-side route transition is not a fresh
+ * visit). No identity is involved: the count of these views over time IS the
+ * returning-engagement signal, without any per-user tracking.
+ */
+export function isCompanionRevisit(
+  method: string,
+  pathname: string,
+  isRscRequest: boolean,
+): boolean {
+  return (
+    (method === "GET" || method === "HEAD") &&
+    pathname === "/dashboard" &&
     !isRscRequest
   );
 }

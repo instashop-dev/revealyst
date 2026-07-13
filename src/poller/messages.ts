@@ -74,6 +74,13 @@ export type PollMessage =
       // same ISO week does not re-send.
       kind: "digest-weekly";
       orgId: string;
+    }
+  | {
+      // W5-I §14: emails the platform admins the weekly flywheel/adoption
+      // funnel report. ONE system-level message per week (Monday 15:00 UTC),
+      // NOT per org — the report is a cross-org aggregate. A redelivery
+      // re-sends the same aggregate email (no state mutation).
+      kind: "flywheel-report";
     };
 
 export type ConnectorPollMessage = Extract<
