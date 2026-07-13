@@ -1,5 +1,12 @@
 # Revealyst — Automated Solo-Founder Marketing Strategy
 
+> **Superseded positioning (2026-07-13):** this strategy predates the V4 pivot
+> ([Product Spec V4](Revealyst_Product_Spec_V4.md) §1–§2). Its product framing —
+> CTO-buyer-first, "Fluency (the flagship)" score-led messaging — is retired: V4 leads with
+> the Personal AI Companion and demotes the raw score to a diagnostic. The automation-first
+> channel mechanics below still stand; every positioning/copy claim must be re-cut against
+> Spec V4 before use ([V4 Execution Plan](Revealyst_Execution_Plan_V4.md) W5-N).
+
 **Status:** Proposed · 2026-07-07
 **Owner:** Founder
 **Scope:** Long-term, automation-first marketing system for a one-person company.
@@ -7,7 +14,7 @@ Grounded entirely in this repository — every recommendation cites the code, do
 or infrastructure it builds on. Companion docs: [launch plan](launch/launch-plan.md) ·
 [announcements](launch/announcements.md) · [directories](launch/directories.md) ·
 [benchmark post data needs](launch/benchmark-post-data-needs.md) ·
-[documentation plan](documenation-plan.md).
+[documentation plan](documentation-plan.md).
 
 **Guiding principle applied throughout:** prefer less recurring effort, assets that
 compound, automation over manual execution, systems over campaigns, evergreen over

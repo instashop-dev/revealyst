@@ -1,5 +1,10 @@
 # Launch announcement set
 
+> **Positioning note (2026-07-13):** this copy predates the V4 pivot — adoption-dashboard
+> framing ("see who's actually adopting AI") is retired by
+> [Product Spec V4](../Revealyst_Product_Spec_V4.md) §1–§2. Do not paste any of it unedited;
+> re-cut against V4 positioning first (V4 Execution Plan W5-N).
+
 Ready-to-paste text per channel, in launch-plan.md order. Voice rules
 (`.agents/product-marketing-context.md`): plainspoken, numbers over
 adjectives, admit limits first, no exclamation points, no fabricated numbers.

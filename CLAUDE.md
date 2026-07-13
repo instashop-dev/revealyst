@@ -9,8 +9,10 @@ it is the interface between agents.
 > (strategy source: [Product Direction V4](docs/Revealyst_Product_Direction_V4.md);
 > V1.5 reference: [Spec V3](docs/Revealyst_Product_Spec_V3.md);
 > V1 reference: [Spec V2](docs/Revealyst_Product_Spec_V2.md)) ·
-> [Execution Plan](docs/Revealyst_Execution_Plan.md) (V1 waves; V1.5 waves in Spec V3 §16;
-> V4 tiers in Spec V4 §11) ·
+> [V4 Execution Plan](docs/Revealyst_Execution_Plan_V4.md) (the active plan: gap analysis +
+> waves W5–W6 + Future ledger) ·
+> [Execution Plan](docs/Revealyst_Execution_Plan.md) (V1 waves, complete; still the home of
+> rules 1–7 + tripwires; V1.5 waves in Spec V3 §16) ·
 > [Claude Code Workflow](docs/Revealyst_Claude_Code_Workflow.md) ·
 > [Harness setup status](docs/Revealyst_Harness_Setup.md)
 

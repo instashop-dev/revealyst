@@ -1,7 +1,7 @@
 # Revealyst - Architecture Brief
 
-**Basis:** the shipped code on `main`, [docs/Revealyst_Product_Spec_V3.md](Revealyst_Product_Spec_V3.md), and the live infrastructure notes in [docs/infra.md](infra.md).  
-**Production runtime:** Cloudflare Workers at `https://revealyst.thapi.workers.dev` with the app/auth split documented in [docs/infra.md](infra.md).  
+**Basis:** the shipped code on `main`, [docs/Revealyst_Product_Spec_V4.md](Revealyst_Product_Spec_V4.md) (ground truth since 2026-07-13), and the live infrastructure notes in [docs/infra.md](infra.md).  
+**Production runtime:** one Cloudflare Worker behind two custom domains — `https://app.revealyst.com` (app + auth) and `https://revealyst.com` (marketing) — with the host split documented in [docs/infra.md](infra.md) §6; the legacy `revealyst.thapi.workers.dev` host 308-redirects.  
 **Scope of this brief:** the deployed V1 platform shape - web app, data plane, background jobs, billing, and the currently wired connectors.
 
 Revealyst is a multi-tenant AI-adoption analytics platform built as a single TypeScript monolith. The product surface is a Next.js web app; the runtime is Cloudflare Workers via OpenNext; the system of record is Postgres on Neon, reached from Workers through Hyperdrive. Scheduled polling, nightly recompute, and billing metering run on Cloudflare Cron Triggers and Queues rather than on a separate worker fleet.

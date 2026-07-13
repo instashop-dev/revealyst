@@ -1,13 +1,27 @@
 # Revealyst — fleet shared brain
 
-Multi-tool AI-adoption analytics for CTOs: "who's using AI, how well, and are we
-getting our money's worth." Built by parallel AI-agent workstreams against frozen
-contracts. Every session auto-loads this file — it is the interface between agents.
+> **Mirror:** the Codex-facing mirror of [CLAUDE.md](CLAUDE.md), fully resynced 2026-07-13
+> (it had drifted badly since W3 — wrong ground-truth spec, missing the custom-domains split).
+> No automation keeps the two in sync: any PR that edits CLAUDE.md must resync this file
+> in the same PR.
+> **Harness note:** the text below is CLAUDE.md's, verbatim. Where it names Claude-Code
+> apparatus — `.claude/settings.json` hooks, skills like `/revise-claude-md` — the Codex
+> equivalents live under `.codex/` (`hooks.json`, `agents/`); everything else applies as-is.
 
-> Ground truth: [Product Spec V3 — V1.5 scope](docs/Revealyst_Product_Spec_V3.md)
-> (V1 reference: [Spec V2](docs/Revealyst_Product_Spec_V2.md)) ·
-> [Execution Plan](docs/Revealyst_Execution_Plan.md) (V1 waves; V1.5 waves in Spec V3 §16) ·
-> [Codex Workflow](docs/Revealyst_Claude_Code_Workflow.md) ·
+The AI Growth Platform: a bottom-up Personal AI Companion whose individual signal
+compounds into the team and executive intelligence CTOs pay for. Built by parallel
+AI-agent workstreams against frozen contracts. Every session auto-loads this file —
+it is the interface between agents.
+
+> Ground truth: [Product Spec V4 — the pivot](docs/Revealyst_Product_Spec_V4.md)
+> (strategy source: [Product Direction V4](docs/Revealyst_Product_Direction_V4.md);
+> V1.5 reference: [Spec V3](docs/Revealyst_Product_Spec_V3.md);
+> V1 reference: [Spec V2](docs/Revealyst_Product_Spec_V2.md)) ·
+> [V4 Execution Plan](docs/Revealyst_Execution_Plan_V4.md) (the active plan: gap analysis +
+> waves W5–W6 + Future ledger) ·
+> [Execution Plan](docs/Revealyst_Execution_Plan.md) (V1 waves, complete; still the home of
+> rules 1–7 + tripwires; V1.5 waves in Spec V3 §16) ·
+> [Claude Code Workflow](docs/Revealyst_Claude_Code_Workflow.md) ·
 > [Harness setup status](docs/Revealyst_Harness_Setup.md)
 
 ## Stack facts
@@ -16,26 +30,53 @@ contracts. Every session auto-loads this file — it is the interface between ag
 - Polling via **Cron Triggers → Queues** (one queue message per connection).
 - Single database, `org_id` on every row. **Personal mode = an org of one** —
   identical machinery to Team.
-- **Production (live since W0-B):** https://revealyst.thapi.workers.dev — deploy via
+- **Production (live since W0-B):** https://app.revealyst.com +
+  https://revealyst.com (legacy revealyst.thapi.workers.dev redirects) — deploy via
   the manual `Deploy` GitHub workflow (migrations → queue → deploy → Worker-secret
   sync from repo secrets); CI uploads a preview version per PR. Founder infra steps
   + local no-credential dev loop (`npm run dev:db`): `docs/infra.md`.
+- **Custom domains (host split, `docs/infra.md` §6):** ONE Worker, two custom
+  domains — **`app.revealyst.com`** is the app + Better Auth origin (`BETTER_AUTH_URL`,
+  GitHub OAuth callback, Paddle Default-Payment-Link/webhook all point here);
+  **`revealyst.com`** is the public marketing site (landing today; docs/blog later)
+  and the canonical home of public share cards. The split is enforced in `src/worker.ts`
+  by a GET/HEAD host redirect from `src/lib/domains.ts` (the single source of truth for
+  the two origins + path classification) — `/api/*`, assets, and the OpenNext
+  self-reference subrequest pass through untouched on the custom domains.
+  `src/lib/auth.ts` sets `trustedOrigins` to both hosts; share URLs are minted on
+  the marketing host (`toMarketingOrigin`, `src/components/share-score-button.tsx`).
+  The legacy `revealyst.thapi.workers.dev` host 308s GET/HEAD page requests to
+  canonical hosts (`WORKERS_DEV_HOST`; neutral paths + non-safe methods still
+  serve in place) and needs `workers_dev: true` kept explicit in wrangler.jsonc —
+  adding custom-domain routes silently disabled the subdomain (edge 404 "error
+  code: 1042", Worker never invoked) until 2026-07-10.
 - Windows dev machine: OpenNext builds use webpack, not Turbopack (adapter's chunk
   patching breaks on Win — see `open-next.config.ts`); DB/auth clients are created
   per request, never cached at module scope (Workers cancel cross-request I/O).
 - `npm run dev` (plain Next dev) needs `.dev.vars`'s `BETTER_AUTH_URL` set to
   `http://localhost:3000`, not the `wrangler dev` default of `:8787` — mismatch
   fails sign-up/sign-in with "Invalid origin" 403.
-- Vitest resolves `@/` only under tsc/Next, NOT at test runtime — code imported
-  by tests (`src/lib`, `src/db`) must use RELATIVE value imports (`../db/x`);
-  `@/` is fine only in route files (vitest never runs them).
+- `vitest.config.ts` now maps `@` → `./src` (added for component tests under
+  `src/components/**/*.test.tsx`), so Vitest DOES resolve `@/` at test runtime.
+  The historical relative-import convention in `src/lib`/`src/db` (`../db/x`)
+  remains the house style for lib-to-lib imports, but it is no longer
+  load-bearing for test resolution.
 - `next dev` hits a LOCAL Postgres, not Neon: `createDb` prefers the HYPERDRIVE
   binding, whose wrangler `localConnectionString` is `127.0.0.1:5432` — run
-  `npm run dev:db` (PGlite socket) first. That socket's postgres.js
-  prepared-statement bug (`08P01 … prepared statement`) breaks the authenticated
-  session query, so a logged-in app-shell flow can't be fully driven against
-  `dev:db` — unit-test that logic instead. `.dev.vars` is per-worktree
+  `npm run dev:db` (PGlite socket) first. The socket's historical postgres.js
+  prepared-statement failure (`08P01`) is FIXED by `prepare: false` in
+  `src/db/client.ts` — logged-in app-shell flows work against `dev:db` now
+  (verified 2026-07-11: sign-in + platform-admin `/admin/users` against a
+  `npm run dev:seed:demo`'d db; demo platform admin
+  `sam.reyes@revealyst.example` / `Demo-Pass-2026!`). Data is in-memory —
+  it vanishes when the `dev:db` process stops, and the demo seed NEVER
+  touches prod (its users/passwords are committed to the repo — do not seed
+  Neon with it). `.dev.vars` is per-worktree
   (gitignored); appending without a trailing newline concatenates onto the last key.
+  Embedded-browser gotcha: React 19 reveals streamed Suspense content via
+  requestAnimationFrame, and a hidden/unpainted pane never fires rAF — a page
+  can hold fully-streamed data in `div[hidden][id^=S:]` yet read as "empty";
+  assert on the streamed DOM, not innerText/screenshots.
 - A corrupted `.next/dev/types/validator.ts` (from an interrupted `next dev`) breaks
   `tsc --noEmit` repo-wide with unrelated syntax errors; `.next` isn't in tsconfig's
   exclude — `rm -rf .next` and retype checks clean.
@@ -67,6 +108,63 @@ contracts. Every session auto-loads this file — it is the interface between ag
   `src/components` (`EmptyState`, `SyncStatusBadge`, `PageHeader`, sidebar shell);
   pages/API get session + `forOrg` scope ONLY via `src/lib/api-context.ts`
   (`appContext`/`requireAppContext`) — never call `createDb` in a page/route.
+
+## Performance & request-lifecycle observability (7s incident, PRs #125–#127)
+- **Perf model:** on Workers → Hyperdrive → Neon, PER-ROUND-TRIP cost dominates
+  authenticated TTFB, and ONLY authenticated requests touch Postgres at all
+  (no-cookie `getSession` returns before any query) — so "authenticated pages
+  slow, everything else fast" means DB-layer cost, not app code. Reduce
+  sequential query STAGES first (see `readDashboardView`'s single flat
+  `Promise.all` + prefetched-params pattern), then per-op cost.
+- **Gauges:** `curl -sD - https://app.revealyst.com/api/health` →
+  `Server-Timing: db;dur=` = connection setup + one query (unauthenticated DB
+  probe). Authenticated docs//api//RSC responses carry
+  `Server-Timing: session/orgContext/access/pageData/total` (devtools →
+  Network). `tests/perf/authenticated-page-queries.test.ts` (run with
+  `--reporter=verbose`) counts queries + sequential depth on PGlite.
+- **Measured (W4, from BOM):** `db;dur` is a stable **~500–670ms per
+  round-trip** (Neon inferred US region) — this per-round-trip floor, not app
+  code, dominates authenticated TTFB. Read-path N+1 is already eliminated
+  (dashboard 12 queries / depth 1). The **biggest remaining lever is a Neon
+  read replica near users / region move** = founder infra, not yet done.
+- **Edge caching is ON (W4, PRs #146/#147):** OpenNext incremental cache
+  (static-assets flavor + `enableCacheInterception`, no new bindings). Live:
+  `/sign-in` + `/legal/*` serve via **interception** (`x-opennext-cache: HIT`);
+  the marketing landing `/` is **static** (`x-nextjs-cache: HIT`) — interception
+  does NOT fire for `/` (interceptor strips the trailing slash `/`→`""`, missing
+  the manifest key), so `/` rides the NextServer incremental cache instead.
+  `public/_headers` makes `/_next/static/*` `immutable`. The `landing_view` §15
+  metric now writes from the `src/worker.ts` entry seam (the page went static) —
+  it must count ALL non-RSC GETs of `/` (gating on `Accept: text/html` silently
+  drops `*/*`/no-Accept crawlers+monitors the old force-dynamic render counted).
+- **Instrumentation seam:** `src/lib/request-timing.ts` (`timeStage`, ALS
+  collector entered in `src/worker.ts`). Streamed (Suspense) stages log as
+  late-stage JSON lines (headers already flushed); assets/WebSocket upgrades
+  pass through untouched. **OpenNext bundles src twice** (worker entry vs Next
+  server) — any request-scoped singleton MUST anchor on `globalThis`, or the
+  two module copies get separate instances (shipped the header with zero
+  stages; fixed in #127).
+- **DB client (`src/db/client.ts`):** `fetch_types: false` (postgres.js
+  otherwise pays a pg_catalog introspection round-trip on every request's
+  fresh connection). **Smart Placement is OFF and must stay off** (reverted
+  in PR #131): within hours of the #126 deploy enabling it, every request
+  invoking Better Auth (all auth API paths, `/api/me`, authenticated pages)
+  hung indefinitely in prod while non-auth routes stayed fast — same bundle
+  + env ran clean in local workerd, so it's a placement-layer interaction
+  with this dual-custom-domain Worker (see wrangler.jsonc comment).
+  Re-enabling needs its own monitored change. Related: cross-surface links
+  (marketing↔app host) must be plain `<a>`, never `<Link>` — a soft-nav RSC
+  fetch gets 308'd cross-origin and CORS-blocked (PR #132).
+- **Better Auth perf config:** `experimental: { joins: true }` is a TOP-LEVEL
+  `betterAuth()` option — inside `drizzleAdapter`'s options it is silently
+  ignored. The join path needs drizzle `relations()` (`src/db/auth-relations.ts`,
+  deliberately OUTSIDE frozen `schema.ts`) spread into `drizzle()`'s schema
+  (`fullSchema`, exported from `db/client.ts` — tests that build their own
+  PGlite db + `createAuth` must import it). A model reachable via `join` but
+  missing its relation THROWS at query-build time (no soft fallback) — wire
+  user↔sessions/accounts too, not just session→user. `session.cookieCache`
+  stays OFF (tripwire in `auth.ts` — admin ban/impersonation gates must be
+  re-audited before enabling).
 
 ## Operating model — rules 1–7 (from the execution plan)
 1. **Contracts before fan-out.** No W1+ workstream starts until W0-C is frozen.
@@ -208,9 +306,9 @@ only by mechanism review). Also: base-nova `Card` draws its outline with
   PR's first commit is already the reviewed state. Small PRs; a workstream is a chain.
 - Custom skills: `/kickoff`, `/gate-check`, `/adr`, `/new-connector`. Gate pre-review:
   `/gate-review <wave>` workflow + the `contract-guardian` / `adversarial-reviewer` subagents.
-- **Hooks run on every Edit/Write** (`.codex/hooks.json`): a tripwire guard (rule 7) and
+- **Hooks run on every Edit/Write** (`.claude/settings.json`): a tripwire guard (rule 7) and
   a post-edit typecheck. Expect them to block on drift — that's the design, not a glitch.
-- Keep this file current and in sync with its Claude Code twin `CLAUDE.md` at session end.
+- Keep this file current: `/revise-claude-md` at session end; `/claude-md-improver` once per wave.
 - **Before deleting any branch as "merged":** check `git merge-base --is-ancestor
   <branch> main`, not the PR's GitHub state — a branch can receive a later merge
   *after* it was already merged upstream, stranding real work with a "MERGED" PR
@@ -237,6 +335,31 @@ only by mechanism review). Also: base-nova `Card` draws its outline with
   And if a recovery PR develops conflicts with main, don't push the resolution
   to the open PR (merge-race drops it) — resolve on a fresh branch and
   recreate the PR with the resolution in its creation-time HEAD.
+- **Parallel-fan-out numbering collisions (W4 orchestration):** when N agents
+  build simultaneously, each grabs the "next" ADR/migration number offline and
+  they COLLIDE (W4: ADRs 0018/0020/0021 + migration 0020 all double-claimed
+  across 5 workstreams). ADR and migration are INDEPENDENT sequences. The
+  orchestrator must serialize merges and, after each ADR/migration-bearing
+  merge, have the next agent rebase + renumber (rename the ADR file, regen the
+  migration via `drizzle-kit generate`, update every code/test/PR-body ref)
+  BEFORE its PR merges. Cheaper than post-hoc recovery.
+- **Verify CI check state EXPLICITLY before merging — never pipe `gh pr merge`
+  after `gh pr checks`:** a shell pipe masked a red check and auto-merged a PR
+  whose `npm test` had FAILED (W4: #140 merged with a failing
+  account-deletion purge tripwire → needed hotfix #143). Pattern: capture
+  `gh pr checks <n>` output, grep for `fail|error`, and merge only if clean.
+- **A new org-scoped table needs THREE registrations, not two:** (1)
+  `tests/tenant-isolation.test.ts` SCOPED_READS with a non-vacuous B-org seed,
+  (2) a `docs/decisions/` ADR, AND (3) `src/db/account-deletion.ts` —
+  PURGE_TABLES if it has no cascade-to-orgs FK, else PURGE_EXEMPT_TABLES. The
+  purge-completeness tripwire (`tests/account-deletion.test.ts`) is CI-enforced
+  and will red main post-merge otherwise (W4: `budgets` missed #3).
+- **Shared-checkout hazard:** concurrent agent sessions drive this ONE physical
+  checkout and can switch branches/HEAD under you mid-task (observed: reflog
+  hopping across 5 branches while agents worked; uncommitted edits survive a
+  checkout but not a reset). Verify `git branch --show-current` immediately
+  before staging/committing, stage explicit paths (never `git add -A` — foreign
+  in-progress edits share the tree), and commit+push early to make work durable.
 - Flaky, not broken: an occasional `[vitest-pool]: Worker exited unexpectedly`
   (Windows fork crash) and a rare pseudonym-collision in `tests/api-impl.test.ts`
   are known transient flakes — rerun before treating either as a regression.
