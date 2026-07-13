@@ -1,0 +1,216 @@
+{
+  "_fixture": {
+    "SYNTHETIC": true,
+    "note": "HAND-CONSTRUCTED, ILLUSTRATIVE. NOT captured from real Claude Code usage. Attribute VALUES are invented; the SHAPE follows the OTLP/HTTP JSON ExportMetricsServiceRequest mapping and the Claude Code metric/attribute names documented at https://code.claude.com/docs/en/monitoring-usage (accessed 2026-07-13). Real values + resource-vs-datapoint attribute placement + aggregationTemporality must be confirmed by founder-gated live capture (see docs/research/2026-07-13-claude-code-otel-receiver-spike.md §9, NLV-OT1/OT2/OT3).",
+    "wire": {
+      "route": "POST /v1/metrics",
+      "content_type": "application/json",
+      "auth_header": "Authorization: Bearer rva1.<orgId>.<connectionId>.<secret>",
+      "success_response": "200 OK, body {} (empty ExportMetricsServiceResponse = full success)"
+    },
+    "aggregationTemporality_legend": "2 = CUMULATIVE (assumed SDK default). If live capture shows 1 = DELTA, §5 aggregation switches from max-per-session to additive."
+  },
+  "resourceMetrics": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "claude-code" } },
+          { "key": "organization.id", "value": { "stringValue": "org-synthetic-0001" } },
+          { "key": "user.id", "value": { "stringValue": "user-synthetic-abc" } },
+          { "key": "user.email", "value": { "stringValue": "founder@example.com" } },
+          { "key": "terminal.type", "value": { "stringValue": "vscode" } }
+        ]
+      },
+      "scopeMetrics": [
+        {
+          "scope": { "name": "com.anthropic.claude_code", "version": "2.1.197" },
+          "metrics": [
+            {
+              "name": "claude_code.session.count",
+              "unit": "count",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asInt": "1",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                      { "key": "start_type", "value": { "stringValue": "fresh" } }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.token.usage",
+              "unit": "tokens",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asInt": "48213",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                      { "key": "type", "value": { "stringValue": "input" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-4-8" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } }
+                    ]
+                  },
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asInt": "9042",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                      { "key": "type", "value": { "stringValue": "output" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-4-8" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } }
+                    ]
+                  },
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asInt": "310500",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                      { "key": "type", "value": { "stringValue": "cacheRead" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-4-8" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.cost.usage",
+              "unit": "USD",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asDouble": 0.7431,
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-4-8" } },
+                      { "key": "query_source", "value": { "stringValue": "main" } }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.code_edit_tool.decision",
+              "unit": "count",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asInt": "7",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                      { "key": "tool_name", "value": { "stringValue": "Edit" } },
+                      { "key": "decision", "value": { "stringValue": "accept" } },
+                      { "key": "source", "value": { "stringValue": "user_temporary" } },
+                      { "key": "language", "value": { "stringValue": "TypeScript" } }
+                    ]
+                  },
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asInt": "2",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                      { "key": "tool_name", "value": { "stringValue": "Edit" } },
+                      { "key": "decision", "value": { "stringValue": "reject" } },
+                      { "key": "source", "value": { "stringValue": "user_reject" } },
+                      { "key": "language", "value": { "stringValue": "TypeScript" } }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.active_time.total",
+              "unit": "s",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asDouble": 1284.5,
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                      { "key": "type", "value": { "stringValue": "user" } }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.lines_of_code.count",
+              "unit": "count",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asInt": "146",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                      { "key": "type", "value": { "stringValue": "added" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-4-8" } }
+                    ]
+                  },
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asInt": "38",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                      { "key": "type", "value": { "stringValue": "removed" } },
+                      { "key": "model", "value": { "stringValue": "claude-opus-4-8" } }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "name": "claude_code.commit.count",
+              "unit": "count",
+              "sum": {
+                "aggregationTemporality": 2,
+                "isMonotonic": true,
+                "dataPoints": [
+                  {
+                    "startTimeUnixNano": "1752345600000000000",
+                    "timeUnixNano": "1752349200000000000",
+                    "asInt": "3",
+                    "attributes": [
+                      { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
