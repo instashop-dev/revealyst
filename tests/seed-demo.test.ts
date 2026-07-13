@@ -276,6 +276,8 @@ describe("score insights / attention (Acme Robotics)", () => {
       sharedAccountCount: 0,
       scoreDrops: [],
       scoreComponents,
+      // W6-C: the seeded per-org catalog, carried on the composed view.
+      recommendations: view.recommendations,
     });
     const recommendations = attentionItems.filter((i) => i.kind === "recommendation");
     expect(recommendations.length).toBeGreaterThan(0);

@@ -1,11 +1,7 @@
 import { apiRoutes } from "@/contracts/api";
 import { ApiError } from "@/lib/api-impl";
 import { handleApi, parseBody } from "@/lib/api-route";
-import {
-  DEFAULT_SNOOZE_DAYS,
-  snoozeUntilFrom,
-  VALID_REC_IDS,
-} from "@/lib/rec-interactions";
+import { DEFAULT_SNOOZE_DAYS, snoozeUntilFrom } from "@/lib/rec-interactions";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +23,12 @@ export async function POST(req: Request) {
 
     // Only a real recommendation can be interacted with — an unknown id is a
     // client bug, not a row to store (keeps the table free of orphan rec_ids).
-    if (!VALID_REC_IDS.has(body.recId)) {
+    // The valid ids are the catalog `slug`s visible to this org (W6-C, ADR
+    // 0033) — a live per-org read (global presets ∪ this org's rows), not a
+    // TS mirror of catalog content. This POST is a write path, so the one extra
+    // read is not on any hot render.
+    const catalog = await ctx.scope.catalog.list();
+    if (!catalog.some((rec) => rec.id === body.recId)) {
       throw new ApiError(400, "unknown recommendation");
     }
 

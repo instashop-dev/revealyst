@@ -1,5 +1,3 @@
-import { COACHING_RECOMMENDATIONS } from "./coaching-recommendations";
-
 // Pure helpers for recommendation interaction state (W5-D, ADR 0028) — the
 // Outcomes-loop forerunner (§8.3). No React, no I/O: the ONE place the
 // snooze-expiry + suppression rules live, so the companion card, the digest
@@ -13,12 +11,11 @@ export type RecInteractionStateValue = (typeof REC_INTERACTION_STATES)[number];
 /** Default snooze length when the caller doesn't specify one. */
 export const DEFAULT_SNOOZE_DAYS = 7;
 
-/** Every valid rec_id — the stable ids from the static coaching map. An id
- * outside this set is rejected at the API edge (a rec that can't be coached on
- * can't be interacted with either). */
-export const VALID_REC_IDS: ReadonlySet<string> = new Set(
-  COACHING_RECOMMENDATIONS.map((rec) => rec.id),
-);
+// Valid rec_ids are no longer a static constant (W6-C, ADR 0033 retired the
+// static map): the set of recommendable ids is the CATALOG's `slug`s, read live
+// per org. The interaction route validates `recId` against
+// `forOrg(...).catalog.list()` (a rec that can't be coached on can't be
+// interacted with either), so a TS mirror of catalog content is unnecessary.
 
 /** The stored shape the suppression rule reads (a subset of the row). */
 export type RecInteractionView = {

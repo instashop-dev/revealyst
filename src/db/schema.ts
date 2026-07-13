@@ -1264,6 +1264,148 @@ export const execReportState = pgTable(
   ],
 );
 
+// Recommendation catalog (W6-C, ADR 0033) — the coaching content as SEEDED,
+// VERSIONED reference data, superseding the 7-entry static map in
+// src/lib/coaching-recommendations.ts (its content migrates VERBATIM in
+// drizzle/0029). Same recipe as score_definitions / metric_catalog: content is
+// DATA, the evaluator (`deriveAttention`, src/lib/score-insights.ts) stays code
+// — a small CLOSED vocabulary of comparators over `required_signals`, no DSL,
+// no LLM (G6). org_id NULL = global preset (the documented reference-data
+// exception, visible to every org alongside its own rows); an org may author
+// its own rows later. Rows are IMMUTABLE per version — a change mints a new
+// version, so a person's stored interaction state stays reproducible.
+//
+// `slug` is the STABLE recommendation id: it EQUALS the static map's id (e.g.
+// "adoption-active-days") so existing rec_interaction_state.rec_id rows keep
+// resolving across the migration (verified by the migration-equivalence test).
+//
+// Copy discipline (invariant b — every body is a claim surface; W3-N/W3-P):
+// task-focused never person-focused, grounded in a MEASURED weak component,
+// no fabricated numbers, no per-vendor feature claims beyond generic capability
+// nouns. The seed↔evaluator contract test fact-checks every seeded body.
+export const recommendationCatalog = pgTable(
+  "recommendation_catalog",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // NULL = global preset (reference-data exception, like score_definitions);
+    // NO ACTION FK to orgs so org-authored rows must be purged explicitly on
+    // account deletion (they are — src/db/account-deletion.ts PURGE_TABLES).
+    orgId: uuid("org_id").references(() => orgs.id),
+    // The stable recommendation id (== the static map's `id`, e.g.
+    // "adoption-active-days"). rec_interaction_state.rec_id points here by value
+    // (no FK — that table predates this one). This is the unique-key `slug`, NOT
+    // the score slug (that's `score_slug` below); the two differ deliberately.
+    slug: text("slug").notNull(),
+    version: integer("version").notNull(),
+    // The SCORE whose weak component this addresses (== the static map's `slug`,
+    // a ScoreSlug e.g. "adoption"). The evaluator keys its lookup on
+    // `score_slug::component_key`, so this must be the score slug, never the
+    // rec id.
+    scoreSlug: text("score_slug").notNull(),
+    // The LIVE preset component this coaches on (validated in the seed-contract
+    // test against SCORE_GLOSSARY — never a raw key with no glossary home).
+    componentKey: text("component_key").notNull(),
+    // Same-signal dedupe group — the evaluator dedupes candidates by this
+    // BEFORE its cap so two flavors of one signal never burn both slots.
+    signalGroup: text("signal_group", {
+      enum: [
+        "active-days",
+        "feature-breadth",
+        "effectiveness",
+        "output-per-spend",
+        "engagement-per-spend",
+      ],
+    }).notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    // Generic capability nouns / role slugs this row targets. Empty = universal
+    // (the 7 launch entries are universal adoption guidance, not role/tool
+    // scoped). `applicable_roles` elements are validated against roles.slug in
+    // the seed-contract test (Postgres has no element-level array FK).
+    applicableRoles: text("applicable_roles")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    applicableTools: text("applicable_tools")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    // Structured comparators over the CLOSED vocabulary (measured ·
+    // normalized-below · min-weight) — src/lib/recommendation-catalog.ts's
+    // `requiredSignalsSchema`. An unparseable row FAILS the seed-contract test.
+    // NOT a DSL and NOT LLM-authored logic (§8.2).
+    requiredSignals: jsonb("required_signals").notNull(),
+    // W5-E optimization metadata (§8.2), closed vocabularies. `benefit` is the
+    // static map's `impact` (typical adoption upside of the ADVICE PATTERN,
+    // never a person). All describe the pattern, not any individual.
+    benefit: text("benefit", { enum: ["high", "medium", "low"] }).notNull(),
+    difficulty: text("difficulty", {
+      enum: ["low", "medium", "high"],
+    }).notNull(),
+    confidence: text("confidence", {
+      enum: ["high", "medium", "low"],
+    }).notNull(),
+    learningResources: text("learning_resources")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    relatedWorkflows: text("related_workflows")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    // §7.3 named insight taxonomy (domain the insight belongs to).
+    insightKind: text("insight_kind", {
+      enum: [
+        "data-hygiene",
+        "adoption",
+        "effectiveness-verification",
+        "spend",
+        "agentic-transition",
+        "early-warning",
+        "narrative",
+        "milestone-positive",
+      ],
+    }).notNull(),
+    // §8.2 closed 3-value suggested-action taxonomy (was the static map's
+    // `actionType`).
+    suggestedActionType: text("suggested_action_type", {
+      enum: ["link-out", "in-product-setting", "vendor-deep-link"],
+    }).notNull(),
+    status: text("status", { enum: ["draft", "active", "retired"] })
+      .notNull()
+      .default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // NULLS NOT DISTINCT so two global presets (org_id NULL) can't share a
+    // (slug, version) — the idempotent-seed conflict target (PG15+; Neon +
+    // PGlite). Mirrors score_definitions_org_slug_version_uq.
+    unique("recommendation_catalog_org_slug_version_uq")
+      .on(t.orgId, t.slug, t.version)
+      .nullsNotDistinct(),
+    // DB-level guards on the closed taxonomies (belt-and-suspenders on top of
+    // the TS enums + the seed-contract test).
+    check(
+      "recommendation_catalog_benefit_ck",
+      sql`${t.benefit} IN ('high','medium','low')`,
+    ),
+    check(
+      "recommendation_catalog_difficulty_ck",
+      sql`${t.difficulty} IN ('low','medium','high')`,
+    ),
+    check(
+      "recommendation_catalog_confidence_ck",
+      sql`${t.confidence} IN ('high','medium','low')`,
+    ),
+    check(
+      "recommendation_catalog_action_type_ck",
+      sql`${t.suggestedActionType} IN ('link-out','in-product-setting','vendor-deep-link')`,
+    ),
+  ],
+);
+
 // Auth tables last: auth-schema imports orgs from this module, so the
 // re-export must come after orgs is initialized (circular-import order).
 export * from "./auth-schema";

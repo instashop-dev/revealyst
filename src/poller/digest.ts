@@ -150,6 +150,7 @@ export async function runWeeklyDigest(
     activeDayRecords,
     identities,
     dismissedRecIds,
+    recommendations,
   ] = await Promise.all([
     scope.scores.results({ from, to }),
     scope.scores.definitions(),
@@ -160,6 +161,10 @@ export async function runWeeklyDigest(
     lane === "personal"
       ? scope.recInteractions.dismissedRecIdsForOrg()
       : Promise.resolve<string[]>([]),
+    // W6-C (ADR 0033): the per-org recommendation catalog — ONE read folded
+    // into this single Promise.all (§8.2 perf floor), evaluated in memory by
+    // `assembleDigest` → `deriveAttention`.
+    scope.catalog.list(),
   ]);
 
   const teamRows = rawScores.filter((r) => r.subjectLevel === "team");
@@ -188,6 +193,7 @@ export async function runWeeklyDigest(
     movement,
     trends,
     scoreComponents,
+    recommendations,
     dismissedRecIds: new Set(dismissedRecIds),
   });
 
