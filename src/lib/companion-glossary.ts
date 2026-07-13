@@ -42,7 +42,12 @@ export const GROWTH_JOURNEY_COPY = {
   /** Prefix for the level headline — the level NAME itself comes from
    * MATURITY_LEVEL_COPY (never invented here). */
   levelLead: "You're at",
-  levelBadge: "Modeled",
+  // "Directional" (not "Modeled"): the maturity level is telemetry-DERIVED —
+  // Spec V4 §7.1's flagship differentiator vs incumbents' survey/modeled
+  // models — but uses uncalibrated thresholds, so it's directional, not
+  // precise. "Modeled" blurred that positioning; the InfoTip already says
+  // "directional". (W5-C content fact-check, orchestrator review-fix.)
+  levelBadge: "Directional",
   /** Section labels for the single next step. */
   nextStepLabel: "Your next step",
   whyLabel: "Why this",
