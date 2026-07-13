@@ -123,6 +123,7 @@ describe("connections route (frozen connectionsList)", () => {
       status: "pending",
       lastSuccessAt: null,
       lastError: null,
+      renewalDate: null, // W6-G: user-entered, unset by default
     });
   });
 

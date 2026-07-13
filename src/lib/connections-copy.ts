@@ -19,6 +19,12 @@ export const LOCAL_SECTION = {
     "The Revealyst Agent summarizes your local Claude Code sessions on your machine and pushes only aggregates — never prompt content. You run one command whenever you want to refresh; nothing runs in the background.",
 } as const;
 
+/** Honest label for the renewal-date field (W6-G). Invariant b: the date is
+ * user-entered — no vendor reports renewal dates, so the copy states plainly
+ * that Revealyst can't verify it and only reminds against what the user typed. */
+export const RENEWAL_DATE_HINT =
+  "You enter this date yourself — no vendor reports renewal dates, so Revealyst can't verify it. We'll email admins about 30 and 7 days before it.";
+
 /** Copy for the "what this sync sent" transparency panel. */
 export const TRANSPARENCY_PANEL = {
   title: "What this sync sends",

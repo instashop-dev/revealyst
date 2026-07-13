@@ -64,7 +64,12 @@
 			// Weekly §14 flywheel report (W5-I): Monday 15:00 UTC. src/worker.ts
 			// enqueues ONE flywheel-report system message; the consumer reads the
 			// cross-org funnel and emails the platform admins the aggregate.
-			"0 15 * * 1"
+			"0 15 * * 1",
+			// Daily renewal-reminder scan (W6-G): 13:00 UTC. src/worker.ts enqueues
+			// one renewal-reminder-scan per org; the consumer emails admins about
+			// user-entered renewal dates exactly 30 or 7 days out (idempotent via
+			// the renewal_reminder_state CAS).
+			"0 13 * * *"
 		]
 	},
 	"queues": {
