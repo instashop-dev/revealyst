@@ -1,0 +1,122 @@
+{
+  "_fixture": {
+    "SYNTHETIC": true,
+    "note": "HAND-CONSTRUCTED, ILLUSTRATIVE. NOT captured from real Claude Code usage. Attribute VALUES are invented; the SHAPE follows the OTLP/HTTP JSON ExportLogsServiceRequest mapping and the Claude Code event names/attributes documented at https://code.claude.com/docs/en/monitoring-usage (accessed 2026-07-13). Real values + resource-vs-logRecord attribute placement must be confirmed by founder-gated live capture (see docs/research/2026-07-13-claude-code-otel-receiver-spike.md §9, NLV-OT2/OT3).",
+    "wire": {
+      "route": "POST /v1/logs",
+      "content_type": "application/json",
+      "auth_header": "Authorization: Bearer rva1.<orgId>.<connectionId>.<secret>",
+      "success_response": "200 OK, body {} (empty ExportLogsServiceResponse = full success)"
+    },
+    "privacy_note": "The claude_code.user_prompt record below carries prompt_length but NO `prompt` attribute — content stays redacted because OTEL_LOG_USER_PROMPTS is never set. The receiver ALSO defensively scrubs `prompt`/`response`/`body`/`tool_input`/`tool_parameters` at the boundary even if a flag were set (spike §8). severityNumber 9 = INFO."
+  },
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "claude-code" } },
+          { "key": "organization.id", "value": { "stringValue": "org-synthetic-0001" } },
+          { "key": "user.id", "value": { "stringValue": "user-synthetic-abc" } },
+          { "key": "user.email", "value": { "stringValue": "founder@example.com" } },
+          { "key": "terminal.type", "value": { "stringValue": "vscode" } }
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": { "name": "com.anthropic.claude_code", "version": "2.1.197" },
+          "logRecords": [
+            {
+              "timeUnixNano": "1752345601000000000",
+              "observedTimeUnixNano": "1752345601000000000",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "eventName": "claude_code.user_prompt",
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "claude_code.user_prompt" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-07-12T18:20:01.000Z" } },
+                { "key": "event.sequence", "value": { "intValue": "12" } },
+                { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                { "key": "prompt.id", "value": { "stringValue": "prm-synthetic-77" } },
+                { "key": "prompt_length", "value": { "intValue": "184" } },
+                { "key": "command_source", "value": { "stringValue": "builtin" } }
+              ]
+            },
+            {
+              "timeUnixNano": "1752345612000000000",
+              "observedTimeUnixNano": "1752345612000000000",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "eventName": "claude_code.tool_decision",
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "claude_code.tool_decision" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-07-12T18:20:12.000Z" } },
+                { "key": "event.sequence", "value": { "intValue": "18" } },
+                { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                { "key": "prompt.id", "value": { "stringValue": "prm-synthetic-77" } },
+                { "key": "tool_name", "value": { "stringValue": "Edit" } },
+                { "key": "tool_use_id", "value": { "stringValue": "toolu-synthetic-01" } },
+                { "key": "decision", "value": { "stringValue": "accept" } },
+                { "key": "source", "value": { "stringValue": "user_temporary" } }
+              ]
+            },
+            {
+              "timeUnixNano": "1752345640000000000",
+              "observedTimeUnixNano": "1752345640000000000",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "eventName": "claude_code.tool_decision",
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "claude_code.tool_decision" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-07-12T18:20:40.000Z" } },
+                { "key": "event.sequence", "value": { "intValue": "31" } },
+                { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                { "key": "prompt.id", "value": { "stringValue": "prm-synthetic-77" } },
+                { "key": "tool_name", "value": { "stringValue": "Edit" } },
+                { "key": "tool_use_id", "value": { "stringValue": "toolu-synthetic-02" } },
+                { "key": "decision", "value": { "stringValue": "reject" } },
+                { "key": "source", "value": { "stringValue": "user_reject" } }
+              ]
+            },
+            {
+              "timeUnixNano": "1752345655000000000",
+              "observedTimeUnixNano": "1752345655000000000",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "eventName": "claude_code.tool_result",
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "claude_code.tool_result" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-07-12T18:20:55.000Z" } },
+                { "key": "event.sequence", "value": { "intValue": "34" } },
+                { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                { "key": "tool_name", "value": { "stringValue": "Bash" } },
+                { "key": "tool_use_id", "value": { "stringValue": "toolu-synthetic-03" } },
+                { "key": "success", "value": { "stringValue": "true" } },
+                { "key": "duration_ms", "value": { "intValue": "412" } },
+                { "key": "tool_input_size_bytes", "value": { "intValue": "96" } },
+                { "key": "tool_result_size_bytes", "value": { "intValue": "1840" } }
+              ]
+            },
+            {
+              "timeUnixNano": "1752345670000000000",
+              "observedTimeUnixNano": "1752345670000000000",
+              "severityNumber": 13,
+              "severityText": "WARN",
+              "eventName": "claude_code.api_error",
+              "attributes": [
+                { "key": "event.name", "value": { "stringValue": "claude_code.api_error" } },
+                { "key": "event.timestamp", "value": { "stringValue": "2026-07-12T18:21:10.000Z" } },
+                { "key": "event.sequence", "value": { "intValue": "40" } },
+                { "key": "session.id", "value": { "stringValue": "sess-synthetic-1111" } },
+                { "key": "model", "value": { "stringValue": "claude-opus-4-8" } },
+                { "key": "status_code", "value": { "intValue": "529" } },
+                { "key": "duration_ms", "value": { "intValue": "1203" } },
+                { "key": "attempt", "value": { "intValue": "2" } },
+                { "key": "query_source", "value": { "stringValue": "main" } }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
