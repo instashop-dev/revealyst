@@ -97,6 +97,9 @@ export const PURGE_EXEMPT_TABLES = new Set([
   // deletes `connections` explicitly (scoped to the org), which cascades the
   // reminder-state rows away — no separate statement needed.
   "renewal_reminder_state",
+  // W6-F (ADR 0031): one send-state/settings row per org, cascade-deleted with
+  // the org (org_id → orgs, cascade) — the final `orgs` delete removes it.
+  "exec_report_state",
 ]);
 
 /**

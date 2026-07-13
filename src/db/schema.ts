@@ -1227,6 +1227,43 @@ export const renewalReminderState = pgTable(
   ],
 );
 
+// Monthly executive-memo send-state + opt-in (W6-F, ADR 0031). One row per org
+// (like budgets): the workspace toggle plus the month-keyed idempotency mark the
+// monthly sender compare-and-sets before sending each memo.
+export const execReportState = pgTable(
+  "exec_report_state",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    // Workspace-level opt-in for the monthly executive memo. Default true so
+    // an opt-OUT write is a plain upsert and an org with no row yet is treated
+    // as enabled by the sender's absent-row default.
+    execReportEnabled: boolean("exec_report_enabled").notNull().default(true),
+    // Calendar month ("YYYY-MM", UTC) of the most recent send. The idempotency
+    // key the monthly sender compare-and-sets before sending; null until the
+    // first memo goes out. Text (not a date) — a bucket key compared only for
+    // equality, mirroring budget_alert_state.month_key.
+    lastSentMonth: text("last_sent_month"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    // Anchor for composite tenant FKs, per D1a — kept even without child
+    // tables so the shape matches every other org-scoped table.
+    unique("exec_report_state_org_id_id_uq").on(t.orgId, t.id),
+    // One send-state/settings row per org: the toggle + CAS upsert conflict
+    // target (mirrors budgets_org_uq).
+    unique("exec_report_state_org_uq").on(t.orgId),
+  ],
+);
+
 // Auth tables last: auth-schema imports orgs from this module, so the
 // re-export must come after orgs is initialized (circular-import order).
 export * from "./auth-schema";

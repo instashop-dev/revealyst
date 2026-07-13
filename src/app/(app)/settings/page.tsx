@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { DigestPreferencesForm } from "@/components/settings/digest-preferences-form";
+import { ExecReportPreferencesForm } from "@/components/settings/exec-report-preferences-form";
 import { RoleManagementCard } from "@/components/settings/role-management-card";
 import { TeamManagementCard } from "@/components/settings/team-management-card";
 import { VisibilityModeControl } from "@/components/settings/visibility-mode-control";
@@ -40,6 +41,7 @@ export default async function SettingsPage() {
   const [
     digestPref,
     digestAudience,
+    execReportState,
     teams,
     allMembers,
     peopleRows,
@@ -48,6 +50,9 @@ export default async function SettingsPage() {
   ] = await Promise.all([
     ctx.scope.digestPreferences.getForUser(ctx.user.id),
     listDigestRecipients(ctx.db, ctx.org.id),
+    // Monthly exec-memo opt-in — a per-workspace row (absent → on by default,
+    // matching the sender's absent-row default).
+    ctx.scope.execReportState.get(),
     // People & teams roster (W5-H deliverable 2) — relocated here from the
     // retired /teams nav page. Team orgs only (an org-of-one has no roster).
     isPersonal ? Promise.resolve([]) : ctx.scope.teams.list(),
@@ -62,6 +67,9 @@ export default async function SettingsPage() {
   const digestEnabled = digestPref
     ? digestPref.digestEnabled
     : digestAudience.memberCount <= 1;
+  const execReportEnabled = execReportState
+    ? execReportState.execReportEnabled
+    : true;
 
   // §7 gating identical to the frozen personRef shape: names only leave the
   // server when the org's visibility mode permits.
@@ -126,6 +134,21 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent>
             <DigestPreferencesForm initialEnabled={digestEnabled} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Monthly executive memo</CardTitle>
+            <CardDescription>
+              A one-page, plain-English summary of your workspace&rsquo;s AI
+              maturity, spend, and attribution coverage, emailed to admins at the
+              start of each month{isPersonal ? "" : " (aggregate only — no named individuals)"}. Composed from your measured
+              metrics, never estimated.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ExecReportPreferencesForm initialEnabled={execReportEnabled} />
           </CardContent>
         </Card>
 

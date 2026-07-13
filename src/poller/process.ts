@@ -8,6 +8,7 @@ import {
 } from "../db/system";
 import { meterSubscription } from "../metering/meter";
 import { runWeeklyDigest } from "./digest";
+import { runMonthlyExecReport } from "./exec-report";
 import { runFlywheelReport } from "./flywheel-report";
 import { maybeSendRenewalReminders } from "./renewal-reminder";
 import { periodFor, recomputeOrg } from "../scoring";
@@ -125,6 +126,26 @@ export async function processPollMessage(
         return;
       }
       await runWeeklyDigest(db, message.orgId, {
+        emailEnv: d.emailEnv,
+        appOrigin: d.appOrigin,
+      });
+      return;
+    }
+    case "exec-report-monthly": {
+      const d = requireDeps(deps, message.kind);
+      // Soft skip (log-and-ack), NOT a throw: a missing email env / app origin
+      // is an environment gap, and throwing would retry to exhaustion and
+      // dead-letter the message every month with no recovery path. The sender
+      // makes no month-claim before its own guards run (runMonthlyExecReport
+      // bails pre-claim when SES is unconfigured), so skipping is safe — the
+      // month can still send once the env is fixed.
+      if (!d.emailEnv || !d.appOrigin) {
+        console.warn(
+          `[exec-report] org ${message.orgId}: missing email env or app origin — skipped (no claim made)`,
+        );
+        return;
+      }
+      await runMonthlyExecReport(db, message.orgId, {
         emailEnv: d.emailEnv,
         appOrigin: d.appOrigin,
       });
