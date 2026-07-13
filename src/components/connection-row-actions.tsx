@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   AlertCircle,
+  CalendarClock,
   KeyRound,
   MoreHorizontal,
   Pause,
@@ -38,6 +39,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { errorText, jsonRequest, postJson } from "@/lib/client-fetch";
+import { RENEWAL_DATE_HINT } from "@/lib/connections-copy";
 import { KEY_VENDORS } from "@/lib/vendor-connect-meta";
 
 type ConnectionSummary = {
@@ -45,6 +47,8 @@ type ConnectionSummary = {
   vendor: string;
   displayName: string;
   status: "pending" | "active" | "paused" | "error";
+  /** User-entered renewal date ("YYYY-MM-DD") or null — no vendor reports it. */
+  renewalDate: string | null;
 };
 
 /**
@@ -161,6 +165,8 @@ function EditConnectionDialog({
   const router = useRouter();
   const [name, setName] = useState(connection.displayName);
   const [apiKey, setApiKey] = useState("");
+  // The date <input> uses "" for empty; the stored value is null.
+  const [renewalDate, setRenewalDate] = useState(connection.renewalDate ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const keyVendor = KEY_VENDORS.find((v) => v.vendor === connection.vendor);
@@ -175,14 +181,25 @@ function EditConnectionDialog({
     let mutated = false;
     try {
       const renaming = name !== connection.displayName && name.length > 0;
-      if (renaming) {
+      // "" in the input means "no date"; PATCH sends null to clear it. Only
+      // send when it actually changed from the stored value.
+      const nextRenewal = renewalDate === "" ? null : renewalDate;
+      const renewalChanged = nextRenewal !== (connection.renewalDate ?? null);
+      // One PATCH carries whichever connection fields changed.
+      const patch: {
+        displayName?: string;
+        renewalDate?: string | null;
+      } = {};
+      if (renaming) patch.displayName = name;
+      if (renewalChanged) patch.renewalDate = nextRenewal;
+      if (Object.keys(patch).length > 0) {
         const res = await jsonRequest(
           "PATCH",
           `/api/connections/${connection.id}`,
-          { displayName: name },
+          patch,
         );
         if (!res.ok) {
-          setError(errorText(res.payload, `Rename failed (${res.status})`));
+          setError(errorText(res.payload, `Update failed (${res.status})`));
           return;
         }
         mutated = true;
@@ -220,8 +237,8 @@ function EditConnectionDialog({
         <DialogHeader>
           <DialogTitle>Edit connection</DialogTitle>
           <DialogDescription>
-            Rename the connection or replace its API key. Keys are encrypted
-            at rest and never displayed again.
+            Rename the connection, replace its API key, or set a renewal date.
+            Keys are encrypted at rest and never displayed again.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="flex flex-col gap-4">
@@ -256,6 +273,24 @@ function EditConnectionDialog({
                 </FieldDescription>
               </Field>
             )}
+            <Field>
+              <FieldLabel htmlFor={`edit-renewal-${connection.id}`}>
+                <CalendarClock data-icon="inline-start" />
+                Renewal date
+              </FieldLabel>
+              <Input
+                id={`edit-renewal-${connection.id}`}
+                type="date"
+                value={renewalDate}
+                onChange={(e) => setRenewalDate(e.target.value)}
+              />
+              {/* Honesty (invariant b): the date is user-entered — no vendor
+                  reports renewal dates, so we never imply we know or verified
+                  it. Drives the T-30 / T-7 reminder emails to admins. */}
+              <FieldDescription>
+                {RENEWAL_DATE_HINT} Clear the field to stop reminders.
+              </FieldDescription>
+            </Field>
           </FieldGroup>
           {error && (
             <Alert variant="destructive">

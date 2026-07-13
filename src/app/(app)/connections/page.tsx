@@ -195,6 +195,7 @@ export default async function ConnectionsPage({
                               vendor: connection.vendor,
                               displayName: connection.displayName,
                               status: connection.status,
+                              renewalDate: connection.renewalDate ?? null,
                             }}
                           />
                         )}

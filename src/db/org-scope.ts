@@ -15,6 +15,7 @@ import { orgNamespace } from "./org-scope/org";
 import { peopleNamespace } from "./org-scope/people";
 import { rawNamespace } from "./org-scope/raw";
 import { recInteractionsNamespace } from "./org-scope/rec-interactions";
+import { renewalReminderStateNamespace } from "./org-scope/renewal-reminder-state";
 import { rolesNamespace } from "./org-scope/roles";
 import { scoresNamespace } from "./org-scope/scores";
 import { subjectsNamespace } from "./org-scope/subjects";
@@ -173,6 +174,7 @@ export function forOrg(db: Db, orgId: string) {
     heartbeats: heartbeatsNamespace(db, orgId),
     budgets: budgetsNamespace(db, orgId),
     budgetAlertState: budgetAlertStateNamespace(db, orgId),
+    renewalReminderState: renewalReminderStateNamespace(db, orgId),
     digestPreferences: digestPreferencesNamespace(db, orgId),
     recInteractions: recInteractionsNamespace(db, orgId),
     roles: rolesNamespace(db, orgId),

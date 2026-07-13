@@ -47,6 +47,9 @@ export const connectionSchema = z.object({
   status: z.enum(["pending", "active", "paused", "error"]),
   lastSuccessAt: z.string().datetime().nullable(),
   lastError: z.string().nullable(),
+  // USER-ENTERED renewal date (W6-G, ADR 0032), "YYYY-MM-DD" or null — no vendor
+  // reports renewal dates, so this is only ever what an admin typed in.
+  renewalDate: day.nullable(),
 });
 
 export const subjectSchema = z.object({
@@ -244,6 +247,10 @@ export const apiRoutes = {
       .object({
         displayName: z.string().min(1).optional(),
         status: z.enum(["active", "paused"]).optional(),
+        // W6-G (ADR 0032): set/clear the USER-ENTERED renewal date. `null`
+        // clears it, an omitted key leaves it untouched. Never inferred — no
+        // vendor reports renewal dates (invariant b).
+        renewalDate: day.nullable().optional(),
       })
       .refine((patch) => Object.keys(patch).length > 0, {
         message: "at least one field required",

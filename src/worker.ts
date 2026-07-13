@@ -48,6 +48,11 @@ const DIGEST_CRON = "0 14 * * 1";
 // Weekly §14 flywheel report (W5-I): Monday 15:00 UTC (after the digest fan-out)
 // — ONE system message emailing the platform admins the adoption funnel.
 const FLYWHEEL_CRON = "0 15 * * 1";
+// Daily renewal-reminder scan (W6-G): 13:00 UTC — one message per org; the
+// consumer emails admins about user-entered renewal dates exactly 30 or 7 days
+// out (idempotent via renewal_reminder_state CAS). Daily so each exact-day
+// threshold is checked on its calendar day.
+const RENEWAL_REMINDER_CRON = "0 13 * * *";
 
 /** Paddle server config for the consumer, or undefined when unconfigured —
  * resolved safely so a missing key never breaks non-metering queue work. */
@@ -244,6 +249,20 @@ export default {
       // Weekly §14 flywheel report: ONE system-level message (not per org) —
       // the consumer reads the cross-org funnel and emails platform admins.
       await env.POLL_QUEUE.send({ kind: "flywheel-report" } satisfies PollMessage);
+      return;
+    }
+    if (controller.cron === RENEWAL_REMINDER_CRON) {
+      // Daily renewal-reminder fan-out: one message per org onto the existing
+      // poll queue. Messages stay tiny (org id only); the consumer scans that
+      // org's connections for user-entered renewal dates 30/7 days out and
+      // emails admins (src/poller/renewal-reminder.ts), idempotent via the
+      // renewal_reminder_state CAS.
+      const db = createDb(env);
+      const messages = (await listOrgIds(db)).map(
+        (orgId) =>
+          ({ kind: "renewal-reminder-scan", orgId }) satisfies PollMessage,
+      );
+      await sendInBatches(env.POLL_QUEUE, messages);
       return;
     }
     await env.POLL_QUEUE.send({

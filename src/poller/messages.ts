@@ -81,6 +81,14 @@ export type PollMessage =
       // NOT per org — the report is a cross-org aggregate. A redelivery
       // re-sends the same aggregate email (no state mutation).
       kind: "flywheel-report";
+    }
+  | {
+      // W6-G: scans one org's connections for user-entered renewal dates that
+      // are exactly 30 or 7 days out and emails admins. Sent daily (one message
+      // per org). Idempotent: renewal_reminder_state CAS-claims each
+      // (connection, date, threshold) once, so a redelivery re-sends nothing.
+      kind: "renewal-reminder-scan";
+      orgId: string;
     };
 
 export type ConnectorPollMessage = Extract<

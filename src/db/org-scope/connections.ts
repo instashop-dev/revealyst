@@ -88,17 +88,25 @@ export function connectionsNamespace(db: Db, orgId: string) {
      */
     async update(
       id: string,
-      patch: { displayName?: string; status?: "active" | "paused" },
+      patch: {
+        displayName?: string;
+        status?: "active" | "paused";
+        renewalDate?: string | null;
+      },
     ) {
       const set: Partial<{
         displayName: string;
         status: "active" | "paused" | SQL;
+        renewalDate: string | null;
       }> = {};
       if (patch.displayName !== undefined) set.displayName = patch.displayName;
       if (patch.status === "paused") set.status = "paused";
       if (patch.status === "active") {
         set.status = sql`CASE WHEN ${connections.lastSuccessAt} IS NULL THEN 'pending' ELSE 'active' END`;
       }
+      // W6-G: the USER-ENTERED renewal date; null clears it, undefined leaves
+      // it untouched (a rename/pause never wipes it).
+      if (patch.renewalDate !== undefined) set.renewalDate = patch.renewalDate;
       if (Object.keys(set).length === 0) {
         throw new Error("connections.update requires at least one field");
       }

@@ -92,6 +92,11 @@ export const PURGE_EXEMPT_TABLES = new Set([
   // W5-I (ADR 0029): cascade-deleted with the org (org_id → orgs, cascade),
   // like budgets/digest_preferences — the final `orgs` delete removes it.
   "budget_alert_state",
+  // W6-G (ADR 0032): cascade-deleted via its composite tenant FK to
+  // `connections` (org_id, connection_id → connections cascade). PURGE_TABLES
+  // deletes `connections` explicitly (scoped to the org), which cascades the
+  // reminder-state rows away — no separate statement needed.
+  "renewal_reminder_state",
 ]);
 
 /**

@@ -258,6 +258,12 @@ export const connections = pgTable(
       ],
     }).notNull(),
     config: jsonb("config").notNull().default({}),
+    // USER-ENTERED renewal date (W6-G, ADR 0032), "YYYY-MM-DD" or null. NO
+    // vendor reports renewal dates — this is a manual annotation an admin
+    // enters, never inferred (invariant b). Drives the T-30/T-7 reminder cron
+    // (src/poller/renewal-reminder.ts); editing it starts a fresh reminder
+    // cycle because renewal_reminder_state keys its de-dup CAS on this date.
+    renewalDate: date("renewal_date"),
     lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastError: text("last_error"),
@@ -1173,6 +1179,51 @@ export const roleAssignments = pgTable(
     }).onDelete("cascade"),
     // Role-based lookup within an org (W6-C: recs applicable to a role).
     index("role_assignments_org_role_idx").on(t.orgId, t.roleSlug),
+  ],
+);
+
+// Renewal-reminder send-state (W6-G, ADR 0032). One row per (connection,
+// renewal_date, threshold) — the reminder cron INSERTs a row before emailing so
+// each T-30/T-7 reminder fires EXACTLY once even under at-least-once queue
+// redelivery (claim-then-send). The renewal_date is part of the key on purpose:
+// editing a connection's user-entered renewal date changes the key, so the new
+// date re-arms both thresholds (a genuinely new renewal cycle) while the old
+// date's already-sent rows are inert. Cascade-deleted with its connection via
+// the composite tenant FK — deleting a connection (or purging an org, which
+// deletes connections) removes its reminder history; it carries no data that
+// must outlive the connection.
+export const renewalReminderState = pgTable(
+  "renewal_reminder_state",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").notNull(),
+    connectionId: uuid("connection_id").notNull(),
+    // The user-entered renewal date this reminder was fired for ("YYYY-MM-DD").
+    renewalDate: date("renewal_date").notNull(),
+    // Days-before-renewal threshold this row claims: 30 (T-30) or 7 (T-7).
+    threshold: integer("threshold").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Composite tenant FK: a reminder row can only reference a connection in
+    // the SAME org (cross-org writes are unrepresentable). Cascade so deleting
+    // the connection removes its reminder state.
+    foreignKey({
+      name: "renewal_reminder_state_org_connection_fk",
+      columns: [t.orgId, t.connectionId],
+      foreignColumns: [connections.orgId, connections.id],
+    }).onDelete("cascade"),
+    // Anchor for composite tenant FKs, per D1a — kept even without child tables
+    // so the shape matches every other org-scoped table.
+    unique("renewal_reminder_state_org_id_id_uq").on(t.orgId, t.id),
+    // The CAS conflict target: one reminder per (connection, date, threshold).
+    unique("renewal_reminder_state_conn_date_threshold_uq").on(
+      t.connectionId,
+      t.renewalDate,
+      t.threshold,
+    ),
   ],
 );
 

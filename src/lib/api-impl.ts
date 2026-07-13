@@ -170,6 +170,8 @@ function toConnectionShape(connection: ConnectionRow) {
     status: connection.status,
     lastSuccessAt: connection.lastSuccessAt?.toISOString() ?? null,
     lastError: connection.lastError,
+    // W6-G: `date` columns read back as "YYYY-MM-DD" strings (or null).
+    renewalDate: connection.renewalDate ?? null,
   };
 }
 

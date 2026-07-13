@@ -9,6 +9,7 @@ import {
 import { meterSubscription } from "../metering/meter";
 import { runWeeklyDigest } from "./digest";
 import { runFlywheelReport } from "./flywheel-report";
+import { maybeSendRenewalReminders } from "./renewal-reminder";
 import { periodFor, recomputeOrg } from "../scoring";
 import {
   SYSTEM_ORG_ID,
@@ -142,6 +143,26 @@ export async function processPollMessage(
       await runFlywheelReport(db, {
         emailEnv: d.emailEnv,
         adminUserIds: d.adminUserIds ?? [],
+      });
+      return;
+    }
+    case "renewal-reminder-scan": {
+      const d = requireDeps(deps, message.kind);
+      // Soft skip (log-and-ack), NOT a throw: a missing BETTER_AUTH_URL / email
+      // env is an environment gap, and throwing would retry to exhaustion and
+      // dead-letter this daily. maybeSendRenewalReminders makes no claim before
+      // its own SES guard, so skipping is safe — the scan re-runs tomorrow, and
+      // the exact-day thresholds re-fire once the env is fixed (until each date
+      // passes its lead time).
+      if (!d.emailEnv || !d.appOrigin) {
+        console.warn(
+          `[renewal-reminder] org ${message.orgId}: missing email env or app origin — skipped (no claim made)`,
+        );
+        return;
+      }
+      await maybeSendRenewalReminders(db, message.orgId, {
+        emailEnv: d.emailEnv,
+        appOrigin: d.appOrigin,
       });
       return;
     }

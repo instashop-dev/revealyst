@@ -94,6 +94,15 @@ const SCOPED_READS: Array<{
     tables: ["budget_alert_state"],
     run: (s) => s.budgetAlertState.get(PERIOD.start.slice(0, 7)),
   },
+  // Renewal-reminder send-state (ADR 0032): one row per (connection, date,
+  // threshold), FK'd to connections. Both orgs claim a reminder for their own
+  // anthropic connection below, so B's row id joins the leak universe — org A's
+  // list() must surface only A's rows (non-vacuous, mirrors budgetAlertState).
+  {
+    name: "renewalReminderState.list",
+    tables: ["renewal_reminder_state"],
+    run: (s) => s.renewalReminderState.list(),
+  },
   // Digest preferences (ADR 0024): one row per (org, user), keyed on the
   // scope's orgId. Both orgs seed an enabled row below, so B's row id is in the
   // leak universe — org A's list() must surface only A's rows.
@@ -189,6 +198,14 @@ beforeAll(async () => {
     // so its row id joins the leak universe and the budgetAlertState sweep is
     // non-vacuous.
     await scoped.budgetAlertState.claimThreshold(PERIOD.start.slice(0, 7), 50);
+    // A renewal-reminder claim per org (ADR 0032) on this org's anthropic
+    // connection, so its row id joins the leak universe and the
+    // renewalReminderState sweep is non-vacuous.
+    await scoped.renewalReminderState.claim(
+      loaded.connections.anthropic,
+      "2026-08-01",
+      30,
+    );
     // A pending invite per org so the sweep's B-id universe includes one.
     const [inviter] = await db
       .insert(schema.user)

@@ -64,7 +64,27 @@ describe("updateConnection (frozen connectionsUpdate, ADR 0013)", () => {
       status: "pending",
       lastSuccessAt: null,
       lastError: null,
+      renewalDate: null, // W6-G: user-entered, unset by default
     });
+  });
+
+  it("sets and clears the user-entered renewal date (W6-G)", async () => {
+    const conn = await makeConnection(scope, "Renewing");
+    // Set it — the frozen response carries the "YYYY-MM-DD" back.
+    const set = await updateConnection(scope, conn.id, {
+      renewalDate: "2026-09-01",
+    });
+    expect(set.connection.renewalDate).toBe("2026-09-01");
+    // A rename does NOT wipe the date (omitted key = untouched).
+    const renamed = await updateConnection(scope, conn.id, {
+      displayName: "Renewing (renamed)",
+    });
+    expect(renamed.connection.renewalDate).toBe("2026-09-01");
+    // null clears it.
+    const cleared = await updateConnection(scope, conn.id, {
+      renewalDate: null,
+    });
+    expect(cleared.connection.renewalDate).toBeNull();
   });
 
   it("pauses and resumes a synced connection, preserving lastError across both (invariant b)", async () => {
