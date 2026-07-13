@@ -10,6 +10,31 @@ contracts. Every session auto-loads this file — it is the interface between ag
 > [Claude Code Workflow](docs/Revealyst_Claude_Code_Workflow.md) ·
 > [Harness setup status](docs/Revealyst_Harness_Setup.md)
 
+## Product principles — UX & writing (highest priority)
+These outrank feature scope: every screen, dialog, workflow, onboarding step, and
+settings page must satisfy them, and any new feature must **preserve or improve**
+the app's overall simplicity and consistency.
+
+**UX — minimal by default.** The product must always feel minimal, clean, modern,
+and distraction-free. Simplicity is the default: cut unnecessary UI elements,
+options, dialogs, clicks, and visual noise, and optimize every screen and
+component for the lowest possible cognitive load. Prefer **progressive
+disclosure** — hide advanced functionality behind an opt-in rather than exposing
+it by default.
+
+**Writing — plain English for beginners.** Assume every user is a beginner and
+write in plain, everyday English throughout the app. Avoid jargon, technical
+terms, acronyms, and implementation details. Keep labels, buttons, descriptions,
+onboarding, helper text, confirmations, and error messages concise, clear, and
+action-oriented — tell the user what to *do*, not how the system works internally.
+(This is the user-facing complement to invariant-(b)/W3-N: rendered UI copy is a
+claim surface, so it must be both honest *and* plain.)
+
+**AI development rule.** For every design or implementation decision, default to
+the simplest solution that fully meets the requirements. Continuously refactor and
+simplify existing UI and copy where appropriate instead of adding complexity —
+reducing options and clarifying words is real work, not a nice-to-have.
+
 ## Stack facts
 - Next.js / TypeScript monolith, deployed to **Cloudflare Workers** via OpenNext.
 - **Neon Postgres** via Hyperdrive; **Drizzle** migrations from day one.
