@@ -12,14 +12,29 @@ import { summarize, utcDay } from "./summarize";
 import type { LocalIdentity } from "./identity";
 import type { AgentIngestRequest, DateWindow, HonestyGap } from "./types";
 
+export {
+  AGENT_COLLECTION_FIELDS,
+  AGENT_NEVER_COLLECTED,
+} from "./allowlist";
 export { claudeConfigDirs, listSessionFiles } from "./discover";
 export { readOauthEmail, resolveLocalIdentity } from "./identity";
 export { createSessionParser, parseSessionContent } from "./parse";
+export {
+  composeSyncReward,
+  summarizeBatchHighlights,
+  transparencyUrl,
+} from "./reward";
 export { parseSessionFilesStreaming } from "./stream";
 export { SUMMARIZER_VERSION } from "./prices";
 export { summarize } from "./summarize";
+export type { CollectionField } from "./allowlist";
 export type { LocalIdentity } from "./identity";
 export type { ParsedEvent, ParseResult } from "./parse";
+export type {
+  SyncHighlights,
+  SyncReward,
+  SyncRewardInput,
+} from "./reward";
 export type { SummarizeOptions, Summary } from "./summarize";
 export type * from "./types";
 

@@ -11,7 +11,12 @@ import { PageHeader } from "@/components/page-header";
 import { SyncAgentCard } from "@/components/sync-agent-card";
 import { SyncAllButton, SyncNowButton } from "@/components/sync-buttons";
 import { SyncStatusBadge } from "@/components/sync-status-badge";
+import {
+  SyncTransparencyPanel,
+  type LastSyncFacts,
+} from "@/components/sync-transparency-panel";
 import { SYNC_STALE_AFTER_DAYS } from "@/lib/agent-sync";
+import { LOCAL_SECTION, POLLED_SECTION } from "@/lib/connections-copy";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import {
   Table,
@@ -78,6 +83,23 @@ export default async function ConnectionsPage({
   // paired/last-synced state (create-or-reuse handles the not-yet-paired case).
   // Derived from the already-fetched list; no extra query.
   const localAgent = connections.find((c) => c.vendor === "claude_code_local");
+  // Last agent push facts for the transparency panel — connector_runs
+  // already records per-run counts (agent_ingest kind). One bounded indexed
+  // read, only when a local agent exists; the table above needs no run rows.
+  const localAgentRun = localAgent
+    ? await ctx.scope.connectorRuns.latest(localAgent.id)
+    : null;
+  const lastSyncFacts: LastSyncFacts | null =
+    localAgentRun && localAgentRun.status === "success"
+      ? {
+          records: localAgentRun.recordsUpserted ?? 0,
+          signals: localAgentRun.signalsUpserted ?? 0,
+          subjects: localAgentRun.subjectsSeen ?? 0,
+          windowStart: localAgentRun.windowStart,
+          windowEnd: localAgentRun.windowEnd,
+          syncedAt: localAgentRun.finishedAt ?? localAgentRun.startedAt,
+        }
+      : null;
   const banner = copilotConnectBanner(await searchParams);
   // Render-time env gate (ADR 0022): the Copilot connect card only offers the
   // GitHub App install when the App secrets are configured on this deployment
@@ -186,20 +208,49 @@ export default async function ConnectionsPage({
         </div>
       )}
 
-      <section className="mt-8 grid gap-4 sm:grid-cols-2">
-        <SyncAgentCard
-          existingConnectionId={localAgent?.id ?? null}
-          paired={Boolean(localAgent && localAgent.status !== "error")}
-          lastSuccessAt={localAgent?.lastSuccessAt ?? null}
-        />
-        {GITHUB_APP_VENDORS.map((v) => (
-          <GithubAppConnectCard
-            key={v.vendor}
-            vendor={v}
-            connected={connections.some((c) => c.vendor === v.vendor)}
-            available={copilotAvailable}
+      {/* Two "sync" mental models on one page — separated in copy (Spec §10).
+       * Model 1: connectors Revealyst polls for you (the table above +
+       * these connect cards). Model 2: the local CLI you run yourself. */}
+      <section className="mt-10 flex flex-col gap-4">
+        <div>
+          <h2 className="font-heading text-lg font-medium">
+            {POLLED_SECTION.title}
+          </h2>
+          <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+            {POLLED_SECTION.description}
+          </p>
+        </div>
+        {GITHUB_APP_VENDORS.length > 0 && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {GITHUB_APP_VENDORS.map((v) => (
+              <GithubAppConnectCard
+                key={v.vendor}
+                vendor={v}
+                connected={connections.some((c) => c.vendor === v.vendor)}
+                available={copilotAvailable}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-10 flex flex-col gap-4">
+        <div>
+          <h2 className="font-heading text-lg font-medium">
+            {LOCAL_SECTION.title}
+          </h2>
+          <p className="mt-1 max-w-prose text-sm text-muted-foreground">
+            {LOCAL_SECTION.description}
+          </p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <SyncAgentCard
+            existingConnectionId={localAgent?.id ?? null}
+            paired={Boolean(localAgent && localAgent.status !== "error")}
+            lastSuccessAt={localAgent?.lastSuccessAt ?? null}
           />
-        ))}
+          <SyncTransparencyPanel lastRun={lastSyncFacts} />
+        </div>
       </section>
     </>
   );
