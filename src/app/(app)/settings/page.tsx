@@ -2,9 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { DigestPreferencesForm } from "@/components/settings/digest-preferences-form";
+import { TeamManagementCard } from "@/components/settings/team-management-card";
 import { VisibilityModeControl } from "@/components/settings/visibility-mode-control";
 import { WorkspaceNameForm } from "@/components/settings/workspace-name-form";
 import { listDigestRecipients } from "@/db/system";
+import { groupBy } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -34,13 +36,34 @@ export default async function SettingsPage() {
   // the SAME lane default the sender uses (single-member org = on, multi-member
   // = off) — computed from member count, not org.kind, so the toggle can't
   // disagree with what the digest sender actually does.
-  const [digestPref, digestAudience] = await Promise.all([
-    ctx.scope.digestPreferences.getForUser(ctx.user.id),
-    listDigestRecipients(ctx.db, ctx.org.id),
-  ]);
+  const [digestPref, digestAudience, teams, allMembers, peopleRows] =
+    await Promise.all([
+      ctx.scope.digestPreferences.getForUser(ctx.user.id),
+      listDigestRecipients(ctx.db, ctx.org.id),
+      // People & teams roster (W5-H deliverable 2) — relocated here from the
+      // retired /teams nav page. Team orgs only (an org-of-one has no roster).
+      isPersonal ? Promise.resolve([]) : ctx.scope.teams.list(),
+      isPersonal ? Promise.resolve([]) : ctx.scope.teams.allMembers(),
+      isPersonal ? Promise.resolve([]) : ctx.scope.people.list(),
+    ]);
   const digestEnabled = digestPref
     ? digestPref.digestEnabled
     : digestAudience.memberCount <= 1;
+
+  // §7 gating identical to the frozen personRef shape: names only leave the
+  // server when the org's visibility mode permits.
+  const showNames = ctx.org.visibilityMode !== "private";
+  const membersByTeam = groupBy(allMembers, (m) => m.teamId);
+  const teamRows = teams.map((team) => ({
+    id: team.id,
+    name: team.name,
+    memberIds: (membersByTeam.get(team.id) ?? []).map((m) => m.personId),
+  }));
+  const peopleOptions = peopleRows.map((person) => ({
+    id: person.id,
+    pseudonym: person.pseudonym,
+    displayName: showNames ? (person.displayName ?? null) : null,
+  }));
 
   return (
     <>
@@ -96,6 +119,14 @@ export default async function SettingsPage() {
               <VisibilityModeControl current={ctx.org.visibilityMode} />
             </CardContent>
           </Card>
+        )}
+
+        {!isPersonal && (
+          <TeamManagementCard
+            teams={teamRows}
+            people={peopleOptions}
+            isAdmin
+          />
         )}
       </div>
     </>

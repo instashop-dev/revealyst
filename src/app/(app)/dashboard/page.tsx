@@ -1,7 +1,15 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Cable, Gauge, Info, Lightbulb, TriangleAlert } from "lucide-react";
+import {
+  Cable,
+  Gauge,
+  Info,
+  Lightbulb,
+  TriangleAlert,
+  UsersRound,
+  Wallet,
+} from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { CoachingCard } from "@/components/companion/coaching-card";
 import { DailyNudgeCard } from "@/components/companion/daily-nudge-card";
@@ -11,14 +19,22 @@ import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { AgenticAdoptionCard } from "@/components/dashboard/agentic-adoption-card";
 import { AttributionTrendCard } from "@/components/dashboard/attribution-trend-card";
 import { BenchmarkPanel } from "@/components/dashboard/benchmark-panel";
+import {
+  DataTrustCard,
+  type CoverageAggregate,
+} from "@/components/dashboard/data-trust-card";
+import { MaturityExportButton } from "@/components/dashboard/maturity-export-button";
 import { PeriodNarrativeCard } from "@/components/dashboard/period-narrative-card";
 import { RecentMovementPanel } from "@/components/dashboard/recent-movement-panel";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
 import { SharedAccountFlags } from "@/components/dashboard/shared-account-flags";
 import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
+import { TrainingOpportunitiesCard } from "@/components/dashboard/training-opportunities-card";
 import { UsageConcentrationPanel } from "@/components/dashboard/usage-concentration-panel";
 import { UsageDistributionPanel } from "@/components/dashboard/usage-distribution-panel";
+import { MaturityAxisMeters } from "@/components/maturity/maturity-axis-meters";
+import { MaturityLevelBanner } from "@/components/maturity/maturity-level-banner";
 import { EmptyState } from "@/components/empty-state";
 import { InfoTip } from "@/components/info-tip";
 import { OnboardingInterim } from "@/components/onboarding-interim";
@@ -58,7 +74,7 @@ import {
 } from "@/lib/companion-glossary";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
 import { readDashboardView } from "@/lib/dashboard-view";
-import { readMaturityView } from "@/lib/maturity";
+import { readMaturityView, type CostPerActiveUserNumber } from "@/lib/maturity";
 import { formatCents } from "@/lib/format";
 import { readBudgetAlertForRole, todayUtc } from "@/lib/spend-governance";
 import {
@@ -69,6 +85,8 @@ import {
 } from "@/lib/metrics-glossary";
 import { isUsableConnection, syncedToolCount } from "@/lib/onboarding-guide";
 import { timeStage } from "@/lib/request-timing";
+import { computeSignalCoverage } from "@/lib/signal-coverage";
+import { TEAM_OVERVIEW_COPY } from "@/lib/team-overview-copy";
 import {
   connectionAttentionInputs,
   deriveAttention,
@@ -165,6 +183,54 @@ function SectionHeading({ children }: { children: ReactNode }) {
     <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
       {children}
     </h2>
+  );
+}
+
+/** Deliverable 5: Spend Governance as a one-LINE exec summary (the full /spend
+ * page stays). Reported spend + the measured cost-per-active-person + a link to
+ * manage budgets. Reported/measured only — never an estimated or ROI figure
+ * (invariant b). */
+function SpendGovernanceLine({
+  spendCents,
+  spendCentsEstimated,
+  costPerActiveUser,
+}: {
+  spendCents: number;
+  spendCentsEstimated: number;
+  costPerActiveUser: CostPerActiveUserNumber;
+}) {
+  if (spendCents === 0 && spendCentsEstimated === 0) return null;
+  const cpu = costPerActiveUser.cost;
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 py-4 text-sm">
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-muted-foreground">AI spend this period:</span>
+          <span className="font-medium tabular-nums">
+            {formatCents(spendCents)} total
+          </span>
+          {spendCentsEstimated > 0 ? (
+            <span className="text-muted-foreground tabular-nums">
+              (+{formatCents(spendCentsEstimated)} estimated)
+            </span>
+          ) : null}
+          {cpu ? (
+            <span className="text-muted-foreground tabular-nums">
+              · {formatCents(cpu.centsPerUnit)} per active person
+            </span>
+          ) : null}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          nativeButton={false}
+          render={<Link href="/spend" />}
+        >
+          <Wallet data-icon="inline-start" />
+          Manage budgets
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -667,10 +733,18 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
   // renders nothing. Connections come back ON the view (readDashboardView
   // fetches them in its depth-1 Promise.all) — no separate page-level
   // connections.list() round trip stacked ahead of this read.
-  const [view, budgetAlert] = await timeStage("pageData", () =>
+  // readMaturityView is threaded into the SAME flat Promise.all as
+  // readDashboardView (not run after it) so the modeled maturity level + the
+  // eight board numbers the consolidated Maturity card renders cost NO extra
+  // sequential round-trip stage — the personal path already composes maturity
+  // this way (perf law G10; guarded by tests/perf scenario 4). Both readers do
+  // their own internal flat Promise.all kicked off synchronously here, so the
+  // batch stays round-trip depth 1.
+  const [view, budgetAlert, maturity] = await timeStage("pageData", () =>
     Promise.all([
       readDashboardView(ctx.scope, ctx.org.visibilityMode, dashboardWindow()),
       readBudgetAlertForRole(ctx.scope, ctx.role, todayUtc()),
+      readMaturityView(ctx.scope, todayUtc()),
     ]),
   );
   const {
@@ -684,6 +758,8 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     definitions,
     gaps,
     connections,
+    subjects,
+    identities,
     attributionTrend,
     agentic,
     recentMovement,
@@ -695,6 +771,25 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     narrative,
     correlations,
   } = view;
+
+  // Signal coverage (W5-H card e) — computed from rows ALREADY in the view
+  // (subjects/identities/connections), zero new queries. Reduced to an
+  // AGGREGATE (how many identified people rest on a single source) — never a
+  // per-named-person list, so the team surface stays aggregate-only.
+  const coverageByPerson = computeSignalCoverage({
+    identities,
+    subjects,
+    connections,
+  });
+  const coverageAggregate: CoverageAggregate | null =
+    coverageByPerson.size === 0
+      ? null
+      : {
+          total: coverageByPerson.size,
+          single: [...coverageByPerson.values()].filter(
+            (c) => c.sourceCount === 1,
+          ).length,
+        };
   const latest = latestTeamScoresBySlug(summary.scores);
   const adoption = latest.get("adoption") ?? null;
   const fluency = latest.get("fluency") ?? null;
@@ -773,8 +868,8 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
   return (
     <>
       <PageHeader
-        title="Overview"
-        description="Who's using AI, how well, and what it costs — across your tools. Tap the info icon next to any number for a plain-English explanation."
+        title={TEAM_OVERVIEW_COPY.header.title}
+        description={TEAM_OVERVIEW_COPY.header.description}
       />
 
       {budgetAlert ? (
@@ -791,38 +886,70 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
       <AttentionSection items={attentionItems} />
 
       {hasScores ? (
+        // W5-H dashboard-itis fold: ~18–20 panels curated into FIVE
+        // audience-scoped cards — Team AI health · AI maturity · Training
+        // opportunities · Benchmarks & distribution · Data trust. Every retired
+        // panel keeps its component; only the grouping changed (curation over
+        // the same readDashboardView batch — no new reader, no capability loss).
         <>
+          {/* (a) Team AI health — the three headline scores, how they moved, the
+           * period story, and the one-line spend-governance summary. */}
           <section className="flex flex-col gap-3">
-            <SectionHeading>Scores &amp; benchmark</SectionHeading>
-            <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+            <SectionHeading>{TEAM_OVERVIEW_COPY.health.title}</SectionHeading>
+            <p className="text-sm text-muted-foreground">
+              {TEAM_OVERVIEW_COPY.health.lead}
+            </p>
+            <div className="grid gap-4 lg:grid-cols-3">
               <ScoreCard data={cardData.get("adoption")!} />
               <ScoreCard data={cardData.get("fluency")!} />
               <ScoreCard data={cardData.get("efficiency")!} />
-              <BenchmarkPanel benchmarks={benchmarks} />
             </div>
-          </section>
-
-          <section className="flex flex-col gap-3">
-            <SectionHeading>Recent movement</SectionHeading>
             <RecentMovementPanel movement={recentMovement} />
-          </section>
-
-          {/* F2.4 (I7/I4): a template-composed plain-prose period summary plus
-           * the directional "moved together" panel. Team-only: the composer
-           * needs the recent-movement + correlation derivations, which live on
-           * the composed team view; the personal self-view (org-of-one) does not
-           * compute movement/correlation and adding them would mean new reads —
-           * out of scope for this garnish feature (documented deviation). */}
-          <section className="flex flex-col gap-3">
-            <SectionHeading>Period summary</SectionHeading>
             <PeriodNarrativeCard
               narrative={narrative}
               correlations={correlations}
             />
+            {/* Deliverable 5: Spend Governance folded into the exec view as a
+             * one-LINE summary (the full /spend page stays). Reported spend +
+             * the measured cost-per-active-person, linking out to manage
+             * budgets — never an estimated or ROI number. */}
+            <SpendGovernanceLine
+              spendCents={summary.spendCents}
+              spendCentsEstimated={summary.spendCentsEstimated}
+              costPerActiveUser={maturity.numbers.costPerActiveUser}
+            />
           </section>
 
+          {/* (b) AI maturity — the modeled level + measured axes, plus how the
+           * usage actually looks (activity detail folds in here since the axes
+           * ARE breadth/depth/consistency of that usage). Board CSV export +
+           * link to the full one-page report. */}
           <section className="flex flex-col gap-3">
-            <SectionHeading>Activity</SectionHeading>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="flex flex-col gap-1">
+                <SectionHeading>{TEAM_OVERVIEW_COPY.maturity.title}</SectionHeading>
+                <p className="text-sm text-muted-foreground">
+                  {TEAM_OVERVIEW_COPY.maturity.lead}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <MaturityExportButton />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  nativeButton={false}
+                  render={<Link href="/maturity" />}
+                >
+                  {TEAM_OVERVIEW_COPY.maturity.fullReport}
+                </Button>
+              </div>
+            </div>
+            <MaturityLevelBanner
+              level={maturity.level}
+              dataAsOf={maturity.dataAsOf}
+              stale={maturity.stale}
+            />
+            <MaturityAxisMeters axes={maturity.axes} />
             <div className="grid gap-4 lg:grid-cols-2">
               <ActivityHeatmap heatmap={heatmap} />
               <div className="grid gap-4">
@@ -834,13 +961,44 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
             <AttributionTrendCard trend={attributionTrend} />
           </section>
 
+          {/* (c) Training opportunities — the action card: leading cohort
+           * (floor-gated), plateau verdict, segment split (count-only), and
+           * usage concentration. */}
           <section className="flex flex-col gap-3">
-            <SectionHeading>People</SectionHeading>
+            <SectionHeading>{TEAM_OVERVIEW_COPY.training.title}</SectionHeading>
             <div className="grid gap-4 lg:grid-cols-2">
+              <TrainingOpportunitiesCard
+                segments={segments}
+                plateau={usagePlateau}
+              />
               <SegmentBreakdown distribution={segments} />
-              <SharedAccountFlags flags={sharedAccounts} />
-              <UsageDistributionPanel distribution={usageDistribution} />
               <UsageConcentrationPanel concentration={usageConcentration} />
+            </div>
+          </section>
+
+          {/* (d) Benchmarks & distribution — the within-org percentile lens next
+           * to published norms. */}
+          <section className="flex flex-col gap-3">
+            <SectionHeading>{TEAM_OVERVIEW_COPY.distribution.title}</SectionHeading>
+            <p className="text-sm text-muted-foreground">
+              {TEAM_OVERVIEW_COPY.distribution.lead}
+            </p>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <BenchmarkPanel benchmarks={benchmarks} />
+              <UsageDistributionPanel distribution={usageDistribution} />
+            </div>
+          </section>
+
+          {/* (e) Data trust — the honesty surface: signal coverage (aggregate),
+           * connector reporting gaps, and shared accounts. */}
+          <section className="flex flex-col gap-3">
+            <SectionHeading>{TEAM_OVERVIEW_COPY.dataTrust.title}</SectionHeading>
+            <p className="text-sm text-muted-foreground">
+              {TEAM_OVERVIEW_COPY.dataTrust.lead}
+            </p>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <DataTrustCard coverage={coverageAggregate} gaps={gaps} />
+              <SharedAccountFlags flags={sharedAccounts} />
             </div>
           </section>
         </>
@@ -970,6 +1128,37 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
                     : "Manage connections"}
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+          {/* People & teams roster — RELOCATED here from the top nav (W5-H
+           * deliverable 2). The pages still resolve; team create/manage dialogs
+           * also live on Settings for admins. Reachable in ≤2 clicks. */}
+          <Card>
+            <CardHeader>
+              <CardTitle>{TEAM_OVERVIEW_COPY.setup.peopleTeams}</CardTitle>
+              <CardDescription>
+                {TEAM_OVERVIEW_COPY.setup.peopleTeamsDescription}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2 text-sm">
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href="/people" />}
+              >
+                <UsersRound data-icon="inline-start" />
+                People
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href="/teams" />}
+              >
+                <UsersRound data-icon="inline-start" />
+                Teams
+              </Button>
             </CardContent>
           </Card>
         </div>

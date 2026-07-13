@@ -1,5 +1,4 @@
 import type { SegmentDistribution } from "@/lib/segments";
-import { Badge } from "@/components/ui/badge";
 import { InfoTip } from "@/components/info-tip";
 import {
   Card,
@@ -11,9 +10,11 @@ import {
 import { CONCEPT_GLOSSARY } from "@/lib/metrics-glossary";
 
 /**
- * User segmentation (§8), team-level and count-first. In the private default
- * only counts show; managed/full visibility adds pseudonymous members. People
- * without a per-person score are surfaced as "unsegmented", never bucketed.
+ * User segmentation (§8), team-level and COUNT-ONLY in every visibility mode
+ * (errata §1.2 (5) / §7.3): a personality label attached to a real name is the
+ * thing §7.3 kills, so individual members are never listed — not even under
+ * managed/full visibility. People without a per-person score are surfaced as
+ * "unsegmented", never bucketed.
  */
 export function SegmentBreakdown({
   distribution,
@@ -45,24 +46,14 @@ export function SegmentBreakdown({
         ) : (
           <ul className="flex flex-col gap-2">
             {distribution.segments.map((segment) => (
-              <li key={segment.segment} className="flex flex-col gap-1">
-                <div className="flex items-center justify-between gap-2">
-                  <span>{segment.label}</span>
-                  <span className="tabular-nums font-medium">
-                    {segment.count}
-                  </span>
-                </div>
-                {segment.members.length > 0 ? (
-                  <ul className="flex flex-wrap gap-1">
-                    {segment.members.map((member) => (
-                      <li key={member.id}>
-                        <Badge variant="secondary">
-                          {member.displayName ?? member.pseudonym}
-                        </Badge>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
+              <li
+                key={segment.segment}
+                className="flex items-center justify-between gap-2"
+              >
+                <span>{segment.label}</span>
+                <span className="tabular-nums font-medium">
+                  {segment.count}
+                </span>
               </li>
             ))}
           </ul>

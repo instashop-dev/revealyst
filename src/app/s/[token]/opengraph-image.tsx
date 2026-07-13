@@ -29,7 +29,10 @@ export default async function ShareCardImage({
 
   const label = card?.publicLabel ?? "Revealyst";
   const scoreLabel = card?.scoreLabel ?? "AI Fluency";
-  const value = card && card.value !== null ? String(card.value) : "—";
+  // §7.1 band-first: the level is the hero; the raw number is a small footnote.
+  const bandLabel = card?.band?.label ?? "On Revealyst";
+  const measured =
+    card && card.value !== null ? `${card.value} / 100 measured` : "Score being computed";
 
   return new ImageResponse(
     (
@@ -49,16 +52,16 @@ export default async function ShareCardImage({
         <div style={{ fontSize: 40, color: "#a1a1aa", display: "flex" }}>
           {label}
         </div>
-        <div style={{ fontSize: 52, color: "#a1a1aa", display: "flex", marginTop: 8 }}>
+        <div style={{ fontSize: 44, color: "#a1a1aa", display: "flex", marginTop: 8 }}>
           {scoreLabel}
         </div>
-        <div style={{ display: "flex", alignItems: "flex-end", marginTop: 12 }}>
-          <span style={{ fontSize: 220, fontWeight: 700, lineHeight: 1 }}>
-            {value}
+        <div style={{ display: "flex", marginTop: 16 }}>
+          <span style={{ fontSize: 150, fontWeight: 700, lineHeight: 1 }}>
+            {bandLabel}
           </span>
-          <span style={{ fontSize: 56, color: "#a1a1aa", paddingBottom: 32 }}>
-            /100
-          </span>
+        </div>
+        <div style={{ fontSize: 34, color: "#a1a1aa", display: "flex", marginTop: 20 }}>
+          {measured}
         </div>
         <div style={{ fontSize: 28, color: "#71717a", display: "flex", marginTop: 24 }}>
           Measured across real AI-tool usage · revealyst

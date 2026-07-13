@@ -88,14 +88,19 @@ describe("privacy default (team-only pseudonymized)", () => {
   it("fails the audit under full visibility, where the real name surfaces", async () => {
     const view = await resolveDashboardView()(scope, "full", WINDOW);
 
+    // Segments are COUNT-ONLY in every visibility mode now (errata §1.2 (5)) —
+    // even full visibility never lists individual members. The person is still
+    // counted (pseudonymity is not erasure), just never named as a segment
+    // member.
     const aiNatives = view.segments.segments.find(
       (s) => s.segment === "ai_native",
     )!;
-    expect(aiNatives.members).toHaveLength(1);
-    expect(aiNatives.members[0].displayName).toBe(REAL_NAME);
-    // Full visibility also surfaces the shared account's real identifier.
+    expect(aiNatives.count).toBe(1);
+    expect(aiNatives.members).toHaveLength(0);
+    // Full visibility still surfaces the shared account's real identifier — so
+    // the predicate is not vacuous: an identity-bearing view is NOT team-only,
+    // even though segments no longer contribute a leak.
     expect(view.sharedAccounts[0].externalId).toBe("shared-team-login");
-    // The predicate is not vacuous: a name-bearing view is NOT team-only.
     expect(() => assertTeamOnlyPseudonymized(view)).toThrow(
       /not team-only pseudonymized/,
     );

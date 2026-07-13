@@ -21,12 +21,37 @@ const SLUG_LABELS: Record<string, string> = {
   efficiency: "AI Efficiency",
 };
 
+/** W5-H deliverable 7 / §7.1: the public card leads with a qualitative BAND,
+ * not "Score N in a mascot costume". Bands use the SAME rounded three-way split
+ * (0–39 / 40–69 / 70–100) as `interpretScore` (src/lib/score-insights.ts) so a
+ * shared card can never contradict the in-app reading of the same number — only
+ * the outward-facing labels are friendlier and positive-first. The raw number
+ * still rides along (secondary), never as the headline. */
+export type ShareBandKey = "emerging" | "building" | "fluent";
+export type ShareBand = { key: ShareBandKey; label: string };
+
+const SHARE_BANDS: Record<ShareBandKey, ShareBand> = {
+  emerging: { key: "emerging", label: "Emerging" },
+  building: { key: "building", label: "Building" },
+  fluent: { key: "fluent", label: "Fluent" },
+};
+
+/** Maps a 0–100 score to its public band. Same cut points as interpretScore. */
+export function shareBandFor(value: number): ShareBand {
+  if (value < 40) return SHARE_BANDS.emerging;
+  if (value < 70) return SHARE_BANDS.building;
+  return SHARE_BANDS.fluent;
+}
+
 export type ShareCard = {
   publicLabel: string;
   scoreSlug: string;
   scoreLabel: string;
   /** 0..100, or null when the featured score isn't computed yet. */
   value: number | null;
+  /** The band-first headline (§7.1) — null only when the score isn't computed
+   * yet (nothing to band). */
+  band: ShareBand | null;
 };
 
 export async function resolveShareCard(
@@ -80,10 +105,12 @@ export async function resolveShareCard(
         (versionByDefId.get(b.definitionId) ?? 0) -
           (versionByDefId.get(a.definitionId) ?? 0),
     )[0];
+  const value = result ? Math.round(result.value) : null;
   return {
     publicLabel: link.publicLabel,
     scoreSlug: link.scoreSlug,
     scoreLabel: SLUG_LABELS[link.scoreSlug] ?? link.scoreSlug,
-    value: result ? Math.round(result.value) : null,
+    value,
+    band: value !== null ? shareBandFor(value) : null,
   };
 }

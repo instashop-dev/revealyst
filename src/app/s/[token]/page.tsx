@@ -24,9 +24,10 @@ export async function generateMetadata({
   if (!card) {
     return { title: "Revealyst" };
   }
+  // §7.1: band-first headline — lead with the level, not the raw number.
   const title =
-    card.value !== null
-      ? `${card.publicLabel}: ${card.scoreLabel} ${card.value}`
+    card.band !== null
+      ? `${card.publicLabel}: ${card.band.label} in ${card.scoreLabel}`
       : `${card.publicLabel} on Revealyst`;
   return {
     title,
@@ -64,12 +65,17 @@ export default async function ShareCardPage({
           </span>
           <span className="text-lg text-muted-foreground">{card.scoreLabel}</span>
         </div>
-        {card.value !== null ? (
-          <div className="flex items-end justify-center gap-1">
-            <span className="font-heading text-7xl font-semibold tabular-nums">
-              {card.value}
+        {card.band !== null ? (
+          // Band-first (§7.1): the qualitative level is the headline; the raw
+          // 0–100 rides along, secondary, never as "Score N in a mascot
+          // costume".
+          <div className="flex flex-col items-center gap-1">
+            <span className="font-heading text-5xl font-semibold">
+              {card.band.label}
             </span>
-            <span className="pb-3 text-lg text-muted-foreground">/ 100</span>
+            <span className="text-sm text-muted-foreground tabular-nums">
+              {card.value} / 100 measured
+            </span>
           </div>
         ) : (
           <p className="text-muted-foreground">Score being computed.</p>

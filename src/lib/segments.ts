@@ -1,6 +1,6 @@
 import type { forOrg } from "../db/org-scope";
 import type { DefinitionRow, ScoreRow } from "./dashboard-read";
-import { toPersonRef, type PersonLike, type PersonRef, type VisibilityMode } from "./visibility";
+import type { PersonLike, PersonRef, VisibilityMode } from "./visibility";
 
 type OrgScope = ReturnType<typeof forOrg>;
 
@@ -35,8 +35,13 @@ export type SegmentBreakdown = {
   segment: Segment;
   label: string;
   count: number;
-  /** Pseudonymous members — populated only when visibility permits; empty
-   * (counts only) in the private default. */
+  /** COUNT-ONLY IN EVERY VISIBILITY MODE (errata §1.2 (5) / §7.3): a
+   * personality label ("Power User", "Skeptic") attached to a real name is the
+   * thing §7.3 kills, so segment membership is NEVER surfaced — not even under
+   * managed/full visibility. Always `[]`; the field is retained so the
+   * team-visible identity-surface registry (src/lib/visibility.ts) keeps its
+   * `segments.segments[].members` entry (which now can never leak — the
+   * completeness tripwire stays green without touching the manifest). */
   members: PersonRef[];
 };
 
@@ -45,6 +50,31 @@ export type SegmentDistribution = {
   /** Resolved people we cannot segment yet (no person-level score). */
   unsegmented: number;
 };
+
+/** Below this many resolved (segmented) people, no single segment may be
+ * called out by name ("your champions are …") in ANY copy — a lone occupant of
+ * a bucket in a tiny org is de-anonymizing (§7.3). Mirrors
+ * usage-distribution's MIN_PEOPLE_FOR_DISTRIBUTION. */
+export const SEGMENT_MIN_PEOPLE_TO_NAME = 4;
+
+/** The most-advanced populated segment (the "champions"), or `null` when there
+ * are too few segmented people to name a band without singling out an
+ * individual. Count-only by construction — the returned breakdown carries an
+ * empty `members` list like every other. This is the ONLY sanctioned way for
+ * copy to reference a "champion"/leading cohort, and it enforces the floor so
+ * that guard can't be forgotten at a call site (deliverable 6 champion-floor). */
+export function championSegment(
+  distribution: SegmentDistribution,
+): SegmentBreakdown | null {
+  const resolved = distribution.segments.reduce((n, s) => n + s.count, 0);
+  if (resolved < SEGMENT_MIN_PEOPLE_TO_NAME) return null;
+  // Champions = the highest-adoption band with any people (ai_native first).
+  for (let i = SEGMENTS.length - 1; i >= 0; i--) {
+    const b = distribution.segments.find((s) => s.segment === SEGMENTS[i]);
+    if (b && b.count > 0) return b;
+  }
+  return null;
+}
 
 export interface SegmentSource {
   forOrg(
@@ -78,10 +108,12 @@ const fixtureSegmentSource: SegmentSource = {
       prefetched?.definitions ?? scope.scores.definitions(),
       prefetched?.people ?? scope.people.list(),
     ]);
+    // `visibilityMode` is intentionally UNUSED for member surfacing now — see
+    // the SegmentBreakdown.members doc comment: count-only in every mode.
+    void visibilityMode;
     const adoptionDefIds = new Set(
       definitions.filter((d) => d.slug === "adoption").map((d) => d.id),
     );
-    const peopleById = new Map(people.map((p) => [p.id, p]));
 
     // Latest adoption score per person (highest periodEnd wins).
     const latestByPerson = new Map<string, { value: number; periodEnd: string }>();
@@ -105,18 +137,13 @@ const fixtureSegmentSource: SegmentSource = {
 
     const segments: SegmentBreakdown[] = SEGMENTS.map((segment) => {
       const personIds = buckets.get(segment)!;
-      const members =
-        visibilityMode === "private"
-          ? []
-          : personIds
-              .map((id) => peopleById.get(id))
-              .filter((p): p is NonNullable<typeof p> => Boolean(p))
-              .map((p) => toPersonRef(p, visibilityMode));
       return {
         segment,
         label: SEGMENT_LABELS[segment],
         count: personIds.length,
-        members,
+        // Count-only in EVERY visibility mode (errata §1.2 (5)) — members are
+        // never surfaced, so no personality label is ever attached to a name.
+        members: [],
       };
     });
 

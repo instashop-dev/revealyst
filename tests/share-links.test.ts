@@ -215,6 +215,8 @@ describe("share card month boundary (W3 gate finding)", () => {
       new Date("2026-07-01T05:00:00Z"),
     );
     expect(atBoundary?.value).toBe(78);
+    // §7.1 band-first: the card carries a qualitative band as its headline.
+    expect(atBoundary?.band?.label).toBe("Fluent"); // 78 → ≥70
 
     // Once the current month IS computed, it wins over the previous one.
     await db.insert(schema.scoreResults).values({

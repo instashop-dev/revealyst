@@ -96,6 +96,17 @@ export type DashboardView = {
    * admin-set displayName, status) — same privacy rationale as `definitions`,
    * so `assertTeamOnlyPseudonymized` is unaffected. */
   connections: Awaited<ReturnType<OrgScope["connections"]["list"]>>;
+  /** The org's subjects + identity links — ALREADY fetched in the depth-1
+   * Promise.all below (shared by the shared-account source). Returned so the
+   * team Data Trust card can compute per-person signal COVERAGE
+   * (src/lib/signal-coverage.ts) with ZERO new queries. Both carry only
+   * internal ids (subject/connection/person uuids), never a name or vendor
+   * account identifier, so — like `connections`/`definitions` — they add
+   * nothing `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must inspect,
+   * and the team surface renders coverage as an AGGREGATE count only (never a
+   * per-named-person list). */
+  subjects: Awaited<ReturnType<OrgScope["subjects"]["list"]>>;
+  identities: Awaited<ReturnType<OrgScope["identities"]["all"]>>;
   /** Attribution-coverage trend (F1.7) — the person-attributed share of tracked
    * usage over recent weeks, computed IN JS from the `active_day` rows already
    * fetched below (`activeDayRecords`), so it adds zero DB reads. It carries
@@ -419,6 +430,10 @@ export async function readDashboardView(
     definitions,
     gaps: collectGaps(runs),
     connections,
+    // Already fetched above — returned for the Data Trust coverage element
+    // (zero new queries). See the DashboardView.subjects doc comment.
+    subjects,
+    identities,
     // Both computed once above (zero new reads) and reused here + by the F2.4
     // narrative: the person-attributed usage-day share (F1.7) and the agentic
     // person-day rate (F1.4), identity-resolved from already-fetched rows.
