@@ -1,12 +1,16 @@
 # Revealyst — fleet shared brain
 
-Multi-tool AI-adoption analytics for CTOs: "who's using AI, how well, and are we
-getting our money's worth." Built by parallel AI-agent workstreams against frozen
-contracts. Every session auto-loads this file — it is the interface between agents.
+The AI Growth Platform: a bottom-up Personal AI Companion whose individual signal
+compounds into the team and executive intelligence CTOs pay for. Built by parallel
+AI-agent workstreams against frozen contracts. Every session auto-loads this file —
+it is the interface between agents.
 
-> Ground truth: [Product Spec V3 — V1.5 scope](docs/Revealyst_Product_Spec_V3.md)
-> (V1 reference: [Spec V2](docs/Revealyst_Product_Spec_V2.md)) ·
-> [Execution Plan](docs/Revealyst_Execution_Plan.md) (V1 waves; V1.5 waves in Spec V3 §16) ·
+> Ground truth: [Product Spec V4 — the pivot](docs/Revealyst_Product_Spec_V4.md)
+> (strategy source: [Product Direction V4](docs/Revealyst_Product_Direction_V4.md);
+> V1.5 reference: [Spec V3](docs/Revealyst_Product_Spec_V3.md);
+> V1 reference: [Spec V2](docs/Revealyst_Product_Spec_V2.md)) ·
+> [Execution Plan](docs/Revealyst_Execution_Plan.md) (V1 waves; V1.5 waves in Spec V3 §16;
+> V4 tiers in Spec V4 §11) ·
 > [Claude Code Workflow](docs/Revealyst_Claude_Code_Workflow.md) ·
 > [Harness setup status](docs/Revealyst_Harness_Setup.md)
 

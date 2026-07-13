@@ -1,6 +1,8 @@
 # Revealyst — Product Specification (V3)
 
 **Version:** 3.0 · **Date:** July 7, 2026
+**Superseded by:** [Revealyst Product Specification V4](Revealyst_Product_Spec_V4.md)
+(2026-07-13) — this document remains the V1.5 reference.
 **Supersedes:** [Revealyst Product Specification V2.4](Revealyst_Product_Spec_V2.md)
 **Scope:** V3 specifies **V1.5 only** — the wave that follows the completed V1 (W0–W3, gate
 evidence in [docs/gates/W3-evidence.md](gates/W3-evidence.md)). The V2-of-the-roadmap
