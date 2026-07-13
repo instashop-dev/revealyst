@@ -89,6 +89,14 @@ export type PollMessage =
       // (connection, date, threshold) once, so a redelivery re-sends nothing.
       kind: "renewal-reminder-scan";
       orgId: string;
+    }
+  | {
+      // W6-F: composes and sends one org's monthly executive memo. Sent
+      // monthly (one message per org, 1st of month), reporting the month that
+      // just ended. Idempotent on exec_report_state's month CAS, so an
+      // at-least-once redelivery for the same month does not re-send.
+      kind: "exec-report-monthly";
+      orgId: string;
     };
 
 export type ConnectorPollMessage = Extract<

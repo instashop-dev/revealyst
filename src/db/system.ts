@@ -121,6 +121,26 @@ export async function listSubscriptionsToMeter(
 }
 
 /**
+ * The display name of one org, for the monthly executive memo (W6-F). A
+ * cron-path read that personalizes the composed memo ("… for <orgName>"); the
+ * org row is not otherwise readable from the poller (org-scope's `org`
+ * namespace has no `get`). System-level like the other cross-org reads here —
+ * invoked from the queue consumer, never a request handler. Returns null when
+ * the org row is gone.
+ */
+export async function readOrgName(
+  db: Db,
+  orgId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ name: orgs.name })
+    .from(orgs)
+    .where(eq(orgs.id, orgId))
+    .limit(1);
+  return row?.name ?? null;
+}
+
+/**
  * Weekly-digest recipients for one org (F2.2). Returns the org's admin members
  * with a VERIFIED email — the only people the digest is ever sent to — plus the
  * total member count so the sender can pick the lane (single member = personal

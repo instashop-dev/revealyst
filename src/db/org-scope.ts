@@ -8,6 +8,7 @@ import { budgetsNamespace } from "./org-scope/budgets";
 import { connectionsNamespace } from "./org-scope/connections";
 import { connectorRunsNamespace } from "./org-scope/connector-runs";
 import { digestPreferencesNamespace } from "./org-scope/digest-preferences";
+import { execReportStateNamespace } from "./org-scope/exec-report-state";
 import { heartbeatsNamespace } from "./org-scope/heartbeats";
 import { identitiesNamespace } from "./org-scope/identities";
 import { metricsNamespace } from "./org-scope/metrics";
@@ -174,6 +175,7 @@ export function forOrg(db: Db, orgId: string) {
     heartbeats: heartbeatsNamespace(db, orgId),
     budgets: budgetsNamespace(db, orgId),
     budgetAlertState: budgetAlertStateNamespace(db, orgId),
+    execReportState: execReportStateNamespace(db, orgId),
     renewalReminderState: renewalReminderStateNamespace(db, orgId),
     digestPreferences: digestPreferencesNamespace(db, orgId),
     recInteractions: recInteractionsNamespace(db, orgId),

@@ -69,7 +69,12 @@
 			// one renewal-reminder-scan per org; the consumer emails admins about
 			// user-entered renewal dates exactly 30 or 7 days out (idempotent via
 			// the renewal_reminder_state CAS).
-			"0 13 * * *"
+			"0 13 * * *",
+			// Monthly executive memo (W6-F): 1st of month, 16:00 UTC. src/worker.ts
+			// enqueues one exec-report-monthly per org onto the existing
+			// revealyst-poll queue; the consumer composes + sends each org's board
+			// memo (no new queue), reporting the month that just ended.
+			"0 16 1 * *"
 		]
 	},
 	"queues": {

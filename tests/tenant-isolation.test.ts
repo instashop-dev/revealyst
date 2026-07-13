@@ -111,6 +111,14 @@ const SCOPED_READS: Array<{
     tables: ["digest_preferences"],
     run: (s) => s.digestPreferences.list(),
   },
+  // Exec-report send state (ADR 0031): one row per org, keyed on the scope's
+  // orgId. Both orgs claim a month below, so B's row id is in the leak universe
+  // — org A's get() must surface only A's row (non-vacuous, mirrors budgets.get).
+  {
+    name: "execReportState.get",
+    tables: ["exec_report_state"],
+    run: (s) => s.execReportState.get(),
+  },
   // Rec interaction state (ADR 0028): one row per (org, person, rec). Both orgs
   // seed a row for their own alice below, so keying `list` on B's alice puts a
   // B-owned personId in the leak universe — a dropped org filter would surface
@@ -198,6 +206,10 @@ beforeAll(async () => {
     // so its row id joins the leak universe and the budgetAlertState sweep is
     // non-vacuous.
     await scoped.budgetAlertState.claimThreshold(PERIOD.start.slice(0, 7), 50);
+    // An exec-report send-state row per org (ADR 0031): claim a month so its
+    // row id joins the leak universe and the execReportState sweep is
+    // non-vacuous (mirrors budgetAlertState).
+    await scoped.execReportState.claimMonth(PERIOD.start.slice(0, 7));
     // A renewal-reminder claim per org (ADR 0032) on this org's anthropic
     // connection, so its row id joins the leak universe and the
     // renewalReminderState sweep is non-vacuous.

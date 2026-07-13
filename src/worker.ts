@@ -48,6 +48,11 @@ const DIGEST_CRON = "0 14 * * 1";
 // Weekly §14 flywheel report (W5-I): Monday 15:00 UTC (after the digest fan-out)
 // — ONE system message emailing the platform admins the adoption funnel.
 const FLYWHEEL_CRON = "0 15 * * 1";
+// Monthly executive memo (W6-F): 1st of month, 16:00 UTC — one message per org,
+// fanned out through the existing poll queue. The memo reports the month that
+// just ended (the consumer anchors its reads at yesterday). Matches the sixth
+// wrangler.jsonc "triggers".crons entry.
+const MONTHLY_EXEC_CRON = "0 16 1 * *";
 // Daily renewal-reminder scan (W6-G): 13:00 UTC — one message per org; the
 // consumer emails admins about user-entered renewal dates exactly 30 or 7 days
 // out (idempotent via renewal_reminder_state CAS). Daily so each exact-day
@@ -249,6 +254,17 @@ export default {
       // Weekly §14 flywheel report: ONE system-level message (not per org) —
       // the consumer reads the cross-org funnel and emails platform admins.
       await env.POLL_QUEUE.send({ kind: "flywheel-report" } satisfies PollMessage);
+      return;
+    }
+    if (controller.cron === MONTHLY_EXEC_CRON) {
+      // Monthly executive memo fan-out: one message per org onto the existing
+      // poll queue (org id only; all compose/idempotency work is in the
+      // consumer, src/poller/exec-report.ts). Reports the month that just ended.
+      const db = createDb(env);
+      const messages = (await listOrgIds(db)).map(
+        (orgId) => ({ kind: "exec-report-monthly", orgId }) satisfies PollMessage,
+      );
+      await sendInBatches(env.POLL_QUEUE, messages);
       return;
     }
     if (controller.cron === RENEWAL_REMINDER_CRON) {
