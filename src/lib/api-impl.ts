@@ -366,6 +366,58 @@ export async function updateOrgSettings(
 }
 
 /**
+ * Person → engineering-role assignment (W6-B, ADR 0030). Admin-set org config:
+ * a `roleSlug` of null UNASSIGNS; a non-null value must be a known `roles`
+ * reference slug (400 otherwise — validated against the reference table, not
+ * left to the FK, so bad input is a clean 400 not a 500) and `personId` must
+ * belong to this org (404 otherwise — the composite tenant FK is the backstop).
+ * Write-then-audit like every sibling admin mutation. Pure over the org-scoped
+ * repository, so it's tested on PGlite; the route is thin HTTP glue.
+ */
+export async function setPersonRole(
+  scope: OrgScope,
+  input: { personId: string; roleSlug: string | null; actorUserId: string },
+) {
+  const { personId, roleSlug, actorUserId } = input;
+
+  // Person must belong to this org (org-scoped get returns undefined for a
+  // foreign or unknown id) — a clean 404 rather than a composite-FK 500.
+  const person = await scope.people.get(personId);
+  if (!person) {
+    throw new ApiError(404, "person not found");
+  }
+
+  if (roleSlug === null) {
+    await scope.roles.unassign(personId);
+    await scope.auditLog.record({
+      actorUserId,
+      action: "person.role_unset",
+      targetKind: "person",
+      targetId: personId,
+      metadata: {},
+    });
+    return apiRoutes.roleAssignmentSet.response.parse({ ok: true });
+  }
+
+  // Validate against the reference table so an unknown slug is a 400, not a
+  // role-FK 500.
+  const known = await scope.roles.list();
+  if (!known.some((r) => r.slug === roleSlug)) {
+    throw new ApiError(400, "unknown role");
+  }
+
+  await scope.roles.assign({ personId, roleSlug, assignedByUserId: actorUserId });
+  await scope.auditLog.record({
+    actorUserId,
+    action: "person.role_set",
+    targetKind: "person",
+    targetId: personId,
+    metadata: { roleSlug },
+  });
+  return apiRoutes.roleAssignmentSet.response.parse({ ok: true });
+}
+
+/**
  * GET /api/budget core (W4-V, ADR 0020): the org's budget config + observed
  * month-to-date spend (billed and derived kept separate) + the computed alert.
  * `today` (YYYY-MM-DD, UTC) is caller-supplied so the window is deterministic.

@@ -183,6 +183,13 @@
       "when": 1783959118643,
       "tag": "0025_budget-alert-state",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783965478098,
+      "tag": "0026_roles-entity",
+      "breakpoints": true
     }
   ]
 }

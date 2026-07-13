@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { DigestPreferencesForm } from "@/components/settings/digest-preferences-form";
+import { RoleManagementCard } from "@/components/settings/role-management-card";
 import { TeamManagementCard } from "@/components/settings/team-management-card";
 import { VisibilityModeControl } from "@/components/settings/visibility-mode-control";
 import { WorkspaceNameForm } from "@/components/settings/workspace-name-form";
@@ -36,16 +37,28 @@ export default async function SettingsPage() {
   // the SAME lane default the sender uses (single-member org = on, multi-member
   // = off) — computed from member count, not org.kind, so the toggle can't
   // disagree with what the digest sender actually does.
-  const [digestPref, digestAudience, teams, allMembers, peopleRows] =
-    await Promise.all([
-      ctx.scope.digestPreferences.getForUser(ctx.user.id),
-      listDigestRecipients(ctx.db, ctx.org.id),
-      // People & teams roster (W5-H deliverable 2) — relocated here from the
-      // retired /teams nav page. Team orgs only (an org-of-one has no roster).
-      isPersonal ? Promise.resolve([]) : ctx.scope.teams.list(),
-      isPersonal ? Promise.resolve([]) : ctx.scope.teams.allMembers(),
-      isPersonal ? Promise.resolve([]) : ctx.scope.people.list(),
-    ]);
+  const [
+    digestPref,
+    digestAudience,
+    teams,
+    allMembers,
+    peopleRows,
+    roleList,
+    roleAssignments,
+  ] = await Promise.all([
+    ctx.scope.digestPreferences.getForUser(ctx.user.id),
+    listDigestRecipients(ctx.db, ctx.org.id),
+    // People & teams roster (W5-H deliverable 2) — relocated here from the
+    // retired /teams nav page. Team orgs only (an org-of-one has no roster).
+    isPersonal ? Promise.resolve([]) : ctx.scope.teams.list(),
+    isPersonal ? Promise.resolve([]) : ctx.scope.teams.allMembers(),
+    isPersonal ? Promise.resolve([]) : ctx.scope.people.list(),
+    // Roles (W6-B, ADR 0030): the global role list + this org's assignments,
+    // both folded into the existing flat Promise.all (+2 queries, one round-
+    // trip). Team orgs only, mirroring the roster card.
+    isPersonal ? Promise.resolve([]) : ctx.scope.roles.list(),
+    isPersonal ? Promise.resolve([]) : ctx.scope.roles.assignments(),
+  ]);
   const digestEnabled = digestPref
     ? digestPref.digestEnabled
     : digestAudience.memberCount <= 1;
@@ -63,6 +76,22 @@ export default async function SettingsPage() {
     id: person.id,
     pseudonym: person.pseudonym,
     displayName: showNames ? (person.displayName ?? null) : null,
+  }));
+
+  // Roles (W6-B): map each §7-gated person to their current role assignment.
+  const roleBySlug = new Map(
+    roleAssignments.map((a) => [a.personId, a.roleSlug]),
+  );
+  const rolePeople = peopleRows.map((person) => ({
+    id: person.id,
+    label: showNames
+      ? (person.displayName ?? person.pseudonym)
+      : person.pseudonym,
+    roleSlug: roleBySlug.get(person.id) ?? null,
+  }));
+  const roleOptions = roleList.map((role) => ({
+    slug: role.slug,
+    label: role.label,
   }));
 
   return (
@@ -127,6 +156,10 @@ export default async function SettingsPage() {
             people={peopleOptions}
             isAdmin
           />
+        )}
+
+        {!isPersonal && (
+          <RoleManagementCard people={rolePeople} roles={roleOptions} />
         )}
       </div>
     </>

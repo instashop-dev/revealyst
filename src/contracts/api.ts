@@ -480,6 +480,21 @@ export const apiRoutes = {
     response: ok,
   },
 
+  // Person → engineering-role assignment (W6-B, ADR 0030). Admin-set org config
+  // (NOT self-view — a manager assigns roles), so `adminOnly` at the handler and
+  // the 402 free-band gate applies by default. `roleSlug` null UNassigns; a
+  // non-null value must be a known `roles` slug (the handler 400s otherwise) and
+  // `personId` must belong to the caller's org (404 otherwise; the composite
+  // tenant FK is the backstop). WRITE-ONLY by shape: only `ok` comes back — the
+  // current assignments are read server-side into the Settings page (no
+  // assignment-read route). Nothing else consumes roles until W6-C.
+  roleAssignmentSet: {
+    method: "PUT",
+    path: "/api/people/:id/role",
+    request: z.object({ roleSlug: z.string().min(1).nullable() }),
+    response: ok,
+  },
+
   // Paddle hosted customer portal: creates a fresh authenticated session (ADR
   // 0011) and returns its links. Generated per request, never cached.
   billingPortal: {
