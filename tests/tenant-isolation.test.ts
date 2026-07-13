@@ -111,6 +111,16 @@ const SCOPED_READS: Array<{
     tables: ["rec_interaction_state"],
     run: (s, c) => s.recInteractions.list(c.B.people.alice),
   },
+  // Role assignments (ADR 0030): org-scoped rows (org_id, person_id) → role.
+  // Both orgs seed an assignment for their own alice below, so the B-side row
+  // carries a B personId — org A's assignments() must surface only A's rows
+  // (non-vacuous, mirrors recInteractions.list). The global `roles` reference
+  // table has no org_id, so it is (correctly) outside the sweep.
+  {
+    name: "roles.assignments",
+    tables: ["role_assignments"],
+    run: (s) => s.roles.assignments(),
+  },
   { name: "connectorRuns.list", tables: ["connector_runs"], run: (s) => s.connectorRuns.list() },
   { name: "connectorRuns.latest(B)", tables: ["connector_runs"], run: (s, c) => s.connectorRuns.latest(c.B.connections.anthropic) },
   // Credentials are read-only via withCredential, which throws for foreign
@@ -212,6 +222,13 @@ beforeAll(async () => {
       personId: loaded.people.alice,
       recId: "adoption-active-days",
       state: "dismissed",
+    });
+    // A role assignment per org (ADR 0030) keyed on this org's alice, so the
+    // B-side row carries a B personId and the roles.assignments sweep is
+    // non-vacuous (mirrors the rec-interaction seed above).
+    await scoped.roles.assign({
+      personId: loaded.people.alice,
+      roleSlug: "backend",
     });
     // An audit row per org (ADR 0010) whose target is a fixture team id, so
     // the B-side row carries a B id and the auditLog sweep is non-vacuous.

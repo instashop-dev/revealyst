@@ -15,6 +15,7 @@ import {
   pollHeartbeats,
   rawPayloads,
   recInteractionState,
+  roleAssignments,
   scoreDefinitions,
   scoreResults,
   shareLinks,
@@ -51,6 +52,12 @@ export const PURGE_TABLES = [
   // W5-D: person-scoped, FK'd to people (not orgs) — must be deleted BEFORE
   // people below (its composite FK would otherwise block the people delete).
   recInteractionState,
+  // W6-B: person-scoped role assignment, FK'd to people — likewise deleted
+  // BEFORE people (its composite FK would otherwise block the people delete).
+  // The global `roles` reference table is NOT org-scoped (no org_id column),
+  // so it is invisible to the purge-completeness tripwire and needs no entry —
+  // exactly how metric_catalog is handled (never purged, survives deletion).
+  roleAssignments,
   shareLinks,
   subjects,
   rawPayloads,
