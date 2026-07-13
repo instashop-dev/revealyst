@@ -16,6 +16,29 @@ it is the interface between agents.
 > [Claude Code Workflow](docs/Revealyst_Claude_Code_Workflow.md) ·
 > [Harness setup status](docs/Revealyst_Harness_Setup.md)
 
+> **V4 Wave 5 (MVP) shipped — 2026-07-13** (PRs #187–#196; every Spec V4 §11.2 row):
+> the **Personal Companion** surface replaces the score-first self-view (Growth Journey +
+> coaching + daily-nudge cards; raw 0–100 demoted behind a "diagnostic details" expander;
+> level copy from `maturity-glossary`, never a 4th ladder) with **onboarding inverted**
+> (companion pitch before connect). **Rec interaction state** (snooze/dismiss/mark-tried,
+> self-view-only, `rec_interaction_state` — mig 0024, ADR 0028). **Team Intelligence** folded
+> ~18 panels → 5 cards + board CSV export + segments count-only-everywhere + `MIN_PEOPLE`
+> champion floor + band-first share cards. **Telemetry MVP** wired honest dropped fields +
+> per-person `signal-coverage` + rec optimization metadata (deliberate drops pinned).
+> **Milestones + insight taxonomy** (`AttentionItem.kind` now `recommendation|anomaly|plateau|
+> milestone|spend|agentic-transition`; reserved coaching slot; **no-streak decision recorded**:
+> weekly-with-forgiveness narrative only). **Manual Sync UX** (same-click reward + "what this
+> sync sends" panel derived from the agent allowlist + public `/legal/what-we-collect`).
+> **Email lanes** (budget-threshold emails via `budget_alert_state` CAS — mig 0025, ADR 0029;
+> digest return-rate + companion-revisit instrumentation → the §14 dogfood clock is now
+> measurable; scheduled flywheel funnel). **`org-scope.ts` split** into `src/db/org-scope/*`
+> factories (public API unchanged, ADR 0027) + `assertTeamOnlyPseudonymized` generalized to a
+> completeness-tripwire surface registry. **OTel receiver spike** decided GO / OTLP-HTTP-JSON
+> (`docs/research/2026-07-13-claude-code-otel-receiver-spike.md`; fixture capture founder-gated).
+> Latest migration **0025**, latest ADR **0029**. **Next up (W6, gated):** the §14 6-week
+> dogfood clock gates W6-A (Companion-in-Team-orgs + dual-source dedup); W6-B/C (Roles→catalog),
+> W6-D (OTel receiver, needs founder telemetry capture), W6-E/F/G proceed per plan §4.
+
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and
 settings page must satisfy them, and any new feature must **preserve or improve**
