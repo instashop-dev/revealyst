@@ -15,6 +15,7 @@ import { CoachingCard } from "@/components/companion/coaching-card";
 import { DailyNudgeCard } from "@/components/companion/daily-nudge-card";
 import { DiagnosticDetails } from "@/components/companion/diagnostic-details";
 import { GrowthJourneyCard } from "@/components/companion/growth-journey-card";
+import { MilestoneCard } from "@/components/companion/milestone-card";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { AgenticAdoptionCard } from "@/components/dashboard/agentic-adoption-card";
 import { AttributionTrendCard } from "@/components/dashboard/attribution-trend-card";
@@ -91,12 +92,16 @@ import {
   connectionAttentionInputs,
   deriveAttention,
   deriveDelta,
+  featureBreadthFromBreakdown,
+  featureBreadthFromRows,
   personDeltaResult,
   personScoreDropAttribution,
   teamScoreDropAttribution,
   type AttentionItem,
   type DeltaResult,
 } from "@/lib/score-insights";
+import { detectMilestones } from "@/lib/milestones";
+import { compareWorkflowDiversity } from "@/lib/workflow-diversity";
 import { deriveRecInteractionView } from "@/lib/rec-interactions";
 import { vendorLabel } from "@/lib/vendor-labels";
 import { VISIBILITY_MODE_INFO } from "@/lib/visibility-playbook";
@@ -544,6 +549,38 @@ async function PersonalSelfView({
     hasScores: scores.size > 0,
   });
 
+  // W5-F milestones — recompute-on-read, ZERO new queries (perf law G10): every
+  // input is derived from rows already in the flat batch above.
+  //  • feature-breadth: W5-E's comparator over the distinct-workflow count read
+  //    straight off the current score components' `raw` (the `distinct_dims`
+  //    component) vs the previous month's stored breakdown. A real prior
+  //    baseline (not a fixed 0) means the milestone stops firing once matched —
+  //    badge-until-superseded, never re-celebrated (§8.4).
+  //  • first-agent-session: agentic work is measured AND still very early
+  //    (≤ 1 complete week of activity) — the honest, over-claim-safe proxy for
+  //    "agents just showed up" without storage (false negatives over false
+  //    positives, invariant b).
+  //  • weekly-cadence: a sustained rhythm (≥ 3 complete active weeks). Rendered
+  //    as count-free narrative — the no-streak decision (§8.4).
+  const currentBreadth = featureBreadthFromRows(
+    SCORE_SLUGS.flatMap((slug) => cardData.get(slug)!.componentRows),
+  );
+  let previousBreadth: number | null = null;
+  for (const row of prevScores) {
+    const b = featureBreadthFromBreakdown(row.components);
+    if (b !== null) {
+      previousBreadth = previousBreadth === null ? b : Math.max(previousBreadth, b);
+    }
+  }
+  const milestones = detectMilestones({
+    breadth:
+      currentBreadth !== null
+        ? compareWorkflowDiversity(currentBreadth, previousBreadth ?? 0)
+        : null,
+    firstAgentSession: agentic.kind === "measured" && agentic.trend.length <= 1,
+    activeWeeks: agentic.kind === "measured" ? agentic.trend.length : 0,
+  });
+
   return (
     <>
       <PageHeader
@@ -584,6 +621,10 @@ async function PersonalSelfView({
         stale={maturity.stale}
         nextStep={topNextStep}
       />
+
+      {/* W5-F: positive-first — celebrate grounded milestones immediately,
+       * right below the level headline. Renders nothing when none crossed. */}
+      <MilestoneCard milestones={milestones} />
 
       <DailyNudgeCard nudge={dailyNudge} />
 

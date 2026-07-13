@@ -17,6 +17,11 @@ import {
   type DeltaResult,
   deriveAttention,
 } from "./score-insights";
+import {
+  detectMilestones,
+  WEEKLY_CADENCE_MIN_WEEKS,
+  type Milestone,
+} from "./milestones";
 import { vendorLabel } from "./vendor-labels";
 
 // PURE weekly-digest assembly (F2.2). Zero I/O — the sender (src/poller/digest.ts)
@@ -77,12 +82,28 @@ export type DigestContent = {
   scores: DigestScoreLine[];
   /** Personal lane only: the score that just hit a new personal best, if any. */
   personalBest: DigestScoreLine | null;
-  /** 1–3 task-focused items from the gated attention engine (aggregate-only). */
+  /** 1–3 task-focused items from the gated attention engine (aggregate-only).
+   * Coaching recs get a RESERVED slot here (see `MAX_DIGEST_RECOMMENDATIONS` /
+   * `RESERVED_COACHING_SLOTS`) so a week full of connection errors can't crowd
+   * out every piece of guidance (errata §1.2(7)). */
   recommendations: AttentionItem[];
+  /** W5-F Growth-Journey channel: the period's celebratory milestones (§8.4).
+   * The digest is now the Growth-Journey delivery vehicle it's specced to be —
+   * these render in their own section, visually distinct from the warn strip.
+   * Empty when nothing crossed. Personal lane leads with them; team lane keeps
+   * them aggregate (new-highs on org/team-level trends only). */
+  milestones: Milestone[];
 };
 
 const PRESET_SLUGS = new Set<string>(DASHBOARD_SLUGS);
 const MAX_DIGEST_RECOMMENDATIONS = 3;
+/** At least this many of the digest's recommendation slots are HELD for coaching
+ * recs (F1.1 guidance) — the errata §1.2(7) fix. Without a reserved slot the
+ * flat `deriveAttention`-output-sliced-to-3 buried coaching (impact 1) under any
+ * three higher-impact alerts (a connection error is impact 100), so a week with
+ * connection trouble mailed zero guidance. The reserve guarantees ≥1 coaching
+ * rec still ships whenever one exists — the W5-F acceptance test. */
+const RESERVED_COACHING_SLOTS = 1;
 
 function toDate(value: Date | string | null): Date | null {
   if (value == null) return null;
@@ -194,7 +215,7 @@ export function assembleDigest(input: {
     .map((s) => ({ slug: s.slug as ScoreSlug, delta: s.delta.delta }));
 
   const dismissed = input.dismissedRecIds;
-  const recommendations = deriveAttention({
+  const attention = deriveAttention({
     connections: connectionAttentionInputs(
       input.connections.map((c) => ({ vendor: c.vendor, status: c.status, id: "" })),
     ),
@@ -215,11 +236,26 @@ export function assembleDigest(input: {
           dismissed !== undefined &&
           dismissed.has(item.recId)
         ),
-    )
-    .slice(0, MAX_DIGEST_RECOMMENDATIONS);
+    );
+  const recommendations = withReservedCoaching(attention);
 
   const personalBest =
     lane === "personal" ? (scores.find((s) => s.isNewBest) ?? null) : null;
+
+  // W5-F Growth-Journey milestones. `new-best` rides the SAME strict `isNewBest`
+  // the digest already computes per score line (`>`, prior points only), so a
+  // flat/tied trend never celebrates. The weekly-consistency narrative fires
+  // only on a genuinely sustained rhythm (activity in BOTH the current and prior
+  // movement windows) and carries no counter — the no-streak decision (§8.4).
+  const newBests = scores
+    .filter((s) => s.isNewBest && s.currentValue !== null)
+    .map((s) => ({ label: s.label, value: Math.round(s.currentValue!) }));
+  const milestones = detectMilestones({
+    newBests,
+    activeWeeks: hasSustainedRhythm(input.movement)
+      ? WEEKLY_CADENCE_MIN_WEEKS
+      : null,
+  });
 
   return {
     lane,
@@ -236,7 +272,45 @@ export function assembleDigest(input: {
     scores,
     personalBest,
     recommendations,
+    milestones,
   };
+}
+
+/**
+ * Fill the digest's `MAX_DIGEST_RECOMMENDATIONS` slots while GUARANTEEING that
+ * up to `RESERVED_COACHING_SLOTS` of them go to coaching recs whenever coaching
+ * exists (errata §1.2(7)). `deriveAttention` returns action items first
+ * (connection error impact 100), then info, then coaching (impact 1) LAST — a
+ * naïve `.slice(0, 3)` therefore dropped all coaching on any week with ≥3
+ * higher-impact alerts. Here: reserve coaching first, fill the rest by the
+ * engine's own priority order, then render action-first with the reserved
+ * coaching after — never exceeding the cap.
+ */
+function withReservedCoaching(items: AttentionItem[]): AttentionItem[] {
+  const coaching = items.filter((i) => i.kind === "recommendation");
+  const other = items.filter((i) => i.kind !== "recommendation");
+  const reserved = coaching.slice(0, RESERVED_COACHING_SLOTS);
+  const remaining = MAX_DIGEST_RECOMMENDATIONS - reserved.length;
+  const chosenOther = other.slice(0, remaining);
+  // Backfill any slots the non-coaching items didn't use with more coaching.
+  const leftover = Math.max(0, remaining - chosenOther.length);
+  const extraCoaching = coaching.slice(
+    RESERVED_COACHING_SLOTS,
+    RESERVED_COACHING_SLOTS + leftover,
+  );
+  // Action/early-warning first (unchanged priority), then the reserved guidance.
+  return [...chosenOther, ...reserved, ...extraCoaching];
+}
+
+/** Sustained weekly rhythm (the weekly-cadence gate): active days present in the
+ * current window AND a comparable prior window that also had activity. "With
+ * forgiveness" — it never demands an unbroken run, only a rhythm that spans more
+ * than one window. Grounded in the movement deltas already computed; no counter
+ * is ever surfaced (no-streak decision, §8.4). */
+function hasSustainedRhythm(movement: RecentMovement): boolean {
+  const activeDays = movement.metrics.find((m) => m.key === "active_days");
+  if (!activeDays || activeDays.current <= 0) return false;
+  return activeDays.delta.kind === "delta" && activeDays.delta.previous > 0;
 }
 
 /**
