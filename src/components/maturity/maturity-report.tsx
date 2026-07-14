@@ -2,6 +2,7 @@ import { MaturityAxisMeters } from "@/components/maturity/maturity-axis-meters";
 import { MaturityLevelBanner } from "@/components/maturity/maturity-level-banner";
 import { MaturityNumberGrid } from "@/components/maturity/maturity-number-grid";
 import { NotScoredSection } from "@/components/maturity/not-scored-section";
+import { SectionHeading } from "@/components/section-heading";
 import type { MaturityView } from "@/lib/maturity";
 
 /**
@@ -43,13 +44,5 @@ export function MaturityReport({
 
       <NotScoredSection />
     </div>
-  );
-}
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
-      {children}
-    </h2>
   );
 }
