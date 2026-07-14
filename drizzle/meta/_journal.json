@@ -211,6 +211,13 @@
       "when": 1783971051453,
       "tag": "0029_recommendation-catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1784017198419,
+      "tag": "0030_capability-graph",
+      "breakpoints": true
     }
   ]
 }

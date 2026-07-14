@@ -263,11 +263,15 @@ and plan-mix fields (documented double-count/misattribution risks).
 - **Outcomes** [Future, demand-gated] — bounded to "did the person engage/act on the rec and did
   the signal move next period," never "did shipped code quality improve." An always-empty table
   reads as "no outcome," not "not measured" — an invariant-(b) trap; do not ship it hollow.
-- **Capability graph** [V1] — `domains` / `capabilities` / `capability_signals` /
-  `capability_dependencies`: seeded **global reference** tables (no `org_id`, like `roles`), a
-  relational graph of ~30–40 outcome-named engineering capabilities bound to existing
-  `metric_catalog` / score components. Not a graph database (§11.5). `recommendation_catalog` gains
-  an additive `target_capabilities` column (ADR).
+- **Capability graph** [V1 — **shipped W7-1**, mig 0030, ADR 0035] — `domains` / `capabilities` /
+  `capability_signals` / `capability_dependencies`: seeded **global reference** tables (no `org_id`,
+  like `roles`), a relational graph of **9** outcome-named engineering capabilities (v0 set; bound
+  ONLY to signals the connectors already ingest — every binding resolves to a live `metric_catalog`
+  key or `SCORE_GLOSSARY` component, a fact-checked claim surface; deliberately conservative, not the
+  aspirational 30–40, since an evidence-less capability would fabricate coverage — expandable via an
+  ADR-gated seed migration). Shallow acyclic prerequisite DAG. Not a graph database (§11.5).
+  `recommendation_catalog` gains an additive `target_capabilities` column (each of the 7 recs links
+  to ≥1 capability); the coaching card shows which capability a nudge advances (display-only).
 - **User capability state** [V1] — `user_capability_state` per (org, person, capability): mastery,
   confidence, staleness, next-capability; self-view-only; a parallel incremental reducer over the
   existing readers (the Maturity Model precedent), **capped `directional`** until the OTel receiver

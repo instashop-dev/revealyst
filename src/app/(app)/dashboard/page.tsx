@@ -303,6 +303,7 @@ async function PersonalSelfView({
     maturity,
     recInteractions,
     recommendations,
+    capabilityLabels,
   ] = await timeStage("pageData", () =>
       Promise.all([
         // Onboarding-gate read, folded in here so it overlaps the rest of the
@@ -381,6 +382,9 @@ async function PersonalSelfView({
         // into this flat Promise.all (+1 query, still round-trip depth 1),
         // evaluated in memory by `deriveAttention` below (§8.2 perf floor).
         ctx.scope.catalog.list(),
+        // W7-1: capability slug → label map (global reference data), same batch
+        // — the coaching card's "advances X" label source.
+        ctx.scope.capabilities.labels(),
       ]),
     );
   // Onboarding gate (evaluated here, after the overlapped read above, rather
@@ -514,6 +518,8 @@ async function PersonalSelfView({
     // W6-C: the per-org catalog fetched in this same flat Promise.all,
     // evaluated in memory here (§8.2 perf floor).
     recommendations,
+    // W7-1: display-only capability labels for the coaching card.
+    capabilityLabels,
     anomalies,
   });
   // W5-C companion composition (positive-first, level-forward): the coaching
@@ -789,6 +795,7 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     narrative,
     correlations,
     recommendations,
+    capabilityLabels,
   } = view;
 
   // Signal coverage (W5-H card e) — computed from rows ALREADY in the view
@@ -883,6 +890,8 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     // W6-C: the per-org catalog fetched inside readDashboardView's single
     // round-trip, evaluated in memory here (§8.2 perf floor).
     recommendations,
+    // W7-1: display-only capability labels for the coaching card.
+    capabilityLabels,
     anomalies,
     plateau,
   });

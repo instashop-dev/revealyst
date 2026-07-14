@@ -5,6 +5,7 @@ import { auditLogNamespace } from "./org-scope/audit-log";
 import { billingNamespace } from "./org-scope/billing";
 import { budgetAlertStateNamespace } from "./org-scope/budget-alert-state";
 import { budgetsNamespace } from "./org-scope/budgets";
+import { capabilitiesNamespace } from "./org-scope/capabilities";
 import { catalogNamespace } from "./org-scope/catalog";
 import { connectionsNamespace } from "./org-scope/connections";
 import { connectorRunsNamespace } from "./org-scope/connector-runs";
@@ -182,6 +183,7 @@ export function forOrg(db: Db, orgId: string) {
     recInteractions: recInteractionsNamespace(db, orgId),
     roles: rolesNamespace(db, orgId),
     catalog: catalogNamespace(db, orgId),
+    capabilities: capabilitiesNamespace(db, orgId),
   };
 }
 

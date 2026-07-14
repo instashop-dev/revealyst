@@ -174,6 +174,11 @@ export type DashboardView = {
    * like `definitions`/`gaps` they add nothing `assertTeamOnlyPseudonymized`
    * (src/lib/visibility.ts) must inspect. */
   recommendations: CatalogRecommendation[];
+  /** W7-1 — capability slug → display label (global reference data, no org_id),
+   * fetched in the same depth-1 Promise.all (+1 query, no new stage). Used ONLY
+   * to attach a display label to a recommendation on the coaching card; carries
+   * no person data, so it leaves `assertTeamOnlyPseudonymized` unaffected. */
+  capabilityLabels: Map<string, string>;
 };
 
 export async function readDashboardView(
@@ -207,6 +212,7 @@ export async function readDashboardView(
     runs,
     promptRecords,
     recommendations,
+    capabilityLabels,
   ] = await Promise.all([
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
@@ -271,6 +277,9 @@ export async function readDashboardView(
     // into this single round-trip (§8.2 perf floor), evaluated per-person in
     // memory by `deriveAttention` on the page. Global presets ∪ this org's rows.
     scope.catalog.list(),
+    // W7-1: capability slug → label map (global reference data), same single
+    // round-trip — the coaching card's "advances X" label source.
+    scope.capabilities.labels(),
   ]);
 
   // One pass over the superset: the exact splits trends (team) and segments
@@ -462,5 +471,6 @@ export async function readDashboardView(
     narrative,
     correlations,
     recommendations,
+    capabilityLabels,
   };
 }
