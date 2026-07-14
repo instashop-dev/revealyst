@@ -16,11 +16,10 @@ they follow the OTLP/HTTP JSON protobuf-mapping and the Claude Code metric/event
 names documented at
 <https://code.claude.com/docs/en/monitoring-usage> (accessed 2026-07-13).
 
-Real captured payloads now exist (`*.captured.json`, landed 2026-07-14) — capture
-was **founder-gated** (needs the founder's own Claude Code run with telemetry
-enabled — see below) and is now done. They resolve all five `NLV-OT*` unknowns; see
-the spike doc §9 "Results" for the full resolution, including the one finding that
-flips a design decision (real metrics are **delta**, not the assumed cumulative).
+Real captured payloads do **not** exist yet because capture is **founder-gated**
+(needs the founder's own Claude Code run with telemetry enabled — see below). When
+they are captured, drop them in as `*.captured.json` and resolve the `NLV-OT*`
+unknowns in the spike doc §9.
 
 ## Directory contract
 
@@ -72,12 +71,9 @@ scrub test is CI-gated in W6-D.
 
 ## Capture procedure — FOUNDER-GATED
 
-Done once already (2026-07-14, see spike doc §9 "Results"); the procedure below
-still applies for a **follow-up capture** to fill the two gaps the first pass didn't
-exercise — a session with a git commit/PR (for `session.count`/`commit.count`/
-`pull_request.count`) and a triggered API retry (for `api_error`/
-`api_retries_exhausted`). It needs a real Claude Code session on the founder's
-machine with telemetry pointed at a capture endpoint (founder infra):
+This spike cannot capture real payloads: it needs a real Claude Code session on the
+founder's machine with telemetry pointed at a capture endpoint (founder infra). The
+exact procedure (verbatim in the spike doc §9):
 
 ```bash
 # Point Claude Code's OTel exporter at a throwaway local OTLP/HTTP collector that
