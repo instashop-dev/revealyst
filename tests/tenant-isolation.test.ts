@@ -158,6 +158,15 @@ const SCOPED_READS: Array<{
     tables: ["mission_progress"],
     run: (s) => s.missions.progressForOrg(),
   },
+  // Recommendation exposures (ADR 0038): org-scoped append log (org, person,
+  // rec, surface, day). Both orgs seed an exposure for their own alice below, so
+  // B's row carries a B personId — org A's list() must surface only A's rows.
+  // `list()` is server-side only (no manager route); this sweep is its guard.
+  {
+    name: "exposures.list",
+    tables: ["recommendation_exposure"],
+    run: (s) => s.exposures.list(),
+  },
   // Recommendation catalog (ADR 0033): a nullable-org_id reference table like
   // score_definitions — global presets (org_id NULL) ∪ this org's own rows.
   // `list()` maps each row to the evaluator shape whose `id` IS the row's
@@ -312,6 +321,18 @@ beforeAll(async () => {
     // B-side row carries a B personId and the missions.progressForOrg sweep is
     // non-vacuous (the mission slug is seeded globally by the migration).
     await scoped.missions.start(loaded.people.alice, "get-started-with-ai");
+    // An exposure per org (ADR 0038) keyed on this org's alice, so the B-side
+    // row carries a B personId and the exposures.list sweep is non-vacuous.
+    await scoped.exposures.log([
+      {
+        personId: loaded.people.alice,
+        recId: "adoption-active-days",
+        surface: "digest",
+        shownAt: "2026-06-15",
+        experimentKey: null,
+        variant: null,
+      },
+    ]);
     // An audit row per org (ADR 0010) whose target is a fixture team id, so
     // the B-side row carries a B id and the auditLog sweep is non-vacuous.
     await scoped.auditLog.record({
