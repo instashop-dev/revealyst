@@ -390,7 +390,15 @@ engine feeds the digest (cap 3). This is the honesty pattern the catalog scales 
   eligibility** filter (opt-in context) excludes a rec whose `applicable_roles`/`applicable_tools`
   don't apply, or whose target capability has an **unmet prerequisite** (fails closed: missing
   `user_capability_state` = not mastered); the cap + `signalGroup` dedupe are unchanged. `novelty` is
-  a constant until the exposure log (P7) makes it vary.
+  a constant until the exposure log (P7) makes it vary. **[W7-4]** each surfaced rec now carries a
+  computed **"why this" line** from the DOMINANT utility term (`dominantUtilityTerm` — so the reason
+  can't drift from the ranking) and an honest **confidence disclosure** ("Based on N connected
+  sources", from signal-coverage, never a fabricated %). The digest and dashboard **provably share
+  this source** (a shared-source test asserts identical rec selection + order). The eligibility GATES
+  ship tested-but-dormant (activation is a founder-tunable follow-up — a reliability-first call, since
+  a fails-closed prereq gate over directional-only mastery could over-suppress live coaching); the
+  Growth-Journey level-source swap to the capability band is deferred until measured (OTel/P8), since
+  a directional band is a less honest headline than the modeled maturity level.
 - **Suggested-action taxonomy (one, central):** `link-out doc · in-product Revealyst setting ·
   deep-link to vendor settings`. Catalog entries that read "Revealyst does X for you" are
   rewritten as "try doing X using capability Y in tool Z" — third-party write automation is a

@@ -4,10 +4,13 @@ import type { SpikeSignal } from "./anomaly";
 import { plateauAttentionCopy, spikeAttentionCopy } from "./anomaly-glossary";
 import {
   COACHING_GUIDANCE_SUFFIX,
-  computeUtility,
+  computeUtilityBreakdown,
+  dominantUtilityTerm,
   evaluateRequiredSignals,
   indexBySlugComponent,
+  UTILITY_REASON,
   type CatalogRecommendation,
+  type UtilityBreakdown,
 } from "./recommendation-catalog";
 import type { PlateauResult } from "./plateau";
 import type { DefinitionRow, ScoreRow } from "./dashboard-read";
@@ -460,6 +463,14 @@ export type AttentionItem = {
    * label map wasn't loaded, so the card renders nothing rather than a
    * fabricated "Unknown capability". Backward-compatible. */
   capabilityLabel?: string;
+  /** Set on `kind === "recommendation"` items (W7-4): a computed "why this next"
+   * line from the DOMINANT utility term, so the reason can't drift from the
+   * actual ranking. */
+  whyLine?: string;
+  /** Set on `kind === "recommendation"` items when coverage is known (W7-4): an
+   * honest confidence disclosure ("Based on N connected sources"), never a
+   * fabricated percentage. Absent when coverage wasn't supplied. */
+  confidenceNote?: string;
 };
 
 /** A same-grain score drop below this many points is treated as worth a
@@ -723,6 +734,9 @@ export function deriveAttention(input: {
   masteredCapabilities?: ReadonlySet<string>;
   capabilityPrereqs?: ReadonlyMap<string, readonly string[]>;
   fatigueRecIds?: ReadonlySet<string>;
+  /** W7-4 — the person's signal-coverage source count, for the honest
+   * confidence disclosure on each rec. Omitted → no disclosure. */
+  coverageSourceCount?: number;
 }): AttentionItem[] {
   const items: ScoredAttentionItem[] = [];
 
@@ -889,6 +903,7 @@ export function deriveAttention(input: {
       recommendation: CatalogRecommendation;
       normalized: number;
       utility: number;
+      breakdown: UtilityBreakdown;
     }[] = [];
     for (const score of input.scoreComponents) {
       for (const row of score.components) {
@@ -909,7 +924,9 @@ export function deriveAttention(input: {
         // W7-3 stage-1 eligibility (opt-in): role/tool/prerequisite gates.
         if (!isRecEligible(recommendation, input)) continue;
         // W7-3 stage-2 utility: consume the previously-inert catalog metadata.
-        const utility = computeUtility(recommendation, {
+        // W7-4: keep the per-term breakdown so the "why" line reads the actual
+        // dominant term (can't drift from the ranking).
+        const breakdown = computeUtilityBreakdown(recommendation, {
           normalized: row.normalized,
           roleToolFit: recRoleToolFit(recommendation, input),
           novelty: 1, // constant until the exposure log (P7) makes it vary
@@ -917,7 +934,12 @@ export function deriveAttention(input: {
             ? REC_FATIGUE_PENALTY
             : 0,
         });
-        candidates.push({ recommendation, normalized: row.normalized, utility });
+        candidates.push({
+          recommendation,
+          normalized: row.normalized,
+          utility: breakdown.total,
+          breakdown,
+        });
       }
     }
     // Rank by deterministic utility (highest first); tie-break on the weaker
@@ -930,7 +952,10 @@ export function deriveAttention(input: {
       seenSignalGroups.add(recommendation.signalGroup);
       return true;
     });
-    for (const { recommendation } of distinct.slice(0, MAX_RECOMMENDATIONS)) {
+    for (const { recommendation, breakdown } of distinct.slice(
+      0,
+      MAX_RECOMMENDATIONS,
+    )) {
       // W7-1 display-only label: the first capability this rec advances, if its
       // label is loaded. A conditional spread keeps the field ABSENT (not
       // undefined) when there's no label, so the migration-equivalence guard
@@ -939,6 +964,14 @@ export function deriveAttention(input: {
       const capabilityLabel = capabilitySlug
         ? input.capabilityLabels?.get(capabilitySlug)
         : undefined;
+      // W7-4: the "why" line from the dominant utility term (can't drift from
+      // the ranking), and an honest confidence disclosure from signal coverage.
+      const whyLine = UTILITY_REASON[dominantUtilityTerm(breakdown)];
+      const n = input.coverageSourceCount;
+      const confidenceNote =
+        n !== undefined && n > 0
+          ? `Based on ${n} connected source${n === 1 ? "" : "s"}.`
+          : undefined;
       items.push({
         severity: "info",
         kind: "recommendation",
@@ -947,6 +980,8 @@ export function deriveAttention(input: {
         title: recommendation.title,
         body: `${recommendation.body} ${COACHING_GUIDANCE_SUFFIX}`,
         ...(capabilityLabel ? { capabilityLabel } : {}),
+        whyLine,
+        ...(confidenceNote ? { confidenceNote } : {}),
         impact: 1,
       });
     }

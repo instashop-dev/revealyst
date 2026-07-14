@@ -73,6 +73,15 @@ export function CoachingCard({
                   </Badge>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{item.body}</p>
+                {item.whyLine ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">
+                      {COACHING_COPY.whyLead}:
+                    </span>{" "}
+                    {item.whyLine}
+                    {item.confidenceNote ? ` ${item.confidenceNote}` : ""}
+                  </p>
+                ) : null}
                 {item.capabilityLabel ? (
                   <p className="mt-2 text-xs font-medium text-primary">
                     {COACHING_COPY.advancesLead}: {item.capabilityLabel}

@@ -79,8 +79,14 @@ it is the interface between agents.
 > inert benefit/difficulty/confidence + capabilityGap; a permanent output-equivalence guard proves
 > uniform metadata reduces to weakest-first; a stage-1 eligibility filter (role/tool/prereq
 > fails-closed) is implemented + tested but wired live in P4 (to keep dashboard+digest in sync). The
-> ranking itself is live on both paths (internal to `deriveAttention`).
-> Remaining: P4 coaching loop, P5 missions, P6 team rollups. **Wave 8 (P7
+> ranking itself is live on both paths (internal to `deriveAttention`). **P4** coaching loop (no
+> migration): a computed **"why this" line** from the dominant utility term (`dominantUtilityTerm`,
+> can't drift from the ranking) + an honest **confidence disclosure** ("Based on N connected sources")
+> on each coaching rec; a **digest/dashboard shared-source test** pins identical rec selection+order.
+> Deferred (documented, reliability-first): eligibility-gate LIVE activation (tested-dormant — a
+> fails-closed prereq gate over directional mastery could over-suppress), and the Growth-Journey
+> level→capability-band swap (until measured/OTel).
+> Remaining: P5 missions, P6 team rollups. **Wave 8 (P7
 > experimentation / P8 OTel measured tier) stays GATED** on
 > founder OTel fixture capture, a founder-signed privacy-reversal ADR, and real "tried" volume —
 > cannot be forced by agent work.
