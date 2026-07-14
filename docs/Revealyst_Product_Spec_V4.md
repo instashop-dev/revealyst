@@ -476,6 +476,16 @@ individual recs stay invisible to managers even when visibility is loosened for 
 Champion/blocker surfacing gets a `MIN_PEOPLE`-style floor before naming an implicit champion in
 a small team (de-anonymization risk) — even at manager level, even in aggregate copy.
 
+**Capability coverage [V1 — shipped W7-6].** A **count-only** aggregate rollup of how many people
+are at/above the mastery threshold for each capability, in the team "(c) Training opportunities"
+section. `MIN_PEOPLE`-floored (`SEGMENT_MIN_PEOPLE_TO_NAME`): a capability with fewer than the floor
+of people-with-state is **dropped entirely**, never a suppressed-but-implied number. The row prop
+type carries **no person id or name** — a per-person shape is structurally impossible — so it adds
+nothing `assertTeamOnlyPseudonymized` must inspect (the per-person `user_capability_state` never
+appears in the team-visible view; the rollup reads it via `mastery.coverageCounts` and returns only
+counts). One extra batched read in `readDashboardView`. *(Deferred follow-up: one exec-memo coverage
+line via `composeExecReport`, reusing the same `coverageCounts` data.)*
+
 ### 9.3 Shared accounts
 
 Unchanged and reaffirmed: guidance-first migration path (per-user keys → migrate shared logins →

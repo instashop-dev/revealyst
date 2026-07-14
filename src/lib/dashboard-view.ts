@@ -39,7 +39,12 @@ import {
 } from "./recent-movement";
 import { detectPlateau, type PlateauResult } from "./plateau";
 import type { CatalogRecommendation } from "./recommendation-catalog";
-import { resolveSegmentSource, type SegmentDistribution } from "./segments";
+import {
+  resolveSegmentSource,
+  SEGMENT_MIN_PEOPLE_TO_NAME,
+  type SegmentDistribution,
+} from "./segments";
+import { CAPABILITY_STATE_CONSTANTS } from "../scoring/capability-state";
 import {
   resolveSharedAccountSource,
   type SharedAccountFlag,
@@ -179,6 +184,23 @@ export type DashboardView = {
    * to attach a display label to a recommendation on the coaching card; carries
    * no person data, so it leaves `assertTeamOnlyPseudonymized` unaffected. */
   capabilityLabels: Map<string, string>;
+  /** W7-6 — aggregate capability-coverage rollup for the team view: per
+   * capability, how many people are at/above the mastery threshold out of how
+   * many have any state. COUNT-ONLY and `MIN_PEOPLE`-floored (a capability with
+   * fewer than `SEGMENT_MIN_PEOPLE_TO_NAME` people with state is omitted, never
+   * a suppressed-but-implied number). The row shape carries NO person id/name,
+   * so a per-person leak is structurally impossible — it adds nothing
+   * `assertTeamOnlyPseudonymized` must inspect. */
+  capabilityCoverage: CapabilityCoverageRow[];
+};
+
+export type CapabilityCoverageRow = {
+  slug: string;
+  label: string;
+  /** People at/above the mastery threshold for this capability. */
+  mastered: number;
+  /** People with any state for this capability (≥ MIN_PEOPLE by construction). */
+  total: number;
 };
 
 export async function readDashboardView(
@@ -213,6 +235,7 @@ export async function readDashboardView(
     promptRecords,
     recommendations,
     capabilityLabels,
+    capabilityCoverageCounts,
   ] = await Promise.all([
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
@@ -280,6 +303,10 @@ export async function readDashboardView(
     // W7-1: capability slug → label map (global reference data), same single
     // round-trip — the coaching card's "advances X" label source.
     scope.capabilities.labels(),
+    // W7-6: aggregate capability-coverage counts (mastered vs with-state per
+    // capability, COUNT-ONLY — no person id) for the team rollup. One batched
+    // read; MIN_PEOPLE floor + label join happen in memory below.
+    scope.mastery.coverageCounts(CAPABILITY_STATE_CONSTANTS.MASTERED_THRESHOLD),
   ]);
 
   // One pass over the superset: the exact splits trends (team) and segments
@@ -472,5 +499,22 @@ export async function readDashboardView(
     correlations,
     recommendations,
     capabilityLabels,
+    // W7-6: aggregate capability coverage — count-only, MIN_PEOPLE-floored, no
+    // person data. A capability with fewer than the floor of people-with-state
+    // is dropped entirely (never a suppressed-but-implied number). Ordered by
+    // mastery share descending, then label.
+    capabilityCoverage: [...capabilityCoverageCounts.entries()]
+      .filter(([, c]) => c.withState >= SEGMENT_MIN_PEOPLE_TO_NAME)
+      .map(([slug, c]) => ({
+        slug,
+        label: capabilityLabels.get(slug) ?? slug,
+        mastered: c.mastered,
+        total: c.withState,
+      }))
+      .sort(
+        (a, b) =>
+          b.mastered / b.total - a.mastered / a.total ||
+          a.label.localeCompare(b.label),
+      ),
   };
 }

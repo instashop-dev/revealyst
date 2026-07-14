@@ -85,8 +85,15 @@ it is the interface between agents.
 > on each coaching rec; a **digest/dashboard shared-source test** pins identical rec selection+order.
 > Deferred (documented, reliability-first): eligibility-gate LIVE activation (tested-dormant — a
 > fails-closed prereq gate over directional mastery could over-suppress), and the Growth-Journey
-> level→capability-band swap (until measured/OTel).
-> Remaining: P5 missions, P6 team rollups. **Wave 8 (P7
+> level→capability-band swap (until measured/OTel). **P6** team rollups (no migration): an aggregate,
+> **count-only, `MIN_PEOPLE`-floored** capability-coverage card in the team "(c) Training
+> opportunities" section (reuses `mastery.coverageCounts` from P2 + `SEGMENT_MIN_PEOPLE_TO_NAME`); a
+> capability below the floor is dropped entirely (never a suppressed-but-implied number), and the row
+> prop type carries NO person id/name (per-person leak structurally impossible). One extra batched
+> read in `readDashboardView`. Deferred (documented follow-up): the one exec-memo coverage line (needs
+> wiring the same `coverageCounts` into the separate `composeExecReport` data path).
+> Remaining: P5 missions (largest; behind the §7 "missions inside anti-gamification" founder
+> sign-off). **Wave 8 (P7
 > experimentation / P8 OTel measured tier) stays GATED** on
 > founder OTel fixture capture, a founder-signed privacy-reversal ADR, and real "tried" volume —
 > cannot be forced by agent work.
