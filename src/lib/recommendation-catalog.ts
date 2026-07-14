@@ -112,6 +112,10 @@ export type CatalogRecommendation = {
   requiredSignals: RequiredSignals;
   applicableRoles: readonly string[];
   applicableTools: readonly string[];
+  /** W7-1 — capability slugs this rec advances (`capabilities.slug`). Empty when
+   * the rec links to no capability; the coaching card renders nothing then
+   * (never a fabricated "Unknown capability"). */
+  targetCapabilities: readonly string[];
   benefit: CatalogBenefit;
   difficulty: CatalogDifficulty;
   confidence: CatalogConfidence;
@@ -170,6 +174,7 @@ type CatalogRow = {
   requiredSignals: unknown;
   applicableRoles: string[];
   applicableTools: string[];
+  targetCapabilities: string[];
   benefit: string;
   difficulty: string;
   confidence: string;
@@ -195,6 +200,7 @@ export function mapCatalogRow(row: CatalogRow): CatalogRecommendation {
     requiredSignals: parseRequiredSignals(row.requiredSignals),
     applicableRoles: row.applicableRoles,
     applicableTools: row.applicableTools,
+    targetCapabilities: row.targetCapabilities,
     benefit: row.benefit as CatalogBenefit,
     difficulty: row.difficulty as CatalogDifficulty,
     confidence: row.confidence as CatalogConfidence,

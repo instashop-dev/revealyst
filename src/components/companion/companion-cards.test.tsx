@@ -94,6 +94,23 @@ describe("CoachingCard — dedicated coaching home (W5-C)", () => {
     render(<CoachingCard recommendations={[]} />);
     expect(screen.getByText(/No coaching to show yet/i)).toBeTruthy();
   });
+
+  it("renders the capability label when a rec advances one (W7-1)", () => {
+    render(
+      <CoachingCard
+        recommendations={[
+          { ...NEXT_STEP, capabilityLabel: "Make AI part of daily work" },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Builds: Make AI part of daily work/)).toBeTruthy();
+  });
+
+  it("ABSENCE: renders no capability line when the rec links to none", () => {
+    render(<CoachingCard recommendations={[NEXT_STEP]} />);
+    // Never a fabricated "Unknown capability" — the line is simply absent.
+    expect(screen.queryByText(/Builds:/)).toBeNull();
+  });
 });
 
 describe("CoachingCard — W5-D interaction affordances (self-view only)", () => {

@@ -453,6 +453,12 @@ export type AttentionItem = {
    * Absent on every other item kind, so `AttentionItem` stays backward-
    * compatible. */
   recId?: string;
+  /** Set ONLY on `kind === "recommendation"` items (W7-1): the display label of
+   * the FIRST capability this rec advances (`capabilities.label`) — the coaching
+   * card's "advances X" line. Absent when the rec targets no capability OR the
+   * label map wasn't loaded, so the card renders nothing rather than a
+   * fabricated "Unknown capability". Backward-compatible. */
+  capabilityLabel?: string;
 };
 
 /** A same-grain score drop below this many points is treated as worth a
@@ -631,6 +637,12 @@ export function deriveAttention(input: {
    * The caller passes ONLY the `plateau` kind (src/lib/plateau.ts gates
    * staleness/insufficiency/no-plateau). Directional "info" item, org-level. */
   plateau?: Extract<PlateauResult, { kind: "plateau" }> | null;
+  /** W7-1 — capability slug → display label, loaded once via
+   * `forOrg(...).capabilities.labels()` and folded into the caller's existing
+   * flat Promise.all. Used ONLY to attach a display label to a recommendation
+   * whose `targetCapabilities[0]` resolves here; a miss (or omission) leaves
+   * `capabilityLabel` undefined — the ranking is untouched (display-only). */
+  capabilityLabels?: ReadonlyMap<string, string>;
 }): AttentionItem[] {
   const items: ScoredAttentionItem[] = [];
 
@@ -821,6 +833,14 @@ export function deriveAttention(input: {
       return true;
     });
     for (const { recommendation } of distinct.slice(0, MAX_RECOMMENDATIONS)) {
+      // W7-1 display-only label: the first capability this rec advances, if its
+      // label is loaded. A conditional spread keeps the field ABSENT (not
+      // undefined) when there's no label, so the migration-equivalence guard
+      // (no labels passed) stays byte-identical to the pre-W7 output.
+      const capabilitySlug = recommendation.targetCapabilities[0];
+      const capabilityLabel = capabilitySlug
+        ? input.capabilityLabels?.get(capabilitySlug)
+        : undefined;
       items.push({
         severity: "info",
         kind: "recommendation",
@@ -828,6 +848,7 @@ export function deriveAttention(input: {
         recId: recommendation.id,
         title: recommendation.title,
         body: `${recommendation.body} ${COACHING_GUIDANCE_SUFFIX}`,
+        ...(capabilityLabel ? { capabilityLabel } : {}),
         impact: 1,
       });
     }

@@ -73,6 +73,11 @@ export function CoachingCard({
                   </Badge>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">{item.body}</p>
+                {item.capabilityLabel ? (
+                  <p className="mt-2 text-xs font-medium text-primary">
+                    {COACHING_COPY.advancesLead}: {item.capabilityLabel}
+                  </p>
+                ) : null}
                 {item.href ? (
                   <Button
                     size="sm"

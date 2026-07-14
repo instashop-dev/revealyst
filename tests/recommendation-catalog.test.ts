@@ -34,17 +34,10 @@ let seeded: CatalogRecommendation[];
 
 /** The engineering roles seeded by W6-B (drizzle/0026) — `applicable_roles`
  * elements must be a subset of this closed set (Postgres has no array-element
- * FK, so this is the "checked set" the schema comment refers to). */
-const ROLE_SLUGS = new Set([
-  "backend",
-  "frontend",
-  "fullstack",
-  "mobile",
-  "platform",
-  "data",
-  "ml",
-  "sre",
-]);
+ * FK, so this is the "checked set" the schema comment refers to). Read LIVE from
+ * the migrated `roles` table (W7-1 §5.H cleanup) rather than a hardcoded literal,
+ * so this suite and tests/capability-catalog.test.ts share ONE source of truth. */
+let ROLE_SLUGS: Set<string>;
 
 beforeAll(async () => {
   const pgliteDb = drizzle(new PGlite(), { schema });
@@ -56,6 +49,7 @@ beforeAll(async () => {
     .returning();
   orgId = org.id;
   seeded = await forOrg(db, orgId).catalog.list();
+  ROLE_SLUGS = new Set((await db.select().from(schema.roles)).map((r) => r.slug));
 });
 
 describe("recommendation_catalog seed (drizzle/0029)", () => {

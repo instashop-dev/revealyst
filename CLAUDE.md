@@ -56,6 +56,22 @@ it is the interface between agents.
 > on the §14 ~6-week dogfood outcome; W6-D (OTel receiver) on founder OTel fixture capture; W6-E
 > (measured proficiency) on W6-C + W6-D.
 
+> **V4 Wave 7 (AI Capability Layer) — in progress** (see
+> [AI Capability Execution Plan](docs/Revealyst_AI_Capability_Execution_Plan.md), phases P0–P6):
+> **P0** dual-source per-person double-count **fixed** (`rowsForSubjects` collapses same-(day,dim)
+> rows within one person's exclusive-subject set to MAX, not SUM — PR #210; `segmentTeams` was
+> already gone, predicate registry already extensible). **P1** the relational **capability graph**
+> shipped (mig 0030, ADR 0035): global reference tables `domains`/`capabilities`/`capability_signals`/
+> `capability_dependencies` seeded with the v0 **9-capability** Engineering set (bound only to
+> already-ingested signals; shallow acyclic DAG; NOT a graph DB), `recommendation_catalog` gains
+> additive `target_capabilities` linking all 7 recs, `forOrg().capabilities` namespace, and a
+> display-only capability label on the coaching card (`deriveAttention` output byte-identical except
+> the label — pinned by the migration-equivalence guard). Latest mig **0030**, latest ADR **0035**.
+> Remaining: P2 `user_capability_state` (directional), P3 utility ranker, P4 coaching loop, P5
+> missions, P6 team rollups. **Wave 8 (P7 experimentation / P8 OTel measured tier) stays GATED** on
+> founder OTel fixture capture, a founder-signed privacy-reversal ADR, and real "tried" volume —
+> cannot be forced by agent work.
+
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and
 settings page must satisfy them, and any new feature must **preserve or improve**

@@ -1353,6 +1353,15 @@ export const recommendationCatalog = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
+    // W7-1 (ADR 0035) — capabilities this recommendation advances. Elements are
+    // `capabilities.slug` values, validated against the live capability seed in
+    // the seed-contract test (Postgres has no element-level array FK, same as
+    // applicable_roles). Empty = links to no capability (never fabricates an
+    // "Unknown capability"). Additive/optional: existing consumers ignore it.
+    targetCapabilities: text("target_capabilities")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     // §7.3 named insight taxonomy (domain the insight belongs to).
     insightKind: text("insight_kind", {
       enum: [
@@ -1402,6 +1411,123 @@ export const recommendationCatalog = pgTable(
     check(
       "recommendation_catalog_action_type_ck",
       sql`${t.suggestedActionType} IN ('link-out','in-product-setting','vendor-deep-link')`,
+    ),
+  ],
+);
+
+// ─── AI Capability graph (W7-1, ADR 0035) ───
+//
+// A small RELATIONAL capability catalog — NOT a graph database (the standing
+// tripwire): ~1 domain, <20 capabilities, shallow prerequisite edges, every
+// read batched. All four tables are GLOBAL reference data (no org_id, like
+// `roles` / `metric_catalog`), seeded IN the migration (drizzle/0030), so they
+// skip the three-registration law; they carry no per-person data. Per-person
+// mastery lives in the separate org-scoped `user_capability_state` (W7-2).
+
+// Top-level area a capability belongs to (Engineering only at launch).
+export const domains = pgTable("domains", {
+  slug: text("slug").primaryKey(),
+  label: text("label").notNull(),
+  sort: integer("sort").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// An outcome-named durable ability (e.g. "Make AI part of daily work"). Content
+// columns carry the plain-English coaching prose (summary/workflow/playbook/
+// learning-path) that folds the retired static /playbook page into data. `slug`
+// PK keeps one active row per capability (a version bump is a content edit, not
+// a new row) — simpler than score_definitions' (slug, version) because there is
+// no per-org override and no history table for reference content.
+export const capabilities = pgTable("capabilities", {
+  slug: text("slug").primaryKey(),
+  domainSlug: text("domain_slug")
+    .notNull()
+    .references(() => domains.slug),
+  version: integer("version").notNull().default(1),
+  label: text("label").notNull(),
+  // One-line plain-English summary (the card subtitle). Beginner-friendly, no
+  // jargon (CLAUDE.md writing rule; fact-checked as a claim surface).
+  summary: text("summary").notNull(),
+  // Optional longer coaching prose. Null until authored — never a fabricated
+  // placeholder.
+  workflow: text("workflow"),
+  playbook: text("playbook"),
+  learningPath: text("learning_path"),
+  sort: integer("sort").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// The reuse hinge: binds a capability to EXISTING evidence — either a canonical
+// `metric_catalog` key OR a score-definition component key (validated against
+// SCORE_GLOSSARY in the seed test). Exactly one of the two is set per row (CHECK
+// below). No new signals are introduced here; the capability layer only POINTS
+// AT what the connectors already ingest (P1 is display-only; the mastery engine
+// (P2) reads these bindings).
+export const capabilitySignals = pgTable(
+  "capability_signals",
+  {
+    // Surrogate PK: the natural key (capability_slug, metric_key, component_key)
+    // spans nullable columns, and a Postgres PRIMARY KEY forces its columns NOT
+    // NULL — which would break the "exactly one binding" rule. Uniqueness is
+    // enforced by the NULLS NOT DISTINCT index below instead.
+    id: uuid("id").primaryKey().defaultRandom(),
+    capabilitySlug: text("capability_slug")
+      .notNull()
+      .references(() => capabilities.slug),
+    // A canonical metric key (FK metric_catalog.key) — set for a metric binding.
+    metricKey: text("metric_key").references(() => metricCatalog.key),
+    // A score component key (e.g. "active_days", "effectiveness") — set for a
+    // component binding. Validated against SCORE_GLOSSARY in the seed test
+    // (Postgres has no reference table for component keys).
+    componentKey: text("component_key"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // One binding row per (capability, metric_key, component_key). NULLS NOT
+    // DISTINCT so a repeated component binding (metric_key NULL) still conflicts
+    // on idempotent re-seed.
+    unique("capability_signals_binding_uq")
+      .on(t.capabilitySlug, t.metricKey, t.componentKey)
+      .nullsNotDistinct(),
+    // Exactly one of (metric_key, component_key) is non-null — a binding is
+    // either a raw metric or a score component, never both and never neither.
+    check(
+      "capability_signals_one_binding_ck",
+      sql`(${t.metricKey} IS NOT NULL) <> (${t.componentKey} IS NOT NULL)`,
+    ),
+  ],
+);
+
+// Prerequisite edges — a shallow DAG. `capability_slug` requires `requires_slug`
+// to be mastered first. Self-edges forbidden by CHECK; acyclicity enforced by a
+// TS DAG walk in the seed-contract test (a tiny graph — cycle detection in code,
+// not SQL).
+export const capabilityDependencies = pgTable(
+  "capability_dependencies",
+  {
+    capabilitySlug: text("capability_slug")
+      .notNull()
+      .references(() => capabilities.slug),
+    requiresSlug: text("requires_slug")
+      .notNull()
+      .references(() => capabilities.slug),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.capabilitySlug, t.requiresSlug] }),
+    check(
+      "capability_dependencies_no_self_edge_ck",
+      sql`${t.capabilitySlug} <> ${t.requiresSlug}`,
     ),
   ],
 );

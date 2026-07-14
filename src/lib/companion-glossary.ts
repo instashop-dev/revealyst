@@ -99,6 +99,9 @@ export const COACHING_COPY = {
   title: "Coaching",
   subtitle: "Task-focused guidance, drawn from the parts of your scores that are measuring low. Never a verdict on you — always something to try with the tools.",
   guidanceBadge: "Guidance",
+  /** W7-1 — lead-in for the capability a recommendation advances (renders only
+   * when the rec links to a capability whose label is loaded). */
+  advancesLead: "Builds",
   /** Rendered when there are no active recommendations (nothing measuring weak,
    * or scores not computed yet). */
   empty: {
