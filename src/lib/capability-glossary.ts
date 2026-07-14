@@ -57,3 +57,16 @@ export const CAPABILITY_PROFILE_COPY = {
    * dashboard — progressive disclosure). */
   maxRows: 6,
 } as const;
+
+// W7-6 team capability-coverage card copy. Aggregate, count-only — the copy must
+// never imply an individual (a claim surface).
+export const CAPABILITY_COVERAGE_COPY = {
+  title: "Team capability coverage",
+  /** Aggregate + coaching framing; never a per-person read. */
+  subtitle:
+    "Where the team is strongest, as a count of how many people each capability's activity points to. Aggregate only — never a read on any individual, and small groups are left out entirely.",
+  peopleWord: "people",
+  /** Rendered when no capability clears the minimum-group floor yet. */
+  empty:
+    "Not enough people have measured capability activity yet to show coverage without singling anyone out.",
+} as const;

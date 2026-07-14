@@ -31,6 +31,7 @@ import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
 import { SharedAccountFlags } from "@/components/dashboard/shared-account-flags";
 import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
+import { CapabilityCoverageCard } from "@/components/dashboard/capability-coverage-card";
 import { TrainingOpportunitiesCard } from "@/components/dashboard/training-opportunities-card";
 import { UsageConcentrationPanel } from "@/components/dashboard/usage-concentration-panel";
 import { UsageDistributionPanel } from "@/components/dashboard/usage-distribution-panel";
@@ -822,6 +823,7 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
     correlations,
     recommendations,
     capabilityLabels,
+    capabilityCoverage,
   } = view;
 
   // Signal coverage (W5-H card e) — computed from rows ALREADY in the view
@@ -1038,6 +1040,9 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
                 segments={segments}
                 plateau={usagePlateau}
               />
+              {/* W7-6: aggregate, count-only capability coverage — the manager's
+               * "where to coach" surface, MIN_PEOPLE-floored, no per-person data. */}
+              <CapabilityCoverageCard rows={capabilityCoverage} />
               <SegmentBreakdown distribution={segments} />
               <UsageConcentrationPanel concentration={usageConcentration} />
             </div>
