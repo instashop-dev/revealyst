@@ -30,6 +30,7 @@ function sampleReport(over: Partial<ExecReport> = {}): ExecReport {
       "Vendor-reported AI spend so far this month is $1,900 — 38% of your $5,000 monthly budget.",
     honestyLine:
       "Attribution coverage is improving: in the latest measured week, 100% of usage was attributed to a specific person, up from 50% the week of Jun 8.",
+    capabilityCoverageLine: "",
     sections: [
       {
         key: "activation",

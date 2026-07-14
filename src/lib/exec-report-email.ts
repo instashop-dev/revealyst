@@ -126,6 +126,7 @@ export function renderExecReportBody(
         ${paragraph(report.plateauLine, MUTED, 14)}
         ${paragraph(report.spendLine)}
         ${paragraph(report.honestyLine)}
+        ${report.capabilityCoverageLine ? paragraph(report.capabilityCoverageLine, MUTED, 14) : ""}
 
         ${heading(C.headings.board)}
         ${boardTable(report)}

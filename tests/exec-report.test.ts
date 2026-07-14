@@ -566,3 +566,32 @@ describe("composeExecReport — board sections + no-fabrication", () => {
     }
   });
 });
+
+describe("composeExecReport — capability coverage line (W7-6 follow-up)", () => {
+  const base = baseInputs({
+    trajectory: { kind: "notComparable", reason: "insufficientHistory" },
+    plateau: GROWING,
+  });
+
+  it("renders one aggregate, count-only sentence for the strongest capability", () => {
+    const report = composeExecReport({
+      ...base,
+      capabilityCoverage: [
+        { label: "Cost-efficient AI usage", mastered: 4, total: 5 },
+        { label: "Make AI part of daily work", mastered: 2, total: 6 },
+      ],
+    });
+    expect(report.capabilityCoverageLine).toContain("4 of 5 people");
+    expect(report.capabilityCoverageLine).toContain("Cost-efficient AI usage");
+    expect(report.capabilityCoverageLine).toContain("2 capabilities");
+    // Count-only — never a person name or a fabricated percentage.
+    expect(report.capabilityCoverageLine).not.toMatch(/%/);
+  });
+
+  it("is empty when no capability cleared the floor (renderers skip it)", () => {
+    expect(composeExecReport(base).capabilityCoverageLine).toBe("");
+    expect(
+      composeExecReport({ ...base, capabilityCoverage: [] }).capabilityCoverageLine,
+    ).toBe("");
+  });
+});
