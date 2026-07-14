@@ -67,7 +67,9 @@ const ADMIN_NAV_ITEMS = [
 // ADMIN_NAV_ITEMS above (per-org membership role): this is the founder/staff
 // concept gated on isPlatformAdmin, never on org role. The /admin route
 // itself re-checks via requireAdminContext; this entry is discovery only.
-const PLATFORM_NAV_ITEMS = [{ title: "Admin", href: "/admin", icon: Wrench }];
+const PLATFORM_NAV_ITEMS = [
+  { title: "Platform admin", href: "/admin", icon: Wrench },
+];
 
 export function AppSidebar({
   org,
