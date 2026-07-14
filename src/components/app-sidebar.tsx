@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  BookOpenText,
   Cable,
   CreditCard,
   Gauge,
@@ -36,10 +35,11 @@ import { authClient } from "@/lib/auth-client";
 // W5-H dashboard-itis fold: the roster pages (/teams, /people) are RETIRED from
 // nav — their data folds into Team Intelligence cards + Settings' people & teams
 // management card (routes still resolve, reached in ≤2 clicks from Settings).
+// "How scores work" (/methodology) is likewise hidden from nav — the route
+// still resolves; score cards + onboarding link to it directly.
 const NAV_ITEMS = [
   { title: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { title: "AI maturity", href: "/maturity", icon: Gauge },
-  { title: "How scores work", href: "/methodology", icon: BookOpenText },
   { title: "Connections", href: "/connections", icon: Cable },
   { title: "Account", href: "/account", icon: UserRoundCog },
 ];
