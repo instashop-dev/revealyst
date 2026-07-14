@@ -6,6 +6,7 @@ import {
   type CapabilityGraphInput,
   type PersonEvidenceInput,
 } from "./capability-state";
+import { isMissionComplete } from "./mission-progress";
 
 // W7-2 capability-state reducer: the I/O half of the mastery engine. Runs as a
 // PARALLEL step after the nightly score recompute (src/poller/process.ts
@@ -32,6 +33,8 @@ export type CapabilityStateSummary = {
   rowsWritten: number;
   /** People iterated (had ≥1 exclusive subject). */
   peopleConsidered: number;
+  /** W7-5: missions newly completed this run (measured crossings). */
+  missionsCompleted: number;
 };
 
 function windowStart(asOfDay: string): string {
@@ -56,7 +59,12 @@ export async function recomputeCapabilityState(
   const scoped = forOrg(db, orgId);
   const graphRaw = await scoped.capabilities.graph();
   if (graphRaw.capabilities.length === 0) {
-    return { peopleWithState: 0, rowsWritten: 0, peopleConsidered: 0 };
+    return {
+      peopleWithState: 0,
+      rowsWritten: 0,
+      peopleConsidered: 0,
+      missionsCompleted: 0,
+    };
   }
   const graph: CapabilityGraphInput = {
     capabilities: graphRaw.capabilities.map((c) => ({
@@ -68,15 +76,48 @@ export async function recomputeCapabilityState(
   };
 
   // ── One batched read set for the whole org (person-count-independent) ──
-  const [people, identities, subjects, connections, personScores, priorStateIds] =
-    await Promise.all([
-      scoped.people.list(),
-      scoped.identities.all(),
-      scoped.subjects.list(),
-      scoped.connections.list(),
-      scoped.scores.results({ subjectLevel: "person", to: asOfDay }),
-      scoped.mastery.personIdsWithState(),
-    ]);
+  const [
+    people,
+    identities,
+    subjects,
+    connections,
+    personScores,
+    priorStateIds,
+    missionCatalog,
+    missionProgressRows,
+  ] = await Promise.all([
+    scoped.people.list(),
+    scoped.identities.all(),
+    scoped.subjects.list(),
+    scoped.connections.list(),
+    scoped.scores.results({ subjectLevel: "person", to: asOfDay }),
+    scoped.mastery.personIdsWithState(),
+    // W7-5: the mission catalog (global) + this org's progress, for measured
+    // completion detection folded into the same nightly pass.
+    scoped.missions.catalog(),
+    scoped.missions.progressForOrg(),
+  ]);
+
+  // Mission steps grouped by mission, and each person's STARTED-but-not-
+  // completed missions — the only ones a completion can newly fire for.
+  const stepsByMission = new Map<string, { capabilitySlug: string; targetMastery: number }[]>();
+  for (const step of missionCatalog.steps) {
+    const list = stepsByMission.get(step.missionSlug);
+    const target = { capabilitySlug: step.capabilitySlug, targetMastery: step.targetMastery };
+    if (list) list.push(target);
+    else stepsByMission.set(step.missionSlug, [target]);
+  }
+  const openMissionsByPerson = new Map<string, string[]>();
+  for (const row of missionProgressRows) {
+    if (row.completedAt !== null) continue; // already finished — never re-fires
+    const list = openMissionsByPerson.get(row.personId);
+    if (list) list.push(row.missionSlug);
+    else openMissionsByPerson.set(row.personId, [row.missionSlug]);
+  }
+  const completions: { personId: string; missionSlug: string }[] = [];
+  // Deterministic completion timestamp from asOfDay (no wall-clock in the pure
+  // path; testable).
+  const completedAt = new Date(`${asOfDay}T00:00:00Z`);
 
   // Exclusive subjects per person (a subject owned by exactly one person) —
   // the same "shared accounts never mint per-person numbers" rule the score
@@ -222,7 +263,34 @@ export async function recomputeCapabilityState(
       peopleWithState += 1;
       rowsWritten += states.length;
     }
+
+    // W7-5: mission completion — a MEASURED crossing. For each of this person's
+    // started-but-open missions, complete it iff every step's capability mastery
+    // (just computed) meets its target. Derived from the numbers, never a
+    // self-asserted click.
+    const open = openMissionsByPerson.get(person.id);
+    if (open && open.length > 0) {
+      const masteryBySlug = new Map(
+        states.map((s) => [s.capabilitySlug, s.mastery]),
+      );
+      for (const missionSlug of open) {
+        if (isMissionComplete(stepsByMission.get(missionSlug) ?? [], masteryBySlug)) {
+          completions.push({ personId: person.id, missionSlug });
+        }
+      }
+    }
   }
 
-  return { peopleWithState, rowsWritten, peopleConsidered };
+  // Stamp completions (idempotent — markComplete only sets a still-null row, so
+  // the "you finished" moment fires exactly once).
+  for (const { personId, missionSlug } of completions) {
+    await scoped.missions.markComplete(personId, missionSlug, completedAt);
+  }
+
+  return {
+    peopleWithState,
+    rowsWritten,
+    peopleConsidered,
+    missionsCompleted: completions.length,
+  };
 }

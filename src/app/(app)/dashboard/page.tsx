@@ -18,6 +18,7 @@ import {
   DataConfidenceProvider,
   MetricQualifier,
 } from "@/components/companion/data-confidence";
+import { MissionCard } from "@/components/companion/mission-card";
 import { DailyNudgeCard } from "@/components/companion/daily-nudge-card";
 import { DiagnosticDetails } from "@/components/companion/diagnostic-details";
 import { GrowthJourneyCard } from "@/components/companion/growth-journey-card";
@@ -118,6 +119,7 @@ import { vendorLabel } from "@/lib/vendor-labels";
 import { VISIBILITY_MODE_INFO } from "@/lib/visibility-playbook";
 import { periodFor, previousDay } from "@/scoring";
 import { CAPABILITY_STATE_CONSTANTS } from "@/scoring/capability-state";
+import { completedStepCount } from "@/scoring/mission-progress";
 
 export const dynamic = "force-dynamic";
 
@@ -321,6 +323,8 @@ async function PersonalSelfView({
     recommendations,
     capabilityGraph,
     capabilityStates,
+    missionCatalog,
+    missionProgress,
   ] = await timeStage("pageData", () =>
       Promise.all([
         // Onboarding-gate read, folded in here so it overlaps the rest of the
@@ -406,6 +410,10 @@ async function PersonalSelfView({
         // into this depth-1 batch via a people.auth_user_id join so it needs no
         // resolved tracked personId ahead of the batch.
         ctx.scope.mastery.forUser(ctx.user.id),
+        // W7-5: the global mission catalog + the signed-in user's own progress
+        // (self-view), same batch.
+        ctx.scope.missions.catalog(),
+        ctx.scope.missions.progressForUser(ctx.user.id),
       ]),
     );
   // Onboarding gate (evaluated here, after the overlapped read above, rather
@@ -485,6 +493,46 @@ async function PersonalSelfView({
   // capability; a forming person keeps the full coaching set. Tune away once
   // mastery is measured (P8).
   const prereqGateActive = masteredCapabilities.size > 0;
+
+  // W7-5: mission card rows — status derived from the person's MEASURED mastery
+  // (the same numbers the reducer uses to complete a mission) + their opt-in
+  // progress. Zero new queries — all from the batch above.
+  const missionMasteryBySlug = new Map(
+    capabilityStates.map((s) => [s.capabilitySlug, s.mastery]),
+  );
+  const missionStepsByMission = new Map<
+    string,
+    { capabilitySlug: string; targetMastery: number }[]
+  >();
+  for (const step of missionCatalog.steps) {
+    const list = missionStepsByMission.get(step.missionSlug);
+    const target = {
+      capabilitySlug: step.capabilitySlug,
+      targetMastery: step.targetMastery,
+    };
+    if (list) list.push(target);
+    else missionStepsByMission.set(step.missionSlug, [target]);
+  }
+  const missionProgressBySlug = new Map(
+    missionProgress.map((p) => [p.missionSlug, p]),
+  );
+  const missionRows = missionCatalog.missions.map((m) => {
+    const steps = missionStepsByMission.get(m.slug) ?? [];
+    const prog = missionProgressBySlug.get(m.slug);
+    const status = !prog
+      ? ("not-started" as const)
+      : prog.completedAt
+        ? ("complete" as const)
+        : ("in-progress" as const);
+    return {
+      slug: m.slug,
+      title: m.title,
+      summary: m.summary,
+      status,
+      stepsReached: completedStepCount(steps, missionMasteryBySlug),
+      totalSteps: steps.length,
+    };
+  });
 
   // Build each card's data once, up front, so the F1.1 coaching gate and the
   // rendered cards read the SAME `componentRows` (one `formatComponentDetail`
@@ -763,6 +811,10 @@ async function PersonalSelfView({
         }))}
         labels={capabilityLabels}
       />
+
+      {/* W7-5: opt-in, finish-lined missions — completion is a measured
+       * capability crossing (never a click). Renders nothing if no missions. */}
+      <MissionCard missions={missionRows} />
 
       {scores.size === 0 && (
         // Connected, but no person scores computed yet — the F1.6 cliff. The

@@ -487,6 +487,19 @@ export const apiRoutes = {
     response: ok,
   },
 
+  // Mission opt-in (W7-5, ADR 0037). SELF-VIEW: the person starts a mission for
+  // THEMSELVES — the handler resolves the caller's tracked person from the
+  // session (never a request param), mirroring the rec-interaction ownership
+  // check. There is deliberately NO "mark step/mission done" route: completion
+  // is a MEASURED capability crossing detected by the nightly reducer, never a
+  // user action (Spec V4 §8.4 anti-gamification). WRITE-ONLY: only `ok` returns.
+  missionStart: {
+    method: "POST",
+    path: "/api/missions/start",
+    request: z.object({ missionSlug: z.string().min(1) }),
+    response: ok,
+  },
+
   // Person → engineering-role assignment (W6-B, ADR 0030). Admin-set org config
   // (NOT self-view — a manager assigns roles), so `adminOnly` at the handler and
   // the 402 free-band gate applies by default. `roleSlug` null UNassigns; a

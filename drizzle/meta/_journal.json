@@ -225,6 +225,13 @@
       "when": 1784018576044,
       "tag": "0031_user-capability-state",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1784033409090,
+      "tag": "0032_missions",
+      "breakpoints": true
     }
   ]
 }

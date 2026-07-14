@@ -14,6 +14,7 @@ vi.mock("sonner", () => ({
 import { CapabilityProfileCard } from "./capability-profile-card";
 import { CoachingCard } from "./coaching-card";
 import { DailyNudgeCard } from "./daily-nudge-card";
+import { MissionCard } from "./mission-card";
 import { GrowthJourneyCard } from "./growth-journey-card";
 import { MilestoneCard } from "./milestone-card";
 import { buildDailyNudge } from "@/lib/companion-glossary";
@@ -157,6 +158,30 @@ describe("CoachingCard — dedicated coaching home (W5-C)", () => {
     render(<CoachingCard recommendations={[NEXT_STEP]} />);
     // Never a fabricated "Unknown capability" — the line is simply absent.
     expect(screen.queryByText(/Builds:/)).toBeNull();
+  });
+});
+
+describe("MissionCard — opt-in, un-gamified (W7-5)", () => {
+  it("renders the three honest states (start / N-of-M / completed)", () => {
+    const { container } = render(
+      <MissionCard
+        missions={[
+          { slug: "m1", title: "Get started", summary: "s1", status: "not-started", stepsReached: 0, totalSteps: 1 },
+          { slug: "m2", title: "Ship it", summary: "s2", status: "in-progress", stepsReached: 1, totalSteps: 2 },
+          { slug: "m3", title: "Delegate", summary: "s3", status: "complete", stepsReached: 1, totalSteps: 1 },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Start this mission/i })).toBeTruthy();
+    expect(screen.getByText(/1 of 2 steps reached/)).toBeTruthy();
+    expect(screen.getByText("Completed")).toBeTruthy();
+    // No game vocabulary anywhere in the rendered card.
+    expect(container.textContent?.toLowerCase()).not.toMatch(/streak|xp|league|points|badge/);
+  });
+
+  it("renders nothing when there are no missions", () => {
+    const { container } = render(<MissionCard missions={[]} />);
+    expect(container.firstChild).toBeNull();
   });
 });
 

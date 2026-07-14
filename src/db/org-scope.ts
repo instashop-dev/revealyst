@@ -15,6 +15,7 @@ import { heartbeatsNamespace } from "./org-scope/heartbeats";
 import { identitiesNamespace } from "./org-scope/identities";
 import { masteryNamespace } from "./org-scope/mastery";
 import { metricsNamespace } from "./org-scope/metrics";
+import { missionsNamespace } from "./org-scope/missions";
 import { orgNamespace } from "./org-scope/org";
 import { peopleNamespace } from "./org-scope/people";
 import { rawNamespace } from "./org-scope/raw";
@@ -186,6 +187,7 @@ export function forOrg(db: Db, orgId: string) {
     catalog: catalogNamespace(db, orgId),
     capabilities: capabilitiesNamespace(db, orgId),
     mastery: masteryNamespace(db, orgId),
+    missions: missionsNamespace(db, orgId),
   };
 }
 

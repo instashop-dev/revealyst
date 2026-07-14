@@ -9,6 +9,7 @@ import {
   connectorRuns,
   identities,
   metricRecords,
+  missionProgress,
   orgMembers,
   orgs,
   people,
@@ -67,6 +68,10 @@ export const PURGE_TABLES = [
   // so like `roles`/`metric_catalog` they are invisible to the tripwire and need
   // no entry — never purged, survive deletion.
   userCapabilityState,
+  // W7-5 (ADR 0037): per-person mission progress, FK'd to people — deleted
+  // BEFORE people (composite FK). The global missions/mission_steps reference
+  // tables have no org_id and are outside the tripwire (like capabilities).
+  missionProgress,
   shareLinks,
   subjects,
   rawPayloads,
