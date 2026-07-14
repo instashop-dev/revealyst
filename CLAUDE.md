@@ -92,6 +92,13 @@ it is the interface between agents.
 > prop type carries NO person id/name (per-person leak structurally impossible). One extra batched
 > read in `readDashboardView`. Deferred (documented follow-up): the one exec-memo coverage line (needs
 > wiring the same `coverageCounts` into the separate `composeExecReport` data path).
+> **Three W7 follow-ups then shipped** (no migration/ADR): (1) the exec-memo capability-coverage line
+> (`readExecReport` → `composeExecReport`, same MIN_PEOPLE floor as the dashboard); (2) the P3
+> eligibility gates **activated live on dashboard + digest together** — role/tool always, the
+> fails-closed prereq gate ONLY once the person has established ≥1 capability (forming-user safeguard,
+> since directional mastery could over-suppress); a gated shared-source test pins parity; (3) the
+> Growth-Journey **band headline** (`overallCapabilityBand`) wired but gated on `measured` — null today
+> (all mastery is directional), so the modeled maturity level stays the headline until OTel/P8.
 > Remaining: P5 missions (largest; behind the §7 "missions inside anti-gamification" founder
 > sign-off). **Wave 8 (P7
 > experimentation / P8 OTel measured tier) stays GATED** on

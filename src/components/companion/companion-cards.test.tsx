@@ -46,6 +46,35 @@ describe("GrowthJourneyCard — level-forward headline (W5-C)", () => {
     expect(screen.getByText(/Your next step/i)).toBeTruthy();
   });
 
+  it("W7-4: a MEASURED capability band, when present, becomes the headline", () => {
+    render(
+      <GrowthJourneyCard
+        level={1}
+        stale={false}
+        nextStep={NEXT_STEP}
+        capabilityBand="Established"
+      />,
+    );
+    // The band leads instead of the maturity level name.
+    expect(screen.getByText("Established")).toBeTruthy();
+    expect(screen.getByText(/Your strongest area is/i)).toBeTruthy();
+    // The maturity level name is NOT the headline in this case.
+    expect(screen.queryByText(MATURITY_LEVEL_COPY[1].name)).toBeNull();
+  });
+
+  it("W7-4: null capabilityBand (today's directional case) keeps the maturity level headline", () => {
+    render(
+      <GrowthJourneyCard
+        level={1}
+        stale={false}
+        nextStep={NEXT_STEP}
+        capabilityBand={null}
+      />,
+    );
+    expect(screen.getByText(MATURITY_LEVEL_COPY[1].name)).toBeTruthy();
+    expect(screen.getByText(/You're at/i)).toBeTruthy();
+  });
+
   it("ABSENCE: renders NO raw 0–100 score headline in the default render", () => {
     const { container } = render(
       <GrowthJourneyCard level={2} stale={false} nextStep={NEXT_STEP} />,

@@ -23,6 +23,23 @@ export function masteryBand(mastery: number): CapabilityBand {
   return "Getting started";
 }
 
+/**
+ * The person's overall capability band for the Growth-Journey headline — the
+ * band of their strongest MEASURED capability (W7-4 follow-up). Returns null
+ * unless at least one capability is `measured` (not the directional early
+ * read): a directional band is a shakier headline than the modeled maturity
+ * level, so until the OTel receiver (P8) makes mastery measured this returns
+ * null and the maturity level stays the headline source. Pure + deterministic.
+ */
+export function overallCapabilityBand(
+  states: readonly { mastery: number; confidenceTier: string }[],
+): CapabilityBand | null {
+  const measured = states.filter((s) => s.confidenceTier === "measured");
+  if (measured.length === 0) return null;
+  const top = Math.max(...measured.map((s) => s.mastery));
+  return masteryBand(top);
+}
+
 /** Plain-English rendering of the confidence tier — never the internal jargon.
  * Capped `directional` this phase, so "early read" is what users see. */
 export function confidenceTierLabel(tier: string): string {

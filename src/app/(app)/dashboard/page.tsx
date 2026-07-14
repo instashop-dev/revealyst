@@ -76,6 +76,7 @@ import {
   buildDailyNudge,
   COMPANION_HEADER,
 } from "@/lib/companion-glossary";
+import { overallCapabilityBand } from "@/lib/capability-glossary";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
 import { readDashboardView } from "@/lib/dashboard-view";
 import { readMaturityView, type CostPerActiveUserNumber } from "@/lib/maturity";
@@ -670,6 +671,10 @@ async function PersonalSelfView({
         level={maturity.level}
         stale={maturity.stale}
         nextStep={topNextStep}
+        // W7-4 follow-up: null until mastery is MEASURED (OTel/P8) — today all
+        // capability state is directional, so this stays null and the modeled
+        // maturity level remains the headline.
+        capabilityBand={overallCapabilityBand(capabilityStates)}
       />
 
       {/* W5-F: positive-first — celebrate grounded milestones immediately,

@@ -141,7 +141,19 @@ ready to build as a single vertical slice:**
   flame/XP/league/percentage-meter-as-game).
 - Migration 0032, ADR 0037.
 
-### Smaller follow-ups (all self-contained, low-risk)
+### Smaller follow-ups — **all three now SHIPPED** (post-report, no migration/ADR)
+
+> Update: the three follow-ups below were subsequently implemented and tested.
+> Summary of what shipped: (1) the exec-memo coverage line is live in
+> `readExecReport`/`composeExecReport` (same MIN_PEOPLE floor as the dashboard);
+> (2) the eligibility gates are **activated live on the dashboard and digest
+> together**, with a forming-user safeguard (the fails-closed prereq gate applies
+> only once the person has established ≥1 capability, so directional-only mastery
+> can't over-suppress), pinned by a gated shared-source test; (3) the
+> Growth-Journey band headline (`overallCapabilityBand`) is wired but gated on the
+> `measured` tier — null today (all mastery is directional), so behavior is
+> unchanged until OTel/P8. The original deferral rationale is retained below for
+> context.
 - **Exec-memo coverage line** (P6) — one aggregate line via `composeExecReport`,
   reusing the same `mastery.coverageCounts` data; needs wiring into the separate
   exec-report data path.
