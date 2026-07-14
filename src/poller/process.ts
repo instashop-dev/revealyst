@@ -12,6 +12,7 @@ import { runMonthlyExecReport } from "./exec-report";
 import { runFlywheelReport } from "./flywheel-report";
 import { maybeSendRenewalReminders } from "./renewal-reminder";
 import { periodFor, recomputeOrg } from "../scoring";
+import { recomputeCapabilityState } from "../scoring/recompute-capability-state";
 import {
   SYSTEM_ORG_ID,
   SYSTEM_ORG_NAME,
@@ -101,6 +102,17 @@ export async function processPollMessage(
           customIndexesEntitled,
         });
       }
+      // W7-2: the parallel capability-state reducer, AFTER the score recompute
+      // (it reads the fresh person-level components). A separate pure lib over
+      // the org-scoped readers — it never touches the frozen score engine.
+      // Idempotent + recompute-derivable, so re-delivery is harmless. Job-health
+      // is logged so a silent no-op (the top regression mode) is visible.
+      const capSummary = await recomputeCapabilityState(db, message.orgId, {
+        asOfDay: message.day,
+      });
+      console.log(
+        `[capability-state] org ${message.orgId}: ${capSummary.rowsWritten} rows across ${capSummary.peopleWithState}/${capSummary.peopleConsidered} people`,
+      );
       return;
     }
     case "meter-subscription": {

@@ -272,11 +272,18 @@ and plan-mix fields (documented double-count/misattribution risks).
   ADR-gated seed migration). Shallow acyclic prerequisite DAG. Not a graph database (§11.5).
   `recommendation_catalog` gains an additive `target_capabilities` column (each of the 7 recs links
   to ≥1 capability); the coaching card shows which capability a nudge advances (display-only).
-- **User capability state** [V1] — `user_capability_state` per (org, person, capability): mastery,
-  confidence, staleness, next-capability; self-view-only; a parallel incremental reducer over the
-  existing readers (the Maturity Model precedent), **capped `directional`** until the OTel receiver
-  provides ≥2 corroborating markers. Priors = person-level scores + maturity axes; never mutates the
-  frozen score contract. Verified absent today.
+- **User capability state** [V1 — **shipped W7-2**, mig 0031, ADR 0036] — `user_capability_state` per
+  (org, person, capability): mastery, confidence, staleness, next-capability, jsonb explainability
+  breakdown; **self-view-only** (three-registration law satisfied; purged before `people`). A parallel
+  reducer in the poller `score-recompute` step over the existing readers (the Maturity Model
+  precedent), all reads batched once for the org (query count independent of person count and history
+  depth). **Capped `directional`** until the OTel receiver provides ≥2 corroborating markers. Priors =
+  person-level score components (which exist only in personal orgs, ADR 0014, so state populates there
+  first — consistent with W6-A staying gated) + a bounded recent-metric window; never mutates the
+  frozen score contract. Honesty reused verbatim: zero evidence → no row (never `mastery: 0`), a real
+  low kept, fully-decayed withheld. Rendered as a positive-first capability-profile card (a
+  **decomposition of the one proficiency band**, never a third ladder; raw 0–100 stays behind the
+  existing diagnostic expander).
 - **Missions** [Future→V1 per sign-off] — `missions` / `mission_steps` (seeded) + `mission_progress`
   (self-view): bounded challenges bundling existing catalog recs, completion detected from **measured
   signal crossings**, never self-asserted; inside the §8.4 anti-gamification boundary (no XP/streaks/

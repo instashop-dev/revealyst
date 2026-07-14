@@ -138,6 +138,17 @@ const SCOPED_READS: Array<{
     tables: ["role_assignments"],
     run: (s) => s.roles.assignments(),
   },
+  // Per-person capability state (ADR 0036): org-scoped rows (org_id, person_id,
+  // capability). Both orgs seed a row for their own alice below, so keying
+  // `forPerson` on B's alice puts a B personId in the leak universe — a dropped
+  // org filter would surface B's row (non-vacuous, mirrors recInteractions).
+  // The four capability-graph reference tables have no org_id and are outside
+  // the sweep.
+  {
+    name: "mastery.forPerson(B)",
+    tables: ["user_capability_state"],
+    run: (s, c) => s.mastery.forPerson(c.B.people.alice),
+  },
   // Recommendation catalog (ADR 0033): a nullable-org_id reference table like
   // score_definitions — global presets (org_id NULL) ∪ this org's own rows.
   // `list()` maps each row to the evaluator shape whose `id` IS the row's
@@ -271,6 +282,23 @@ beforeAll(async () => {
       personId: loaded.people.alice,
       roleSlug: "backend",
     });
+    // A capability-state row per org (ADR 0036) keyed on this org's alice, so
+    // the B-side row carries a B personId and the mastery.forPerson sweep is
+    // non-vacuous (mirrors the rec-interaction/role seeds above).
+    await scoped.mastery.replaceForPerson(loaded.people.alice, [
+      {
+        personId: loaded.people.alice,
+        capabilitySlug: "ai-coding-foundations",
+        mastery: 0.5,
+        confidence: 0.4,
+        confidenceTier: "directional",
+        evidenceCount: 3,
+        lastEvidenceAt: "2026-06-15",
+        staleness: 0,
+        nextCapability: "feature-breadth",
+        components: { active_days: { kind: "component", input: 50, contribution: 0.5 } },
+      },
+    ]);
     // An audit row per org (ADR 0010) whose target is a fixture team id, so
     // the B-side row carries a B id and the auditLog sweep is non-vacuous.
     await scoped.auditLog.record({

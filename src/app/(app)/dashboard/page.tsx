@@ -10,6 +10,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
+import { CapabilityProfileCard } from "@/components/companion/capability-profile-card";
 import { CoachingCard } from "@/components/companion/coaching-card";
 import { DailyNudgeCard } from "@/components/companion/daily-nudge-card";
 import { DiagnosticDetails } from "@/components/companion/diagnostic-details";
@@ -304,6 +305,7 @@ async function PersonalSelfView({
     recInteractions,
     recommendations,
     capabilityLabels,
+    capabilityStates,
   ] = await timeStage("pageData", () =>
       Promise.all([
         // Onboarding-gate read, folded in here so it overlaps the rest of the
@@ -385,6 +387,10 @@ async function PersonalSelfView({
         // W7-1: capability slug → label map (global reference data), same batch
         // — the coaching card's "advances X" label source.
         ctx.scope.capabilities.labels(),
+        // W7-2: the signed-in user's OWN capability state (self-view), folded
+        // into this depth-1 batch via a people.auth_user_id join so it needs no
+        // resolved tracked personId ahead of the batch.
+        ctx.scope.mastery.forUser(ctx.user.id),
       ]),
     );
   // Onboarding gate (evaluated here, after the overlapped read above, rather
@@ -639,6 +645,21 @@ async function PersonalSelfView({
         recommendations={coachingRecs}
         personId={personId}
         triedRecIds={[...triedRecIds]}
+      />
+
+      {/* W7-2: the capability profile — a positive-first decomposition of the
+       * one proficiency band, self-view only (the caller passes ONLY the
+       * signed-in user's own rows via mastery.forUser). Renders the honest
+       * forming state when there is no capability evidence yet. */}
+      <CapabilityProfileCard
+        rows={capabilityStates.map((s) => ({
+          capabilitySlug: s.capabilitySlug,
+          label: capabilityLabels.get(s.capabilitySlug) ?? s.capabilitySlug,
+          mastery: s.mastery,
+          confidenceTier: s.confidenceTier,
+          nextCapability: s.nextCapability,
+        }))}
+        labels={capabilityLabels}
       />
 
       {scores.size === 0 && (

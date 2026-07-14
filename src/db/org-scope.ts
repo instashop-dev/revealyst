@@ -13,6 +13,7 @@ import { digestPreferencesNamespace } from "./org-scope/digest-preferences";
 import { execReportStateNamespace } from "./org-scope/exec-report-state";
 import { heartbeatsNamespace } from "./org-scope/heartbeats";
 import { identitiesNamespace } from "./org-scope/identities";
+import { masteryNamespace } from "./org-scope/mastery";
 import { metricsNamespace } from "./org-scope/metrics";
 import { orgNamespace } from "./org-scope/org";
 import { peopleNamespace } from "./org-scope/people";
@@ -184,6 +185,7 @@ export function forOrg(db: Db, orgId: string) {
     roles: rolesNamespace(db, orgId),
     catalog: catalogNamespace(db, orgId),
     capabilities: capabilitiesNamespace(db, orgId),
+    mastery: masteryNamespace(db, orgId),
   };
 }
 

@@ -218,6 +218,13 @@
       "when": 1784017198419,
       "tag": "0030_capability-graph",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1784018576044,
+      "tag": "0031_user-capability-state",
+      "breakpoints": true
     }
   ]
 }

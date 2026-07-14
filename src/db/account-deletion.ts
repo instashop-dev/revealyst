@@ -24,6 +24,7 @@ import {
   subjects,
   teamMembers,
   teams,
+  userCapabilityState,
 } from "./schema";
 import { subscriptionsForOrg } from "./subscriptions";
 
@@ -59,6 +60,13 @@ export const PURGE_TABLES = [
   // so it is invisible to the purge-completeness tripwire and needs no entry —
   // exactly how metric_catalog is handled (never purged, survives deletion).
   roleAssignments,
+  // W7-2 (ADR 0036): per-person capability mastery, FK'd to people — deleted
+  // BEFORE people (its composite FK would otherwise block the people delete).
+  // The four capability-graph reference tables (domains/capabilities/
+  // capability_signals/capability_dependencies) are NOT org-scoped (no org_id),
+  // so like `roles`/`metric_catalog` they are invisible to the tripwire and need
+  // no entry — never purged, survive deletion.
+  userCapabilityState,
   shareLinks,
   subjects,
   rawPayloads,
