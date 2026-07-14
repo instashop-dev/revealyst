@@ -1,4 +1,4 @@
--- Backfill for required email verification (ADR 0014). Signup verification was
+-- Backfill for required email verification (ADR 0015). Signup verification was
 -- never enforced before this release and `email_verified` was never read, so
 -- every existing user row is `false`. Enabling emailAndPassword
 -- .requireEmailVerification would lock them all out on next sign-in. Mark all

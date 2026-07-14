@@ -84,7 +84,7 @@ These are Revealyst defaults, so your DPIA can rely on them:
 - **No content capture, no per-user fabrication.** Where usage can only be
   attributed to a shared key or account, Revealyst keeps it at
   account level and flags it — it never invents per-person numbers from a
-  shared subject (Product Spec §6.1).
+  shared subject (Product Spec V4 §9.3).
 - **Bounded retention** of raw payloads (~90 days) with automatic purge.
 - **Encryption at rest** for the highest-value secrets (vendor API keys):
   per-row AES-256-GCM envelope encryption under a versioned application-held
@@ -99,7 +99,7 @@ These are Revealyst defaults, so your DPIA can rely on them:
 | Feeling surveilled / chilling effect | Medium / Medium | Team-only pseudonymized default; transparency to staff; no content read; positioned to employees as a personal AI-usage coach, not a performance-management or surveillance tool | Low |
 | Score used as a disciplinary/performance metric | Low / High | Individual view is opt-in self-coaching; document internally that scores are **not** used for HR decisions `[state this in your worker notice]` | Low |
 | Re-identification from pseudonymized aggregates | Low / Medium | Pseudonyms + team-level aggregation; individual identities gated behind an explicit visibility-mode change | Low |
-| Over-attribution from shared accounts | Low / Low | Shared-account detection flags undercounting rather than fabricating people (§6.2); no per-user numbers invented | Low |
+| Over-attribution from shared accounts | Low / Low | Shared-account detection flags undercounting rather than fabricating people (§9.3); no per-user numbers invented | Low |
 | Secret/credential compromise | Low / High | AES-256-GCM envelope encryption under a versioned Worker-secret key (KEK); credentials used only to read usage data (Revealyst performs no writes/admin actions) | Low |
 
 ## 6. Consultation & sign-off
@@ -118,6 +118,6 @@ These are Revealyst defaults, so your DPIA can rely on them:
 ---
 
 *Sources: GDPR Arts. 4(1), 6, 35, 36; EDPB Guidelines 05/2020 on consent;
-Revealyst Product Spec V4 §13 (privacy model) and §6.1–6.2 (attribution honesty
-and shared-account detection). Adapt to your jurisdiction and have counsel
+Revealyst Product Spec V4 §13 (privacy model), §6.1 (attribution honesty),
+and §9.3 (shared-account detection). Adapt to your jurisdiction and have counsel
 review before relying on it.*
