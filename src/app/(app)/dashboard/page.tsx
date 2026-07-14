@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
@@ -12,6 +13,11 @@ import {
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { CapabilityProfileCard } from "@/components/companion/capability-profile-card";
 import { CoachingCard } from "@/components/companion/coaching-card";
+import {
+  DataConfidenceCard,
+  DataConfidenceProvider,
+  MetricQualifier,
+} from "@/components/companion/data-confidence";
 import { DailyNudgeCard } from "@/components/companion/daily-nudge-card";
 import { DiagnosticDetails } from "@/components/companion/diagnostic-details";
 import { GrowthJourneyCard } from "@/components/companion/growth-journey-card";
@@ -77,6 +83,7 @@ import {
   COMPANION_HEADER,
 } from "@/lib/companion-glossary";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
+import { buildDataConfidence } from "@/lib/data-confidence";
 import { readDashboardView } from "@/lib/dashboard-view";
 import { readMaturityView, type CostPerActiveUserNumber } from "@/lib/maturity";
 import { formatCents } from "@/lib/format";
@@ -194,10 +201,14 @@ function SpendGovernanceLine({
   spendCents,
   spendCentsEstimated,
   costPerActiveUser,
+  estimatedQualifier,
 }: {
   spendCents: number;
   spendCentsEstimated: number;
   costPerActiveUser: CostPerActiveUserNumber;
+  /** Data-confidence "Estimated" chip, rendered only when a live cost-estimate
+   * disclosure affects the spend figure (invariant b: mark only affected). */
+  estimatedQualifier?: ReactNode;
 }) {
   if (spendCents === 0 && spendCentsEstimated === 0) return null;
   const cpu = costPerActiveUser.cost;
@@ -214,6 +225,7 @@ function SpendGovernanceLine({
               (+{formatCents(spendCentsEstimated)} estimated)
             </span>
           ) : null}
+          {estimatedQualifier}
           {cpu ? (
             <span className="text-muted-foreground tabular-nums">
               · {formatCents(cpu.centsPerUnit)} per active person
@@ -518,7 +530,12 @@ async function PersonalSelfView({
       viewerIsAdmin: ctx.role === "admin",
       scoresExist: scores.size > 0,
     },
-    gaps: summary.gaps,
+    // W7 Data Confidence: honesty gaps no longer render as one info Alert each
+    // in the attention strip — they are aggregated into the single Data
+    // Confidence card + drawer below (built from `summary.gaps`). Passing []
+    // here removes the stacked banners without touching rec selection/order
+    // (gaps never influenced coaching recs — they were separate info items).
+    gaps: [],
     sharedAccountCount: 0,
     scoreDrops,
     scoreComponents,
@@ -600,8 +617,44 @@ async function PersonalSelfView({
     activeWeeks: agentic.kind === "measured" ? agentic.trend.length : 0,
   });
 
+  // W7 Data Confidence: aggregate the raw honesty gaps into one trust story
+  // (state + summary + grouped disclosures) — read-path only, built from data
+  // already in hand. `dataAsOf` is the freshest successful sync (last checked);
+  // a hard "sync-failed" state needs an errored connection AND no usable data.
+  const dataConfidence = buildDataConfidence({
+    gaps: summary.gaps,
+    connectionErrored: connections.some((c) => c.status === "error"),
+    hasData: scores.size > 0 || summary.activePeople > 0,
+    lastCheckedAt: maturity.dataAsOf,
+    now: new Date(),
+  });
+  const costDisclosed = dataConfidence.groups.some(
+    (g) => g.category === "cost-estimates",
+  );
+  // The "Partial" activity qualifier deep-links to whichever affected category
+  // is actually present (coverage preferred), so the drawer opens on a real
+  // section rather than an absent one.
+  const coverageDisclosed = dataConfidence.groups.some(
+    (g) => g.category === "coverage",
+  );
+  const importDisclosed = dataConfidence.groups.some(
+    (g) => g.category === "import-quality",
+  );
+  const activityCategory = coverageDisclosed
+    ? ("coverage" as const)
+    : importDisclosed
+      ? ("import-quality" as const)
+      : null;
+  // Don't show a reassuring "Reliable" card on a brand-new account that has no
+  // data yet — surface the card only once there's data to trust, or something
+  // to disclose (a non-reliable state). Minimal-by-default.
+  const showDataConfidence =
+    scores.size > 0 ||
+    summary.activePeople > 0 ||
+    dataConfidence.state !== "reliable";
+
   return (
-    <>
+    <DataConfidenceProvider model={dataConfidence}>
       <PageHeader
         title={COMPANION_HEADER.title}
         description={COMPANION_HEADER.description}
@@ -627,8 +680,15 @@ async function PersonalSelfView({
       <SyncStalenessBanner connections={connections} />
 
       {/* Action alerts + early-warning signals only — coaching recommendations
-       * moved to their dedicated CoachingCard below (no duplication). */}
+       * moved to their dedicated CoachingCard below, and honesty-gap disclosures
+       * moved to the single Data Confidence card (no stacked banners). */}
       <AttentionSection items={attentionStripItems} />
+
+      {/* W7 Data Confidence: ONE compact card replacing the disclosure banner
+       * stack. Answers "can I trust this dashboard?" and opens a details drawer.
+       * Renders inside DataConfidenceProvider so the drawer is shared with the
+       * inline metric qualifiers below. */}
+      {showDataConfidence ? <DataConfidenceCard /> : null}
 
       {/* The companion headline: level-forward, positive-first. Leads with the
        * modeled maturity level + the single next step (the first-sync aha —
@@ -699,7 +759,18 @@ async function PersonalSelfView({
         </div>
       </DiagnosticDetails>
 
-      <AgenticAdoptionCard data={agentic} />
+      <AgenticAdoptionCard
+        data={agentic}
+        qualifier={
+          activityCategory ? (
+            <MetricQualifier
+              qualifier="partial"
+              category={activityCategory}
+              metricLabel="Activity totals"
+            />
+          ) : undefined
+        }
+      />
 
       {/* Spend as a compact one-line summary + drill-through to the full /spend
        * page (the same pattern Team uses), instead of a full stacked card on
@@ -709,6 +780,15 @@ async function PersonalSelfView({
         spendCents={summary.spendCents}
         spendCentsEstimated={summary.spendCentsEstimated}
         costPerActiveUser={maturity.numbers.costPerActiveUser}
+        estimatedQualifier={
+          costDisclosed && summary.spendCentsEstimated > 0 ? (
+            <MetricQualifier
+              qualifier="estimated"
+              category="cost-estimates"
+              metricLabel="AI spend"
+            />
+          ) : undefined
+        }
       />
 
       {/* J1: the modeled-norms comparison panel (BenchmarkPanel) is
@@ -769,7 +849,7 @@ async function PersonalSelfView({
           </div>
         </CardContent>
       </Card>
-    </>
+    </DataConfidenceProvider>
   );
 }
 

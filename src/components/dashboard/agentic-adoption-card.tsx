@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { AgenticAdoption, AgenticTrendPoint } from "@/lib/agentic-adoption";
 import { InfoTip } from "@/components/info-tip";
 import {
@@ -32,7 +33,15 @@ import { cn } from "@/lib/utils";
  * constraint; the personal view is an org of one, so the aggregate IS the
  * viewer's own rate).
  */
-export function AgenticAdoptionCard({ data }: { data: AgenticAdoption }) {
+export function AgenticAdoptionCard({
+  data,
+  qualifier,
+}: {
+  data: AgenticAdoption;
+  /** Optional inline data-confidence qualifier (e.g. a "Partial" chip) rendered
+   * beside the title when a live disclosure affects the activity totals. */
+  qualifier?: ReactNode;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -44,6 +53,7 @@ export function AgenticAdoptionCard({ data }: { data: AgenticAdoption }) {
             detail={AGENTIC_ADOPTION_COPY.detail}
             learnMoreHref={`/methodology#${methodologyAnchor("agent_active")}`}
           />
+          {qualifier}
         </CardTitle>
         <CardDescription>
           Share of AI-active days that used an agent —{" "}
