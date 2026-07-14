@@ -313,7 +313,10 @@ connector-facts contracts. W3-P repeats confirmed the pattern (13 findings in
 launch copy, incl. the same "read-only" claim independently re-invented) and
 added a structural fix: the landing page's "Connects" strip derives from
 `src/connectors/registry.ts` — never hard-code connector claims in copy, and
-never present-tense an unshipped connector (Copilot is "Soon").
+never present-tense a not-yet-live connector. (Copilot shows "Soon": it *is*
+registered in the connector registry since ADR 0022, but is founder-gated off
+the live surface via `NLV_PENDING_VENDORS` in `src/lib/vendor-connect-meta.ts`
+— "not yet live," not "unregistered.")
 
 **Timestamp gotcha (analytics/funnels, W3-P):** `score_results.computed_at` is
 REWRITTEN by the nightly recompute upsert (`org-scope.ts` `upsertResults`) —
