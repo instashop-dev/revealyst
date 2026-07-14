@@ -101,7 +101,7 @@ export function ReconcileSubjectDialog({
         }
       }
 
-      toast.success("Identity resolved");
+      toast.success("Account matched");
       setOpen(false);
       router.refresh();
     } finally {
@@ -119,11 +119,11 @@ export function ReconcileSubjectDialog({
     >
       <DialogTrigger render={<Button size="sm" variant="outline" />}>
         <Link2 data-icon="inline-start" />
-        Reconcile
+        Match
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Resolve to a person</DialogTitle>
+          <DialogTitle>Match to a person</DialogTitle>
           <DialogDescription>
             {subject.label} · {subject.vendor}. Linking records this vendor
             account to a real person — usage stays attributed honestly and is

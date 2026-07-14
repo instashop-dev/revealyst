@@ -71,7 +71,7 @@ export default function PlaybookPage() {
       >
         <Button variant="outline" nativeButton={false} render={<Link href="/reconcile" />}>
           <ScanFace data-icon="inline-start" />
-          Back to Reconcile
+          Back to Match accounts
         </Button>
       </PageHeader>
 
@@ -146,11 +146,11 @@ export default function PlaybookPage() {
           </ul>
         </Step>
 
-        <Step n={3} title="Reconcile the new identities in Revealyst">
+        <Step n={3} title="Match the new accounts in Revealyst">
           <p className="mb-3">
-            Once per-user keys and seats exist, the connectors discover
-            per-person subjects. Finish the job on the{" "}
-            <Link href="/reconcile">Reconcile</Link> page:
+            Once per-user keys and seats exist, your connected tools start
+            reporting each person separately. Finish the job on the{" "}
+            <Link href="/reconcile">Match accounts</Link> page:
           </p>
           <ul className="ml-4 list-disc space-y-2">
             <li>

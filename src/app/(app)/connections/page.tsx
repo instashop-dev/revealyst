@@ -125,7 +125,7 @@ export default async function ConnectionsPage({
     <>
       <PageHeader
         title="Connections"
-        description="Vendor integrations and their sync health."
+        description="Your connected tools and how recently they synced."
       >
         {syncableIds.length > 0 && <SyncAllButton connectionIds={syncableIds} />}
         <AddConnectionDialog />
@@ -138,8 +138,8 @@ export default async function ConnectionsPage({
       {connections.length === 0 ? (
         <EmptyState
           icon={Cable}
-          title="No connections yet"
-          description="Connect a vendor (Anthropic, OpenAI, or Cursor by API key — or the Claude Code local agent via onboarding) to start ingesting usage metrics."
+          title="No tools connected yet"
+          description="Connect a tool (Anthropic, OpenAI, or Cursor by API key — or Claude Code's local agent through onboarding) to start collecting your usage data."
         >
           <AddConnectionDialog />
         </EmptyState>

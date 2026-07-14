@@ -53,7 +53,7 @@ export function MaturityLevelBanner({
             <InfoTip
               label="AI maturity level"
               short="A modeled reading of usage sophistication across three measured axes — a leading indicator, not a measure of realized productivity. Levels use uncalibrated thresholds, so they're directional."
-              detail="Because the 12-week window slides, the level can move from week to week as usage enters and leaves it — no smoothing is applied in this version."
+              detail="The level looks at the last 12 weeks, so it can move from week to week as new activity comes in and older activity drops off — no smoothing is applied in this version."
             />
           </div>
           <p className="text-sm font-medium text-foreground">{copy.tagline}</p>

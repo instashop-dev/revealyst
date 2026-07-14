@@ -54,7 +54,7 @@ const ADMIN_NAV_ITEMS = [
   // deliverable 3 / errata §2 deprecate-keep-shipping): the feature and its
   // route (/indexes) stay intact and server-gated, but it no longer occupies a
   // top-level admin nav slot. Reach it from Settings.
-  { title: "Reconcile", href: "/reconcile", icon: ScanFace },
+  { title: "Match accounts", href: "/reconcile", icon: ScanFace },
   { title: "Spend", href: "/spend", icon: Wallet },
   { title: "Billing", href: "/billing", icon: CreditCard },
   { title: "Compliance", href: "/compliance", icon: ShieldCheck },

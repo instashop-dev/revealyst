@@ -55,7 +55,7 @@ export function ManageTeamMembersDialog({
     });
     setBusy(false);
     if (!res.ok) {
-      toast.error(`Could not update members (${res.status})`);
+      toast.error("Couldn't update members — please try again.");
       return;
     }
     toast.success(`"${teamName}" members updated`);

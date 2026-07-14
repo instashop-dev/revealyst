@@ -213,7 +213,7 @@ export function buildDailyNudge(input: {
 // ─── Demoted diagnostics expander ─────────────────────────────────────────────
 
 export const DIAGNOSTIC_COPY = {
-  triggerLabel: "Diagnostic details",
+  triggerLabel: "See the numbers behind your level",
   description:
     "The raw 0–100 Adoption, Fluency, and Efficiency scores behind your level. Useful for a deep look — but your level and next step above are what to act on.",
 } as const;
