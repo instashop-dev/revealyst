@@ -203,6 +203,13 @@ export function assembleDigest(input: {
    * one — these are the single owner's dismissals); undefined/empty leaves the
    * recommendation lane untouched (full backward-compat). */
   dismissedRecIds?: ReadonlySet<string>;
+  /** W7-3 (now live): the personal-lane owner's eligibility context, forwarded
+   * verbatim to `deriveAttention` so the digest and the dashboard select the
+   * SAME recs. Personal lane only (team recs are org aggregates, not one
+   * person's); omitted → no gating (backward-compatible). */
+  connectedTools?: ReadonlySet<string>;
+  masteredCapabilities?: ReadonlySet<string>;
+  capabilityPrereqs?: ReadonlyMap<string, readonly string[]>;
 }): DigestContent {
   const { lane, now } = input;
   const fresh = digestFreshness(input.connections, now);
@@ -230,6 +237,15 @@ export function assembleDigest(input: {
     scoreDrops,
     scoreComponents: input.scoreComponents,
     recommendations: input.recommendations,
+    // W7-3 (now live): forward the personal-lane eligibility context so the
+    // digest selects the SAME recs as the dashboard. Omitted → no gating.
+    ...(input.connectedTools ? { connectedTools: input.connectedTools } : {}),
+    ...(input.masteredCapabilities && input.capabilityPrereqs
+      ? {
+          masteredCapabilities: input.masteredCapabilities,
+          capabilityPrereqs: input.capabilityPrereqs,
+        }
+      : {}),
   })
     // W5-D: a dismissed coaching rec never re-mails. Filtered by the stable
     // rec id BEFORE the cap, so a dismissed rec can't occupy one of the 1–3
