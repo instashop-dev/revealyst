@@ -66,9 +66,16 @@ it is the interface between agents.
 > already-ingested signals; shallow acyclic DAG; NOT a graph DB), `recommendation_catalog` gains
 > additive `target_capabilities` linking all 7 recs, `forOrg().capabilities` namespace, and a
 > display-only capability label on the coaching card (`deriveAttention` output byte-identical except
-> the label — pinned by the migration-equivalence guard). Latest mig **0030**, latest ADR **0035**.
-> Remaining: P2 `user_capability_state` (directional), P3 utility ranker, P4 coaching loop, P5
-> missions, P6 team rollups. **Wave 8 (P7 experimentation / P8 OTel measured tier) stays GATED** on
+> the label — pinned by the migration-equivalence guard). **P2** per-person `user_capability_state`
+> shipped (mig 0031, ADR 0036): an org-scoped, self-view-only mastery table + a pure engine
+> (`src/scoring/capability-state.ts`) + a parallel reducer in the poller `score-recompute` step
+> (`recompute-capability-state.ts`, all reads batched once — query count independent of person count,
+> proven by `tests/perf/capability-state-queries`), **capped `directional`** (L7), honesty reused
+> verbatim (zero evidence → no row), three registrations green, backfill-safe-empty. Rendered as a
+> positive-first **capability-profile card** (decomposition of the one band, not a third ladder).
+> Latest mig **0031**, latest ADR **0036**.
+> Remaining: P3 utility ranker, P4 coaching loop, P5 missions, P6 team rollups. **Wave 8 (P7
+> experimentation / P8 OTel measured tier) stays GATED** on
 > founder OTel fixture capture, a founder-signed privacy-reversal ADR, and real "tried" volume —
 > cannot be forced by agent work.
 

@@ -11,6 +11,7 @@ vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
+import { CapabilityProfileCard } from "./capability-profile-card";
 import { CoachingCard } from "./coaching-card";
 import { DailyNudgeCard } from "./daily-nudge-card";
 import { GrowthJourneyCard } from "./growth-journey-card";
@@ -110,6 +111,42 @@ describe("CoachingCard — dedicated coaching home (W5-C)", () => {
     render(<CoachingCard recommendations={[NEXT_STEP]} />);
     // Never a fabricated "Unknown capability" — the line is simply absent.
     expect(screen.queryByText(/Builds:/)).toBeNull();
+  });
+});
+
+describe("CapabilityProfileCard — positive-first decomposition (W7-2)", () => {
+  const LABELS = new Map([
+    ["ai-coding-foundations", "Make AI part of daily work"],
+    ["feature-breadth", "Use a range of AI features"],
+  ]);
+
+  it("shows the honest forming state when there is no evidence yet", () => {
+    render(<CapabilityProfileCard rows={[]} labels={LABELS} />);
+    expect(screen.getByText(/still forming/i)).toBeTruthy();
+  });
+
+  it("renders a band + early-read tier, never the raw 0–1 number", () => {
+    const { container } = render(
+      <CapabilityProfileCard
+        rows={[
+          {
+            capabilitySlug: "ai-coding-foundations",
+            label: "Make AI part of daily work",
+            mastery: 0.82,
+            confidenceTier: "directional",
+            nextCapability: "feature-breadth",
+          },
+        ]}
+        labels={LABELS}
+      />,
+    );
+    expect(screen.getByText("Make AI part of daily work")).toBeTruthy();
+    expect(screen.getByText("Established")).toBeTruthy(); // 0.82 → band
+    expect(screen.getByText("early read")).toBeTruthy(); // directional, plain
+    // The raw mastery number never appears (band-not-number).
+    expect(container.textContent).not.toContain("0.82");
+    // Eligible-next line resolves the slug to a label.
+    expect(screen.getByText(/Use a range of AI features/)).toBeTruthy();
   });
 });
 
