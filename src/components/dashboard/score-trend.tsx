@@ -1,5 +1,6 @@
 import type { ScoreTrend, ScoreTrendPoint } from "@/lib/dashboard-trends";
 import { deriveDelta, formatDelta } from "@/lib/score-insights";
+import { InfoTip } from "@/components/info-tip";
 import {
   Card,
   CardContent,
@@ -85,7 +86,13 @@ export function ScoreTrend({ trends }: { trends: ScoreTrend[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Trends</CardTitle>
+        <CardTitle className="flex items-center gap-1.5">
+          Trends
+          <InfoTip
+            label="Score trends"
+            short="A small line for each score showing how it has moved across the periods we've scored — up, down, or flat. The number on the right is the latest value."
+          />
+        </CardTitle>
         <CardDescription>Score movement over time.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">

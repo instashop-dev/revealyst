@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
@@ -40,6 +39,8 @@ import { EmptyState } from "@/components/empty-state";
 import { InfoTip } from "@/components/info-tip";
 import { OnboardingInterim } from "@/components/onboarding-interim";
 import { PageHeader } from "@/components/page-header";
+import { SectionHeading } from "@/components/section-heading";
+import { CollapsibleSection } from "@/components/collapsible-section";
 import { ScoreCard, type ScoreCardData } from "@/components/scores/score-card";
 import {
   fromDashboardScore,
@@ -180,14 +181,6 @@ function AttentionSection({ items }: { items: AttentionItem[] }) {
         <AttentionAlert key={`${item.severity}-${i}-${item.title}`} item={item} />
       ))}
     </div>
-  );
-}
-
-function SectionHeading({ children }: { children: ReactNode }) {
-  return (
-    <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-      {children}
-    </h2>
   );
 }
 
@@ -675,42 +668,15 @@ async function PersonalSelfView({
 
       <AgenticAdoptionCard data={agentic} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Spend this month</CardTitle>
-          <CardDescription>
-            Consolidated across your connected AI tools.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap items-end gap-x-8 gap-y-3">
-          <div className="flex flex-col">
-            <span className="font-heading text-3xl font-semibold tabular-nums">
-              {formatCents(summary.spendCents)}
-            </span>
-            <span className="text-xs text-muted-foreground">Billed spend</span>
-          </div>
-          {summary.spendCentsEstimated > 0 && (
-            <div className="flex flex-col">
-              <span className="font-heading text-2xl font-semibold tabular-nums text-muted-foreground">
-                {formatCents(summary.spendCentsEstimated)}
-              </span>
-              {/* spend_cents_estimated is currently only ever agent-derived
-               * from Claude Code local logs (docs/connector-facts.md §5) —
-               * naming the vendor here, rather than a bare "Estimated", is a
-               * real fact about the only source that can produce this
-               * number today, not an invented specificity. */}
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                Estimated · Claude Code (agent-derived)
-                <InfoTip
-                  label="Estimated spend"
-                  short={CONCEPT_GLOSSARY.estimatedSpend.shortWhat}
-                  learnMoreHref={`/methodology#${methodologyAnchor("estimatedSpend")}`}
-                />
-              </span>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Spend as a compact one-line summary + drill-through to the full /spend
+       * page (the same pattern Team uses), instead of a full stacked card on
+       * the personal home. Renders nothing when there is no spend yet. The
+       * estimated-spend breakdown + its methodology note live on /spend. */}
+      <SpendGovernanceLine
+        spendCents={summary.spendCents}
+        spendCentsEstimated={summary.spendCentsEstimated}
+        costPerActiveUser={maturity.numbers.costPerActiveUser}
+      />
 
       {/* J1: the modeled-norms comparison panel (BenchmarkPanel) is
        * deliberately NOT rendered here. A single person vs. an org-modeled
@@ -720,14 +686,26 @@ async function PersonalSelfView({
        * keeps the panel; its own copy discloses the modeled-estimate
        * provenance (see CONCEPT_GLOSSARY.benchmarks). */}
 
+      {/* Benchmarks + the anonymized-benchmark opt-in were two back-to-back
+       * cards on one topic; folded into one. The verified-figures list leads;
+       * the opt-in (self-describing) sits beneath a divider. An InfoTip carries
+       * the "two different benchmark claims" explanation the personal card
+       * previously lacked. */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Benchmarks</CardTitle>
+          <CardTitle className="flex items-center gap-1.5 text-base">
+            Benchmarks
+            <InfoTip
+              label="Benchmarks"
+              short={CONCEPT_GLOSSARY.benchmarks.shortWhat}
+              learnMoreHref={`/methodology#${methodologyAnchor("benchmarks")}`}
+            />
+          </CardTitle>
           <CardDescription>
             How your scores compare to published norms.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-4">
           {verifiedBenchmarks.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Published benchmarks are being verified against primary sources
@@ -753,18 +731,9 @@ async function PersonalSelfView({
               ))}
             </ul>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Benchmarks &amp; privacy</CardTitle>
-          <CardDescription>
-            Your data is yours. Opt in to help build published benchmarks.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <BenchmarkConsentToggle />
+          <div className="border-t pt-4">
+            <BenchmarkConsentToggle />
+          </div>
         </CardContent>
       </Card>
     </>
@@ -1003,15 +972,25 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
               stale={maturity.stale}
             />
             <MaturityAxisMeters axes={maturity.axes} />
-            <div className="grid gap-4 lg:grid-cols-2">
-              <ActivityHeatmap heatmap={heatmap} />
-              <div className="grid gap-4">
-                <ToolCoveragePanel coverage={coverage} />
-                <AgenticAdoptionCard data={agentic} />
-                <ScoreTrend trends={trends} />
+            {/* The level + axes are the headline; the detailed usage panels
+             * (heatmap, tool coverage, agent adoption, trends, attribution)
+             * fold behind a disclosure so this section stops being the one
+             * panel-dense screen in the fold. Everything is preserved — only
+             * its default visibility changed (progressive disclosure). */}
+            <CollapsibleSection
+              label="See usage detail"
+              description="When your team is most active, which tools they use, agent adoption, and how scores are trending."
+            >
+              <div className="grid gap-4 lg:grid-cols-2">
+                <ActivityHeatmap heatmap={heatmap} />
+                <div className="grid gap-4">
+                  <ToolCoveragePanel coverage={coverage} />
+                  <AgenticAdoptionCard data={agentic} />
+                  <ScoreTrend trends={trends} />
+                </div>
               </div>
-            </div>
-            <AttributionTrendCard trend={attributionTrend} />
+              <AttributionTrendCard trend={attributionTrend} />
+            </CollapsibleSection>
           </section>
 
           {/* (c) Training opportunities — the action card: leading cohort
