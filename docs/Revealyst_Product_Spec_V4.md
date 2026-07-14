@@ -380,6 +380,17 @@ engine feeds the digest (cap 3). This is the honesty pattern the catalog scales 
 - **Perf floor stated up front (ADR requirement):** one per-org catalog read + in-memory
   per-person evaluation — never N per-person round trips (each Neon round trip costs
   ~500–670ms; a naive per-person lookup is a multi-second page).
+- **Utility ranker [V1 — shipped W7-3].** The fixed presentational `impact` is replaced by a
+  deterministic `computeUtility` (`src/lib/recommendation-catalog.ts`) that finally consumes the
+  previously-inert catalog metadata: `utility = 0.35·capabilityGap + 0.20·benefit + 0.15·confidence
+  + 0.10·roleToolFit + 0.10·novelty − 0.05·difficultyPenalty − fatiguePenalty`. All weights are
+  named, exported, term-by-term unit-tested constants — **no ML, no LLM** (still a rules-and-features
+  engine). A permanent output-equivalence guard proves that with uniform (medium) metadata the order
+  reduces to today's weakest-first, so the ranker is a strict generalization. A separate **stage-1
+  eligibility** filter (opt-in context) excludes a rec whose `applicable_roles`/`applicable_tools`
+  don't apply, or whose target capability has an **unmet prerequisite** (fails closed: missing
+  `user_capability_state` = not mastered); the cap + `signalGroup` dedupe are unchanged. `novelty` is
+  a constant until the exposure log (P7) makes it vary.
 - **Suggested-action taxonomy (one, central):** `link-out doc · in-product Revealyst setting ·
   deep-link to vendor settings`. Catalog entries that read "Revealyst does X for you" are
   rewritten as "try doing X using capability Y in tool Z" — third-party write automation is a

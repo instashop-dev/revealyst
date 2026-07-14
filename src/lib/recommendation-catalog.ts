@@ -212,6 +212,76 @@ export function mapCatalogRow(row: CatalogRow): CatalogRecommendation {
   };
 }
 
+// ─── W7-3 deterministic utility ranker ───
+//
+// Replaces the fixed presentational `impact: 1` with a multi-factor utility over
+// the catalog metadata the evaluator already stored but ignored (benefit /
+// difficulty / confidence) plus the weak component's gap. NO ML, NO LLM (L8) —
+// a named, greppable, term-by-term-testable formula. Eligibility (role / tool /
+// prerequisite) is a SEPARATE stage-1 filter (in deriveAttention); this scores
+// what survives it.
+
+/** The utility term weights — named, exported, greppable (the plan's §7
+ * formula). The positive terms sum to 0.90; the two penalties (difficulty,
+ * fatigue) subtract on top. Changing a weight is a one-line, unit-tested edit. */
+export const UTILITY_WEIGHTS = {
+  capabilityGap: 0.35,
+  benefit: 0.2,
+  confidence: 0.15,
+  roleToolFit: 0.1,
+  novelty: 0.1,
+  difficultyPenalty: 0.05,
+} as const;
+
+/** high/medium/low → a [0,1] weight, shared by benefit and confidence. */
+const LEVEL_WEIGHT: Record<"high" | "medium" | "low", number> = {
+  high: 1,
+  medium: 0.6,
+  low: 0.3,
+};
+
+/** Difficulty → the penalty magnitude (higher difficulty, larger penalty). */
+const DIFFICULTY_LEVEL: Record<"high" | "medium" | "low", number> = {
+  high: 0.3,
+  medium: 0.15,
+  low: 0,
+};
+
+export type UtilityContext = {
+  /** The weak component's normalized value [0,100] (drives capabilityGap). */
+  normalized: number;
+  /** 1 when the rec specifically fits the person's role/connected tools; 0.5
+   * for a universal rec (empty applicable_*) or when the caller supplied no
+   * role/tool context. */
+  roleToolFit: number;
+  /** [0,1] — 1 = not recently surfaced. Constant 1 until the exposure log
+   * (P7) makes it vary; kept in the formula so P7 need only feed it. */
+  novelty: number;
+  /** ≥0, subtracted — recent fatigue for this rec (e.g. already "tried"). */
+  fatiguePenalty: number;
+};
+
+/** The deterministic utility score for one recommendation. Higher = surfaced
+ * first. With benefit=confidence=difficulty="medium", roleToolFit=0.5,
+ * novelty=1, fatigue=0, the metadata terms are a constant, so ordering reduces
+ * to capabilityGap DESC = normalized ASC = today's weakest-first (the permanent
+ * output-equivalence guard). */
+export function computeUtility(
+  rec: Pick<CatalogRecommendation, "benefit" | "confidence" | "difficulty">,
+  ctx: UtilityContext,
+): number {
+  const capabilityGap = Math.min(Math.max((100 - ctx.normalized) / 100, 0), 1);
+  return (
+    UTILITY_WEIGHTS.capabilityGap * capabilityGap +
+    UTILITY_WEIGHTS.benefit * LEVEL_WEIGHT[rec.benefit] +
+    UTILITY_WEIGHTS.confidence * LEVEL_WEIGHT[rec.confidence] +
+    UTILITY_WEIGHTS.roleToolFit * ctx.roleToolFit +
+    UTILITY_WEIGHTS.novelty * ctx.novelty -
+    UTILITY_WEIGHTS.difficultyPenalty * DIFFICULTY_LEVEL[rec.difficulty] -
+    ctx.fatiguePenalty
+  );
+}
+
 /** Build the `(slug::componentKey) → recommendation` lookup the evaluator uses.
  * When two rows map to the same key (an org override of a global preset), the
  * LAST wins — callers order global-then-org so an org row shadows the preset. */
