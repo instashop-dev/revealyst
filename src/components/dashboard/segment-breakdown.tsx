@@ -40,8 +40,8 @@ export function SegmentBreakdown({
       <CardContent className="flex flex-col gap-3 text-sm">
         {total === 0 ? (
           <p className="text-muted-foreground">
-            No per-person scores yet — segmentation appears once individual
-            scoring is available.
+            You&apos;ll see how the team splits into usage groups here once
+            people have their own scores.
           </p>
         ) : (
           <ul className="flex flex-col gap-2">

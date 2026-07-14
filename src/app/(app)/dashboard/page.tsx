@@ -125,7 +125,7 @@ function dashboardWindow(): { from: string; to: string } {
 // ─── "Needs attention" strip — shared between the personal and team views ───
 
 function attentionActionLabel(href: string): string {
-  if (href === "/reconcile") return "Go to Reconcile";
+  if (href === "/reconcile") return "Match accounts";
   if (href === "/connections") return "Go to Connections";
   return "View";
 }
@@ -1112,14 +1112,14 @@ async function TeamOverview({ ctx }: { ctx: AppContext }) {
             <CardHeader>
               <CardTitle>Connections</CardTitle>
               <CardDescription>
-                Vendor integrations feeding your metrics.
+                The tools connected to your workspace.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 text-sm">
               {connections.length === 0 ? (
                 <p className="text-muted-foreground">
-                  No connections yet. Metrics start flowing once the first vendor
-                  is connected.
+                  No tools connected yet — connect one to start seeing your
+                  numbers here.
                 </p>
               ) : (
                 connections.slice(0, 4).map((connection) => (

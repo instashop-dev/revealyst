@@ -64,8 +64,8 @@ export default async function ReconcilePage() {
   return (
     <>
       <PageHeader
-        title="Reconcile identities"
-        description="Map vendor accounts to real people. Unmatched accounts stay at key/account level — adoption is never inflated by fabricating people."
+        title="Match accounts"
+        description="Match the accounts your connected tools report to the real people behind them. Accounts we can't match yet are kept as-is — we never invent people to inflate adoption."
       >
         {view.flaggedCount > 0 ? (
           <Badge variant="outline">

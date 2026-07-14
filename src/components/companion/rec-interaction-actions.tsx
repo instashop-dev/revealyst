@@ -38,7 +38,7 @@ export function RecInteractionActions({
         body: JSON.stringify({ personId, recId, state }),
       });
       if (!res.ok) {
-        toast.error(`Could not update (${res.status})`);
+        toast.error("Couldn't update — please try again.");
         return;
       }
       toast.success(successMsg);

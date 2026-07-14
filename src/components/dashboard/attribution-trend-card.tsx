@@ -125,7 +125,7 @@ export function AttributionTrendCard({ trend }: { trend: AttributionTrend }) {
           <InfoTip
             label="Attribution coverage"
             short={CONCEPT_GLOSSARY.attribution.shortWhat}
-            detail="Share of usage-days your vendors attribute to a specific individual, versus a shared key/project or a whole account. Higher means more of your usage can be honestly reported per person. Vendor attribution is separate from linking those individuals to people in Reconcile."
+            detail="Share of usage-days your vendors attribute to a specific individual, versus a shared key/project or a whole account. Higher means more of your usage can be honestly reported per person. Vendor attribution is separate from linking those individuals to people on the Match accounts page."
             learnMoreHref={`/methodology#${methodologyAnchor("attribution")}`}
           />
         </CardTitle>

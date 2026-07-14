@@ -62,7 +62,7 @@ export function GrowthJourneyCard({
             <InfoTip
               label="Your maturity level"
               short="A modeled reading of how sophisticated your AI use is, across three measured axes — a leading indicator, not a productivity score. Levels use uncalibrated thresholds, so they're directional."
-              detail="Because the 12-week window slides, your level can move as usage enters and leaves it. It reflects only the tools you connect."
+              detail="Your level looks at your last 12 weeks, so it can change as new activity comes in and older activity drops off. It only reflects the tools you connect."
               learnMoreHref="/maturity"
             />
           </div>

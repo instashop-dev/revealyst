@@ -47,8 +47,8 @@ export function TrainingOpportunitiesCard({
           <p className="text-muted-foreground">{COPY.championsCold}</p>
         ) : (
           <p className="text-muted-foreground">
-            No per-person scores yet — enablement targeting appears once
-            individual scoring is available.
+            You&apos;ll see who could use a hand here once people have their
+            own scores.
           </p>
         )}
 
