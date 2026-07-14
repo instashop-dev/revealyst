@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
 import { DigestPreferencesForm } from "@/components/settings/digest-preferences-form";
 import { ExecReportPreferencesForm } from "@/components/settings/exec-report-preferences-form";
@@ -183,6 +184,34 @@ export default async function SettingsPage() {
 
         {!isPersonal && (
           <RoleManagementCard people={rolePeople} roles={roleOptions} />
+        )}
+
+        {/* Custom Index Builder (W4-U) is demoted out of nav prominence (W5-H
+         * deliverable 3): the feature stays admin-only + Team-paid, reached from
+         * here rather than a top-level nav slot. Team orgs only — a custom index
+         * is a team/company-wide measure, so it has no meaning in a personal
+         * org-of-one (like the visibility/roster cards above). */}
+        {!isPersonal && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Custom indexes</CardTitle>
+              <CardDescription>
+                Build your own AI-adoption measure from your usage data — team
+                and company-wide only. Private to your workspace: never shown on
+                the benchmark panel or shareable score cards.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href="/indexes" />}
+              >
+                Open custom indexes
+              </Button>
+            </CardContent>
+          </Card>
         )}
       </div>
     </>
