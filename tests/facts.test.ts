@@ -41,6 +41,10 @@ const CANONICAL_KEYS = [
   "agent_requests",
   "agent_active",
   "ai_credits",
+  // W7-8 (ADR 0039): OTel proficiency markers — additive, receiver-only keys.
+  "otel_active_time",
+  "otel_edit_accepted",
+  "otel_edit_rejected",
 ];
 
 let db: Db;

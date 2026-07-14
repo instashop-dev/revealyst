@@ -112,8 +112,17 @@ it is the interface between agents.
 > "don't log rec-shown" stance under a founder-signed ADR; deterministic holdout/variant assignment
 > (`src/lib/experiments.ts`, empty registry at launch); the digest logs exposures off the hot path; the
 > Outcomes entity + offline harness stay gated on real volume (never hollow). Latest mig **0033**,
-> latest ADR **0038**. **P8** (OTel measured tier) is next — now buildable against the REAL captured
-> fixtures (`fixtures/otel/*.captured.json`).
+> latest ADR **0038**. **P8 OTel measured tier shipped** (mig 0034, ADR 0039): additive marker metrics
+> (`otel_active_time`/`otel_edit_accepted`/`otel_edit_rejected`, `markers` family) + capability_signals
+> bindings; a `POST /v1/metrics`+`/v1/logs` OTLP receiver reusing the agent device-token scheme, with a
+> PURE decoder (`src/lib/otel-ingest.ts`) tested against the REAL captured fixtures (`fixtures/otel/
+> *.captured.json`, rule 2); the capability engine renders **`measured`** (not just `directional`) when
+> a capability has evidence for **≥2** of its bound markers (markers are distinct keys → no
+> cross-channel double-count) — which also activates the W7-4 Growth-Journey band headline. **Non-eng
+> role expansion stays DEFERRED** — a separate gate needing an honest M365/Workspace role-telemetry
+> source (doesn't exist). Latest mig **0034**, latest ADR **0039**. **Wave 7 (P0–P6) + all
+> follow-ups + the founder-unblocked P5/P7/P8 are now complete; only non-eng role expansion remains
+> gated.**
 
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and

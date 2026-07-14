@@ -422,7 +422,7 @@ export const metricCatalog = pgTable("metric_catalog", {
     // vendor-reported usage-billing unit that is NOT dollars. Plain-text
     // column (drizzle text-enum is TS-only), so the new value needs no DDL,
     // only the seed row + this type widening.
-    enum: ["count", "tokens", "usd_cents", "lines", "flag", "credits"],
+    enum: ["count", "tokens", "usd_cents", "lines", "flag", "credits", "seconds"],
   }).notNull(),
   // Which dimension the `dim` column carries for this metric; null = none.
   dimKind: text("dim_kind", { enum: ["model", "feature"] }),

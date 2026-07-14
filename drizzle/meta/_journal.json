@@ -1,244 +1,251 @@
 {
-  "version": "7",
-  "dialect": "postgresql",
-  "entries": [
-    {
-      "idx": 0,
-      "version": "7",
-      "when": 1783184826697,
-      "tag": "0000_walking-skeleton",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1783186743123,
-      "tag": "0001_auth",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1783189261250,
-      "tag": "0002_org-members-pk",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1783220431795,
-      "tag": "0003_entities",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1783221413511,
-      "tag": "0004_connections-subjects",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1783221894590,
-      "tag": "0005_credentials",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1783223960440,
-      "tag": "0006_facts",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1783223965661,
-      "tag": "0007_seed-metric-catalog",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1783224445888,
-      "tag": "0008_scores",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1783224460963,
-      "tag": "0009_seed-score-presets",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1783239610742,
-      "tag": "0010_connector-runs",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1783276558132,
-      "tag": "0011_invites",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1783325531136,
-      "tag": "0012_benchmarks",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1783325546971,
-      "tag": "0013_seed-benchmarks",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "7",
-      "when": 1783335583517,
-      "tag": "0014_share-and-consent",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "7",
-      "when": 1783411698198,
-      "tag": "0015_subscriptions",
-      "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "7",
-      "when": 1783413633835,
-      "tag": "0016_audit-log",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "7",
-      "when": 1783506603230,
-      "tag": "0017_seed-personal-person-presets",
-      "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "7",
-      "when": 1783510263876,
-      "tag": "0018_backfill-email-verified",
-      "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "7",
-      "when": 1783524690604,
-      "tag": "0019_platform-admin",
-      "breakpoints": true
-    },
-    {
-      "idx": 20,
-      "version": "7",
-      "when": 1783698219610,
-      "tag": "0020_poll-heartbeats-observed-at-index",
-      "breakpoints": true
-    },
-    {
-      "idx": 21,
-      "version": "7",
-      "when": 1783701385448,
-      "tag": "0021_budgets",
-      "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "7",
-      "when": 1783701385449,
-      "tag": "0022_seed-agentic-and-credits-metrics",
-      "breakpoints": true
-    },
-    {
-      "idx": 23,
-      "version": "7",
-      "when": 1783757448104,
-      "tag": "0023_digest-preferences",
-      "breakpoints": true
-    },
-    {
-      "idx": 24,
-      "version": "7",
-      "when": 1783955809675,
-      "tag": "0024_rec-interaction-state",
-      "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "7",
-      "when": 1783959118643,
-      "tag": "0025_budget-alert-state",
-      "breakpoints": true
-    },
-    {
-      "idx": 26,
-      "version": "7",
-      "when": 1783965478098,
-      "tag": "0026_roles-entity",
-      "breakpoints": true
-    },
-    {
-      "idx": 27,
-      "version": "7",
-      "when": 1783967990917,
-      "tag": "0027_renewal-reminders",
-      "breakpoints": true
-    },
-    {
-      "idx": 28,
-      "version": "7",
-      "when": 1783970034979,
-      "tag": "0028_exec-report-state",
-      "breakpoints": true
-    },
-    {
-      "idx": 29,
-      "version": "7",
-      "when": 1783971051453,
-      "tag": "0029_recommendation-catalog",
-      "breakpoints": true
-    },
-    {
-      "idx": 30,
-      "version": "7",
-      "when": 1784017198419,
-      "tag": "0030_capability-graph",
-      "breakpoints": true
-    },
-    {
-      "idx": 31,
-      "version": "7",
-      "when": 1784018576044,
-      "tag": "0031_user-capability-state",
-      "breakpoints": true
-    },
-    {
-      "idx": 32,
-      "version": "7",
-      "when": 1784033409090,
-      "tag": "0032_missions",
-      "breakpoints": true
-    },
-    {
-      "idx": 33,
-      "version": "7",
-      "when": 1784038064731,
-      "tag": "0033_recommendation-exposure",
-      "breakpoints": true
-    }
-  ]
+	"version": "7",
+	"dialect": "postgresql",
+	"entries": [
+		{
+			"idx": 0,
+			"version": "7",
+			"when": 1783184826697,
+			"tag": "0000_walking-skeleton",
+			"breakpoints": true
+		},
+		{
+			"idx": 1,
+			"version": "7",
+			"when": 1783186743123,
+			"tag": "0001_auth",
+			"breakpoints": true
+		},
+		{
+			"idx": 2,
+			"version": "7",
+			"when": 1783189261250,
+			"tag": "0002_org-members-pk",
+			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "7",
+			"when": 1783220431795,
+			"tag": "0003_entities",
+			"breakpoints": true
+		},
+		{
+			"idx": 4,
+			"version": "7",
+			"when": 1783221413511,
+			"tag": "0004_connections-subjects",
+			"breakpoints": true
+		},
+		{
+			"idx": 5,
+			"version": "7",
+			"when": 1783221894590,
+			"tag": "0005_credentials",
+			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "7",
+			"when": 1783223960440,
+			"tag": "0006_facts",
+			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "7",
+			"when": 1783223965661,
+			"tag": "0007_seed-metric-catalog",
+			"breakpoints": true
+		},
+		{
+			"idx": 8,
+			"version": "7",
+			"when": 1783224445888,
+			"tag": "0008_scores",
+			"breakpoints": true
+		},
+		{
+			"idx": 9,
+			"version": "7",
+			"when": 1783224460963,
+			"tag": "0009_seed-score-presets",
+			"breakpoints": true
+		},
+		{
+			"idx": 10,
+			"version": "7",
+			"when": 1783239610742,
+			"tag": "0010_connector-runs",
+			"breakpoints": true
+		},
+		{
+			"idx": 11,
+			"version": "7",
+			"when": 1783276558132,
+			"tag": "0011_invites",
+			"breakpoints": true
+		},
+		{
+			"idx": 12,
+			"version": "7",
+			"when": 1783325531136,
+			"tag": "0012_benchmarks",
+			"breakpoints": true
+		},
+		{
+			"idx": 13,
+			"version": "7",
+			"when": 1783325546971,
+			"tag": "0013_seed-benchmarks",
+			"breakpoints": true
+		},
+		{
+			"idx": 14,
+			"version": "7",
+			"when": 1783335583517,
+			"tag": "0014_share-and-consent",
+			"breakpoints": true
+		},
+		{
+			"idx": 15,
+			"version": "7",
+			"when": 1783411698198,
+			"tag": "0015_subscriptions",
+			"breakpoints": true
+		},
+		{
+			"idx": 16,
+			"version": "7",
+			"when": 1783413633835,
+			"tag": "0016_audit-log",
+			"breakpoints": true
+		},
+		{
+			"idx": 17,
+			"version": "7",
+			"when": 1783506603230,
+			"tag": "0017_seed-personal-person-presets",
+			"breakpoints": true
+		},
+		{
+			"idx": 18,
+			"version": "7",
+			"when": 1783510263876,
+			"tag": "0018_backfill-email-verified",
+			"breakpoints": true
+		},
+		{
+			"idx": 19,
+			"version": "7",
+			"when": 1783524690604,
+			"tag": "0019_platform-admin",
+			"breakpoints": true
+		},
+		{
+			"idx": 20,
+			"version": "7",
+			"when": 1783698219610,
+			"tag": "0020_poll-heartbeats-observed-at-index",
+			"breakpoints": true
+		},
+		{
+			"idx": 21,
+			"version": "7",
+			"when": 1783701385448,
+			"tag": "0021_budgets",
+			"breakpoints": true
+		},
+		{
+			"idx": 22,
+			"version": "7",
+			"when": 1783701385449,
+			"tag": "0022_seed-agentic-and-credits-metrics",
+			"breakpoints": true
+		},
+		{
+			"idx": 23,
+			"version": "7",
+			"when": 1783757448104,
+			"tag": "0023_digest-preferences",
+			"breakpoints": true
+		},
+		{
+			"idx": 24,
+			"version": "7",
+			"when": 1783955809675,
+			"tag": "0024_rec-interaction-state",
+			"breakpoints": true
+		},
+		{
+			"idx": 25,
+			"version": "7",
+			"when": 1783959118643,
+			"tag": "0025_budget-alert-state",
+			"breakpoints": true
+		},
+		{
+			"idx": 26,
+			"version": "7",
+			"when": 1783965478098,
+			"tag": "0026_roles-entity",
+			"breakpoints": true
+		},
+		{
+			"idx": 27,
+			"version": "7",
+			"when": 1783967990917,
+			"tag": "0027_renewal-reminders",
+			"breakpoints": true
+		},
+		{
+			"idx": 28,
+			"version": "7",
+			"when": 1783970034979,
+			"tag": "0028_exec-report-state",
+			"breakpoints": true
+		},
+		{
+			"idx": 29,
+			"version": "7",
+			"when": 1783971051453,
+			"tag": "0029_recommendation-catalog",
+			"breakpoints": true
+		},
+		{
+			"idx": 30,
+			"version": "7",
+			"when": 1784017198419,
+			"tag": "0030_capability-graph",
+			"breakpoints": true
+		},
+		{
+			"idx": 31,
+			"version": "7",
+			"when": 1784018576044,
+			"tag": "0031_user-capability-state",
+			"breakpoints": true
+		},
+		{
+			"idx": 32,
+			"version": "7",
+			"when": 1784033409090,
+			"tag": "0032_missions",
+			"breakpoints": true
+		},
+		{
+			"idx": 33,
+			"version": "7",
+			"when": 1784038064731,
+			"tag": "0033_recommendation-exposure",
+			"breakpoints": true
+		},
+		{
+			"idx": 34,
+			"version": "7",
+			"when": 1784038069731,
+			"tag": "0034_seed-otel-markers",
+			"breakpoints": true
+		}
+	]
 }

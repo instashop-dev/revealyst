@@ -11,9 +11,11 @@
 //   - a real, recent-but-low reading is kept (a measured low, not an absence);
 //   - evidence too stale to count decays to withheld (no row), not a fake 0;
 //   - every state carries an explainable per-signal breakdown.
-// Mastery is HARD-CAPPED at the `directional` confidence tier this phase (L7):
-// the inputs are uncalibrated proxies until the OTel receiver (P8) provides ≥2
-// corroborating markers.
+// Mastery renders `directional` (uncalibrated proxies) UNLESS the OTel receiver
+// (W7-8) has provided ≥2 corroborating MARKERS for the capability — real active
+// time + real accept/reject — in which case it renders `measured` (ADR 0039, the
+// L7 upgrade path).
+import { OTEL_MARKER_METRIC_KEYS } from "../contracts/metrics";
 
 /** Named, greppable directional constants — every one is an uncalibrated
  * threshold (hence the `directional` cap), tunable without a data migration. */
@@ -30,6 +32,9 @@ export const CAPABILITY_STATE_CONSTANTS = {
   CONFIDENCE_EVIDENCE_TARGET: 20,
   /** Distinct connection sources for the full coverage confidence term. */
   COVERAGE_TARGET_SOURCES: 3,
+  /** W7-8: ≥ this many bound OTel markers with evidence upgrade a capability
+   * from `directional` to `measured` (the ADR 0039 corroboration rule). */
+  MEASURED_MARKER_MIN: 2,
 } as const;
 
 export type CapabilityGraphInput = {
@@ -66,7 +71,7 @@ export type CapabilityStateComputed = {
   /** [0,1], rounded to 4dp (matches numeric(6,4)). */
   mastery: number;
   confidence: number;
-  confidenceTier: "directional";
+  confidenceTier: "directional" | "measured";
   evidenceCount: number;
   lastEvidenceAt: string | null;
   staleness: number;
@@ -171,11 +176,28 @@ function computeOne(
     clamp01(0.5 * coverageTerm + 0.3 * evidenceTerm + 0.2 * completenessTerm),
   );
 
+  // W7-8 measured tier: a capability with evidence for ≥2 of its bound OTel
+  // MARKERS (real active time + real accept/reject — signals NO admin-API
+  // connector emits) renders `measured`, not just `directional` (ADR 0039).
+  // Markers are DISTINCT metric keys from the connector metrics, so a marker and
+  // a connector metric never double-count the same event (no cross-channel
+  // double-count). Below the threshold, mastery stays capped at `directional`.
+  const markersWithEvidence = bound.filter(
+    (s) =>
+      s.metricKey !== null &&
+      (OTEL_MARKER_METRIC_KEYS as readonly string[]).includes(s.metricKey) &&
+      (evidence.metricEvidence.get(s.metricKey)?.count ?? 0) > 0,
+  ).length;
+  const confidenceTier: "directional" | "measured" =
+    markersWithEvidence >= CAPABILITY_STATE_CONSTANTS.MEASURED_MARKER_MIN
+      ? "measured"
+      : "directional";
+
   return {
     capabilitySlug,
     mastery,
     confidence,
-    confidenceTier: "directional",
+    confidenceTier,
     evidenceCount,
     lastEvidenceAt,
     staleness,
