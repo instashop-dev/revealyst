@@ -526,6 +526,11 @@ async function PersonalSelfView({
     recommendations,
     // W7-1: display-only capability labels for the coaching card.
     capabilityLabels,
+    // W7-4: the person's connected-source count (active connections' distinct
+    // vendors) → the honest confidence disclosure on each coaching rec.
+    coverageSourceCount: new Set(
+      connections.filter((c) => c.status === "active").map((c) => c.vendor),
+    ).size,
     anomalies,
   });
   // W5-C companion composition (positive-first, level-forward): the coaching

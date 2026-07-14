@@ -8,7 +8,7 @@ import {
 import { renderDigestEmail } from "../src/lib/digest-email";
 import type { ScoreTrend } from "../src/lib/dashboard-trends";
 import type { RecentMovement } from "../src/lib/recent-movement";
-import type { ComponentDetailRow } from "../src/lib/score-insights";
+import { deriveAttention, type ComponentDetailRow } from "../src/lib/score-insights";
 import { LEGACY_CATALOG_RECOMMENDATIONS } from "./fixtures/recommendation-catalog";
 
 // Pure honesty tests for the weekly-digest assembly (F2.2): staleness
@@ -227,6 +227,40 @@ describe("assembleDigest lanes + honesty", () => {
 
 describe("reserved coaching slot (errata §1.2(7))", () => {
   const fresh = new Date(NOW.getTime() - 1 * DAY);
+
+  it("digest & dashboard share the SAME coaching source (W7-4): identical rec selection + order", () => {
+    // The dashboard and the digest both drive `deriveAttention` off the SAME
+    // catalog + score components, so they can never recommend different things
+    // for the same person. This pins that shared source: the digest's coaching
+    // recs equal deriveAttention's, in the same order (the utility ranking runs
+    // identically on both paths).
+    const scoreComponents = [weakActiveDays()];
+    const dashboard = deriveAttention({
+      connections: [],
+      gaps: [],
+      sharedAccountCount: 0,
+      scoreDrops: [],
+      scoreComponents,
+      recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
+    })
+      .filter((i) => i.kind === "recommendation")
+      .map((i) => i.recId);
+    const digest = assembleDigest({
+      now: NOW,
+      lane: "personal",
+      connections: [conn("openai", "active", fresh)],
+      movement: emptyMovement(),
+      trends: [],
+      scoreComponents,
+      recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
+    }).recommendations
+      .filter((i) => i.kind === "recommendation")
+      .map((i) => i.recId);
+    // The digest's coaching recs are a prefix of the dashboard's (same engine,
+    // same order; the digest may reserve fewer slots) — never a different set.
+    expect(digest.length).toBeGreaterThan(0);
+    expect(dashboard.slice(0, digest.length)).toEqual(digest);
+  });
 
   it("a week WITH connection errors still ships ≥1 coaching rec (W5-F acceptance)", () => {
     // Three errored connections (impact 100 each) would fill all 3 slots under
