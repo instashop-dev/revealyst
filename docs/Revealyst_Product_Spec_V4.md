@@ -29,6 +29,14 @@ it means merged to `main` as of `4c11be5`.
   audience-scoped surfaces; specs the recommendation catalog as seeded data (one engine, tiered
   outputs); commits the Roles / recommendation-catalog / Outcomes entity sequence with their
   full registration burden; carries the Direction's NOT-list as normative scope law.
+- v4.1 — the **AI Capability Layer** program (Wave 7–8). Adds a relational capability graph
+  (`domains`/`capabilities`/`capability_signals`/`capability_dependencies`), a parallel per-person
+  capability/mastery-state engine (`user_capability_state`, capped *directional* until OTel), a
+  recommendation utility ranker that consumes the catalog's existing metadata, missions, and
+  privacy-safe team capability rollups. Evolves the shipped substrate; does **not** add a graph DB,
+  an ML service, fixed persona labels, XP/streaks/leagues, or an LMS. Plan:
+  [AI Capability Execution Plan](Revealyst_AI_Capability_Execution_Plan.md); source:
+  [gap analysis](ai-capability-implementation-gap-analysis.md).
 
 ---
 
@@ -255,6 +263,20 @@ and plan-mix fields (documented double-count/misattribution risks).
 - **Outcomes** [Future, demand-gated] — bounded to "did the person engage/act on the rec and did
   the signal move next period," never "did shipped code quality improve." An always-empty table
   reads as "no outcome," not "not measured" — an invariant-(b) trap; do not ship it hollow.
+- **Capability graph** [V1] — `domains` / `capabilities` / `capability_signals` /
+  `capability_dependencies`: seeded **global reference** tables (no `org_id`, like `roles`), a
+  relational graph of ~30–40 outcome-named engineering capabilities bound to existing
+  `metric_catalog` / score components. Not a graph database (§11.5). `recommendation_catalog` gains
+  an additive `target_capabilities` column (ADR).
+- **User capability state** [V1] — `user_capability_state` per (org, person, capability): mastery,
+  confidence, staleness, next-capability; self-view-only; a parallel incremental reducer over the
+  existing readers (the Maturity Model precedent), **capped `directional`** until the OTel receiver
+  provides ≥2 corroborating markers. Priors = person-level scores + maturity axes; never mutates the
+  frozen score contract. Verified absent today.
+- **Missions** [Future→V1 per sign-off] — `missions` / `mission_steps` (seeded) + `mission_progress`
+  (self-view): bounded challenges bundling existing catalog recs, completion detected from **measured
+  signal crossings**, never self-asserted; inside the §8.4 anti-gamification boundary (no XP/streaks/
+  leagues).
 
 **New cross-cutting requirement [MVP]:** a per-person **signal-coverage indicator** — two
 `person` rows are indistinguishable today even when one has 3 sources and another has 1. A rec
@@ -358,6 +380,17 @@ catalog); Team = training-opportunity surfacing via the aggregate-only lane (pla
 concentration — shipped); Org = reduce-spend / consolidate-vendors via cost-per-unit + tool-sprawl
 findings (`src/lib/spend-governance.ts` — shipped). Assembly and labeling, not new engines.
 
+**Capability catalog + utility ranker [V1, Wave 7].** Catalog rows gain a `target_capabilities`
+link into a small **relational** capability graph (`domains → capabilities → capability_signals →
+capability_dependencies`, ~30–40 nodes — not a graph database). The evaluator upgrades from the fixed
+`impact: 1` to a **deterministic utility score** that finally reads the metadata the catalog already
+stores (`benefit` / `difficulty` / `confidence` / `applicableRoles` / `applicableTools`): `utility =
+0.35·capabilityGap + 0.20·benefit + 0.15·confidence + 0.10·roleToolFit + 0.10·novelty −
+0.05·difficulty − fatigue`, with role/tool + capability-prerequisite eligibility gating before
+ranking. Still **no LLM and no ML in selection** (G6) — every weight is a named code constant; the
+`MAX_RECOMMENDATIONS` cap and signal-group dedupe are unchanged. An output-equivalence guard pins the
+existing weakest-first order as a strict subset until the weights turn on.
+
 ### 8.3 Interaction state [MVP]
 
 Snooze / dismiss / "mark as tried" per person (verified absent today). Self-view-only rows;
@@ -377,7 +410,9 @@ become a third ladder: the **org matures** (maturity model), the **person progre
 | Milestone catalog (first agent session, breadth threshold, N-week cadence) surfaced immediately, not digest-only | **MVP-adjacent** | *Not implemented today* (verified); extends the `isNewBest` plumbing pattern |
 | "No daily streak" as a decision: weekly consistency with forgiveness, or none | **MVP decision** | Prevents a later gimmick regression; streaks-without-forgiveness are a documented trust risk |
 | "Next best thing to learn" as ONE persistent card (not regenerated daily) | **V1** | Rides the catalog + rec interaction state |
-| Marker-level proficiency breakdown (self-view); composite band as secondary label | **V1** | Rides Intelligence Plan F3.1–F3.3; directional until OTel |
+| Marker-level proficiency breakdown (self-view); composite band as secondary label — **backed by `user_capability_state`** | **V1** | Rides Intelligence Plan F3.1–F3.3; directional until OTel |
+| Capability profile card — a **decomposition of the one proficiency band** (never a third ladder), self-view | **V1** | Reads `user_capability_state`; personal-org only until measured |
+| Missions — bounded, finish-lined challenges (start/progress/complete); completion from **measured signal crossings**, not self-asserted; no XP/streaks/leagues | **Future→V1 per sign-off** | Bundles catalog recs; `mission_progress` self-view; §11.5 NOT-list applies |
 | Learning-path content (static curricula keyed to band) — merged with "learning goals": one content model | **V1** | Sequences the catalog into a journey |
 
 **Duolingo is a values analogy, not a blueprint.** Keep the structure (clear current level, one
@@ -388,6 +423,11 @@ structurally impossible under self-view-only privacy (leagues need visible peer 
 ---
 
 ## 9. Individual, Team & Shared-Account Capabilities
+
+> **Terminology note:** "Capabilities" in this section means *population scope* (individual / team /
+> shared-account) — who receives which surface. It is distinct from the **skill/capability catalog**
+> (the `domains → capabilities` graph of §8.2/§8.4). See the
+> [AI Capability Execution Plan](Revealyst_AI_Capability_Execution_Plan.md).
 
 ### 9.1 Individual
 
@@ -504,6 +544,8 @@ narrative, correlations) · marketing site + share cards.
 | Monthly Executive narrative export/email | M | Reuses `narrative.ts` + SES |
 | Renewal reminders (manually-entered contract dates — no vendor reports them) | M | New field, honest labeling |
 | Context-usage signal (directional) | M | OTel-gated; ≥2-signal rule |
+| Capability graph (`domains`/`capabilities`/`capability_signals`/`capability_dependencies`) + `target_capabilities` link | L | ADR; relational, not a graph DB; ties recs to named capabilities |
+| Per-person capability state (`user_capability_state`) + utility ranker | L | ADR; capped *directional* until OTel; parallel reducer, never mutates the score contract |
 
 ### 11.4 Future (each with its named gate)
 
@@ -514,7 +556,10 @@ conversation-structure signals (OTel-gated + §16 design answer) · real cross-o
 benchmarks (consent-volume-gated) · read-only MCP server over org analytics (sequenced behind
 personal-value proof) · perceived-vs-measured pulse panel · resident desktop agent (cadence-
 telemetry-gated) · Enterprise connectors / SSO / SCIM / directory sync (trigger-gated on a first
-Enterprise customer) · ChatGPT-export upload (parked from V1.5 cut order).
+Enterprise customer) · ChatGPT-export upload (parked from V1.5 cut order) · **missions + progression** (gated on V1
+capability state landing + real rec-interaction volume to sequence against) · **recommendation
+exposure logging + experimentation** (gated on an ADR reversing today's deliberate "don't log
+rec-shown-to-X" stance + founder sign-off, §16 — a *distinct* gate from Outcomes; never merge the two).
 
 ### 11.5 The NOT-list (normative; every item grounded in a standing tripwire, guardrail, or research finding)
 
@@ -543,6 +588,12 @@ Enterprise customer) · ChatGPT-export upload (parked from V1.5 cut order).
 - No Slack/Teams channel in MVP/V1 (email first).
 - No literal Duolingo mechanics (streaks without forgiveness, XP, leagues, hearts).
 - No Kafka / ClickHouse / separate ML service / Chinese-vendor connectors (standing tripwires).
+- **No capability-program over-build:** the capability/mastery layer (§8.2/§8.4, Wave 7–8) uses a
+  **relational** graph (not a graph database), a **deterministic** utility ranker (no ML / bandits /
+  BKT until real feedback volume + its own gate), **no fixed per-person persona labels** (personas
+  survive only as an aggregate cohort lens), **no XP / streaks / leagues**, and **no LMS / course /
+  certification layer**. See [gap analysis](ai-capability-implementation-gap-analysis.md) §3/§13 for
+  the decided-not-built list.
 
 **Pricing: unchanged from V3** ($0 Personal forever · $2/tracked-user/mo Team · free band ≤5 ·
 Paddle MoR). The pivot changes what the individual *gets*, not what they pay.
@@ -673,7 +724,8 @@ incident).
 ### 15.2 What any new table in this spec must do (the three-registration law + ADR)
 
 Every net-new org-scoped table (rec interaction state [MVP], Roles [V1], recommendation catalog
-[V1], Outcomes [Future]) requires, in the same PR: **(1)** a `docs/decisions/` ADR (next free
+[V1], Outcomes [Future], `user_capability_state` [V1], `mission_progress` [per sign-off],
+`recommendation_exposure` [Future, gated]) requires, in the same PR: **(1)** a `docs/decisions/` ADR (next free
 number — check `ls docs/decisions/` immediately before claiming; the sequence is independent of
 migration numbers, and a 0014 duplicate already exists as a cautionary tale), **(2)** a
 `tests/tenant-isolation.test.ts` `SCOPED_READS` entry with a non-vacuous B-org seed row, **(3)** a
@@ -700,10 +752,13 @@ served through `handleApi`/`appContext` — the 402 free-band gate applies by de
 
 `src/contracts/**` · `src/db/schema.ts` + `drizzle/**` · `src/db/org-scope.ts` public API ·
 `src/lib/credentials.ts` row format · `docs/connector-facts.md` · `fixtures/**` shapes. This
-spec plans frozen-contract changes at four named points, each with its own ADR: the rec
-interaction-state table [MVP], the Roles entity [V1], the recommendation catalog [V1], and
-Outcomes [Future] — every new table edits the frozen `schema.ts` + `drizzle/**` and trips the CI
-guard even when additive. Everything else in MVP composes existing surfaces.
+spec plans frozen-contract changes at these named points, each with its own ADR: the rec
+interaction-state table [MVP], the Roles entity [V1], the recommendation catalog [V1], Outcomes
+[Future], and the **AI Capability Layer** tables (`domains`/`capabilities`/`capability_signals`/
+`capability_dependencies` + the additive `recommendation_catalog.target_capabilities` column [V1],
+`user_capability_state` [V1], missions tables [per sign-off], `recommendation_exposure` [Future,
+gated]) — every new table (or additive column) edits the frozen `schema.ts` + `drizzle/**` and trips
+the CI guard even when additive. Everything else in MVP composes existing surfaces.
 
 ---
 
@@ -735,6 +790,14 @@ guard even when additive. Everything else in MVP composes existing surfaces.
 7. **Digest-in-MVP** — this spec resolves Direction §19.1: the digest is *already shipped*; the
    MVP question is only how much Growth-Journey content it carries. No sequencing decision
    remains.
+8. **Third-ladder line (AI Capability Layer).** Confirm the capability profile card is a
+   *decomposition of the one proficiency band*, not a competing third scale (§8.4). Default if
+   unconfirmed: block the Wave-7 capability-profile UI. Also confirm the ~30–40 capability seed list +
+   prerequisite DAG (product-owned content, not agent-invented) and persona-as-aggregate-lens-only.
+9. **Exposure-logging reversal.** Confirm an ADR reversing today's deliberate "don't log
+   rec-shown-to-X" stance (`src/app/api/recommendations/interaction/route.ts:16-19`) before any
+   recommendation-exposure / experimentation work (Wave 8). Default if unconfirmed: exposure logging
+   stays permanently in §11.4 Future, never promoted.
 
 ---
 
