@@ -111,7 +111,7 @@ export async function processPollMessage(
         asOfDay: message.day,
       });
       console.log(
-        `[capability-state] org ${message.orgId}: ${capSummary.rowsWritten} rows across ${capSummary.peopleWithState}/${capSummary.peopleConsidered} people`,
+        `[capability-state] org ${message.orgId}: ${capSummary.rowsWritten} rows across ${capSummary.peopleWithState}/${capSummary.peopleConsidered} people; ${capSummary.missionsCompleted} missions completed`,
       );
       return;
     }

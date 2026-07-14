@@ -284,10 +284,16 @@ and plan-mix fields (documented double-count/misattribution risks).
   low kept, fully-decayed withheld. Rendered as a positive-first capability-profile card (a
   **decomposition of the one proficiency band**, never a third ladder; raw 0–100 stays behind the
   existing diagnostic expander).
-- **Missions** [Future→V1 per sign-off] — `missions` / `mission_steps` (seeded) + `mission_progress`
-  (self-view): bounded challenges bundling existing catalog recs, completion detected from **measured
-  signal crossings**, never self-asserted; inside the §8.4 anti-gamification boundary (no XP/streaks/
-  leagues).
+- **Missions** [V1 — **shipped W7-5**, mig 0032, ADR 0037; founder anti-gamification sign-off received]
+  — `missions` / `mission_steps` (global reference, seeded with 3 starters) + `mission_progress`
+  (org-scoped self-view, three registrations, purged before `people`). Bounded, finish-lined,
+  **opt-in** challenges: a step targets a capability + a stepping-stone mastery, and completion is
+  detected by the nightly capability-state reducer when every step's **measured mastery crosses its
+  target** (`isMissionComplete`, strict, stamped once) — never a user click (there is deliberately no
+  "complete" route; the only write is the opt-in `POST /api/missions/start`). Inside the §8.4
+  anti-gamification boundary: **no XP/streak/league/points column or copy** exists anywhere — enforced
+  by a schema-shape test + a banned-phrasing test, not just convention. Rendered as an opt-in
+  `MissionCard` (Start → "N of M steps reached" → grounded completion).
 
 **New cross-cutting requirement [MVP]:** a per-person **signal-coverage indicator** — two
 `person` rows are indistinguishable today even when one has 3 sources and another has 1. A rec

@@ -149,6 +149,15 @@ const SCOPED_READS: Array<{
     tables: ["user_capability_state"],
     run: (s, c) => s.mastery.forPerson(c.B.people.alice),
   },
+  // Mission progress (ADR 0037): org-scoped opt-in rows (org, person, mission).
+  // Both orgs seed a started mission for their own alice below, so B's row
+  // carries a B personId — org A's progressForOrg must surface only A's rows.
+  // The global missions/mission_steps reference tables have no org_id.
+  {
+    name: "missions.progressForOrg",
+    tables: ["mission_progress"],
+    run: (s) => s.missions.progressForOrg(),
+  },
   // Recommendation catalog (ADR 0033): a nullable-org_id reference table like
   // score_definitions — global presets (org_id NULL) ∪ this org's own rows.
   // `list()` maps each row to the evaluator shape whose `id` IS the row's
@@ -299,6 +308,10 @@ beforeAll(async () => {
         components: { active_days: { kind: "component", input: 50, contribution: 0.5 } },
       },
     ]);
+    // A started mission per org (ADR 0037) keyed on this org's alice, so the
+    // B-side row carries a B personId and the missions.progressForOrg sweep is
+    // non-vacuous (the mission slug is seeded globally by the migration).
+    await scoped.missions.start(loaded.people.alice, "get-started-with-ai");
     // An audit row per org (ADR 0010) whose target is a fixture team id, so
     // the B-side row carries a B id and the auditLog sweep is non-vacuous.
     await scoped.auditLog.record({

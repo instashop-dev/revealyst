@@ -99,11 +99,15 @@ it is the interface between agents.
 > since directional mastery could over-suppress); a gated shared-source test pins parity; (3) the
 > Growth-Journey **band headline** (`overallCapabilityBand`) wired but gated on `measured` — null today
 > (all mastery is directional), so the modeled maturity level stays the headline until OTel/P8.
-> Remaining: P5 missions (largest; behind the §7 "missions inside anti-gamification" founder
-> sign-off). **Wave 8 (P7
-> experimentation / P8 OTel measured tier) stays GATED** on
-> founder OTel fixture capture, a founder-signed privacy-reversal ADR, and real "tried" volume —
-> cannot be forced by agent work.
+> **P5 missions shipped** (mig 0032, ADR 0037; founder anti-gamification sign-off received):
+> `missions`/`mission_steps` (global, seeded 3 starters) + `mission_progress` (org-scoped self-view, 3
+> registrations); completion is a MEASURED capability crossing detected in the capability-state reducer
+> (`isMissionComplete`, stamped once), never a click — the only write is the opt-in `POST
+> /api/missions/start`; **no XP/streak/league/points column or copy** (enforced by a schema-shape test +
+> a banned-phrasing test). Opt-in `MissionCard` on the companion. Latest mig **0032**, latest ADR
+> **0037**. **Wave 8 gates were then cleared by the founder** (2026-07-14): OTel fixture capture done +
+> privacy-reversal ADR approved → **P8** (OTel measured tier) and **P7** (exposure log /
+> experimentation) are now buildable and in progress.
 
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and

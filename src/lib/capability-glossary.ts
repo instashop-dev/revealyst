@@ -75,6 +75,27 @@ export const CAPABILITY_PROFILE_COPY = {
   maxRows: 6,
 } as const;
 
+// W7-5 missions card copy. Anti-gamification (Spec V4 §8.4): grounded and quiet —
+// NO points/streak/league/badge/level-up language (a banned-phrasing test
+// enforces it). Completion is described as something the person's real activity
+// reached, never a prize.
+export const MISSION_COPY = {
+  title: "Missions",
+  /** Positive, opt-in framing — never a demand or a game. */
+  subtitle:
+    "Short, optional challenges. You finish one when your own connected activity reaches the goal — there's nothing to check off by hand.",
+  startAction: "Start this mission",
+  startedToast: "Mission started — it completes on its own as your activity reaches the goal.",
+  /** Small badge on a completed mission (grounded, not a prize). */
+  doneBadge: "Completed",
+  /** In-progress step summary, e.g. "1 of 2 steps reached". Plain words, not a
+   * game-style meter. */
+  stepProgress: (done: number, total: number) =>
+    `${done} of ${total} step${total === 1 ? "" : "s"} reached`,
+  /** Shown for a finished mission — grounded, in the milestone voice. */
+  completeLine: "You reached this from your own measured activity. Nice work.",
+} as const;
+
 // W7-6 team capability-coverage card copy. Aggregate, count-only — the copy must
 // never imply an individual (a claim surface).
 export const CAPABILITY_COVERAGE_COPY = {
