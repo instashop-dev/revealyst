@@ -1693,6 +1693,57 @@ export const missionProgress = pgTable(
   ],
 );
 
+// Recommendation exposure log (W7-7, ADR 0038) — an append log of "coaching rec
+// X was shown to person Y", the foundation for measuring whether recommendations
+// cause improvement (experimentation / holdouts). This REVERSES the deliberate
+// "don't log rec-shown-to-X" stance (rec_interaction_state route), so it is
+// gated by ADR 0038 and constrained: ORG-SCOPED, self-view-only (no manager/
+// admin READ route exists), purge-registered (before `people`), never on the
+// team-visible view. Day-grain + a unique key make it idempotent under
+// at-least-once digest redelivery (exactly one row per person/rec/surface/day).
+export const recommendationExposure = pgTable(
+  "recommendation_exposure",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").notNull(),
+    personId: uuid("person_id").notNull(),
+    // The catalog rec slug shown (== recommendation_catalog.slug / rec id).
+    recId: text("rec_id").notNull(),
+    surface: text("surface", { enum: ["dashboard", "digest"] }).notNull(),
+    // Day the rec was shown ("YYYY-MM-DD") — day grain bounds growth + is the
+    // idempotency key (a rec shown twice the same day on the same surface is
+    // one exposure).
+    shownAt: date("shown_at").notNull(),
+    // The experiment this exposure was part of + the person's assigned arm, or
+    // null when no experiment was active. Deterministic (stable hash), never
+    // per-request random — so an assignment is stable across renders.
+    experimentKey: text("experiment_key"),
+    variant: text("variant"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Exactly one row per (org, person, rec, surface, day) — the CAS/idempotency
+    // key for at-least-once redelivery.
+    unique("recommendation_exposure_dedupe_uq").on(
+      t.orgId,
+      t.personId,
+      t.recId,
+      t.surface,
+      t.shownAt,
+    ),
+    // Composite tenant FK: the person must belong to the SAME org; a person
+    // delete cascades their exposures (purged before `people`).
+    foreignKey({
+      name: "recommendation_exposure_org_person_fk",
+      columns: [t.orgId, t.personId],
+      foreignColumns: [people.orgId, people.id],
+    }).onDelete("cascade"),
+    index("recommendation_exposure_org_person_idx").on(t.orgId, t.personId),
+  ],
+);
+
 // Auth tables last: auth-schema imports orgs from this module, so the
 // re-export must come after orgs is initialized (circular-import order).
 export * from "./auth-schema";

@@ -25,6 +25,7 @@ import {
 import { addUtcDays } from "../lib/raw-metric-delta";
 import { computeRecentMovement } from "../lib/recent-movement";
 import { CAPABILITY_STATE_CONSTANTS } from "../scoring/capability-state";
+import { exposureAssignment } from "../lib/experiments";
 import {
   formatComponentDetail,
   type ComponentDetailRow,
@@ -302,6 +303,32 @@ export async function runWeeklyDigest(
       // claimed, so this recipient simply misses this week's digest (safe).
       failed += 1;
       console.error(`[digest] org ${orgId}: send failed for a recipient`, error);
+    }
+  }
+  // W7-7: log which coaching recs were SHOWN in this digest (the personal lane
+  // only — team digest recs are org aggregates, not one person's). Off the hot
+  // path (a background poller); idempotent per day (the exposure dedupe key), so
+  // an at-least-once redelivery writes exactly one row per rec. Self-view: these
+  // are the owner's own exposures. Only after a real send.
+  if (lane === "personal" && sent > 0) {
+    const owner = (await scope.people.list()).find(
+      (p) => p.authUserId === recipients[0].userId,
+    );
+    if (owner) {
+      const shownRecIds = content.recommendations
+        .filter((i) => i.kind === "recommendation" && i.recId)
+        .map((i) => i.recId as string);
+      const { experimentKey, variant } = exposureAssignment(owner.id);
+      await scope.exposures.log(
+        shownRecIds.map((recId) => ({
+          personId: owner.id,
+          recId,
+          surface: "digest" as const,
+          shownAt: to,
+          experimentKey,
+          variant,
+        })),
+      );
     }
   }
   // sent = actually handed to SES; skippedPrefs = opted out or week already

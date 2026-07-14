@@ -11,6 +11,7 @@ import { connectionsNamespace } from "./org-scope/connections";
 import { connectorRunsNamespace } from "./org-scope/connector-runs";
 import { digestPreferencesNamespace } from "./org-scope/digest-preferences";
 import { execReportStateNamespace } from "./org-scope/exec-report-state";
+import { exposuresNamespace } from "./org-scope/exposures";
 import { heartbeatsNamespace } from "./org-scope/heartbeats";
 import { identitiesNamespace } from "./org-scope/identities";
 import { masteryNamespace } from "./org-scope/mastery";
@@ -188,6 +189,7 @@ export function forOrg(db: Db, orgId: string) {
     capabilities: capabilitiesNamespace(db, orgId),
     mastery: masteryNamespace(db, orgId),
     missions: missionsNamespace(db, orgId),
+    exposures: exposuresNamespace(db, orgId),
   };
 }
 

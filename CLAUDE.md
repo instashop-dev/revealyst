@@ -106,8 +106,14 @@ it is the interface between agents.
 > /api/missions/start`; **no XP/streak/league/points column or copy** (enforced by a schema-shape test +
 > a banned-phrasing test). Opt-in `MissionCard` on the companion. Latest mig **0032**, latest ADR
 > **0037**. **Wave 8 gates were then cleared by the founder** (2026-07-14): OTel fixture capture done +
-> privacy-reversal ADR approved → **P8** (OTel measured tier) and **P7** (exposure log /
-> experimentation) are now buildable and in progress.
+> privacy-reversal ADR approved (+ real founder-captured OTel fixtures landed via #220). **P7 exposure
+> log shipped** (mig 0033, ADR 0038): `recommendation_exposure` (org-scoped, **self-view-only** — no
+> manager/admin read route; never on the team view; purge-registered; idempotent per day) REVERSES the
+> "don't log rec-shown" stance under a founder-signed ADR; deterministic holdout/variant assignment
+> (`src/lib/experiments.ts`, empty registry at launch); the digest logs exposures off the hot path; the
+> Outcomes entity + offline harness stay gated on real volume (never hollow). Latest mig **0033**,
+> latest ADR **0038**. **P8** (OTel measured tier) is next — now buildable against the REAL captured
+> fixtures (`fixtures/otel/*.captured.json`).
 
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and

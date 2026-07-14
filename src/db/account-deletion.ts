@@ -12,6 +12,7 @@ import {
   missionProgress,
   orgMembers,
   orgs,
+  recommendationExposure,
   people,
   pollHeartbeats,
   rawPayloads,
@@ -72,6 +73,9 @@ export const PURGE_TABLES = [
   // BEFORE people (composite FK). The global missions/mission_steps reference
   // tables have no org_id and are outside the tripwire (like capabilities).
   missionProgress,
+  // W7-7 (ADR 0038): per-person recommendation exposures, FK'd to people —
+  // deleted BEFORE people. Account deletion erases the person's exposure log.
+  recommendationExposure,
   shareLinks,
   subjects,
   rawPayloads,

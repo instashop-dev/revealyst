@@ -263,6 +263,15 @@ and plan-mix fields (documented double-count/misattribution risks).
 - **Outcomes** [Future, demand-gated] — bounded to "did the person engage/act on the rec and did
   the signal move next period," never "did shipped code quality improve." An always-empty table
   reads as "no outcome," not "not measured" — an invariant-(b) trap; do not ship it hollow.
+- **Recommendation exposure log** [V1 — **shipped W7-7**, mig 0033, ADR 0038; founder privacy-reversal
+  signed] — `recommendation_exposure` per (org, person, rec, surface, day): the append log of "coaching
+  rec X was shown to person Y", the foundation for experimentation/lift. **Reverses** the deliberate
+  "don't log rec-shown-to-X" stance, so it is constrained: org-scoped, **self-view-only** (no
+  manager/admin READ route; `list()` is server-side only), never on the team-visible view,
+  purge-registered before `people`, idempotent per day (CAS). Deterministic holdout/variant assignment
+  (`src/lib/experiments.ts`, stable hash, empty registry at launch — not a hollow table). Digest logs
+  exposures off the hot path; the Outcomes entity + offline Precision@k/NDCG@k harness stay gated on
+  real volume (never shipped hollow).
 - **Capability graph** [V1 — **shipped W7-1**, mig 0030, ADR 0035] — `domains` / `capabilities` /
   `capability_signals` / `capability_dependencies`: seeded **global reference** tables (no `org_id`,
   like `roles`), a relational graph of **9** outcome-named engineering capabilities (v0 set; bound
