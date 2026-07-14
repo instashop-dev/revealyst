@@ -2,7 +2,7 @@
 
 > **Superseded positioning (2026-07-13):** the product framing in this study (CTO analytics
 > dashboard, "AI Fluency Score" as flagship) is superseded by the V4 pivot —
-> [Product Spec V4](Revealyst_Product_Spec_V4.md) §1–§2 (Personal AI Companion first). The
+> [Product Spec V4](../Revealyst_Product_Spec_V4.md) §1–§2 (Personal AI Companion first). The
 > business-feasibility math and competitive citations remain the historical record.
 
 **Version:** 1.2 · **Date:** July 4, 2026
@@ -173,7 +173,7 @@ That is 3 languages, 4 datastores, and a streaming platform — a platform-team 
 *Status (v1.2): step 2 is done ([Spec V2.3](Revealyst_Product_Spec_V2.md)); step 1's pre-build validation gate has been **deliberately dropped** — see Section 8.2. Remaining steps re-framed for the agent-execution model.*
 
 1. ~~Validate the reshaped wedge with 10–15 CTO/VP Eng conversations~~ **— superseded.** The team has chosen to build without a pre-build validation gate and read the wedge from live post-launch signals (activation, share-card virality, Personal→Team conversion) instead. This is a speed-for-certainty trade the study flags as a real, accepted risk (Section 8.2).
-2. ~~Rewrite the product spec (V2)~~ **— done** ([Spec V2.3](Revealyst_Product_Spec_V2.md)); execution detail in [the execution plan](Revealyst_Execution_Plan.md).
+2. ~~Rewrite the product spec (V2)~~ **— done** ([Spec V2.3](Revealyst_Product_Spec_V2.md)); execution detail in [the execution plan](../Revealyst_Execution_Plan.md).
 3. Prototype the two hardest connectors first (OpenAI attribution, Anthropic OAuth-user gap) to de-risk the normalization schema before building UI — retained, and now the substance of the plan's Wave 0 vendor fact-finding and Wave 1 foundation.
 4. **(New) Fire the un-parallelizable clocks immediately** — GitHub App / OAuth review at project start; Paddle MoR onboarding the moment a live site exists; legal ToS/DPA pass in parallel. In an agent-built project these external reviews, not code, are the critical path (Section 8.1).
 

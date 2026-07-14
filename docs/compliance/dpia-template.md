@@ -1,6 +1,6 @@
 # GDPR DPIA template — deploying Revealyst in your organization
 
-> **Static onboarding content (Product Spec §7).** Shown in-app at
+> **Static onboarding content (Product Spec V4 §13).** Shown in-app at
 > `/compliance` and provided as a working template you can adapt. **This is
 > guidance, not legal advice** — a Data Protection Impact Assessment is your
 > controller obligation, and this template is a starting point your DPO or
@@ -11,11 +11,14 @@ A DPIA under **GDPR Article 35** is required when processing is "likely to
 result in a high risk to the rights and freedoms of natural persons" —
 which the EDPB and most supervisory authorities treat as triggered by
 **systematic monitoring of employees** and by **evaluation or scoring** of
-people at work. Measuring AI-tool adoption and fluency across a workforce is
-squarely in that zone, so you should complete a DPIA before rolling Revealyst
-out to a team. The good news: Revealyst is architected to keep this risk
-**low and well-mitigated by default** (§7), and most of the mitigations below
-are already true of the product rather than things you must configure.
+people at work. Revealyst computes person-level AI-usage scores and coaching
+signals as part of its personal-coaching feature, and pseudonymized
+team-level aggregates roll up from that same individual data — that
+combination is squarely in that zone, so you should complete a DPIA before
+rolling Revealyst out to a team. The good news: Revealyst is architected to
+keep this risk **low and well-mitigated by default** (Product Spec V4 §13),
+and most of the mitigations below are already true of the product rather
+than things you must configure.
 
 Fill in the bracketed `[…]` fields; the pre-filled text describes how
 Revealyst actually works so you don't have to reverse-engineer it.
@@ -28,7 +31,7 @@ Revealyst actually works so you don't have to reverse-engineer it.
 |---|---|
 | **Controller** | `[Your organization]` |
 | **Processor** | Revealyst (data-processing terms in the DPA; the *sale* is handled by Paddle as Merchant of Record) |
-| **Purpose** | Measure adoption, fluency, and cost-efficiency of AI developer tools across the organization, to answer "who is using AI, how well, and are we getting our money's worth." |
+| **Purpose** | Give each employee a private, personal AI-usage coach — feedback and a concrete next step grounded in their own measured AI-tool usage, so they get better at using AI every week. Pseudonymized, team-level usage patterns are a by-product view for the organization, never the primary purpose. |
 | **Nature** | Revealyst polls each connected vendor's **admin/usage APIs** (Anthropic, OpenAI, GitHub Copilot, Cursor) and ingests locally-summarized Claude Code usage via the Revealyst Agent. It normalizes these into per-(person, tool, day) **behavioral metric records** and computes versioned **scores** (Adoption / Fluency / Efficiency) from them. |
 | **Scope of data subjects** | Members of `[team(s)/org]` whose usage is visible to the connected vendor accounts. |
 | **Retention** | Raw vendor payloads are held ~**90 days** for normalization-bug replay, then purged automatically; after that only the derived metric records and scores remain. |
@@ -48,7 +51,7 @@ Revealyst actually works so you don't have to reverse-engineer it.
   guarantee, not a setting: there is no content column in the schema, the
   Revealyst Agent summarizes Claude Code logs **locally** and structurally
   cannot emit content (proven by an automated sentinel test suite), and there
-  is no browser extension or proxy. (Product Spec §7, tripwire rule 7.)
+  is no browser extension or proxy. (Product Spec V4 §13, tripwire rule 7.)
 
 ## 3. Necessity and proportionality
 
@@ -67,7 +70,7 @@ Revealyst actually works so you don't have to reverse-engineer it.
   involvement (§5, and the works-council note), not around asking staff to
   opt in.
 
-## 4. Privacy-by-design measures already in the product (§7)
+## 4. Privacy-by-design measures already in the product (Product Spec V4 §13)
 
 These are Revealyst defaults, so your DPIA can rely on them:
 
@@ -93,7 +96,7 @@ These are Revealyst defaults, so your DPIA can rely on them:
 
 | Risk to data subjects | Likelihood / severity before mitigation | Mitigation | Residual |
 |---|---|---|---|
-| Feeling surveilled / chilling effect | Medium / Medium | Team-only pseudonymized default; transparency to staff; no content read; framed as tooling ROI, not performance management | Low |
+| Feeling surveilled / chilling effect | Medium / Medium | Team-only pseudonymized default; transparency to staff; no content read; positioned to employees as a personal AI-usage coach, not a performance-management or surveillance tool | Low |
 | Score used as a disciplinary/performance metric | Low / High | Individual view is opt-in self-coaching; document internally that scores are **not** used for HR decisions `[state this in your worker notice]` | Low |
 | Re-identification from pseudonymized aggregates | Low / Medium | Pseudonyms + team-level aggregation; individual identities gated behind an explicit visibility-mode change | Low |
 | Over-attribution from shared accounts | Low / Low | Shared-account detection flags undercounting rather than fabricating people (§6.2); no per-user numbers invented | Low |
@@ -115,6 +118,6 @@ These are Revealyst defaults, so your DPIA can rely on them:
 ---
 
 *Sources: GDPR Arts. 4(1), 6, 35, 36; EDPB Guidelines 05/2020 on consent;
-Revealyst Product Spec §7 (privacy model) and §6.1–6.2 (attribution honesty
+Revealyst Product Spec V4 §13 (privacy model) and §6.1–6.2 (attribution honesty
 and shared-account detection). Adapt to your jurisdiction and have counsel
 review before relying on it.*

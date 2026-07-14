@@ -1,11 +1,11 @@
 # Revealyst — Automated Solo-Founder Marketing Strategy
 
 > **Superseded positioning (2026-07-13):** this strategy predates the V4 pivot
-> ([Product Spec V4](Revealyst_Product_Spec_V4.md) §1–§2). Its product framing —
+> ([Product Spec V4](../Revealyst_Product_Spec_V4.md) §1–§2). Its product framing —
 > CTO-buyer-first, "Fluency (the flagship)" score-led messaging — is retired: V4 leads with
 > the Personal AI Companion and demotes the raw score to a diagnostic. The automation-first
 > channel mechanics below still stand; every positioning/copy claim must be re-cut against
-> Spec V4 before use ([V4 Execution Plan](Revealyst_Execution_Plan_V4.md) W5-N).
+> Spec V4 before use ([V4 Execution Plan](../Revealyst_Execution_Plan_V4.md) W5-N).
 
 **Status:** Proposed · 2026-07-07
 **Owner:** Founder
@@ -13,8 +13,8 @@
 Grounded entirely in this repository — every recommendation cites the code, doc,
 or infrastructure it builds on. Companion docs: [launch plan](launch/launch-plan.md) ·
 [announcements](launch/announcements.md) · [directories](launch/directories.md) ·
-[benchmark post data needs](launch/benchmark-post-data-needs.md) ·
-[documentation plan](documentation-plan.md).
+[benchmark post data needs](../launch/benchmark-post-data-needs.md) ·
+[documentation plan](../documentation-plan.md).
 
 **Guiding principle applied throughout:** prefer less recurring effort, assets that
 compound, automation over manual execution, systems over campaigns, evergreen over
@@ -169,7 +169,7 @@ outstanding items. Historically production ran only on `revealyst.thapi.workers.
 looks untrustworthy on directories and in checkout, and every backlink earned at
 launch would point at a domain the product doesn't own. The repo also has **no
 `sitemap.ts`, no `robots.ts`, no `metadataBase`** (confirmed absent; already
-planned in `docs/documenation-plan.md` PR 5), and the landing page is
+planned in `docs/documentation-plan.md` PR 5), and the landing page is
 `force-dynamic` solely to fire a `landing_view` event (`src/app/page.tsx`).
 
 - **Work:** wire the already-purchased `revealyst.com` as the custom domain in
@@ -187,7 +187,7 @@ planned in `docs/documenation-plan.md` PR 5), and the landing page is
 
 ### System B — Public documentation as an acquisition surface
 
-Execute `docs/documenation-plan.md` as written: MDX docs at `/docs` (getting
+Execute `docs/documentation-plan.md` as written: MDX docs at `/docs` (getting
 started, per-connector pages, `/docs/scores/definitions`, privacy & attribution,
 billing, agent ingest), statically prerendered, with the plan's
 claim-safety-by-construction pattern (`<ConnectorAvailability/>` from
@@ -425,7 +425,7 @@ The site (landing + docs + share cards) is the entire marketing surface. Goals:
 
 ## 7. Documentation as Marketing
 
-`docs/documenation-plan.md` is already the right blueprint; this strategy adopts
+`docs/documentation-plan.md` is already the right blueprint; this strategy adopts
 it wholesale and adds the marketing framing:
 
 - **Docs pages are landing pages.** Each `/docs/connectors/<vendor>` page targets
@@ -490,7 +490,7 @@ Everything rides on tooling the project already pays for or that is free:
 | Domain | `revealyst.com` | **Purchased** — wire before launch | ~$10–20/yr renewal |
 | AI agents | Claude API / Claude Code headless in Actions | Existing workflow | ~$5–15/mo |
 | Email (deferred) | Cloudflare Email Service or Resend free tier | P2, data-gated (§12 M3) | $0–20/mo |
-| Docs/content | `@next/mdx` per `documenation-plan.md` | Planned | $0 |
+| Docs/content | `@next/mdx` per `documentation-plan.md` | Planned | $0 |
 | Billing/checkout | Paddle (MoR) | **Existing** | Existing |
 | Screencast | OBS/Screen Studio one-time (launch plan asset) | One-time | $0–89 once |
 
@@ -608,7 +608,7 @@ All [A] — pure agent work with no data dependency, so it can be built in
 parallel with M0/M1 and merged as review bandwidth allows. Its *payoff* is [W]
 (rankings arrive 4–12 weeks after merge), which is exactly why it should ship
 as early as possible, not on a day-25 schedule:
-- Item 5: docs section per `documenation-plan.md`.
+- Item 5: docs section per `documentation-plan.md`.
 - Item 10: compliance templates + methodology pages public.
 - Item 7: changelog generator + RSS.
 - Item 15: npm publish the agent CLI.

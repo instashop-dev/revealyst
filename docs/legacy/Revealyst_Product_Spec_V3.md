@@ -1,22 +1,22 @@
 # Revealyst — Product Specification (V3)
 
 **Version:** 3.0 · **Date:** July 7, 2026
-**Superseded by:** [Revealyst Product Specification V4](Revealyst_Product_Spec_V4.md)
+**Superseded by:** [Revealyst Product Specification V4](../Revealyst_Product_Spec_V4.md)
 (2026-07-13) — this document remains the V1.5 reference.
 **Supersedes:** [Revealyst Product Specification V2.4](Revealyst_Product_Spec_V2.md)
 **Scope:** V3 specifies **V1.5 only** — the wave that follows the completed V1 (W0–W3, gate
-evidence in [docs/gates/W3-evidence.md](gates/W3-evidence.md)). The V2-of-the-roadmap
+evidence in [docs/gates/W3-evidence.md](../gates/W3-evidence.md)). The V2-of-the-roadmap
 (org-wide expansion) is **parked by founder decision** and appears here only as a
 directional note (§13). Everything in Spec V2 §2–§7 (vision, market, architecture, data
 honesty, shared accounts, Personal mode, privacy) remains in force except where this
 document says otherwise.
 **Basis:** the W3 exit-gate evidence, the shipped-code inventory on `main`, the deferred-work
 sweep across ADRs/gates/code, and a July-2026 market + vendor-API re-verification. Vendor
-facts are grounded in the frozen [docs/connector-facts.md](connector-facts.md) (evidence
+facts are grounded in the frozen [docs/connector-facts.md](../connector-facts.md) (evidence
 date 2026-07-04) — where any external brief disagrees with connector-facts, connector-facts
 wins until a live re-verification changes it via ADR.
 **Execution model:** unchanged — parallel AI coding agents against frozen contracts
-([Execution Plan](Revealyst_Execution_Plan.md) rules 1–7 and all seven scope tripwires
+([Execution Plan](../Revealyst_Execution_Plan.md) rules 1–7 and all seven scope tripwires
 carry forward verbatim).
 **Changelog:**
 - v3.0 — first V1.5 spec. Commits the full V1.5 scope up front (founder decision — no
@@ -355,7 +355,7 @@ applies *per workstream*: ADR before code), builds against fixtures (rule 2), an
 integrates at the exit gate. Workstream letters continue the A–P + S sequence.
 
 **Entry note — V1 close-out founder actions (prerequisite track, not V1.5 build scope).**
-The **five founder actions from the W3 gate** ([W3-evidence §Sign-off](gates/W3-evidence.md))
+The **five founder actions from the W3 gate** ([W3-evidence §Sign-off](../gates/W3-evidence.md))
 remain open and gate the V1.5 *exit* gate (not build start): (1) Paddle prod secrets
 (`PADDLE_API_KEY` + `PADDLE_CLIENT_TOKEN`) + re-run Deploy; (2) end-to-end Team purchase
 walkthrough; (3) measured TTFI run; (4) `/code-review ultra` independent pass;
@@ -392,6 +392,6 @@ deferrals) confirmed live.
 ---
 
 *This spec is a living document. Vendor API facts are frozen in
-[docs/connector-facts.md](connector-facts.md) and re-verified quarterly (§10.3); competitor
+[docs/connector-facts.md](../connector-facts.md) and re-verified quarterly (§10.3); competitor
 pricing and tier gates move monthly — re-verify before quoting them anywhere
 customer-facing.*

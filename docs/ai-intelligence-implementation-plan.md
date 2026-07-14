@@ -1,6 +1,11 @@
 # AI Intelligence System — Implementation Plan (non-enterprise scope)
 
-**Status:** proposed · **Date:** 2026-07-11 · **Owner:** founder (product architect: fleet orchestration)
+**Status:** partially shipped (V4 Waves 5–6; Phases 1–2 merged) · **Date:** 2026-07-11 · **Owner:** founder (product architect: fleet orchestration)
+
+> **Positioning superseded by [Product Spec V4](Revealyst_Product_Spec_V4.md) §1–§2** (the
+> Personal AI Companion pivot). This plan is retained for its **guardrails G1–G10** (carried
+> into V4 verbatim) and its still-gated Future items (W6-A/D/E). Where a backlog row's framing
+> predates V4, V4 wins — see the M15 note in §7.
 
 **Source of truth:** [AI Intelligence System research](research/2026-07-11-ai-intelligence-system.md)
 (approved), [Manual Sync vs Desktop Connector](research/2026-07-11-manual-sync-vs-desktop-connector.md)
@@ -412,7 +417,7 @@ swap behind verified-status flag.
 
 | Item | Trigger | Notes |
 |---|---|---|
-| **M15** AI-Health composite preset | CTO/report demand for one blended number | Seed-migration ADR; composes shipped pieces |
+| **M15** AI-Health composite preset | CTO/report demand for one blended number | Seed-migration ADR; composes shipped pieces. **Team/Exec-only** — V4 §7.1 *kills* a single blended **individual** "AI Health" number ("Score 74 in a mascot costume"); never surface this on the Personal Companion surface |
 | **C3** learning goals + progress meters | Proficiency engagement data shows pull | New table (ADR + G9); endowed-progress UX |
 | **M10** percentile/growth vocabulary ADR | First preset that *needs* in-scoring percentiles/velocity | Until then lib-side computation suffices (proven in Phase 1) |
 | **T3** OpenAI usage families / **T4** Anthropic OAuth-actor recovery | User demand (T3) / vendor fix lands (T4, issue #27780) | S–M connector work; rank-19 value |

@@ -200,7 +200,7 @@ relative imports so it is actually testable under vitest.
 
 **A1 (MEDIUM — invariant b): Indie Hackers launch post said "free below 10
 users"** — the enforced limit is `FREE_TRACKED_USER_LIMIT = 5` (the same doc
-says 5 five times elsewhere). **Fixed this session** (`docs/launch/announcements.md`).
+says 5 five times elsewhere). **Fixed this session** (`docs/legacy/launch/announcements.md`).
 
 **A2 (MEDIUM — invariant b): shared-accounts empty state claimed "Per-person
 attribution is clean"** from usage-pattern heuristics that never read

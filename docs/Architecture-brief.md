@@ -4,7 +4,7 @@
 **Production runtime:** one Cloudflare Worker behind two custom domains — `https://app.revealyst.com` (app + auth) and `https://revealyst.com` (marketing) — with the host split documented in [docs/infra.md](infra.md) §6; the legacy `revealyst.thapi.workers.dev` host 308-redirects.  
 **Scope of this brief:** the deployed V1 platform shape - web app, data plane, background jobs, billing, and the currently wired connectors.
 
-Revealyst is a multi-tenant AI-adoption analytics platform built as a single TypeScript monolith. The product surface is a Next.js web app; the runtime is Cloudflare Workers via OpenNext; the system of record is Postgres on Neon, reached from Workers through Hyperdrive. Scheduled polling, nightly recompute, and billing metering run on Cloudflare Cron Triggers and Queues rather than on a separate worker fleet.
+Revealyst is a multi-tenant **AI Growth Platform** — a bottom-up Personal AI Companion whose individual signal compounds into the team and executive intelligence leaders pay for (Spec V4 §2) — built as a single TypeScript monolith. The product surface is a Next.js web app; the runtime is Cloudflare Workers via OpenNext; the system of record is Postgres on Neon, reached from Workers through Hyperdrive. Scheduled polling, nightly recompute, and billing metering run on Cloudflare Cron Triggers and Queues rather than on a separate worker fleet.
 
 The design choice throughout V1 is operational simplicity with hard tenancy boundaries: one database, `org_id` on every row, request-scoped DB/auth clients, and async ingestion decoupled from user-facing requests. Personal mode and Team mode run on the same machinery; "personal" is an org of one, not a separate stack.
 

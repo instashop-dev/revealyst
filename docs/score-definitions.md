@@ -26,9 +26,11 @@ Revealyst measures *AI adoption at the team level* — how broadly a tool is
 used, how capably, and whether the spend is paying off. It is explicitly
 **not**:
 
-- A productivity-surveillance tool. We never rank or expose individuals
-  without their consent (see the [Product Spec](Revealyst_Product_Spec_V2.md)
-  §7 privacy model); team-level scores are the default everywhere.
+- A productivity-surveillance tool. Individuals see their own scores
+  (the Personal Companion self-view); no one else sees an individual's data
+  without consent, and team and executive views are pseudonymized by
+  construction (see the [Product Spec V4](Revealyst_Product_Spec_V4.md) §13
+  privacy model).
 - A prompt-content analyzer. Scores are built entirely from usage metadata
   (session counts, tokens, spend, suggestion acceptance) — never from what
   anyone actually typed.

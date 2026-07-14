@@ -1,7 +1,7 @@
 # Revealyst — Product Specification (V4)
 
 **Version:** 4.0 · **Date:** 2026-07-13
-**Supersedes:** [Revealyst Product Specification V3](Revealyst_Product_Spec_V3.md) (retained as
+**Supersedes:** [Revealyst Product Specification V3](legacy/Revealyst_Product_Spec_V3.md) (retained as
 the V1.5 reference, exactly as V2 is retained as the V1 reference). Everything in Spec V2 §2–§7
 and Spec V3 §§3–12 (market, architecture, data honesty, shared accounts, Personal mode, privacy,
 pricing, tech stack) remains in force except where this document says otherwise.
@@ -740,8 +740,8 @@ guard even when additive. Everything else in MVP composes existing surfaces.
 
 ## 17. Document map & supersession
 
-- **This document** is the product ground truth. [Spec V3](Revealyst_Product_Spec_V3.md) remains
-  the V1.5 reference; [Spec V2](Revealyst_Product_Spec_V2.md) the V1 reference.
+- **This document** is the product ground truth. [Spec V3](legacy/Revealyst_Product_Spec_V3.md) remains
+  the V1.5 reference; [Spec V2](legacy/Revealyst_Product_Spec_V2.md) the V1 reference.
 - [Product Direction V4](Revealyst_Product_Direction_V4.md) is the strategy source this spec
   operationalizes; it remains the richer record of *why*.
 - [ai-intelligence-implementation-plan.md](ai-intelligence-implementation-plan.md): Phases 1–2

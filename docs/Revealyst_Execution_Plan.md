@@ -7,7 +7,7 @@
 > bind every V4 workstream verbatim.
 
 **Version:** 2.1 · **Date:** July 4, 2026
-**Basis:** [Revealyst Product Spec V2.3](Revealyst_Product_Spec_V2.md)
+**Basis:** [Revealyst Product Spec V2.3](legacy/Revealyst_Product_Spec_V2.md)
 **Execution model:** The entire app is built by **AI agents running in parallel**. This plan is therefore organized as a **dependency graph of workstreams**, not a calendar. Waves are ordered by hard dependencies only; everything inside a wave runs concurrently. No timelines — a wave completes when its exit gate passes.
 **Scope decision:** V1 is built **without a customer-validation track**; the spec's positioning and pricing are taken as given.
 **Critical path is human review, not code.** When build is parallel and agent-fast, the schedule is gated by the clocks that *cannot* be parallelized: GitHub App review, Paddle Merchant-of-Record onboarding, and the legal pass on ToS/DPA. Fire every one of these at the earliest wave that permits it (W0 for those needing no live site; the moment W2 produces a live site for Paddle). Treat these as the true critical path; agent build time is not.

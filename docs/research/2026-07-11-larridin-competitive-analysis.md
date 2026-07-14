@@ -3,7 +3,7 @@
 **Date:** 2026-07-11 · **Status:** research report (no contract changes)
 **Sources:** Larridin public docs at https://docs.larridin.com (feature pages, setup guides,
 integration pages, Scout API v1 reference, MCP page), crawled 2026-07-11; Revealyst codebase,
-`docs/Revealyst_Product_Spec_V3.md`, `docs/Revealyst_Product_Spec_V2.md`,
+`docs/legacy/Revealyst_Product_Spec_V3.md`, `docs/legacy/Revealyst_Product_Spec_V2.md`,
 `docs/Revealyst_Execution_Plan.md`, `docs/connector-facts.md`, ADRs 0001–0026, and
 `docs/research/2026-07-11-ai-intelligence-system.md` (PR #151).
 
