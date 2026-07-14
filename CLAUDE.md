@@ -73,8 +73,14 @@ it is the interface between agents.
 > proven by `tests/perf/capability-state-queries`), **capped `directional`** (L7), honesty reused
 > verbatim (zero evidence → no row), three registrations green, backfill-safe-empty. Rendered as a
 > positive-first **capability-profile card** (decomposition of the one band, not a third ladder).
-> Latest mig **0031**, latest ADR **0036**.
-> Remaining: P3 utility ranker, P4 coaching loop, P5 missions, P6 team rollups. **Wave 8 (P7
+> Latest mig **0031**, latest ADR **0036**. **P3** utility ranker shipped (no migration/ADR): the
+> fixed `impact:1` in `deriveAttention` is replaced by a deterministic `computeUtility`
+> (`src/lib/recommendation-catalog.ts`, named/exported weights, no ML) that consumes the previously-
+> inert benefit/difficulty/confidence + capabilityGap; a permanent output-equivalence guard proves
+> uniform metadata reduces to weakest-first; a stage-1 eligibility filter (role/tool/prereq
+> fails-closed) is implemented + tested but wired live in P4 (to keep dashboard+digest in sync). The
+> ranking itself is live on both paths (internal to `deriveAttention`).
+> Remaining: P4 coaching loop, P5 missions, P6 team rollups. **Wave 8 (P7
 > experimentation / P8 OTel measured tier) stays GATED** on
 > founder OTel fixture capture, a founder-signed privacy-reversal ADR, and real "tried" volume —
 > cannot be forced by agent work.

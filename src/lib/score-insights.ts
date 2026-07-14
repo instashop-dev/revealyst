@@ -4,6 +4,7 @@ import type { SpikeSignal } from "./anomaly";
 import { plateauAttentionCopy, spikeAttentionCopy } from "./anomaly-glossary";
 import {
   COACHING_GUIDANCE_SUFFIX,
+  computeUtility,
   evaluateRequiredSignals,
   indexBySlugComponent,
   type CatalogRecommendation,
@@ -479,6 +480,74 @@ const MEANINGFUL_SCORE_DROP = 10;
  * catalog data, so it stays a code constant. */
 const MAX_RECOMMENDATIONS = 2;
 
+/** W7-3 — the utility penalty applied to a rec the person has already engaged
+ * with ("tried"), so guidance rotates rather than repeating. Small enough that
+ * a much weaker component still outranks a fresh one. */
+const REC_FATIGUE_PENALTY = 0.1;
+
+/** W7-3 stage-1 eligibility (all gates OPT-IN — an omitted context passes, so
+ * the pre-W7 behavior and every test that doesn't pass the context is
+ * unchanged). Role/tool: if the rec targets specific roles/tools AND the caller
+ * supplied the person's roles/connected tools, require an overlap. Prerequisite
+ * (fails CLOSED): every direct prerequisite of every target capability must be
+ * mastered — missing from `masteredCapabilities` counts as NOT mastered. */
+function isRecEligible(
+  rec: CatalogRecommendation,
+  ctx: {
+    personRoles?: ReadonlySet<string>;
+    connectedTools?: ReadonlySet<string>;
+    masteredCapabilities?: ReadonlySet<string>;
+    capabilityPrereqs?: ReadonlyMap<string, readonly string[]>;
+  },
+): boolean {
+  if (
+    rec.applicableRoles.length > 0 &&
+    ctx.personRoles &&
+    !rec.applicableRoles.some((r) => ctx.personRoles!.has(r))
+  ) {
+    return false;
+  }
+  if (
+    rec.applicableTools.length > 0 &&
+    ctx.connectedTools &&
+    !rec.applicableTools.some((t) => ctx.connectedTools!.has(t))
+  ) {
+    return false;
+  }
+  if (
+    rec.targetCapabilities.length > 0 &&
+    ctx.capabilityPrereqs &&
+    ctx.masteredCapabilities
+  ) {
+    for (const cap of rec.targetCapabilities) {
+      for (const prereq of ctx.capabilityPrereqs.get(cap) ?? []) {
+        if (!ctx.masteredCapabilities.has(prereq)) return false;
+      }
+    }
+  }
+  return true;
+}
+
+/** 1 when a rec specifically fits the person's role or connected tools; 0.5 for
+ * a universal rec (empty applicable_*) or when no role/tool context was given. */
+function recRoleToolFit(
+  rec: CatalogRecommendation,
+  ctx: {
+    personRoles?: ReadonlySet<string>;
+    connectedTools?: ReadonlySet<string>;
+  },
+): number {
+  const roleMatch =
+    rec.applicableRoles.length > 0 &&
+    !!ctx.personRoles &&
+    rec.applicableRoles.some((r) => ctx.personRoles!.has(r));
+  const toolMatch =
+    rec.applicableTools.length > 0 &&
+    !!ctx.connectedTools &&
+    rec.applicableTools.some((t) => ctx.connectedTools!.has(t));
+  return roleMatch || toolMatch ? 1 : 0.5;
+}
+
 type ScoredAttentionItem = AttentionItem & { impact: number };
 
 /** Coerces a stored `components` jsonb (typed on the team path, `unknown` on
@@ -643,6 +712,17 @@ export function deriveAttention(input: {
    * whose `targetCapabilities[0]` resolves here; a miss (or omission) leaves
    * `capabilityLabel` undefined — the ranking is untouched (display-only). */
   capabilityLabels?: ReadonlyMap<string, string>;
+  /** W7-3 stage-1 eligibility context (ALL OPT-IN — omit to keep pre-W7
+   * behavior). `personRoles`/`connectedTools`: exclude a role/tool-scoped rec
+   * that doesn't apply. `masteredCapabilities` + `capabilityPrereqs`: exclude a
+   * rec whose target capability has an unmet prerequisite (fails closed).
+   * `fatigueRecIds`: recs the person already engaged with (a mild rank penalty,
+   * never an exclusion). */
+  personRoles?: ReadonlySet<string>;
+  connectedTools?: ReadonlySet<string>;
+  masteredCapabilities?: ReadonlySet<string>;
+  capabilityPrereqs?: ReadonlyMap<string, readonly string[]>;
+  fatigueRecIds?: ReadonlySet<string>;
 }): AttentionItem[] {
   const items: ScoredAttentionItem[] = [];
 
@@ -790,8 +870,11 @@ export function deriveAttention(input: {
   // the cap — adoption.active_days and fluency.depth read the same 0–20
   // `active_day` count (tool_coverage/breadth likewise share `feature_used`),
   // so when both are weak they'd tie and burn both slots on near-identical
-  // advice, cutting distinct guidance. Weakest entry per signal group wins;
-  // then at most MAX_RECOMMENDATIONS, weakest first.
+  // advice, cutting distinct guidance. W7-3: candidates are now ranked by the
+  // deterministic `computeUtility` (highest first, then weakest as tie-break)
+  // after an OPT-IN stage-1 eligibility filter (role/tool/prerequisite); the
+  // highest-utility entry per signal group wins, then at most
+  // MAX_RECOMMENDATIONS. With uniform metadata this reduces to weakest-first.
   if (
     input.scoreComponents &&
     input.scoreComponents.length > 0 &&
@@ -805,6 +888,7 @@ export function deriveAttention(input: {
     const candidates: {
       recommendation: CatalogRecommendation;
       normalized: number;
+      utility: number;
     }[] = [];
     for (const score of input.scoreComponents) {
       for (const row of score.components) {
@@ -822,10 +906,24 @@ export function deriveAttention(input: {
         // (future) row without that comparator can't push an unrankable
         // candidate.
         if (row.normalized === undefined) continue;
-        candidates.push({ recommendation, normalized: row.normalized });
+        // W7-3 stage-1 eligibility (opt-in): role/tool/prerequisite gates.
+        if (!isRecEligible(recommendation, input)) continue;
+        // W7-3 stage-2 utility: consume the previously-inert catalog metadata.
+        const utility = computeUtility(recommendation, {
+          normalized: row.normalized,
+          roleToolFit: recRoleToolFit(recommendation, input),
+          novelty: 1, // constant until the exposure log (P7) makes it vary
+          fatiguePenalty: input.fatigueRecIds?.has(recommendation.id)
+            ? REC_FATIGUE_PENALTY
+            : 0,
+        });
+        candidates.push({ recommendation, normalized: row.normalized, utility });
       }
     }
-    candidates.sort((a, b) => a.normalized - b.normalized);
+    // Rank by deterministic utility (highest first); tie-break on the weaker
+    // component so the order stays total & stable. With uniform metadata this
+    // reduces to today's weakest-first (the output-equivalence guard).
+    candidates.sort((a, b) => b.utility - a.utility || a.normalized - b.normalized);
     const seenSignalGroups = new Set<string>();
     const distinct = candidates.filter(({ recommendation }) => {
       if (seenSignalGroups.has(recommendation.signalGroup)) return false;
