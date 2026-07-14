@@ -63,6 +63,10 @@ export const GROWTH_JOURNEY_COPY = {
    * one-liners around them. */
   formingLead: "Your level is still forming",
   staleLead: "Your level is paused until your next sync",
+  /** W7-4 follow-up — lead-in when the headline reflects the person's MEASURED
+   * capability band (only after mastery is measured; a directional early read
+   * keeps the modeled maturity level as the headline). */
+  capabilityLead: "Your strongest area is",
 } as const;
 
 /** The level name + tagline for the companion headline, sourced ONLY from

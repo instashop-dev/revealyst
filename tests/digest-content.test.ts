@@ -262,6 +262,63 @@ describe("reserved coaching slot (errata §1.2(7))", () => {
     expect(dashboard.slice(0, digest.length)).toEqual(digest);
   });
 
+  it("shares source WITH the eligibility gates live (W7-3): same prereq exclusion on both", () => {
+    // fluency.effectiveness → effective-prompting, which requires feature-breadth.
+    // feature-breadth is NOT mastered → the effectiveness rec is gated out of
+    // BOTH the dashboard and the digest; the no-prereq adoption rec survives on
+    // both, identically.
+    const scoreComponents = [
+      weakActiveDays(), // adoption.active_days → ai-coding-foundations (no prereq)
+      {
+        slug: "fluency" as const,
+        components: [
+          {
+            key: "effectiveness",
+            label: "effectiveness",
+            kind: "plain" as const,
+            omitted: false,
+            normalized: 8,
+            weight: 0.34,
+            calcSimple: "calc",
+          },
+        ],
+      },
+    ];
+    const gate = {
+      masteredCapabilities: new Set(["ai-coding-foundations"]),
+      capabilityPrereqs: new Map([["effective-prompting", ["feature-breadth"]]]),
+    };
+    const dashboard = deriveAttention({
+      connections: [],
+      gaps: [],
+      sharedAccountCount: 0,
+      scoreDrops: [],
+      scoreComponents,
+      recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
+      ...gate,
+    })
+      .filter((i) => i.kind === "recommendation")
+      .map((i) => i.recId);
+    const digest = assembleDigest({
+      now: NOW,
+      lane: "personal",
+      connections: [conn("openai", "active", fresh)],
+      movement: emptyMovement(),
+      trends: [],
+      scoreComponents,
+      recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
+      ...gate,
+    }).recommendations
+      .filter((i) => i.kind === "recommendation")
+      .map((i) => i.recId);
+    // Both exclude the prereq-gated effectiveness rec…
+    expect(dashboard).not.toContain("fluency-effectiveness");
+    expect(digest).not.toContain("fluency-effectiveness");
+    // …and the digest's selection is a prefix of the dashboard's (same engine).
+    expect(digest.length).toBeGreaterThan(0);
+    expect(dashboard.slice(0, digest.length)).toEqual(digest);
+  });
+
   it("a week WITH connection errors still ships ≥1 coaching rec (W5-F acceptance)", () => {
     // Three errored connections (impact 100 each) would fill all 3 slots under
     // the old flat slice, burying coaching (impact 1). The reserve guarantees

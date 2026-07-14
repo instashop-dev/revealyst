@@ -76,6 +76,7 @@ import {
   buildDailyNudge,
   COMPANION_HEADER,
 } from "@/lib/companion-glossary";
+import { overallCapabilityBand } from "@/lib/capability-glossary";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
 import { readDashboardView } from "@/lib/dashboard-view";
 import { readMaturityView, type CostPerActiveUserNumber } from "@/lib/maturity";
@@ -109,6 +110,7 @@ import { deriveRecInteractionView } from "@/lib/rec-interactions";
 import { vendorLabel } from "@/lib/vendor-labels";
 import { VISIBILITY_MODE_INFO } from "@/lib/visibility-playbook";
 import { periodFor, previousDay } from "@/scoring";
+import { CAPABILITY_STATE_CONSTANTS } from "@/scoring/capability-state";
 
 export const dynamic = "force-dynamic";
 
@@ -305,7 +307,7 @@ async function PersonalSelfView({
     maturity,
     recInteractions,
     recommendations,
-    capabilityLabels,
+    capabilityGraph,
     capabilityStates,
   ] = await timeStage("pageData", () =>
       Promise.all([
@@ -385,9 +387,9 @@ async function PersonalSelfView({
         // into this flat Promise.all (+1 query, still round-trip depth 1),
         // evaluated in memory by `deriveAttention` below (§8.2 perf floor).
         ctx.scope.catalog.list(),
-        // W7-1: capability slug → label map (global reference data), same batch
-        // — the coaching card's "advances X" label source.
-        ctx.scope.capabilities.labels(),
+        // W7-1: the capability graph (labels + prerequisite edges), same batch
+        // — the coaching card's label source AND the W7-3 prerequisite gate.
+        ctx.scope.capabilities.graph(),
         // W7-2: the signed-in user's OWN capability state (self-view), folded
         // into this depth-1 batch via a people.auth_user_id join so it needs no
         // resolved tracked personId ahead of the batch.
@@ -444,6 +446,33 @@ async function PersonalSelfView({
   const fluencyComputed = scores.has("fluency");
   const personId =
     summary.scores.find((s) => s.person)?.person?.id ?? null;
+
+  // W7-1/W7-3: derive the capability label map + prerequisite edges from the
+  // graph fetched above (zero new queries), and the person's eligibility context
+  // for the coaching gates.
+  const capabilityLabels = new Map(
+    capabilityGraph.capabilities.map((c) => [c.slug, c.label]),
+  );
+  const capabilityPrereqs = new Map<string, string[]>();
+  for (const dep of capabilityGraph.dependencies) {
+    const list = capabilityPrereqs.get(dep.capabilitySlug);
+    if (list) list.push(dep.requiresSlug);
+    else capabilityPrereqs.set(dep.capabilitySlug, [dep.requiresSlug]);
+  }
+  const masteredCapabilities = new Set(
+    capabilityStates
+      .filter((s) => s.mastery >= CAPABILITY_STATE_CONSTANTS.MASTERED_THRESHOLD)
+      .map((s) => s.capabilitySlug),
+  );
+  const connectedTools = new Set(
+    connections.filter((c) => c.status === "active").map((c) => c.vendor),
+  );
+  // Safeguard (reliability-first): the prerequisite gate fails closed, so on
+  // DIRECTIONAL-only mastery a forming person (nothing yet mastered) would be
+  // gated down to root recs. Apply it ONLY once the person has established ≥1
+  // capability; a forming person keeps the full coaching set. Tune away once
+  // mastery is measured (P8).
+  const prereqGateActive = masteredCapabilities.size > 0;
 
   // Build each card's data once, up front, so the F1.1 coaching gate and the
   // rendered cards read the SAME `componentRows` (one `formatComponentDetail`
@@ -527,11 +556,14 @@ async function PersonalSelfView({
     recommendations,
     // W7-1: display-only capability labels for the coaching card.
     capabilityLabels,
+    // W7-3 (now live): stage-1 eligibility. Role/tool always applied (inert for
+    // the universal launch recs, future-proof); the prerequisite gate only once
+    // the person has established ≥1 capability (the forming-user safeguard).
+    connectedTools,
+    ...(prereqGateActive ? { masteredCapabilities, capabilityPrereqs } : {}),
     // W7-4: the person's connected-source count (active connections' distinct
     // vendors) → the honest confidence disclosure on each coaching rec.
-    coverageSourceCount: new Set(
-      connections.filter((c) => c.status === "active").map((c) => c.vendor),
-    ).size,
+    coverageSourceCount: connectedTools.size,
     anomalies,
   });
   // W5-C companion composition (positive-first, level-forward): the coaching
@@ -639,6 +671,10 @@ async function PersonalSelfView({
         level={maturity.level}
         stale={maturity.stale}
         nextStep={topNextStep}
+        // W7-4 follow-up: null until mastery is MEASURED (OTel/P8) — today all
+        // capability state is directional, so this stays null and the modeled
+        // maturity level remains the headline.
+        capabilityBand={overallCapabilityBand(capabilityStates)}
       />
 
       {/* W5-F: positive-first — celebrate grounded milestones immediately,

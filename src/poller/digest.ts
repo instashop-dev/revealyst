@@ -24,6 +24,7 @@ import {
 } from "../lib/email";
 import { addUtcDays } from "../lib/raw-metric-delta";
 import { computeRecentMovement } from "../lib/recent-movement";
+import { CAPABILITY_STATE_CONSTANTS } from "../scoring/capability-state";
 import {
   formatComponentDetail,
   type ComponentDetailRow,
@@ -151,6 +152,8 @@ export async function runWeeklyDigest(
     identities,
     dismissedRecIds,
     recommendations,
+    capabilityGraph,
+    ownerCapabilityState,
   ] = await Promise.all([
     scope.scores.results({ from, to }),
     scope.scores.definitions(),
@@ -165,7 +168,33 @@ export async function runWeeklyDigest(
     // into this single Promise.all (§8.2 perf floor), evaluated in memory by
     // `assembleDigest` → `deriveAttention`.
     scope.catalog.list(),
+    // W7-3 (now live): the capability graph (prerequisite edges) + the personal
+    // owner's mastery — for the same eligibility gates the dashboard applies, so
+    // the two surfaces select identical recs. Team lane has no single person, so
+    // its recs stay org aggregates (no gating).
+    scope.capabilities.graph(),
+    lane === "personal"
+      ? scope.mastery.forUser(recipients[0].userId)
+      : Promise.resolve([]),
   ]);
+
+  // W7-3 personal-lane eligibility context (mirrors the dashboard, incl. the
+  // forming-user safeguard: apply the fails-closed prerequisite gate only once
+  // the owner has established ≥1 capability).
+  const digestMastered = new Set(
+    ownerCapabilityState
+      .filter((s) => s.mastery >= CAPABILITY_STATE_CONSTANTS.MASTERED_THRESHOLD)
+      .map((s) => s.capabilitySlug),
+  );
+  const digestPrereqs = new Map<string, string[]>();
+  for (const dep of capabilityGraph.dependencies) {
+    const list = digestPrereqs.get(dep.capabilitySlug);
+    if (list) list.push(dep.requiresSlug);
+    else digestPrereqs.set(dep.capabilitySlug, [dep.requiresSlug]);
+  }
+  const digestConnectedTools = new Set(
+    connections.filter((c) => c.status === "active").map((c) => c.vendor),
+  );
 
   const teamRows = rawScores.filter((r) => r.subjectLevel === "team");
   const trends = await readScoreTrends(
@@ -195,6 +224,20 @@ export async function runWeeklyDigest(
     scoreComponents,
     recommendations,
     dismissedRecIds: new Set(dismissedRecIds),
+    // W7-3 (now live): personal lane only. Role/tool always; the prerequisite
+    // gate only once the owner has established ≥1 capability (forming-user
+    // safeguard) — identical to the dashboard, so the two surfaces agree.
+    ...(lane === "personal"
+      ? {
+          connectedTools: digestConnectedTools,
+          ...(digestMastered.size > 0
+            ? {
+                masteredCapabilities: digestMastered,
+                capabilityPrereqs: digestPrereqs,
+              }
+            : {}),
+        }
+      : {}),
   });
 
   // G5 staleness gate: no usable connection synced within the window → suppress

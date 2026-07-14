@@ -45,6 +45,8 @@ import {
 } from "./maturity-glossary";
 import { composeNarrative, type Narrative, type NarrativeInputs } from "./narrative";
 import type { SpendGovernanceView } from "./spend-governance";
+import { CAPABILITY_STATE_CONSTANTS } from "../scoring/capability-state";
+import { SEGMENT_MIN_PEOPLE_TO_NAME } from "./segments";
 
 /** One board number as it appears in the memo: the label + caveat come from
  * maturity-glossary (MATURITY_NUMBER_COPY); `value` is the measured string
@@ -77,6 +79,10 @@ export type ExecReport = {
   spendLine: string;
   /** Attribution-coverage (honesty-gap) trend line. */
   honestyLine: string;
+  /** W7-6 follow-up — one aggregate, count-only capability-coverage sentence
+   * (the team's strongest capability by share). Empty string when no capability
+   * clears the MIN_PEOPLE floor, so renderers skip it. */
+  capabilityCoverageLine: string;
   /** The eight board numbers, in the maturity-report grid order. */
   sections: ExecReportSection[];
   /** The "what we deliberately don't measure" differentiator content. */
@@ -101,6 +107,11 @@ export type ExecReportInputs = {
    * (the memo carries the honesty-gap trend as its own dedicated line, so the
    * narrative close would double it). */
   narrative: NarrativeInputs;
+  /** W7-6 follow-up — aggregate, count-only, ALREADY-FLOORED capability coverage
+   * (the caller applies the MIN_PEOPLE floor + label join + share sort, exactly
+   * as readDashboardView does). Omitted/empty → no coverage line. NEVER carries
+   * a person id — it is a count-only rollup. */
+  capabilityCoverage?: readonly { label: string; mastered: number; total: number }[];
 };
 
 function round(n: number): number {
@@ -338,6 +349,22 @@ function sections(maturity: MaturityView): ExecReportSection[] {
  * trajectory, plateau, spend, and honesty lines are layered on. Every string
  * traces to a measured input via exec-report-copy.ts.
  */
+/** One aggregate, count-only capability-coverage sentence — the team's strongest
+ * capability by mastered share. Empty when nothing cleared the caller's
+ * MIN_PEOPLE floor. Never names a person (a count-only rollup, invariant b). */
+function capabilityCoverageLine(
+  coverage: ExecReportInputs["capabilityCoverage"],
+): string {
+  if (!coverage || coverage.length === 0) return "";
+  // Caller already sorted by share descending; the first is the strongest.
+  const top = coverage[0];
+  const also =
+    coverage.length > 1
+      ? ` Coverage spans ${coverage.length} capabilities in total.`
+      : "";
+  return `Capability coverage: ${top.mastered} of ${top.total} people show established habits in ${top.label}.${also}`;
+}
+
 export function composeExecReport(inputs: ExecReportInputs): ExecReport {
   const narrative: Narrative = composeNarrative(inputs.narrative);
   return {
@@ -349,6 +376,7 @@ export function composeExecReport(inputs: ExecReportInputs): ExecReport {
     plateauLine: plateauLine(inputs.maturity),
     spendLine: spendLine(inputs.spend),
     honestyLine: honestyLine(inputs.attribution),
+    capabilityCoverageLine: capabilityCoverageLine(inputs.capabilityCoverage),
     sections: sections(inputs.maturity),
     notMeasured: MATURITY_NOT_SCORED,
     dataAsOf: inputs.maturity.dataAsOf,
@@ -384,23 +412,45 @@ export async function readExecReport(
   const monthKey = reportedMonthEnd.slice(0, 7);
   const usageFrom = addUtcDays(today, -EXEC_REPORT_USAGE_WINDOW_DAYS);
 
-  const [maturity, spend, activeDayRows, spendRows, identities] =
-    await Promise.all([
-      readMaturityView(scope, today),
-      readSpendGovernance(scope, reportedMonthEnd),
-      scope.metrics.records({
-        metricKey: "active_day",
-        from: usageFrom,
-        to: today,
-        dim: "",
-      }),
-      scope.metrics.records({
-        metricKey: "spend_cents",
-        from: usageFrom,
-        to: today,
-      }),
-      scope.identities.all(),
-    ]);
+  const [
+    maturity,
+    spend,
+    activeDayRows,
+    spendRows,
+    identities,
+    coverageCounts,
+    capabilityLabels,
+  ] = await Promise.all([
+    readMaturityView(scope, today),
+    readSpendGovernance(scope, reportedMonthEnd),
+    scope.metrics.records({
+      metricKey: "active_day",
+      from: usageFrom,
+      to: today,
+      dim: "",
+    }),
+    scope.metrics.records({
+      metricKey: "spend_cents",
+      from: usageFrom,
+      to: today,
+    }),
+    scope.identities.all(),
+    // W7-6 follow-up: aggregate capability coverage, count-only, folded into
+    // this same depth-1 batch.
+    scope.mastery.coverageCounts(CAPABILITY_STATE_CONSTANTS.MASTERED_THRESHOLD),
+    scope.capabilities.labels(),
+  ]);
+
+  // MIN_PEOPLE-floored, label-joined, share-sorted — the SAME shaping as
+  // readDashboardView, so the memo and the dashboard never disagree.
+  const capabilityCoverage = [...coverageCounts.entries()]
+    .filter(([, c]) => c.withState >= SEGMENT_MIN_PEOPLE_TO_NAME)
+    .map(([slug, c]) => ({
+      label: capabilityLabels.get(slug) ?? slug,
+      mastered: c.mastered,
+      total: c.withState,
+    }))
+    .sort((a, b) => b.mastered / b.total - a.mastered / a.total || a.label.localeCompare(b.label));
 
   const movement = computeRecentMovement({
     today,
@@ -419,5 +469,6 @@ export async function readExecReport(
     // Attribution is left OFF the narrative inputs — the memo carries the
     // honesty-gap trend as its own line, so the narrative close would double it.
     narrative: { movement, agentic: maturity.numbers.agenticShare.agentic },
+    capabilityCoverage,
   });
 }

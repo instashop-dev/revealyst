@@ -8,6 +8,7 @@ import {
   companionLevelCopy,
   GROWTH_JOURNEY_COPY,
 } from "@/lib/companion-glossary";
+import type { CapabilityBand } from "@/lib/capability-glossary";
 import type { MaturityLevelValue } from "@/lib/maturity-glossary";
 import type { AttentionItem } from "@/lib/score-insights";
 
@@ -25,19 +26,31 @@ export function GrowthJourneyCard({
   level,
   stale,
   nextStep,
+  capabilityBand = null,
 }: {
   level: MaturityLevelValue | null;
   stale: boolean;
   /** The top coaching recommendation (first `deriveAttention` item with
    * `kind === "recommendation"`), or null when none currently fires. */
   nextStep: AttentionItem | null;
+  /** W7-4 follow-up: the person's MEASURED capability band. When present it
+   * becomes the headline (a truer read than the modeled level); null — the
+   * default, and ALL cases today, since mastery is directional until OTel/P8 —
+   * keeps the maturity level as the headline. Personal-org only. */
+  capabilityBand?: CapabilityBand | null;
 }) {
   const copy = companionLevelCopy(level, stale);
-  const lead = copy.placed
-    ? GROWTH_JOURNEY_COPY.levelLead
-    : stale
-      ? GROWTH_JOURNEY_COPY.staleLead
-      : GROWTH_JOURNEY_COPY.formingLead;
+  // When a measured capability band exists, it leads; otherwise the modeled
+  // maturity level does (unchanged behavior until mastery is measured).
+  const headlineName = capabilityBand ?? copy.name;
+  const placed = capabilityBand !== null || copy.placed;
+  const lead = capabilityBand
+    ? GROWTH_JOURNEY_COPY.capabilityLead
+    : copy.placed
+      ? GROWTH_JOURNEY_COPY.levelLead
+      : stale
+        ? GROWTH_JOURNEY_COPY.staleLead
+        : GROWTH_JOURNEY_COPY.formingLead;
 
   return (
     <Card>
@@ -52,9 +65,9 @@ export function GrowthJourneyCard({
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <span className="text-sm text-muted-foreground">{lead}</span>
             <h2 className="font-heading text-2xl font-semibold tracking-tight">
-              {copy.name}
+              {headlineName}
             </h2>
-            {copy.placed ? (
+            {placed ? (
               <Badge variant="outline" className="font-normal">
                 {GROWTH_JOURNEY_COPY.levelBadge}
               </Badge>
@@ -71,7 +84,7 @@ export function GrowthJourneyCard({
           </p>
         </div>
 
-        <NextStep item={nextStep} placed={copy.placed} />
+        <NextStep item={nextStep} placed={placed} />
       </CardContent>
     </Card>
   );
