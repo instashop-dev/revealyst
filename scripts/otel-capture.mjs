@@ -34,11 +34,17 @@ const counters = { "/v1/metrics": 0, "/v1/logs": 0, other: 0 };
 
 function authShape(header) {
   if (!header) return "(none)";
-  // Report only the SHAPE — never the secret. e.g. "Bearer rva1.<4-part-token>"
-  const m = /^Bearer\s+(\S+)/i.exec(header);
-  if (!m) return `${header.split(" ")[0]} <opaque>`;
-  const parts = m[1].split(".");
-  return `Bearer <${parts.length}-part token>`;
+  // Report only the SHAPE — never the secret. Split on a real space OR a literal
+  // "%20" (some exporters send OTEL_EXPORTER_OTLP_HEADERS values un-decoded), so a
+  // non-Bearer scheme can never fall through and print its credential in full.
+  const m = /^(\S+?)(?:\s+|%20)(\S+)/i.exec(header);
+  if (!m) return "(unrecognized shape)";
+  const [, scheme, credential] = m;
+  if (/^bearer$/i.test(scheme)) {
+    const parts = credential.split(".");
+    return `Bearer <${parts.length}-part token>`;
+  }
+  return `${scheme} <redacted, ${credential.length} chars>`;
 }
 
 const server = createServer((req, res) => {

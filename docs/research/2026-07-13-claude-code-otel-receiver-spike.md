@@ -15,6 +15,12 @@ doc is more specific; both remain valid on everything else.
 > the founder's own Claude Code run with `CLAUDE_CODE_ENABLE_TELEMETRY=1`, which is
 > founder infra this workstream cannot perform. The fixtures shipped here are
 > **hand-constructed synthetic** illustrations, clearly labelled as such.
+>
+> **Update 2026-07-14:** the founder-gated capture is done. §9 now has real
+> `fixtures/otel/*.captured.json` and resolved NLV-OT1..OT5 — **one finding flips a
+> design decision**: real metrics are **delta**, not cumulative, which invalidates
+> §5's cumulative-max aggregation as written. See §9 "Results" for the full
+> resolution and W6-D's two options.
 
 ---
 
@@ -437,6 +443,50 @@ export OTEL_LOGS_EXPORT_INTERVAL=2000
 - **NLV-OT5** — does the founder's platform (direct API vs Bedrock/Vertex) actually
   honour `http/json`, or force gRPC/protobuf? (The one no-go trip from §0.)
 
+### Results — resolved 2026-07-14 (real founder capture)
+
+Live capture completed: 63 substantial `fixtures/otel/{metrics,logs}-*.captured.json`
+files from a real Claude Code session (`OTEL_EXPORTER_OTLP_PROTOCOL=http/json`
+against a local `scripts/otel-capture.mjs` collector). **Privacy check: clean** — no
+`prompt`/`response`/`tool_input`/`tool_parameters`/raw-body content in any file
+(`user_prompt.prompt` and `assistant_response.response` both read `<REDACTED>`,
+confirming the client-side redaction the receiver design depends on). Identity
+attributes (`user.email`, `user.id`, `organization.id`, plus custom
+`developer.name`/`team` resource attrs) are present as designed and are exactly what
+the boundary scrubber (§8) must be scoped around, not a leak.
+
+| # | Question | **Resolved answer** |
+|---|---|---|
+| OT1 | Aggregation temporality | **DELTA** (`aggregationTemporality: 1`, `isMonotonic: true` on every sum) — **not** the cumulative default this spike assumed. **This invalidates §5's cumulative-max aggregation design** (see below). |
+| OT2 | Identity attribute placement | **Datapoint/logRecord-level**, not resource-level. `resource.attributes` only carries `developer.name`, `team`, `host.arch`, `os.type`, `os.version`, `service.name=claude-code`, `service.version`. |
+| OT3 | Real attribute values | `model="claude-sonnet-5"`. **`terminal.type` never appears** (0 occurrences — drop it from any required-attribute assumption). `query_source` on metrics = `{main, auxiliary}` (not `subagent` as documented); on the `api_request` log event it's a *different* value space, `{repl_main_thread, away_summary}`. `code_edit_tool.decision` attrs: `decision`, `source`, `tool_name`, `language` + standard identity. |
+| OT4 | Batch sizes | Metrics ~19 KB / 5-6 metrics / up to 9 datapoints typical (max observed 27.8 KB); logs 4-17 KB / 1-4 logRecords. **All comfortably under the 128 KB queue bound** even before the §6 pointer indirection. |
+| OT5 | `http/json` honored end-to-end | **Yes** — every captured file is valid JSON matching `ExportMetricsServiceRequest`/`ExportLogsServiceRequest`, with `asInt`/`*UnixNano` as strings and enums as numbers, exactly per the JSON mapping. |
+
+**Coverage vs the §1 documented signal list:** 5 of 8 metrics appeared
+(`cost.usage`, `token.usage`, `active_time.total`, `lines_of_code.count`,
+`code_edit_tool.decision`; missing `session.count`, `commit.count`,
+`pull_request.count` — no git operations in the capture session). 4 of 6 documented
+log/event types appeared (`tool_decision`, `tool_result`, `api_request`,
+`user_prompt`; missing `api_error`/`api_retries_exhausted` — no retry occurred).
+**Three undocumented event types showed up and are not in §1's list:**
+`assistant_response`, `permission_mode_changed`, `mcp_server_connection` — W6-D
+should decide whether any of these need a canonical mapping.
+
+**§0/§5 impact — the one real blocker:** the go/no-go decision itself still holds
+(OTLP/HTTP JSON on workerd is confirmed viable end-to-end, OT5 above), but **§5's
+"cumulative-max → sum" aggregation must be redesigned before W6-D freezes it** — real
+data is delta, which is additive and has no dedup id, so naive summing
+double-counts under at-least-once redelivery exactly the way §5 warned cumulative
+would *not*. W6-D's options: (a) design an idempotent delta aggregation (e.g. a
+per-batch dedup key derived from `(session.id, metric, timeUnixNano)` persisted
+alongside the running sum), or (b) set
+`OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=cumulative` in the mandatory
+onboarding config and re-verify with a follow-up capture that the SDK honors it.
+Not yet captured: a session with git commits/PRs (for the 3 missing metrics) and an
+API retry (for `api_error`/`api_retries_exhausted`) — low priority, can ride a
+future capture rather than blocking W6-D's aggregation redesign.
+
 ---
 
 ## 10. Open questions handed to W6-D (not blockers)
@@ -461,3 +511,8 @@ export OTEL_LOGS_EXPORT_INTERVAL=2000
   Queues/Workers limits, all accessed 2026-07-13). Fixtures are synthetic; live
   capture is founder-gated (§9) and resolves NLV-OT1..OT5 before W6-D freezes its
   aggregation.
+- 2026-07-14: Founder-gated live capture done. 63 real `fixtures/otel/*.captured.json`
+  files landed; all five NLV-OT unknowns resolved (§9 "Results"). Privacy check
+  clean. **NLV-OT1 came back delta, not the assumed cumulative** — §5's
+  cumulative-max aggregation needs a redesign or a temporality-preference override
+  before W6-D freezes it; everything else in §0's go/no-go stands unchanged.

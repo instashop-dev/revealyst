@@ -1,0 +1,323 @@
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {
+            "key": "developer.name",
+            "value": {
+              "stringValue": "smili"
+            }
+          },
+          {
+            "key": "team",
+            "value": {
+              "stringValue": "thalia"
+            }
+          },
+          {
+            "key": "host.arch",
+            "value": {
+              "stringValue": "amd64"
+            }
+          },
+          {
+            "key": "os.type",
+            "value": {
+              "stringValue": "windows"
+            }
+          },
+          {
+            "key": "os.version",
+            "value": {
+              "stringValue": "10.0.26200"
+            }
+          },
+          {
+            "key": "service.name",
+            "value": {
+              "stringValue": "claude-code"
+            }
+          },
+          {
+            "key": "service.version",
+            "value": {
+              "stringValue": "2.1.205"
+            }
+          }
+        ],
+        "droppedAttributesCount": 0
+      },
+      "scopeLogs": [
+        {
+          "scope": {
+            "name": "com.anthropic.claude_code.events",
+            "version": "2.1.205"
+          },
+          "logRecords": [
+            {
+              "timeUnixNano": "1784032687858000000",
+              "observedTimeUnixNano": "1784032687858000000",
+              "body": {
+                "stringValue": "claude_code.api_request"
+              },
+              "attributes": [
+                {
+                  "key": "developer.name",
+                  "value": {
+                    "stringValue": "smili"
+                  }
+                },
+                {
+                  "key": "team",
+                  "value": {
+                    "stringValue": "thalia"
+                  }
+                },
+                {
+                  "key": "user.id",
+                  "value": {
+                    "stringValue": "d05d0460f9d87965012c0c8d59565faca4e0ccc2e8cf41fdab3ed65cb5fcce8c"
+                  }
+                },
+                {
+                  "key": "session.id",
+                  "value": {
+                    "stringValue": "ef94b02e-52c9-4350-9e77-a31f366fee67"
+                  }
+                },
+                {
+                  "key": "organization.id",
+                  "value": {
+                    "stringValue": "7aedb1a7-9185-4469-8d83-4ead5c5c1c5b"
+                  }
+                },
+                {
+                  "key": "user.email",
+                  "value": {
+                    "stringValue": "vibe3@thaliatechnologies.com"
+                  }
+                },
+                {
+                  "key": "user.account_uuid",
+                  "value": {
+                    "stringValue": "d1340646-cca4-4a0b-92b3-1ff820535ffd"
+                  }
+                },
+                {
+                  "key": "user.account_id",
+                  "value": {
+                    "stringValue": "user_01SqLEvHhgbpTFeqcwFe2S28"
+                  }
+                },
+                {
+                  "key": "event.name",
+                  "value": {
+                    "stringValue": "api_request"
+                  }
+                },
+                {
+                  "key": "event.timestamp",
+                  "value": {
+                    "stringValue": "2026-07-14T12:38:07.858Z"
+                  }
+                },
+                {
+                  "key": "event.sequence",
+                  "value": {
+                    "intValue": 101
+                  }
+                },
+                {
+                  "key": "prompt.id",
+                  "value": {
+                    "stringValue": "f2a855f1-eb0f-4490-b89d-d7bed747e7b8"
+                  }
+                },
+                {
+                  "key": "model",
+                  "value": {
+                    "stringValue": "claude-sonnet-5"
+                  }
+                },
+                {
+                  "key": "input_tokens",
+                  "value": {
+                    "intValue": 2
+                  }
+                },
+                {
+                  "key": "output_tokens",
+                  "value": {
+                    "intValue": 192
+                  }
+                },
+                {
+                  "key": "cache_read_tokens",
+                  "value": {
+                    "intValue": 81013
+                  }
+                },
+                {
+                  "key": "cache_creation_tokens",
+                  "value": {
+                    "intValue": 2050
+                  }
+                },
+                {
+                  "key": "cost_usd",
+                  "value": {
+                    "doubleValue": 0.0394899
+                  }
+                },
+                {
+                  "key": "cost_usd_micros",
+                  "value": {
+                    "intValue": 39490
+                  }
+                },
+                {
+                  "key": "duration_ms",
+                  "value": {
+                    "intValue": 4985
+                  }
+                },
+                {
+                  "key": "request_id",
+                  "value": {
+                    "stringValue": "req_011Cd1xnZdPEpHJJbKoD3NXF"
+                  }
+                },
+                {
+                  "key": "speed",
+                  "value": {
+                    "stringValue": "normal"
+                  }
+                },
+                {
+                  "key": "query_source",
+                  "value": {
+                    "stringValue": "repl_main_thread"
+                  }
+                },
+                {
+                  "key": "effort",
+                  "value": {
+                    "stringValue": "high"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0
+            },
+            {
+              "timeUnixNano": "1784032689613000000",
+              "observedTimeUnixNano": "1784032689613000000",
+              "body": {
+                "stringValue": "claude_code.tool_decision"
+              },
+              "attributes": [
+                {
+                  "key": "developer.name",
+                  "value": {
+                    "stringValue": "smili"
+                  }
+                },
+                {
+                  "key": "team",
+                  "value": {
+                    "stringValue": "thalia"
+                  }
+                },
+                {
+                  "key": "user.id",
+                  "value": {
+                    "stringValue": "d05d0460f9d87965012c0c8d59565faca4e0ccc2e8cf41fdab3ed65cb5fcce8c"
+                  }
+                },
+                {
+                  "key": "session.id",
+                  "value": {
+                    "stringValue": "ef94b02e-52c9-4350-9e77-a31f366fee67"
+                  }
+                },
+                {
+                  "key": "organization.id",
+                  "value": {
+                    "stringValue": "7aedb1a7-9185-4469-8d83-4ead5c5c1c5b"
+                  }
+                },
+                {
+                  "key": "user.email",
+                  "value": {
+                    "stringValue": "vibe3@thaliatechnologies.com"
+                  }
+                },
+                {
+                  "key": "user.account_uuid",
+                  "value": {
+                    "stringValue": "d1340646-cca4-4a0b-92b3-1ff820535ffd"
+                  }
+                },
+                {
+                  "key": "user.account_id",
+                  "value": {
+                    "stringValue": "user_01SqLEvHhgbpTFeqcwFe2S28"
+                  }
+                },
+                {
+                  "key": "event.name",
+                  "value": {
+                    "stringValue": "tool_decision"
+                  }
+                },
+                {
+                  "key": "event.timestamp",
+                  "value": {
+                    "stringValue": "2026-07-14T12:38:09.613Z"
+                  }
+                },
+                {
+                  "key": "event.sequence",
+                  "value": {
+                    "intValue": 102
+                  }
+                },
+                {
+                  "key": "prompt.id",
+                  "value": {
+                    "stringValue": "f2a855f1-eb0f-4490-b89d-d7bed747e7b8"
+                  }
+                },
+                {
+                  "key": "decision",
+                  "value": {
+                    "stringValue": "accept"
+                  }
+                },
+                {
+                  "key": "source",
+                  "value": {
+                    "stringValue": "config"
+                  }
+                },
+                {
+                  "key": "tool_name",
+                  "value": {
+                    "stringValue": "Skill"
+                  }
+                },
+                {
+                  "key": "tool_use_id",
+                  "value": {
+                    "stringValue": "toolu_01KQ3AszeLpU8wGy1Uqzb2EN"
+                  }
+                }
+              ],
+              "droppedAttributesCount": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
