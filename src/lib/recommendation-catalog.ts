@@ -261,6 +261,45 @@ export type UtilityContext = {
   fatiguePenalty: number;
 };
 
+/** The named positive utility terms — the key set the "why" line picks its
+ * dominant reason from (W7-4). Penalties are excluded (a penalty is never the
+ * REASON a rec surfaces). */
+export type UtilityTerm =
+  | "capabilityGap"
+  | "benefit"
+  | "confidence"
+  | "roleToolFit"
+  | "novelty";
+
+export type UtilityBreakdown = {
+  total: number;
+  /** Per-term weighted contributions (positive terms + the two penalties as
+   * negatives). Sums to `total`. */
+  terms: Record<UtilityTerm | "difficultyPenalty" | "fatigue", number>;
+};
+
+/** The utility score WITH its per-term breakdown — the single source both the
+ * ranking and the explainable "why" line read, so the reason can never drift
+ * from the actual dominant term. */
+export function computeUtilityBreakdown(
+  rec: Pick<CatalogRecommendation, "benefit" | "confidence" | "difficulty">,
+  ctx: UtilityContext,
+): UtilityBreakdown {
+  const capabilityGap = Math.min(Math.max((100 - ctx.normalized) / 100, 0), 1);
+  const terms = {
+    capabilityGap: UTILITY_WEIGHTS.capabilityGap * capabilityGap,
+    benefit: UTILITY_WEIGHTS.benefit * LEVEL_WEIGHT[rec.benefit],
+    confidence: UTILITY_WEIGHTS.confidence * LEVEL_WEIGHT[rec.confidence],
+    roleToolFit: UTILITY_WEIGHTS.roleToolFit * ctx.roleToolFit,
+    novelty: UTILITY_WEIGHTS.novelty * ctx.novelty,
+    difficultyPenalty:
+      -UTILITY_WEIGHTS.difficultyPenalty * DIFFICULTY_LEVEL[rec.difficulty],
+    fatigue: -ctx.fatiguePenalty,
+  };
+  const total = Object.values(terms).reduce((a, b) => a + b, 0);
+  return { total, terms };
+}
+
 /** The deterministic utility score for one recommendation. Higher = surfaced
  * first. With benefit=confidence=difficulty="medium", roleToolFit=0.5,
  * novelty=1, fatigue=0, the metadata terms are a constant, so ordering reduces
@@ -270,17 +309,33 @@ export function computeUtility(
   rec: Pick<CatalogRecommendation, "benefit" | "confidence" | "difficulty">,
   ctx: UtilityContext,
 ): number {
-  const capabilityGap = Math.min(Math.max((100 - ctx.normalized) / 100, 0), 1);
-  return (
-    UTILITY_WEIGHTS.capabilityGap * capabilityGap +
-    UTILITY_WEIGHTS.benefit * LEVEL_WEIGHT[rec.benefit] +
-    UTILITY_WEIGHTS.confidence * LEVEL_WEIGHT[rec.confidence] +
-    UTILITY_WEIGHTS.roleToolFit * ctx.roleToolFit +
-    UTILITY_WEIGHTS.novelty * ctx.novelty -
-    UTILITY_WEIGHTS.difficultyPenalty * DIFFICULTY_LEVEL[rec.difficulty] -
-    ctx.fatiguePenalty
+  return computeUtilityBreakdown(rec, ctx).total;
+}
+
+/** The dominant POSITIVE utility term — the reason a rec ranked where it did. */
+export function dominantUtilityTerm(breakdown: UtilityBreakdown): UtilityTerm {
+  const positive: UtilityTerm[] = [
+    "capabilityGap",
+    "benefit",
+    "confidence",
+    "roleToolFit",
+    "novelty",
+  ];
+  return positive.reduce((best, term) =>
+    breakdown.terms[term] > breakdown.terms[best] ? term : best,
   );
 }
+
+/** Plain-English "why this next" line for each dominant term (W7-4). Task-
+ * focused, never second-person-blaming; grounded in the actual dominant term so
+ * it can't drift from the ranking. */
+export const UTILITY_REASON: Record<UtilityTerm, string> = {
+  capabilityGap: "This is where the score has the most room to grow.",
+  benefit: "This kind of change tends to have a high payoff.",
+  confidence: "This is well-evidenced guidance.",
+  roleToolFit: "This fits the connected role and tools.",
+  novelty: "This is a fresh angle to try.",
+};
 
 /** Build the `(slug::componentKey) → recommendation` lookup the evaluator uses.
  * When two rows map to the same key (an org override of a global preset), the

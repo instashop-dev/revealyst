@@ -96,6 +96,23 @@ describe("CoachingCard — dedicated coaching home (W5-C)", () => {
     expect(screen.getByText(/No coaching to show yet/i)).toBeTruthy();
   });
 
+  it("renders the computed why line + confidence disclosure (W7-4)", () => {
+    render(
+      <CoachingCard
+        recommendations={[
+          {
+            ...NEXT_STEP,
+            whyLine: "This is where the score has the most room to grow.",
+            confidenceNote: "Based on 3 connected sources.",
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText(/Why this:/)).toBeTruthy();
+    expect(screen.getByText(/most room to grow/)).toBeTruthy();
+    expect(screen.getByText(/Based on 3 connected sources/)).toBeTruthy();
+  });
+
   it("renders the capability label when a rec advances one (W7-1)", () => {
     render(
       <CoachingCard

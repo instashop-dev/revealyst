@@ -102,6 +102,8 @@ export const COACHING_COPY = {
   /** W7-1 — lead-in for the capability a recommendation advances (renders only
    * when the rec links to a capability whose label is loaded). */
   advancesLead: "Builds",
+  /** W7-4 — lead-in for the computed "why this next" line. */
+  whyLead: "Why this",
   /** Rendered when there are no active recommendations (nothing measuring weak,
    * or scores not computed yet). */
   empty: {
