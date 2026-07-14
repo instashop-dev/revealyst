@@ -9,7 +9,7 @@ static content and handed to the human legal pass (tracked in
 | Document | Source of truth | Live URL | Notes |
 |---|---|---|---|
 | **Terms of Service** | `src/app/legal/terms/page.tsx` | `/legal/terms` | Public page; self-serve signup and Paddle MoR onboarding link to it. |
-| **Privacy Policy** | `src/app/legal/privacy/page.tsx` | `/legal/privacy` | Public page; grounded in the real data model (§7). |
+| **Privacy Policy** | `src/app/legal/privacy/page.tsx` | `/legal/privacy` | Public page; grounded in the real data model (Product Spec V4 §13). |
 | **Data Processing Agreement** | `docs/legal/dpa.md` | — (provided to customers on request) | Art. 28 processor DPA; not a public marketing page. |
 
 The Terms and Privacy Policy are authored directly as the **live public pages**
@@ -29,7 +29,7 @@ controllers). Those three are what this legal pass covers.
 ## Grounding / non-negotiables for the reviewer
 
 All product-behavior statements are grounded in the real system and must stay
-accurate (Product Spec §7; the credential and tenancy frozen contracts):
+accurate (Product Spec V4 §13; the credential and tenancy frozen contracts):
 
 - **No prompt/completion content is ever processed** — no content field exists
   in the schema; the Revealyst Agent summarizes locally.

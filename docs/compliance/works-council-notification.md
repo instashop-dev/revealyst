@@ -1,6 +1,6 @@
 # Works-council notification note (Germany §87 BetrVG, and EU equivalents)
 
-> **Static onboarding content (Product Spec §7).** Shown in-app at
+> **Static onboarding content (Product Spec V4 §13).** Shown in-app at
 > `/compliance`. **Guidance, not legal advice** — where a works council
 > (*Betriebsrat*) or other employee-representative body exists, involving it is
 > the controller's obligation. This note explains *why* it applies to
@@ -18,8 +18,9 @@ opted in. A tool that *can* produce behavior- or performance-relevant data
 about identifiable employees is co-determinable from the moment it is
 introduced.
 
-Revealyst measures AI-tool adoption and fluency per person (even when
-pseudonymized by default), so it falls within that capability test. **Consult
+Revealyst computes person-level AI-usage scores and coaching signals (even
+when reporting is pseudonymized by default), so it falls within that
+capability test. **Consult
 the works council before deployment, not after.** An opt-in configured by the
 employer does not remove the co-determination right, and — separately — under
 **EDPB Guidelines 05/2020** employee consent is not a valid GDPR basis anyway
@@ -36,7 +37,7 @@ bodies that apply to you.]`
 ## What makes this an easy consultation
 
 Revealyst is built to keep the co-determination conversation short, because the
-monitoring surface is deliberately narrow (Product Spec §7):
+monitoring surface is deliberately narrow (Product Spec V4 §13):
 
 - **Team-level, pseudonymized by default** — individual identities are not
   surfaced unless an admin explicitly changes the visibility mode.
@@ -53,19 +54,22 @@ performance or disciplinary decisions, and a defined retention period.
 
 ## Template — notification to the works council
 
-> **Subject:** Introduction of Revealyst — AI-tool adoption analytics
+> **Subject:** Introduction of Revealyst — a personal AI-usage coach
 > (co-determination under §87(1) no. 6 BetrVG)
 >
 > Dear members of the works council,
 >
-> We intend to introduce **Revealyst**, a tool that measures how our teams
-> adopt and use AI developer tools (e.g. GitHub Copilot, Cursor, Anthropic
-> Claude, OpenAI). Because the tool can produce performance- and
-> behavior-relevant data about employees, we recognize your co-determination
-> right under §87(1) no. 6 BetrVG and are notifying you **before** deployment.
+> We intend to introduce **Revealyst**, a personal AI-usage coach for each
+> employee — private feedback and suggestions grounded in their own use of AI
+> developer tools (e.g. GitHub Copilot, Cursor, Anthropic Claude, OpenAI),
+> with pseudonymized team-level patterns emerging as a by-product. Because the
+> tool can produce performance- and behavior-relevant data about employees, we
+> recognize your co-determination right under §87(1) no. 6 BetrVG and are
+> notifying you **before** deployment.
 >
-> **Purpose:** understand adoption, fluency, and cost-efficiency of our AI-tool
-> investment — not individual performance management.
+> **Purpose:** give each employee a private, personal AI-usage coach;
+> pseudonymized team-level patterns are a by-product for the organization —
+> not individual performance management.
 >
 > **What is processed:** behavioral usage signals already exposed by the tool
 > vendors' admin APIs (active days, sessions, prompt/message counts, tokens,
@@ -103,5 +107,5 @@ performance or disciplinary decisions, and a defined retention period.
 ---
 
 *Sources: §87(1) no. 6 BetrVG (German Works Constitution Act); EDPB Guidelines
-05/2020 on consent; Revealyst Product Spec §7. Jurisdiction-specific — confirm
+05/2020 on consent; Revealyst Product Spec V4 §13. Jurisdiction-specific — confirm
 the applicable body and process with local counsel.*

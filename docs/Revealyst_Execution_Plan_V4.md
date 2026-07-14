@@ -702,10 +702,10 @@ Shipped **with this plan's PR** (wave-start, not wave-end):
 | `AGENTS.md` | Full resync from CLAUDE.md (was V3-pointing, missing the custom-domains split, stale vitest/prod facts — the most operationally dangerous drift found); header now names the pairing rule: any CLAUDE.md edit resyncs AGENTS.md in the same PR |
 | `docs/Revealyst_Execution_Plan.md` | Header note: W0–W3 complete; rules/tripwires still binding; V4 waves live here |
 | `CLAUDE.md` | Ground-truth block links this plan |
-| `docs/marketing-strategy.md`, `docs/marketing-website-plan.md` | Supersession banners (pre-pivot positioning: CTO-first, "Fluency (flagship)"); broken `documenation-plan.md` link fixed |
-| `docs/Revealyst_Feasibility_Study.md` | Supersession banner (business math stands; positioning superseded by V4 §1–§2) |
+| `docs/legacy/marketing-strategy.md`, `docs/legacy/marketing-website-plan.md` | Supersession banners (pre-pivot positioning: CTO-first, "Fluency (flagship)"); broken `documenation-plan.md` link fixed |
+| `docs/legacy/Revealyst_Feasibility_Study.md` | Supersession banner (business math stands; positioning superseded by V4 §1–§2) |
 | `docs/Architecture-brief.md` | Basis line → Spec V4; production hosts corrected to the custom-domain split |
-| `docs/launch/launch-plan.md`, `announcements.md`, `directories.md` | Positioning banners: copy predates the pivot — re-cut against V4 §1–§2 before any launch execution (the share-card "My AI Fluency: 78" headline is exactly what V4 kills) |
+| `docs/legacy/launch/launch-plan.md`, `announcements.md`, `directories.md` | Positioning banners: copy predates the pivot — re-cut against V4 §1–§2 before any launch execution (the share-card "My AI Fluency: 78" headline is exactly what V4 kills) |
 | `docs/decisions/0014-*.md` (both) | Collision disambiguation note each; cite by slug; next free number 0027 |
 | Everything else (compliance, legal, gates, research, ops-runbooks, scoring docs, connector-facts) | Verified current/reference — untouched; `ops-runbooks.md` is code-referenced (`scripts/rotate-kek.ts:4`) and must never move |
 

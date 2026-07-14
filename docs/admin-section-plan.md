@@ -1,9 +1,10 @@
 # Platform Admin Section — Implementation Plan
 
-> Status: **approved by founder, not yet implemented** (2026-07-08).
-> Implementation starts with PR1 below; the ADR/migration numbers cited are
-> estimates — re-verify `ls docs/decisions/` and `ls drizzle/*.sql` at PR time
-> (both sequences have collided before).
+> Status: **SHIPPED** (2026-07-08 approval → merged via PRs #119–#123, recorded in
+> [ADR 0016](decisions/0016-platform-admin.md)). This plan is retained as the historical
+> design record; the ADR/migration numbers below were pre-implementation estimates —
+> the actual artifacts are ADR 0016 and its migration. `remove-user` deliberately stays
+> blocked (it would bypass the account-deletion purge hook).
 
 ## Context
 

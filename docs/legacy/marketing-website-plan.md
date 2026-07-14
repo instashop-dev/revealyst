@@ -1,7 +1,7 @@
 # Marketing Website — Implementation Plan
 
 > **Superseded positioning (2026-07-13):** this plan predates the V4 pivot
-> ([Product Spec V4](Revealyst_Product_Spec_V4.md) §1–§2). Its "Fluency (flagship)" score-led
+> ([Product Spec V4](../Revealyst_Product_Spec_V4.md) §1–§2). Its "Fluency (flagship)" score-led
 > messaging hierarchy and CTO-buyer persona table are retired — V4 leads with the Personal AI
 > Companion and demotes the raw score to a diagnostic. The build/SEO mechanics stand; rework
 > every message/persona section against Spec V4 before implementation.

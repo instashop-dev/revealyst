@@ -5,7 +5,7 @@
 > Revealyst (**processor**) under GDPR Art. 28. Paddle, as Merchant of Record,
 > is an independent controller for payment data and is **not** covered here.
 > Bracketed `[…]` fields are for counsel / the operating entity. Product-
-> behavior clauses are grounded in the real system (Product Spec §7; the
+> behavior clauses are grounded in the real system (Product Spec V4 §13; the
 > credential and tenancy frozen contracts) — do not add controls the product
 > does not implement.
 
@@ -110,6 +110,6 @@ processing of personal data.
 
 ---
 
-*Sources: GDPR Arts. 28, 32–36; Revealyst Product Spec §7 and the credential /
+*Sources: GDPR Arts. 28, 32–36; Revealyst Product Spec V4 §13 and the credential /
 tenancy frozen contracts. This is a draft for the legal pass — not binding
 until finalized by counsel.*

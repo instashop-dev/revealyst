@@ -3,7 +3,7 @@
 **Version:** 4.0 · **Date:** 2026-07-13 · **Owner:** founder (product strategist: fleet orchestration)
 **Status:** proposed — source of truth for **Product Spec v4**
 **Supersedes (as direction):** the VNext Overview brief. It does **not** supersede
-[Product Spec V3](Revealyst_Product_Spec_V3.md) (shipped V1.5 scope) — Spec v4 will.
+[Product Spec V3](legacy/Revealyst_Product_Spec_V3.md) (shipped V1.5 scope) — Spec v4 will.
 **Basis:** the VNext direction brief + a coordinated fan-out of seven domain strategy
 analyses (product, UX, telemetry, metrics, AI-workflows, research, architecture/feasibility),
 each grounded in the repo at `main` (`74d21ca`), the four research docs under

@@ -766,7 +766,7 @@ technical one — dedicated ADR + DPA review. C2 rides the existing SES sender
 Repo evidence: `src/contracts/*` (metrics, scores, attribution, connector), `src/scoring/*`,
 `src/lib/score-insights.ts`, `src/lib/spend-governance.ts`, `src/lib/benchmarks/*`,
 `src/connectors/*`, `src/lib/agent-ingest.ts`, `packages/revealyst-agent/*`,
-`docs/connector-facts.md`, `docs/score-definitions.md`, `docs/Revealyst_Product_Spec_V3.md`,
+`docs/connector-facts.md`, `docs/score-definitions.md`, `docs/legacy/Revealyst_Product_Spec_V3.md`,
 `docs/research/2026-07-09-desktop-collector.md`, ADRs 0001–0023.
 
 External evidence (primary anchors): METR RCT (arXiv 2507.09089) · DORA 2024/2025 reports + AI

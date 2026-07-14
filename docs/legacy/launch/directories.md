@@ -1,7 +1,7 @@
 # Directory submissions (backlink layer)
 
 > **Positioning note (2026-07-13):** the standard descriptions below predate the V4 pivot
-> (score-led framing). Re-cut against [Product Spec V4](../Revealyst_Product_Spec_V4.md)
+> (score-led framing). Re-cut against [Product Spec V4](../../Revealyst_Product_Spec_V4.md)
 > §1–§2 before submitting anywhere — directory listings are pasted verbatim and live forever.
 
 Do these at T+7 (after launch, so listings carry real screenshots + the PH

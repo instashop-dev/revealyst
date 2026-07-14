@@ -15,8 +15,8 @@ it is the interface between agents.
 
 > Ground truth: [Product Spec V4 — the pivot](docs/Revealyst_Product_Spec_V4.md)
 > (strategy source: [Product Direction V4](docs/Revealyst_Product_Direction_V4.md);
-> V1.5 reference: [Spec V3](docs/Revealyst_Product_Spec_V3.md);
-> V1 reference: [Spec V2](docs/Revealyst_Product_Spec_V2.md)) ·
+> V1.5 reference: [Spec V3](docs/legacy/Revealyst_Product_Spec_V3.md);
+> V1 reference: [Spec V2](docs/legacy/Revealyst_Product_Spec_V2.md)) ·
 > [V4 Execution Plan](docs/Revealyst_Execution_Plan_V4.md) (the active plan: gap analysis +
 > waves W5–W6 + Future ledger) ·
 > [Execution Plan](docs/Revealyst_Execution_Plan.md) (V1 waves, complete; still the home of
