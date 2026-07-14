@@ -20,6 +20,11 @@ export const METRIC_FAMILIES = [
   // requests, agentic adoption. Additive; every vendor maps only the agent
   // fields it genuinely reports (invariant b — no fabricated agent numbers).
   "agentic",
+  // W7-8 (ADR 0039): OTel proficiency MARKERS — high-fidelity, event-structure
+  // signals only the Claude Code OTel receiver can produce (real active time,
+  // real accept/reject), NOT available from any admin-API connector. ≥2
+  // corroborating markers upgrade a capability from `directional` to `measured`.
+  "markers",
 ] as const;
 export type MetricFamily = (typeof METRIC_FAMILIES)[number];
 
@@ -33,6 +38,8 @@ export const METRIC_UNITS = [
   // Credits are NOT a dollar amount — any cents conversion is derived and
   // must land on spend_cents_estimated, never presented as billing truth.
   "credits",
+  // W7-8 (ADR 0039): whole seconds of measured active time (OTel active_time).
+  "seconds",
 ] as const;
 export type MetricUnit = (typeof METRIC_UNITS)[number];
 
@@ -78,7 +85,26 @@ export const CANONICAL_METRICS = {
   // credits, a native credits unit. NOT dollars: a cents conversion is
   // derived/estimated (spend_cents_estimated) and labeled, never billing truth.
   ai_credits: { family: "spend", unit: "credits", dimKind: null },
+  // W7-8 (ADR 0039): Claude Code OTel proficiency markers — additive keys the
+  // OTel receiver (/v1/metrics, /v1/logs) writes; NO admin-API connector emits
+  // them. `otel_active_time` = whole seconds of measured active time
+  // (`claude_code.active_time.total`); `otel_edit_accepted`/`otel_edit_rejected`
+  // = real code-edit accept/reject decisions (`claude_code.code_edit_tool.
+  // decision`), the ground-truth acceptance the connectors can only proxy.
+  otel_active_time: { family: "markers", unit: "seconds", dimKind: null },
+  otel_edit_accepted: { family: "markers", unit: "count", dimKind: null },
+  otel_edit_rejected: { family: "markers", unit: "count", dimKind: null },
 } as const satisfies Record<string, CatalogEntry>;
+
+/** The OTel marker metric keys (W7-8). A capability with evidence for ≥2 of
+ * these (its bound markers) is eligible to render `measured`, not just
+ * `directional` (ADR 0039). Kept in the contract so the engine and the seed
+ * agree on exactly which keys are markers. */
+export const OTEL_MARKER_METRIC_KEYS = [
+  "otel_active_time",
+  "otel_edit_accepted",
+  "otel_edit_rejected",
+] as const;
 
 export type MetricKey = keyof typeof CANONICAL_METRICS;
 export const METRIC_KEYS = Object.keys(CANONICAL_METRICS) as MetricKey[];

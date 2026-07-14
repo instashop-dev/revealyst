@@ -286,7 +286,13 @@ and plan-mix fields (documented double-count/misattribution risks).
   breakdown; **self-view-only** (three-registration law satisfied; purged before `people`). A parallel
   reducer in the poller `score-recompute` step over the existing readers (the Maturity Model
   precedent), all reads batched once for the org (query count independent of person count and history
-  depth). **Capped `directional`** until the OTel receiver provides ≥2 corroborating markers. Priors =
+  depth). Renders `directional` UNLESS the OTel receiver provides **≥2 corroborating markers** for the
+  capability — real active time + real accept/reject — in which case it renders `measured` [**W7-8
+  shipped**, mig 0034, ADR 0039: `otel_active_time`/`otel_edit_accepted`/`otel_edit_rejected` markers,
+  the `POST /v1/metrics`+`/v1/logs` OTLP receiver reusing the device-token scheme, decoder tested vs the
+  REAL captured fixtures; markers are distinct keys so no cross-channel double-count. **Non-eng role
+  expansion stays deferred** — a separate gate needing an honest M365/Workspace role-telemetry source].
+  Priors =
   person-level score components (which exist only in personal orgs, ADR 0014, so state populates there
   first — consistent with W6-A staying gated) + a bounded recent-metric window; never mutates the
   frozen score contract. Honesty reused verbatim: zero evidence → no row (never `mastery: 0`), a real
