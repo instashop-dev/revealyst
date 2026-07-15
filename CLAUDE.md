@@ -124,6 +124,41 @@ it is the interface between agents.
 > follow-ups + the founder-unblocked P5/P7/P8 are now complete; only non-eng role expansion remains
 > gated.**
 
+> **V4 Wave 9 — Closure phases P1–P3 shipped — 2026-07-16** (PRs #227–#231, #233; plan:
+> `docs/Revealyst_Closure_Execution_Plan.md`; no migration, no new ADR): **P1 measurement**
+> — lane-aware digest body CTA to `/dashboard` (one click now fires BOTH `digest_return` +
+> `companion_revisit`; the §14 exit-gate pair finally measures companion returns, not
+> footer-settings clicks); `deriveSyncCadence`/`deriveAgentOptInRate` pure derivations in
+> `launch-funnel.ts` + wired into `scripts/launch-metrics.ts`; cross-org counts-only
+> `recEngagementRollup` in `system.ts` + `scripts/rec-engagement-metrics.ts` (no person id in
+> the shape, test-enforced — never wire to a route, ADR 0038); `scripts/digest-return-rate.ts`
+> (Analytics Engine SQL API, `--weeks` default 6, NO baked threshold — OQ-001 is unsigned;
+> weeks via `toStartOfWeek(timestamp, 1)` since `companion_revisit` carries no wk dim);
+> "N connected sources" line on the Data Confidence card (orphaned `SignalCoverageBadge` +
+> `FIRST_SYNC_AHA_COPY` deleted); server-side sync reward in `SyncTransparencyPanel`
+> (`src/lib/sync-reward.ts` mirrors ONLY the CLI reward's consistency tier — breadth/busiest-day
+> data doesn't survive to `connector_runs`; null over guessing). **P2 hardening** —
+> `assertTeamOnlyPseudonymized` runs at runtime at the end of `readDashboardView` (gated
+> `visibilityMode === "private"`; managed/full deliberately reveal names); `DashboardView.subjects`
+> now a `{id, connectionId}` PROJECTION (full rows carry email/name — the old ids-only doc claim
+> was false); `/v1/logs` was completely unauthenticated → device-token auth via
+> `authenticateDeviceToken`, and `/v1/metrics` reordered auth-BEFORE-body (sibling-drift catch);
+> purge-ORDER FK tripwire (≥21-edge anti-vacuity floor) in `tests/account-deletion.test.ts`;
+> a11y package (skip link, nav landmark + aria-current, reduced-motion, DialogContent overflow,
+> `p-4 md:p-6`, vitest-axe smokes — muted-foreground darken skipped per D10). **P3 ranker/companion**
+> — `dashboard/page.tsx` split into `personal-self-view.tsx`/`team-overview.tsx`/`shared.tsx`
+> (pure move, Promise.all batches byte-identical, 29-line route entry — T5.1 precondition met
+> with T2.1); fatigue/novelty ACTIVATED on dashboard + digest (`recentlyShownRecIds` window is
+> DAY-granular, previous 1–7 days EXCLUDING today — a clock-time cutoff made digest self-rotation
+> structurally impossible; same-day email↔dashboard parity, day-after drift is the novelty
+> feature); `suggestedActionType` branched in `CoachingCard` but TESTED-DORMANT (no per-rec URL
+> source exists — needs the deferred frozen-catalog-column ADR, same gap as `vendor-deep-link`).
+> **Founder-default resolutions (plan §6, recorded, not built):** T2.4 audit rows (D5), T2.6
+> contrast token (D10), T3.3 card consolidation (D4), T3.5a/b opt-out + invite copy (D8/D7);
+> T2.5 → option A (guard comment in `ci.yml`; option-B registration checker is the follow-up).
+> P0 (governance docs) and P4 (learning paths, TEL-012) were NOT in this slice. Latest mig
+> still **0034**, latest ADR still **0039**.
+
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and
 settings page must satisfy them, and any new feature must **preserve or improve**
