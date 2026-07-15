@@ -10,6 +10,15 @@
 // recompute of the earliest period instead of first-insight time (see
 // src/lib/launch-funnel.ts). Activation uses score-row EXISTENCE only.
 //
+// Also prints two standalone metrics (same honesty rules, no funnel row):
+// MET-003 sync cadence — per-org inter-sync-interval distribution over
+// connector_runs kind='agent_ingest' success rows, at most a trailing
+// CONNECTOR_RUNS_RETENTION_DAYS (90-day) window (rows are purged after that —
+// src/db/system.ts). PRIV-007 agent connection opt-in — share of activated
+// orgs (score-row existence) with a claude_code_local/device_token
+// connection; labeled "agent connection opt-in", not "companion usage" — it
+// measures whether the agent is connected, not how the companion is used.
+//
 // Manually run, not a merge gate — connects to whatever DATABASE_URL points
 // at (dev or prod), never CI (same pattern as calibrate-scores.ts). Read-only
 // and cross-org by design: this is the founder's aggregate launch view, not
@@ -26,9 +35,12 @@ import {
   scoreResults,
   shareLinks,
 } from "../src/db/schema";
+import { CONNECTOR_RUNS_RETENTION_DAYS } from "../src/db/system";
 import { orgMembers } from "../src/db/auth-schema";
 import {
+  deriveAgentOptInRate,
   deriveLaunchFunnel,
+  deriveSyncCadence,
   type LaunchFunnel,
   type OrgFunnelRow,
 } from "../src/lib/launch-funnel";
@@ -46,6 +58,33 @@ function fmtMinutes(m: number | null): string {
 
 function fmtRate(r: number | null): string {
   return r === null ? "— (no data yet)" : `${(r * 100).toFixed(0)}%`;
+}
+
+function printSyncCadence(
+  cadence: ReturnType<typeof deriveSyncCadence>,
+): void {
+  console.log("MET-003 sync cadence (inter-sync interval, per org)");
+  console.log(
+    `  window: at most the trailing ${CONNECTOR_RUNS_RETENTION_DAYS} days — connector_runs rows older than that are pruned, so this is never a full-history distribution.`,
+  );
+  if (cadence.length === 0) {
+    console.log("  no agent_ingest runs yet");
+    return;
+  }
+  for (const c of cadence) {
+    console.log(
+      `  org ${c.orgId}: samples ${c.samples} · median ${fmtMinutes(c.medianMinutes)} · p90 ${fmtMinutes(c.p90Minutes)}`,
+    );
+  }
+}
+
+function printAgentOptInRate(
+  optIn: ReturnType<typeof deriveAgentOptInRate>,
+): void {
+  console.log("PRIV-007 agent connection opt-in (NOT companion usage)");
+  console.log(
+    `  ${optIn.withAgentConnection} of ${optIn.activated} activated orgs · ${fmtRate(optIn.rate)}`,
+  );
 }
 
 function printFunnel(f: LaunchFunnel): void {
@@ -77,39 +116,65 @@ async function main() {
     .from(orgs)
     .where(ne(orgs.kind, "system"));
 
-  const [conn, backfill, score, share, members, invited] = await Promise.all([
-    db
-      .select({ orgId: connections.orgId, at: min(connections.createdAt) })
-      .from(connections)
-      .groupBy(connections.orgId),
-    db
-      .select({ orgId: connectorRuns.orgId, at: min(connectorRuns.finishedAt) })
-      .from(connectorRuns)
-      .where(
-        and(eq(connectorRuns.kind, "backfill"), eq(connectorRuns.status, "success")),
-      )
-      .groupBy(connectorRuns.orgId),
-    db
-      .select({ orgId: scoreResults.orgId })
-      .from(scoreResults)
-      .groupBy(scoreResults.orgId),
-    db
-      .select({ orgId: shareLinks.orgId, n: count() })
-      .from(shareLinks)
-      .groupBy(shareLinks.orgId),
-    db
-      .select({ orgId: orgMembers.orgId, n: count() })
-      .from(orgMembers)
-      .groupBy(orgMembers.orgId),
-    db
-      .select({
-        orgId: invites.orgId,
-        sent: count(),
-        accepted: sql<number>`count(*) filter (where ${invites.acceptedAt} is not null)`.mapWith(Number),
-      })
-      .from(invites)
-      .groupBy(invites.orgId),
-  ]);
+  const [conn, backfill, score, share, members, invited, agentIngestRuns, agentConnected] =
+    await Promise.all([
+      db
+        .select({ orgId: connections.orgId, at: min(connections.createdAt) })
+        .from(connections)
+        .groupBy(connections.orgId),
+      db
+        .select({ orgId: connectorRuns.orgId, at: min(connectorRuns.finishedAt) })
+        .from(connectorRuns)
+        .where(
+          and(eq(connectorRuns.kind, "backfill"), eq(connectorRuns.status, "success")),
+        )
+        .groupBy(connectorRuns.orgId),
+      db
+        .select({ orgId: scoreResults.orgId })
+        .from(scoreResults)
+        .groupBy(scoreResults.orgId),
+      db
+        .select({ orgId: shareLinks.orgId, n: count() })
+        .from(shareLinks)
+        .groupBy(shareLinks.orgId),
+      db
+        .select({ orgId: orgMembers.orgId, n: count() })
+        .from(orgMembers)
+        .groupBy(orgMembers.orgId),
+      db
+        .select({
+          orgId: invites.orgId,
+          sent: count(),
+          accepted: sql<number>`count(*) filter (where ${invites.acceptedAt} is not null)`.mapWith(Number),
+        })
+        .from(invites)
+        .groupBy(invites.orgId),
+      // MET-003: raw agent_ingest success rows (not aggregated — the pure
+      // deriveSyncCadence function computes inter-arrival gaps itself). Only
+      // ever a trailing-90-day window: connector_runs rows are purged after
+      // CONNECTOR_RUNS_RETENTION_DAYS (src/db/system.ts).
+      db
+        .select({ orgId: connectorRuns.orgId, finishedAt: connectorRuns.finishedAt })
+        .from(connectorRuns)
+        .where(
+          and(
+            eq(connectorRuns.kind, "agent_ingest"),
+            eq(connectorRuns.status, "success"),
+          ),
+        )
+        .orderBy(connectorRuns.orgId, connectorRuns.finishedAt),
+      // PRIV-007: orgs with a Revealyst Agent connection (device-token auth).
+      db
+        .select({ orgId: connections.orgId })
+        .from(connections)
+        .where(
+          and(
+            eq(connections.vendor, "claude_code_local"),
+            eq(connections.authKind, "device_token"),
+          ),
+        )
+        .groupBy(connections.orgId),
+    ]);
 
   const byOrg = <T extends { orgId: string }>(list: T[]) =>
     new Map(list.map((r) => [r.orgId, r]));
@@ -119,6 +184,7 @@ async function main() {
   const shareBy = byOrg(share);
   const membersBy = byOrg(members);
   const invitedBy = byOrg(invited);
+  const agentConnectedOrgs = new Set(agentConnected.map((r) => r.orgId));
 
   const rows: OrgFunnelRow[] = orgRows.map((o) => ({
     orgId: o.id,
@@ -134,6 +200,16 @@ async function main() {
   }));
 
   printFunnel(deriveLaunchFunnel(rows));
+  printSyncCadence(deriveSyncCadence(agentIngestRuns));
+  printAgentOptInRate(
+    deriveAgentOptInRate(
+      orgRows.map((o) => ({
+        orgId: o.id,
+        hasScore: scoredOrgs.has(o.id),
+        hasAgentConnection: agentConnectedOrgs.has(o.id),
+      })),
+    ),
+  );
   // Flush stdout before exiting: a bare process.exit(0) can truncate piped
   // output (non-TTY stdout is async in node), and the pooled client's
   // 20s idle_timeout would otherwise keep the process alive.

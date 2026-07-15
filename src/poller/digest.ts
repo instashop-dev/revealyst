@@ -288,6 +288,11 @@ export async function runWeeklyDigest(
       unsubscribeUrl,
       manageUrl,
       isoWeek: week,
+      // Explicit, from the canonical origin — never re-derived out of
+      // manageUrl (a relative manageUrl caller would silently produce a
+      // broken relative link in an email otherwise; the exec-report family
+      // already has such a caller).
+      dashboardUrl: `${deps.appOrigin}/dashboard`,
     });
     try {
       await send(deps.emailEnv, {

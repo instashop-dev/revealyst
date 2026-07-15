@@ -11,6 +11,8 @@ import {
   orgs,
   pollHeartbeats,
   rawPayloads,
+  recInteractionState,
+  recommendationExposure,
   scoreResults,
   shareLinks,
   subscriptions,
@@ -282,6 +284,84 @@ export async function listPlatformAdminRecipients(
 }
 
 /**
+ * Rec-engagement rollup (MET-005): shown/tried/dismissed/snoozed counts per
+ * (org, rec, period), across ALL orgs in one query — the metric script's
+ * one cross-org read (scripts/rec-engagement-metrics.ts), mirroring
+ * readLaunchFunnelRows above. FOUNDER-ONLY AGGREGATE: the return type carries
+ * no personId/email/pseudonym anywhere — never wire this to a route (no
+ * /admin, no API). `recommendation_exposure` is self-view-only (ADR 0038,
+ * `src/db/org-scope/exposures.ts`) — that namespace's `list()` stays the
+ * per-person/per-org reader for the app; this is a separate, explicitly
+ * cross-org, script-only aggregate.
+ *
+ * `period` = `recommendation_exposure.shown_at`, the table's own day grain
+ * ("YYYY-MM-DD") — used as-is rather than inventing a week/month bucket the
+ * schema doesn't already offer; a caller wanting a coarser rollup can bucket
+ * the returned day-grain rows further.
+ *
+ * The join is on (org_id, person_id, rec_id) ONLY — not also on day/period:
+ * `rec_interaction_state` holds one CURRENT row per (org, person, rec), not a
+ * history of when each action happened, so there is no per-day interaction
+ * record to join against. Each exposure row is matched against whatever that
+ * person's latest recorded action on that rec is, whenever it was taken —
+ * an approximation inherent to the source table's "current state, not a
+ * log" design (§8.3), not something this rollup can improve on.
+ */
+export type RecEngagementRollupRow = {
+  orgId: string;
+  recId: string;
+  /** recommendation_exposure.shown_at, "YYYY-MM-DD" (see header). */
+  period: string;
+  shown: number;
+  tried: number;
+  dismissed: number;
+  snoozed: number;
+};
+
+export async function recEngagementRollup(
+  db: Db,
+): Promise<RecEngagementRollupRow[]> {
+  return db
+    .select({
+      orgId: recommendationExposure.orgId,
+      recId: recommendationExposure.recId,
+      period: recommendationExposure.shownAt,
+      shown: count(),
+      tried:
+        sql<number>`count(*) filter (where ${recInteractionState.state} = 'tried')`.mapWith(
+          Number,
+        ),
+      dismissed:
+        sql<number>`count(*) filter (where ${recInteractionState.state} = 'dismissed')`.mapWith(
+          Number,
+        ),
+      snoozed:
+        sql<number>`count(*) filter (where ${recInteractionState.state} = 'snoozed')`.mapWith(
+          Number,
+        ),
+    })
+    .from(recommendationExposure)
+    .leftJoin(
+      recInteractionState,
+      and(
+        eq(recInteractionState.orgId, recommendationExposure.orgId),
+        eq(recInteractionState.personId, recommendationExposure.personId),
+        eq(recInteractionState.recId, recommendationExposure.recId),
+      ),
+    )
+    .groupBy(
+      recommendationExposure.orgId,
+      recommendationExposure.recId,
+      recommendationExposure.shownAt,
+    )
+    .orderBy(
+      recommendationExposure.orgId,
+      recommendationExposure.recId,
+      recommendationExposure.shownAt,
+    );
+}
+
+/**
  * Per-org count of credential rows still wrapped under a non-current KEK —
  * the rotation driver's dry-run (scripts/rotate-kek.ts). System-level by
  * design, like the other cross-org reads here; raw access is allowed only
@@ -422,11 +502,14 @@ export type RetentionResult = {
  * re-enqueue while any count came back a full multiple of its batch cap for a
  * deeper sweep (steady state deletes only the trickle crossing the cutoff).
  *
- * connector_runs is purged for `kind = 'poll'` ONLY: `backfillStarted` in
- * src/poller/dispatch.ts is derived from the mere EXISTENCE of a `backfill`
- * run per connection, so deleting a connection's last backfill row would make
- * the dispatcher re-trigger a full backfill. Backfill rows are a handful per
- * connection lifetime (bounded already); poll rows are the high-volume ones.
+ * connector_runs is purged for `kind = 'poll'` AND `kind = 'agent_ingest'`
+ * ONLY: `backfillStarted` in src/poller/dispatch.ts is derived from the mere
+ * EXISTENCE of a `backfill` run per connection, so deleting a connection's
+ * last backfill row would make the dispatcher re-trigger a full backfill.
+ * Backfill rows are a handful per connection lifetime (bounded already); poll
+ * rows are the high-volume ones, and agent_ingest (one row per manual sync,
+ * ADR 0025) grows unbounded on a channel users can re-run at will — both age
+ * out on this window (see the `inArray` filter below).
  */
 export async function purgeExpiredRetention(
   db: Db,

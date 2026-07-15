@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { isLandingPageView, writeLaunchEvent } from "../src/lib/launch-events";
 import {
+  deriveAgentOptInRate,
   deriveLaunchFunnel,
+  deriveSyncCadence,
   percentile,
   type OrgFunnelRow,
 } from "../src/lib/launch-funnel";
@@ -122,6 +124,103 @@ describe("deriveLaunchFunnel", () => {
       personalWithInvites: 2,
       personalWithAcceptedInvites: 1,
       personalMultiMember: 1,
+    });
+  });
+});
+
+describe("deriveSyncCadence", () => {
+  it("0 samples: no runs for an org yields no entry at all", () => {
+    expect(deriveSyncCadence([])).toEqual([]);
+  });
+
+  it("1 sample: a single finished run has zero gaps — null median/p90, never a fabricated 0", () => {
+    const result = deriveSyncCadence([{ orgId: "a", finishedAt: T0 }]);
+    expect(result).toEqual([
+      { orgId: "a", samples: 0, medianMinutes: null, p90Minutes: null },
+    ]);
+  });
+
+  it("N samples: verifies median/p90 math over inter-arrival gaps", () => {
+    const result = deriveSyncCadence([
+      { orgId: "a", finishedAt: T0 },
+      { orgId: "a", finishedAt: plusMinutes(10) }, // gap 10
+      { orgId: "a", finishedAt: plusMinutes(30) }, // gap 20
+      { orgId: "a", finishedAt: plusMinutes(90) }, // gap 60
+    ]);
+    expect(result).toEqual([
+      { orgId: "a", samples: 3, medianMinutes: 20, p90Minutes: 60 },
+    ]);
+  });
+
+  it("unsorted input: sorts defensively per org before computing gaps", () => {
+    const result = deriveSyncCadence([
+      { orgId: "a", finishedAt: plusMinutes(30) },
+      { orgId: "a", finishedAt: T0 },
+      { orgId: "a", finishedAt: plusMinutes(10) },
+    ]);
+    expect(result).toEqual([
+      { orgId: "a", samples: 2, medianMinutes: 15, p90Minutes: 20 },
+    ]);
+  });
+
+  it("null finishedAt rows are skipped — no interval information to contribute", () => {
+    const result = deriveSyncCadence([
+      { orgId: "a", finishedAt: T0 },
+      { orgId: "a", finishedAt: null },
+      { orgId: "a", finishedAt: plusMinutes(10) },
+    ]);
+    expect(result).toEqual([
+      { orgId: "a", samples: 1, medianMinutes: 10, p90Minutes: 10 },
+    ]);
+  });
+
+  it("multiple orgs are kept independent", () => {
+    const result = deriveSyncCadence([
+      { orgId: "a", finishedAt: T0 },
+      { orgId: "a", finishedAt: plusMinutes(10) },
+      { orgId: "b", finishedAt: T0 },
+      { orgId: "b", finishedAt: plusMinutes(50) },
+    ]);
+    expect(result).toEqual([
+      { orgId: "a", samples: 1, medianMinutes: 10, p90Minutes: 10 },
+      { orgId: "b", samples: 1, medianMinutes: 50, p90Minutes: 50 },
+    ]);
+  });
+});
+
+describe("deriveAgentOptInRate", () => {
+  it("empty input: null rate, no fabricated denominator", () => {
+    expect(deriveAgentOptInRate([])).toEqual({
+      activated: 0,
+      withAgentConnection: 0,
+      rate: null,
+    });
+  });
+
+  it("counts orgs with/without the agent connection among activated orgs", () => {
+    const result = deriveAgentOptInRate([
+      { orgId: "a", hasScore: true, hasAgentConnection: true },
+      { orgId: "b", hasScore: true, hasAgentConnection: false },
+      { orgId: "c", hasScore: true, hasAgentConnection: true },
+    ]);
+    expect(result).toEqual({
+      activated: 3,
+      withAgentConnection: 2,
+      rate: 2 / 3,
+    });
+  });
+
+  it("excludes non-activated orgs from the denominator, even if agent-connected", () => {
+    const result = deriveAgentOptInRate([
+      { orgId: "a", hasScore: true, hasAgentConnection: true },
+      // Not activated: shouldn't happen (agent connection usually implies
+      // synced data), but if it does it must not dilute the denominator.
+      { orgId: "b", hasScore: false, hasAgentConnection: true },
+    ]);
+    expect(result).toEqual({
+      activated: 1,
+      withAgentConnection: 1,
+      rate: 1,
     });
   });
 });
