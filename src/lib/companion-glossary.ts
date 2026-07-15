@@ -108,6 +108,12 @@ export const COACHING_COPY = {
   advancesLead: "Builds",
   /** W7-4 — lead-in for the computed "why this next" line. */
   whyLead: "Why this",
+  /** COACH-008 — the in-app affordance label (an `in-product-setting` rec, and
+   * the deferred `vendor-deep-link` fallback): navigates inside Revealyst. */
+  takeALook: "Take a look",
+  /** COACH-008 — the external affordance label (a `link-out` rec): opens outside
+   * guidance in a new tab. */
+  learnMore: "Learn more",
   /** Rendered when there are no active recommendations (nothing measuring weak,
    * or scores not computed yet). */
   empty: {

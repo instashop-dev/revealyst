@@ -252,6 +252,11 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
           from: WINDOW.from,
           to: WINDOW.to,
         }),
+        // COACH-004: the personal companion folds the signed-in person's OWN
+        // recommendation exposures into this SAME batch (+1 read, still depth 1)
+        // to drive the novelty rotation. Pinned here so a regression that ran it
+        // as a second sequential stage would push depth above 1 and fail below.
+        scope.exposures.forUser(userId),
       ]);
       expect(maturity.numbers).toBeDefined();
       placed = maturity.currentWindow.to.length > 0;

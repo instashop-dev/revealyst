@@ -337,6 +337,51 @@ export const UTILITY_REASON: Record<UtilityTerm, string> = {
   novelty: "This is a fresh angle to try.",
 };
 
+/** W9-P3 (COACH-004 novelty) — a recommendation SHOWN to a person within this
+ * many days counts as "recently shown", so its novelty term drops to 0 and it
+ * sorts below an otherwise-equal rec they haven't seen lately. This rotates
+ * guidance rather than repeating the same nudge every render. Presentational
+ * rotation knob only — not a benchmark, not derived from any dataset. */
+export const RECENTLY_SHOWN_LOOKBACK_DAYS = 7;
+
+/** Derive the set of rec ids shown to a person within the previous
+ * `RECENTLY_SHOWN_LOOKBACK_DAYS` UTC calendar days — EXCLUDING today — from
+ * their recommendation-exposure rows (`shownAt` is a "YYYY-MM-DD" day, the
+ * exposure log's grain). Pure; `now` is injected. This is the ONE derivation
+ * both the dashboard and the weekly digest use, so the novelty signal can
+ * never desynchronize between the two surfaces.
+ *
+ * The window is DAY-granular and deliberately shaped for the digest's weekly
+ * cadence (adversarial-review finding, W9-P3):
+ *  - An exposure exactly 7 days old IS in the window — so the Monday digest
+ *    sees last Monday's own send and actually rotates its lead rec (a
+ *    clock-time `now - 7×24h` cutoff excluded it, because `shownAt` parses
+ *    to midnight and the cron fires at 14:00 — rotation could never fire).
+ *  - TODAY's exposures are NOT in the window — the digest logs its exposures
+ *    on the send day, so the dashboard render behind the email's CTA click
+ *    ranks identically to the email that same day (and a same-day cron
+ *    redelivery re-selects the same recs — idempotent under the
+ *    at-least-once queue). From tomorrow the shown rec ages into the window
+ *    and the dashboard rotates it down: that drift is the FEATURE (novelty),
+ *    not a parity bug — the email is a weekly snapshot. */
+export function recentlyShownRecIds(
+  exposures: readonly { recId: string; shownAt: string }[],
+  now: Date,
+): Set<string> {
+  const today = now.toISOString().slice(0, 10);
+  const oldest = new Date(
+    now.getTime() - RECENTLY_SHOWN_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+  )
+    .toISOString()
+    .slice(0, 10);
+  const ids = new Set<string>();
+  for (const e of exposures) {
+    // Lexicographic compare is correct for "YYYY-MM-DD" day strings.
+    if (e.shownAt >= oldest && e.shownAt < today) ids.add(e.recId);
+  }
+  return ids;
+}
+
 /** Build the `(slug::componentKey) → recommendation` lookup the evaluator uses.
  * When two rows map to the same key (an org override of a global preset), the
  * LAST wins — callers order global-then-org so an org row shadows the preset. */

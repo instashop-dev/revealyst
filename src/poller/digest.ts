@@ -26,6 +26,8 @@ import { addUtcDays } from "../lib/raw-metric-delta";
 import { computeRecentMovement } from "../lib/recent-movement";
 import { CAPABILITY_STATE_CONSTANTS } from "../scoring/capability-state";
 import { exposureAssignment } from "../lib/experiments";
+import { deriveRecInteractionView } from "../lib/rec-interactions";
+import { recentlyShownRecIds } from "../lib/recommendation-catalog";
 import {
   formatComponentDetail,
   type ComponentDetailRow,
@@ -155,6 +157,8 @@ export async function runWeeklyDigest(
     recommendations,
     capabilityGraph,
     ownerCapabilityState,
+    ownerRecStates,
+    ownerExposures,
   ] = await Promise.all([
     scope.scores.results({ from, to }),
     scope.scores.definitions(),
@@ -177,6 +181,18 @@ export async function runWeeklyDigest(
     lane === "personal"
       ? scope.mastery.forUser(recipients[0].userId)
       : Promise.resolve([]),
+    // COACH-004 personal-lane rotation signals — folded into this SAME flat
+    // Promise.all (still round-trip depth 1). `statesForUser` supplies the
+    // "tried" fatigue set (the existing `dismissedRecIdsForOrg` read only covers
+    // dismissals); `exposures.forUser` supplies the exposure-log lookback for
+    // novelty. Team lane has no single person, so both stay empty (its recs are
+    // org aggregates). Both are self-view (join people.auth_user_id).
+    lane === "personal"
+      ? scope.recInteractions.statesForUser(recipients[0].userId)
+      : Promise.resolve([]),
+    lane === "personal"
+      ? scope.exposures.forUser(recipients[0].userId)
+      : Promise.resolve([]),
   ]);
 
   // W7-3 personal-lane eligibility context (mirrors the dashboard, incl. the
@@ -196,6 +212,18 @@ export async function runWeeklyDigest(
   const digestConnectedTools = new Set(
     connections.filter((c) => c.status === "active").map((c) => c.vendor),
   );
+  // COACH-004 rotation signals (personal lane; empty on team). `triedRecIds` is
+  // the fatigue set; `recentlyShown` is the exposure-log novelty set — the SAME
+  // pure derivations the dashboard uses. The novelty window excludes TODAY, so
+  // a dashboard render on the send day (the email CTA click-through) ranks
+  // identically to this email; from tomorrow this send's own exposure ages
+  // into the window and the dashboard rotates the shown rec down — deliberate
+  // novelty drift, the email is a weekly snapshot.
+  const { triedRecIds: digestTriedRecIds } = deriveRecInteractionView(
+    ownerRecStates,
+    now,
+  );
+  const digestRecentlyShown = recentlyShownRecIds(ownerExposures, now);
 
   const teamRows = rawScores.filter((r) => r.subjectLevel === "team");
   const trends = await readScoreTrends(
@@ -231,6 +259,11 @@ export async function runWeeklyDigest(
     ...(lane === "personal"
       ? {
           connectedTools: digestConnectedTools,
+          // COACH-004: fatigue + novelty, personal lane only — same pure
+          // derivations and same-day-identical ranking as the dashboard (see
+          // the comment above for the deliberate day-after drift).
+          fatigueRecIds: digestTriedRecIds,
+          recentlyShownRecIds: digestRecentlyShown,
           ...(digestMastered.size > 0
             ? {
                 masteredCapabilities: digestMastered,

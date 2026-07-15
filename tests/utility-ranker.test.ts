@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   computeUtility,
+  recentlyShownRecIds,
+  RECENTLY_SHOWN_LOOKBACK_DAYS,
   UTILITY_WEIGHTS,
   type CatalogRecommendation,
 } from "../src/lib/recommendation-catalog";
@@ -207,6 +209,71 @@ describe("fatigue + determinism", () => {
     expect(recs[0].title).toBe("Fresh");
   });
 
+  it("no-history pin: fatigueRecIds undefined vs empty set produce IDENTICAL output", () => {
+    const input = {
+      ...base,
+      scoreComponents: [
+        {
+          slug: "adoption" as const,
+          components: [componentRow("active_days", 10), componentRow("tool_coverage", 30)],
+        },
+      ],
+      recommendations: [
+        rec({ id: "a", componentKey: "active_days", signalGroup: "active-days", title: "A" }),
+        rec({ id: "t", componentKey: "tool_coverage", signalGroup: "feature-breadth", title: "T" }),
+      ],
+    };
+    // A person with NO interaction history (undefined) must see byte-identical
+    // recs to one whose set is merely empty — the COACH-004 backward-compat pin.
+    expect(deriveAttention({ ...input, fatigueRecIds: undefined })).toEqual(
+      deriveAttention({ ...input, fatigueRecIds: new Set() }),
+    );
+  });
+
+  it("no-history pin: recentlyShownRecIds undefined vs empty set produce IDENTICAL output", () => {
+    const input = {
+      ...base,
+      scoreComponents: [
+        {
+          slug: "adoption" as const,
+          components: [componentRow("active_days", 10), componentRow("tool_coverage", 30)],
+        },
+      ],
+      recommendations: [
+        rec({ id: "a", componentKey: "active_days", signalGroup: "active-days", title: "A" }),
+        rec({ id: "t", componentKey: "tool_coverage", signalGroup: "feature-breadth", title: "T" }),
+      ],
+    };
+    // A person with NO exposure history (undefined) must see byte-identical recs
+    // to one whose set is merely empty — novelty stays 1 in both, so this is the
+    // pre-P7 output. Together with the fatigue pin this proves zero drift.
+    expect(deriveAttention({ ...input, recentlyShownRecIds: undefined })).toEqual(
+      deriveAttention({ ...input, recentlyShownRecIds: new Set() }),
+    );
+  });
+
+  it("novelty: a recently-shown rec ranks BELOW an equal rec that is fresh", () => {
+    const items = deriveAttention({
+      ...base,
+      scoreComponents: [
+        {
+          slug: "adoption",
+          components: [componentRow("active_days", 10), componentRow("tool_coverage", 10)],
+        },
+      ],
+      recommendations: [
+        rec({ id: "shown", componentKey: "active_days", signalGroup: "active-days", title: "Shown" }),
+        rec({ id: "fresh", componentKey: "tool_coverage", signalGroup: "feature-breadth", title: "Fresh" }),
+      ],
+      // Equal gap (both 10) — the ONLY difference is "shown" was recently
+      // surfaced (novelty 0), so it sorts below the fresh rec (novelty 1).
+      recentlyShownRecIds: new Set(["shown"]),
+    });
+    const recs = items.filter((i) => i.kind === "recommendation");
+    expect(recs[0].title).toBe("Fresh");
+    expect(recs[1].title).toBe("Shown");
+  });
+
   it("is deterministic: two runs produce byte-identical output", () => {
     const input = {
       ...base,
@@ -219,5 +286,42 @@ describe("fatigue + determinism", () => {
       ],
     };
     expect(deriveAttention(input)).toEqual(deriveAttention(input));
+  });
+});
+
+describe("recentlyShownRecIds window (COACH-004 novelty)", () => {
+  // The digest cron fires Mondays 14:00 UTC and logs shownAt = the send day.
+  // The window is DAY-granular, covers the previous 1..7 UTC calendar days,
+  // and EXCLUDES today — pinned here because a clock-time cutoff silently
+  // made digest self-rotation impossible (the 7-day-old midnight-parsed
+  // exposure fell 14h outside a 14:00 `now - 7×24h` cutoff).
+  const now = new Date("2026-07-20T14:00:00.000Z"); // a Monday, cron hour
+  const shown = (day: string) => [{ recId: "r1", shownAt: day }];
+
+  it("includes an exposure exactly LOOKBACK days old (last Monday's digest send → rotation fires)", () => {
+    expect(RECENTLY_SHOWN_LOOKBACK_DAYS).toBe(7);
+    expect(recentlyShownRecIds(shown("2026-07-13"), now).has("r1")).toBe(true);
+  });
+
+  it("excludes TODAY's exposure (same-day email↔dashboard parity + idempotent cron redelivery)", () => {
+    expect(recentlyShownRecIds(shown("2026-07-20"), now).has("r1")).toBe(false);
+  });
+
+  it("includes yesterday, excludes one day past the window", () => {
+    expect(recentlyShownRecIds(shown("2026-07-19"), now).has("r1")).toBe(true);
+    expect(recentlyShownRecIds(shown("2026-07-12"), now).has("r1")).toBe(false);
+  });
+
+  it("empty exposures → empty set; malformed day strings are never included", () => {
+    expect(recentlyShownRecIds([], now).size).toBe(0);
+    expect(
+      recentlyShownRecIds(
+        [
+          { recId: "r1", shownAt: "" },
+          { recId: "r2", shownAt: "not-a-day" },
+        ],
+        now,
+      ).size,
+    ).toBe(0);
   });
 });

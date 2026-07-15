@@ -67,6 +67,7 @@ import {
 import { detectMilestones } from "@/lib/milestones";
 import { compareWorkflowDiversity } from "@/lib/workflow-diversity";
 import { deriveRecInteractionView } from "@/lib/rec-interactions";
+import { recentlyShownRecIds } from "@/lib/recommendation-catalog";
 import { periodFor, previousDay } from "@/scoring";
 import { CAPABILITY_STATE_CONSTANTS } from "@/scoring/capability-state";
 import { completedStepCount } from "@/scoring/mission-progress";
@@ -123,6 +124,7 @@ export async function PersonalSelfView({
     capabilityStates,
     missionCatalog,
     missionProgress,
+    exposures,
   ] = await timeStage("pageData", () =>
       Promise.all([
         // Onboarding-gate read, folded in here so it overlaps the rest of the
@@ -212,6 +214,12 @@ export async function PersonalSelfView({
         // (self-view), same batch.
         ctx.scope.missions.catalog(),
         ctx.scope.missions.progressForUser(ctx.user.id),
+        // COACH-004 novelty: the signed-in person's OWN recommendation exposures
+        // (self-view — the namespace joins people.auth_user_id), folded into this
+        // flat Promise.all (+1 query, still round-trip depth 1). Recently-shown
+        // recs score novelty 0 so guidance rotates. Empty when no person is
+        // linked yet → every rec is fresh (byte-identical to pre-P7).
+        ctx.scope.exposures.forUser(ctx.user.id),
       ]),
     );
   // Onboarding gate (evaluated here, after the overlapped read above, rather
@@ -398,6 +406,20 @@ export async function PersonalSelfView({
   // Both guards are shaped as raw facts and gated INSIDE deriveAttention now
   // (not by this call site's ternary) — see deriveAttention's unresolvedUsage
   // doc comment for why.
+  //
+  // W5-D interaction view is HOISTED above deriveAttention (COACH-004): its
+  // `triedRecIds` is the fatigue set (a mild rank penalty), and it still drives
+  // the downstream suppression filter. Pure derivation from the already-fetched
+  // rows — zero new queries.
+  const now = new Date();
+  const { suppressedRecIds, triedRecIds } = deriveRecInteractionView(
+    recInteractions,
+    now,
+  );
+  // COACH-004 novelty: recs shown to this person within the lookback window
+  // (from their own exposures) score novelty 0 so guidance rotates. Empty on a
+  // person with no exposure history → every rec fresh (byte-identical output).
+  const recentlyShown = recentlyShownRecIds(exposures, now);
   const attentionItems = deriveAttention({
     connections: connectionAttentionInputs(connections),
     unresolvedUsage: {
@@ -427,6 +449,11 @@ export async function PersonalSelfView({
     // W7-4: the person's connected-source count (active connections' distinct
     // vendors) → the honest confidence disclosure on each coaching rec.
     coverageSourceCount: connectedTools.size,
+    // COACH-004: fatigue (already "tried" recs, a mild penalty) + novelty
+    // (recently-shown recs, novelty 0). Both derived above from this person's
+    // own rows; empty sets leave the ranking byte-identical to pre-P7.
+    fatigueRecIds: triedRecIds,
+    recentlyShownRecIds: recentlyShown,
     anomalies,
   });
   // W5-C companion composition (positive-first, level-forward): the coaching
@@ -441,11 +468,8 @@ export async function PersonalSelfView({
   // snoozed one whose snooze hasn't expired, drop off the card entirely (and so
   // never seed the Growth Journey's next step below). A "tried" rec stays,
   // flagged so the card shows a "tried" indicator instead of the mark-tried
-  // button. Pure derivation from the already-fetched rows (no new query).
-  const { suppressedRecIds, triedRecIds } = deriveRecInteractionView(
-    recInteractions,
-    new Date(),
-  );
+  // button. `suppressedRecIds`/`triedRecIds` were derived once, above, from the
+  // already-fetched rows (no new query) and reused here + as the fatigue set.
   const coachingRecs = allCoachingRecs.filter(
     (i) => !(i.recId && suppressedRecIds.has(i.recId)),
   );

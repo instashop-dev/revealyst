@@ -210,6 +210,13 @@ export function assembleDigest(input: {
   connectedTools?: ReadonlySet<string>;
   masteredCapabilities?: ReadonlySet<string>;
   capabilityPrereqs?: ReadonlyMap<string, readonly string[]>;
+  /** COACH-004 rotation signals, forwarded verbatim to `deriveAttention` so the
+   * digest ranks recs identically to the dashboard: `fatigueRecIds` = recs the
+   * owner already "tried" (mild penalty); `recentlyShownRecIds` = recs shown in
+   * the exposure-log lookback (novelty 0). Personal lane only (team recs are org
+   * aggregates, not one person's); omitted → every rec treated as fresh. */
+  fatigueRecIds?: ReadonlySet<string>;
+  recentlyShownRecIds?: ReadonlySet<string>;
 }): DigestContent {
   const { lane, now } = input;
   const fresh = digestFreshness(input.connections, now);
@@ -245,6 +252,12 @@ export function assembleDigest(input: {
           masteredCapabilities: input.masteredCapabilities,
           capabilityPrereqs: input.capabilityPrereqs,
         }
+      : {}),
+    // COACH-004: forward the personal-lane rotation signals so the digest ranks
+    // recs identically to the dashboard. Omitted → every rec fresh.
+    ...(input.fatigueRecIds ? { fatigueRecIds: input.fatigueRecIds } : {}),
+    ...(input.recentlyShownRecIds
+      ? { recentlyShownRecIds: input.recentlyShownRecIds }
       : {}),
   })
     // W5-D: a dismissed coaching rec never re-mails. Filtered by the stable
