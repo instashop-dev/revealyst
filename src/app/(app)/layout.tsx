@@ -79,23 +79,35 @@ export default async function AppLayout({
   }
 
   return (
-    <SidebarProvider>
-      <AppSidebar
-        org={{ name: ctx.org.name, kind: ctx.org.kind }}
-        role={ctx.role}
-        user={{ name: ctx.user.name ?? null, email: ctx.user.email }}
-        isPlatformAdmin={ctx.isPlatformAdmin}
-      />
-      <SidebarInset>
-        {impersonating && (
-          <ImpersonationBanner
-            name={impersonating.name}
-            impersonatedUserId={impersonating.userId}
-          />
-        )}
-        <SiteHeader />
-        <div className="flex flex-1 flex-col gap-6 p-6">{children}</div>
-      </SidebarInset>
-    </SidebarProvider>
+    <>
+      {/* WCAG 2.1 AA skip link (T2.6 item 1): first focusable element in the
+          shell, hidden until it receives keyboard focus, jumping straight to
+          the real <main> below (id passed through SidebarInset's props
+          spread — see src/components/ui/sidebar.tsx). */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-sm focus:ring-2 focus:ring-ring"
+      >
+        Skip to main content
+      </a>
+      <SidebarProvider>
+        <AppSidebar
+          org={{ name: ctx.org.name, kind: ctx.org.kind }}
+          role={ctx.role}
+          user={{ name: ctx.user.name ?? null, email: ctx.user.email }}
+          isPlatformAdmin={ctx.isPlatformAdmin}
+        />
+        <SidebarInset id="main-content">
+          {impersonating && (
+            <ImpersonationBanner
+              name={impersonating.name}
+              impersonatedUserId={impersonating.userId}
+            />
+          )}
+          <SiteHeader />
+          <div className="flex flex-1 flex-col gap-6 p-4 md:p-6">{children}</div>
+        </SidebarInset>
+      </SidebarProvider>
+    </>
   );
 }

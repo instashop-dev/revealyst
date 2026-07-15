@@ -2,6 +2,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { axe } from "vitest-axe";
 
 const routerRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -360,5 +361,75 @@ describe("buildDailyNudge — positive-first priority (pure)", () => {
         hasScores: false,
       }),
     ).toBeNull();
+  });
+});
+
+// T2.6 item 7 — axe smoke (WCAG 2.1 AA structural basics), reusing the same
+// props each card is already exercised with above. jsdom axe catches
+// structural issues (labels, roles, landmarks, heading order) only — it
+// cannot compute real rendered contrast, which needs a real browser (out of
+// scope here; no Playwright infra in this repo).
+describe("Companion cards — axe smoke", () => {
+  it("GrowthJourneyCard has no detectable a11y violations", async () => {
+    const { container } = render(
+      <GrowthJourneyCard level={1} stale={false} nextStep={NEXT_STEP} />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("CoachingCard (with interaction affordances) has no detectable a11y violations", async () => {
+    const { container } = render(
+      <CoachingCard recommendations={[REC_WITH_ID]} personId="p-1" />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("MissionCard has no detectable a11y violations", async () => {
+    const { container } = render(
+      <MissionCard
+        missions={[
+          { slug: "m1", title: "Get started", summary: "s1", status: "not-started", stepsReached: 0, totalSteps: 1 },
+        ]}
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("CapabilityProfileCard has no detectable a11y violations", async () => {
+    const { container } = render(
+      <CapabilityProfileCard
+        rows={[
+          {
+            capabilitySlug: "ai-coding-foundations",
+            label: "Make AI part of daily work",
+            mastery: 0.82,
+            confidenceTier: "directional",
+            nextCapability: "feature-breadth",
+          },
+        ]}
+        labels={new Map([["ai-coding-foundations", "Make AI part of daily work"]])}
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("MilestoneCard has no detectable a11y violations", async () => {
+    const milestones = detectMilestones({
+      firstAgentSession: true,
+      breadth: compareWorkflowDiversity(5, 4),
+    });
+    const { container } = render(<MilestoneCard milestones={milestones} />);
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("DailyNudgeCard has no detectable a11y violations", async () => {
+    const nudge = buildDailyNudge({
+      freshestSyncAt: "2026-07-12",
+      agentic: { kind: "measured", agenticDays: 4, activeDays: 9 },
+      spendCents: 0,
+      hasScores: true,
+    });
+    const { container } = render(<DailyNudgeCard nudge={nudge} />);
+    expect(await axe(container)).toHaveNoViolations();
   });
 });
