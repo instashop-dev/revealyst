@@ -227,15 +227,6 @@ export const DIAGNOSTIC_COPY = {
     "The raw 0–100 Adoption, Fluency, and Efficiency scores behind your level. Useful for a deep look — but your level and next step above are what to act on.",
 } as const;
 
-// ─── First-sync aha ───────────────────────────────────────────────────────────
-
-export const FIRST_SYNC_AHA_COPY = {
-  /** Lead-in for the first-sync moment — leads with the LEVEL, never a raw
-   * score. The level name is interpolated by the caller from maturity-glossary. */
-  lead: "You're at",
-  followUp: "Here's the one thing to try next.",
-} as const;
-
 // ─── Onboarding inversion — companion-pitch screen (errata §1.2(2)) ───────────
 
 export const ONBOARDING_PITCH_COPY = {

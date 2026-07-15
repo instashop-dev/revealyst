@@ -437,6 +437,12 @@ export function buildDataConfidence(input: {
   hasData: boolean;
   lastCheckedAt?: Date | string | null;
   now: Date;
+  /** T1.5 (TEL-016): the person's connected-source count (distinct active
+   * vendors), when the caller already has it (self-view only — this is the
+   * re-homed replacement for the deleted orphaned SignalCoverageBadge). Omitted
+   * entirely when the caller doesn't pass it, so team-view/other callers that
+   * don't track per-person sources see no behavior change. */
+  sourceCount?: number;
 }): DataConfidenceModel {
   const groups = aggregateDisclosures(input.gaps);
   const state = computeConfidenceState({
@@ -454,6 +460,25 @@ export function buildDataConfidence(input: {
       : null;
 
   const summaryLines: string[] = [];
+  // T1.5 (TEL-016): a 1-source person must be able to see their source
+  // coverage on the self-view without a rec being surfaced. This card renders
+  // whenever there's something to disclose OR data exists (see
+  // `showDataConfidence` at the call site), so it's the always-relevant home
+  // for the count — unlike a rec-attached badge, which never appears until a
+  // rec does. Singular/plural matches the other count lines below.
+  if (input.sourceCount != null) {
+    // Zero is a true claim (historical data with everything since
+    // disconnected) but the house convention avoids painting a bare "0"
+    // numeral — say it in words, like the deleted badge and the coaching
+    // confidence note both did.
+    summaryLines.push(
+      input.sourceCount === 0
+        ? "No connected sources"
+        : input.sourceCount === 1
+          ? "1 connected source"
+          : `${input.sourceCount} connected sources`,
+    );
+  }
   const costCount = groups.filter((g) => g.category === "cost-estimates").length;
   if (costCount > 0) {
     summaryLines.push(
