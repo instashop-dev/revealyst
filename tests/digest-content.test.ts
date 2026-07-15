@@ -349,6 +349,75 @@ describe("reserved coaching slot (errata §1.2(7))", () => {
     expect(dashboard.slice(0, digest.length)).toEqual(digest);
   });
 
+  it("shares source WITH rotation history live (COACH-004): same fatigue/novelty on both", () => {
+    // Two weak adoption components → two distinct-signal-group recs. Without
+    // history, adoption-active-days (bigger gap + higher benefit) leads. Passing
+    // the SAME recentlyShownRecIds to BOTH surfaces applies the novelty penalty
+    // identically, so the digest stays a prefix of the dashboard — parity holds
+    // WITH history, not just without.
+    const scoreComponents = [
+      {
+        slug: "adoption" as const,
+        components: [
+          {
+            key: "active_days",
+            label: "active_days",
+            kind: "plain" as const,
+            omitted: false,
+            normalized: 5,
+            weight: 0.5,
+            calcSimple: "calc",
+          },
+          {
+            key: "tool_coverage",
+            label: "tool_coverage",
+            kind: "plain" as const,
+            omitted: false,
+            normalized: 10,
+            weight: 0.5,
+            calcSimple: "calc",
+          },
+        ],
+      },
+    ];
+    const history = {
+      fatigueRecIds: new Set<string>(),
+      // active-days was recently shown → its novelty drops to 0 (a mild penalty
+      // that, at this near-tie, flips it below tool-coverage).
+      recentlyShownRecIds: new Set(["adoption-active-days"]),
+    };
+    const dashboard = deriveAttention({
+      connections: [],
+      gaps: [],
+      sharedAccountCount: 0,
+      scoreDrops: [],
+      scoreComponents,
+      recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
+      ...history,
+    })
+      .filter((i) => i.kind === "recommendation")
+      .map((i) => i.recId);
+    const digest = assembleDigest({
+      now: NOW,
+      lane: "personal",
+      connections: [conn("openai", "active", fresh)],
+      movement: emptyMovement(),
+      trends: [],
+      scoreComponents,
+      recommendations: LEGACY_CATALOG_RECOMMENDATIONS,
+      ...history,
+    }).recommendations
+      .filter((i) => i.kind === "recommendation")
+      .map((i) => i.recId);
+    // The digest's selection is a prefix of the dashboard's — same engine, same
+    // rotation inputs, same order.
+    expect(digest.length).toBeGreaterThan(0);
+    expect(dashboard.slice(0, digest.length)).toEqual(digest);
+    // And the history genuinely took effect on the SHARED path: the recently-
+    // shown rec no longer leads (it lost the near-tie to the fresh one).
+    expect(dashboard[0]).toBe("adoption-tool-coverage");
+  });
+
   it("a week WITH connection errors still ships ≥1 coaching rec (W5-F acceptance)", () => {
     // Three errored connections (impact 100 each) would fill all 3 slots under
     // the old flat slice, burying coaching (impact 1). The reserve guarantees

@@ -88,15 +88,39 @@ export function CoachingCard({
                   </p>
                 ) : null}
                 {item.href ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="mt-3"
-                    nativeButton={false}
-                    render={<Link href={item.href} />}
-                  >
-                    Take a look
-                  </Button>
+                  item.suggestedActionType === "link-out" ? (
+                    // COACH-008: external guidance — open in a new tab with the
+                    // safe rel (noreferrer + noopener), labelled "Learn more".
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-3"
+                      nativeButton={false}
+                      render={
+                        <a
+                          href={item.href}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                        />
+                      }
+                    >
+                      {COACHING_COPY.learnMore}
+                    </Button>
+                  ) : (
+                    // `in-product-setting` → in-app navigation. `vendor-deep-link`
+                    // is DEFERRED (no per-rec target URL exists yet), so it falls
+                    // back to this same in-app affordance rather than a broken
+                    // external jump.
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="mt-3"
+                      nativeButton={false}
+                      render={<Link href={item.href} />}
+                    >
+                      {COACHING_COPY.takeALook}
+                    </Button>
+                  )
                 ) : null}
                 {personId && item.recId ? (
                   <RecInteractionActions

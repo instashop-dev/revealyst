@@ -160,6 +160,59 @@ describe("CoachingCard — dedicated coaching home (W5-C)", () => {
     // Never a fabricated "Unknown capability" — the line is simply absent.
     expect(screen.queryByText(/Builds:/)).toBeNull();
   });
+
+  // HONEST-COVERAGE NOTE (COACH-008): these three tests pass `href`
+  // explicitly. deriveAttention does NOT set href on catalog recommendation
+  // items today (no per-rec URL source exists — the same gap that defers
+  // vendor-deep-link), so this branch is TESTED-DORMANT in production: it
+  // proves the affordance works when an href arrives (the deferred
+  // catalog-column ADR), it does not claim the live card renders it yet.
+  it("COACH-008: an in-product-setting rec renders the in-app 'Take a look' link", () => {
+    render(
+      <CoachingCard
+        recommendations={[
+          { ...NEXT_STEP, href: "/connections", suggestedActionType: "in-product-setting" },
+        ]}
+      />,
+    );
+    // base-nova Button renders the anchor with role="button".
+    const link = screen.getByRole("button", { name: "Take a look" });
+    expect(link.getAttribute("href")).toBe("/connections");
+    // In-app navigation — never a new tab.
+    expect(link.getAttribute("target")).toBeNull();
+  });
+
+  it("COACH-008: a link-out rec renders an external 'Learn more' affordance (new tab, safe rel)", () => {
+    render(
+      <CoachingCard
+        recommendations={[
+          { ...NEXT_STEP, href: "https://example.com/guide", suggestedActionType: "link-out" },
+        ]}
+      />,
+    );
+    const link = screen.getByRole("button", { name: "Learn more" });
+    expect(link.getAttribute("href")).toBe("https://example.com/guide");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noreferrer noopener");
+    // Never the in-app label for an external link.
+    expect(screen.queryByRole("button", { name: "Take a look" })).toBeNull();
+  });
+
+  it("COACH-008: a vendor-deep-link rec is DEFERRED — falls back to the in-app 'Take a look'", () => {
+    render(
+      <CoachingCard
+        recommendations={[
+          { ...NEXT_STEP, href: "/reconcile", suggestedActionType: "vendor-deep-link" },
+        ]}
+      />,
+    );
+    // No per-rec target URL exists yet → the in-app affordance, never a broken
+    // external jump (no new-tab external anchor).
+    const link = screen.getByRole("button", { name: "Take a look" });
+    expect(link.getAttribute("href")).toBe("/reconcile");
+    expect(link.getAttribute("target")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Learn more" })).toBeNull();
+  });
 });
 
 describe("MissionCard — opt-in, un-gamified (W7-5)", () => {

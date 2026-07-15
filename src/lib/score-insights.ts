@@ -10,6 +10,7 @@ import {
   indexBySlugComponent,
   UTILITY_REASON,
   type CatalogRecommendation,
+  type SuggestedActionType,
   type UtilityBreakdown,
 } from "./recommendation-catalog";
 import type { PlateauResult } from "./plateau";
@@ -471,6 +472,13 @@ export type AttentionItem = {
    * honest confidence disclosure ("Based on N connected sources"), never a
    * fabricated percentage. Absent when coverage wasn't supplied. */
   confidenceNote?: string;
+  /** Set on `kind === "recommendation"` items (COACH-008): the §8.2 suggested-
+   * action taxonomy the catalog carries, so the coaching card can render the
+   * right affordance — an in-app link for `in-product-setting`, an external
+   * "Learn more" (new tab) for `link-out`. `vendor-deep-link` is DEFERRED (no
+   * per-rec target URL exists yet) and falls back to the in-app affordance.
+   * Display-only: it never influences rec selection or order. */
+  suggestedActionType?: SuggestedActionType;
 };
 
 /** A same-grain score drop below this many points is treated as worth a
@@ -734,6 +742,13 @@ export function deriveAttention(input: {
   masteredCapabilities?: ReadonlySet<string>;
   capabilityPrereqs?: ReadonlyMap<string, readonly string[]>;
   fatigueRecIds?: ReadonlySet<string>;
+  /** COACH-004 novelty: rec ids SHOWN to this person recently (from the
+   * exposure log, within `RECENTLY_SHOWN_LOOKBACK_DAYS`). A recently-shown rec
+   * scores novelty 0 instead of 1 — a mild rank penalty that rotates guidance,
+   * never an exclusion. Omitted/empty → every rec is treated as fresh (novelty
+   * 1), i.e. the pre-P7 behavior, so a person with no exposure history sees
+   * byte-identical recs (the no-history pin). */
+  recentlyShownRecIds?: ReadonlySet<string>;
   /** W7-4 — the person's signal-coverage source count, for the honest
    * confidence disclosure on each rec. Omitted → no disclosure. */
   coverageSourceCount?: number;
@@ -929,7 +944,11 @@ export function deriveAttention(input: {
         const breakdown = computeUtilityBreakdown(recommendation, {
           normalized: row.normalized,
           roleToolFit: recRoleToolFit(recommendation, input),
-          novelty: 1, // constant until the exposure log (P7) makes it vary
+          // COACH-004: a rec shown to this person within the lookback window
+          // scores novelty 0 (a mild rank penalty rotating guidance); every
+          // other rec — and every rec when no exposure set is supplied — is
+          // fresh (novelty 1), preserving the pre-P7 byte-identical output.
+          novelty: input.recentlyShownRecIds?.has(recommendation.id) ? 0 : 1,
           fatiguePenalty: input.fatigueRecIds?.has(recommendation.id)
             ? REC_FATIGUE_PENALTY
             : 0,
@@ -982,6 +1001,11 @@ export function deriveAttention(input: {
         ...(capabilityLabel ? { capabilityLabel } : {}),
         whyLine,
         ...(confidenceNote ? { confidenceNote } : {}),
+        // COACH-008 display-only affordance hint. Always present on a catalog
+        // rec (a non-optional enum), so the migration-equivalence guard stays
+        // byte-identical: both the seeded catalog and the legacy fixture carry
+        // the SAME suggestedActionType per rec id, so both outputs match.
+        suggestedActionType: recommendation.suggestedActionType,
         impact: 1,
       });
     }
