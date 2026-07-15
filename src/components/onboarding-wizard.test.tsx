@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { axe } from "vitest-axe";
 
 import { OnboardingWizard } from "./onboarding-wizard";
 import { SCORE_TIMING_COPY } from "@/lib/onboarding-guide";
@@ -67,5 +68,17 @@ describe("OnboardingWizard end-state timing copy", () => {
       screen.queryByText(SCORE_TIMING_COPY.awaiting_agent.headline),
     ).not.toBeInTheDocument();
     expect(screen.getByText("Connect a source to continue")).toBeInTheDocument();
+  });
+});
+
+// T2.6 item 7 — axe smoke (WCAG 2.1 AA structural basics). jsdom axe catches
+// structural issues (labels, roles, landmarks, heading order) only — it
+// cannot compute real rendered contrast, which needs a real browser (out of
+// scope here; no Playwright infra in this repo).
+describe("OnboardingWizard — axe smoke", () => {
+  it("has no detectable a11y violations in the connect-a-source state", async () => {
+    const { container } = render(<OnboardingWizard initialConnections={[]} />);
+    const results = await axe(container);
+    expect(results).toHaveNoViolations();
   });
 });

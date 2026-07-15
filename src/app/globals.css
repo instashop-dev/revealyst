@@ -127,4 +127,19 @@
   html {
     @apply font-sans;
   }
+
+  /* WCAG 2.1 AA reduced motion (T2.6 item 3): a visitor with
+     prefers-reduced-motion set gets near-instant animations/transitions and
+     no smooth-scroll, across every component — no per-component opt-out
+     needed. Manual QA only (OS-level setting; not exercised by jsdom tests). */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
