@@ -58,6 +58,23 @@ jobs:
           frozen=$(printf '%s\n' "$changed" | grep -E '^(src/contracts/|src/db/schema\.ts$|src/db/org-scope(\.ts$|/)|src/lib/credentials\.ts$|drizzle/|docs/connector-facts\.md$)' || true)
           frozen_fixtures=$(printf '%s\n' "$modified" | grep -E '^fixtures/' || true)
           all_frozen=$(printf '%s\n%s\n' "$frozen" "$frozen_fixtures" | grep -v '^$' || true)
+          # Known gap (Closure Execution Plan T2.5, decision D6 — recorded
+          # 2026-07-15): this only requires SOME diff under docs/decisions/ in
+          # the PR, not a NEWLY git-added ADR file — a PR could in principle
+          # touch a frozen path and satisfy the guard by editing/renumbering an
+          # unrelated existing ADR instead of adding one for its own change.
+          # Default decision: keep this guard as-is, with human PR review as
+          # the backstop (rule 4 already requires human-reviewed gates, and a
+          # reviewer checking "does the linked ADR actually cover this diff" is
+          # cheap). Rejected: requiring a git-ADDED file under docs/decisions/,
+          # because that would false-positive-fail legitimate ADR-editing/
+          # renumbering PRs (see CLAUDE.md's parallel-fan-out numbering-
+          # collision note — renaming/renumbering an ADR file to resolve a
+          # collision is a normal, non-drift operation). A mechanical
+          # three-registration checker (plan T2.5 option B: verify the diff's
+          # frozen-path changes are each covered by their OWN referenced ADR,
+          # not just any docs/decisions/ touch) is the recorded follow-up, not
+          # done here.
           if [ -n "$all_frozen" ]; then
             if ! printf '%s\n' "$changed" | grep -q '^docs/decisions/'; then
               echo "::error::Frozen contract paths changed without an ADR in docs/decisions/ (CLAUDE.md rule 1):"

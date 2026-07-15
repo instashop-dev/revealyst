@@ -66,6 +66,10 @@ beforeAll(async () => {
 
 describe("privacy default (team-only pseudonymized)", () => {
   it("passes the audit in the private default — no real names, no individual members", async () => {
+    // T2.1: readDashboardView now calls assertTeamOnlyPseudonymized ITSELF
+    // (gated on visibilityMode === "private") before returning — this resolve
+    // not throwing is the zero-throw proof over real production shapes, not
+    // just the redundant manual call below.
     const view = await resolveDashboardView()(scope, "private", WINDOW);
 
     expect(() => assertTeamOnlyPseudonymized(view)).not.toThrow();
@@ -86,6 +90,11 @@ describe("privacy default (team-only pseudonymized)", () => {
   });
 
   it("fails the audit under full visibility, where the real name surfaces", async () => {
+    // T2.1: readDashboardView's internal call is gated on `private` — `full`
+    // is a real, admin-opted-into governance posture (visibility-playbook.ts)
+    // that deliberately surfaces identifiers, so resolving here must NOT throw
+    // (that would 500 every full-visibility org). The predicate still throws
+    // when invoked explicitly below, proving it's not vacuous.
     const view = await resolveDashboardView()(scope, "full", WINDOW);
 
     // Segments are COUNT-ONLY in every visibility mode now (errata §1.2 (5)) —

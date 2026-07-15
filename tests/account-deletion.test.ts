@@ -1,5 +1,6 @@
 import { PGlite } from "@electric-sql/pglite";
-import { and, eq } from "drizzle-orm";
+import { and, eq, getTableName } from "drizzle-orm";
+import { getTableConfig } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -7,6 +8,7 @@ import {
   assertDeletableAndPurgeOrg,
   hasCredentialAccount,
   missingFromPurgeTables,
+  PURGE_TABLES,
 } from "../src/db/account-deletion";
 import type { Db } from "../src/db/client";
 import { ensureOrgOfOne } from "../src/db/org-scope";
@@ -278,5 +280,60 @@ describe("purge-table completeness (tripwire)", () => {
     // account deletion.
     const missing = missingFromPurgeTables(schema);
     expect(missing, `org-scoped tables missing from PURGE_TABLES: ${missing.join(", ")}`).toEqual([]);
+  });
+});
+
+describe("PURGE_TABLES ordering (tripwire, T2.3)", () => {
+  it("deletes every table before any table its foreign keys point at", () => {
+    // The purge order in account-deletion.ts is hand-maintained (children
+    // before parents) — this asserts it against the ACTUAL FK graph instead
+    // of trusting the hand-verification to stay correct as tables are added.
+    // Every FK is checked regardless of onDelete behavior: relying on an
+    // implicit `cascade` to paper over a wrong order is fragile (a dropped
+    // cascade would regress silently, with no red test).
+    const position = new Map<string, number>();
+    PURGE_TABLES.forEach((table, index) => {
+      position.set(getTableName(table), index);
+    });
+
+    let checkedEdges = 0;
+    for (const table of PURGE_TABLES) {
+      const childName = getTableName(table);
+      const childPosition = position.get(childName)!;
+      const { foreignKeys } = getTableConfig(table);
+
+      for (const fk of foreignKeys) {
+        const { foreignTable } = fk.reference();
+        const parentName = getTableName(foreignTable);
+
+        // Self-referential FK (a table referencing itself, e.g. via a
+        // composite tenant key back to its own org_id/id pair): position(t)
+        // < position(t) is vacuously false — nothing to order, skip it.
+        if (parentName === childName) continue;
+
+        const parentPosition = position.get(parentName);
+        // The FK's target isn't in PURGE_TABLES at all — either a global
+        // reference table (roles, metric_catalog, capabilities, ...), the
+        // `orgs`/`user` row itself, or a PURGE_EXEMPT_TABLES entry that
+        // cascade-deletes with the org row. Nothing for this test to order.
+        if (parentPosition === undefined) continue;
+
+        checkedEdges += 1;
+        expect(
+          childPosition,
+          `${childName} (PURGE_TABLES position ${childPosition}) has a ` +
+            `foreign key into ${parentName} (position ${parentPosition}), ` +
+            `but is not ordered before it. Move ${childName} earlier in ` +
+            `PURGE_TABLES than ${parentName}.`,
+        ).toBeLessThan(parentPosition);
+      }
+    }
+
+    // Anti-vacuity floor: 21 in-purge FK edges exist today. If a drizzle
+    // upgrade ever changes what getTableConfig().foreignKeys reports, this
+    // loop must not silently check nothing and stay green — that is the
+    // exact failure mode this tripwire genre exists to prevent. (New tables
+    // only ever ADD edges, so a floor is safe against growth.)
+    expect(checkedEdges).toBeGreaterThanOrEqual(21);
   });
 });

@@ -60,7 +60,7 @@ import {
   type UsageConcentration,
   type UsageDistribution,
 } from "./usage-distribution";
-import type { VisibilityMode } from "./visibility";
+import { assertTeamOnlyPseudonymized, type VisibilityMode } from "./visibility";
 
 type OrgScope = ReturnType<typeof forOrg>;
 
@@ -105,13 +105,15 @@ export type DashboardView = {
   /** The org's subjects + identity links — ALREADY fetched in the depth-1
    * Promise.all below (shared by the shared-account source). Returned so the
    * team Data Trust card can compute per-person signal COVERAGE
-   * (src/lib/signal-coverage.ts) with ZERO new queries. Both carry only
-   * internal ids (subject/connection/person uuids), never a name or vendor
-   * account identifier, so — like `connections`/`definitions` — they add
-   * nothing `assertTeamOnlyPseudonymized` (src/lib/visibility.ts) must inspect,
-   * and the team surface renders coverage as an AGGREGATE count only (never a
-   * per-named-person list). */
-  subjects: Awaited<ReturnType<OrgScope["subjects"]["list"]>>;
+   * (src/lib/signal-coverage.ts) with ZERO new queries. The full subject rows
+   * DO carry identity (email/displayName/externalId), so the view exposes a
+   * deliberate PROJECTION to the two internal ids coverage actually needs —
+   * a future consumer can't accidentally render a vendor identifier from
+   * here. `identities` carries only internal uuids by construction. Neither
+   * therefore adds anything `assertTeamOnlyPseudonymized`
+   * (src/lib/visibility.ts) must inspect, and the team surface renders
+   * coverage as an AGGREGATE count only (never a per-named-person list). */
+  subjects: readonly { id: string; connectionId: string }[];
   identities: Awaited<ReturnType<OrgScope["identities"]["all"]>>;
   /** Attribution-coverage trend (F1.7) — the person-attributed share of tracked
    * usage over recent weeks, computed IN JS from the `active_day` rows already
@@ -469,7 +471,7 @@ export async function readDashboardView(
     identities,
   });
 
-  return {
+  const view: DashboardView = {
     summary,
     benchmarks,
     heatmap,
@@ -481,8 +483,10 @@ export async function readDashboardView(
     gaps: collectGaps(runs),
     connections,
     // Already fetched above — returned for the Data Trust coverage element
-    // (zero new queries). See the DashboardView.subjects doc comment.
-    subjects,
+    // (zero new queries). PROJECTED to the two internal ids coverage needs:
+    // the full rows carry email/displayName/externalId, which must never
+    // ride out on the composed view. See the DashboardView.subjects doc.
+    subjects: subjects.map((s) => ({ id: s.id, connectionId: s.connectionId })),
     identities,
     // Both computed once above (zero new reads) and reused here + by the F2.4
     // narrative: the person-attributed usage-day share (F1.7) and the agentic
@@ -517,4 +521,19 @@ export async function readDashboardView(
           a.label.localeCompare(b.label),
       ),
   };
+
+  // T2.1: enforce the §7 privacy default at runtime, not just in tests. Gated
+  // on `private` — `managed`/`full` are real, admin-opted-into governance
+  // postures (src/lib/visibility-playbook.ts) that deliberately surface real
+  // names/account identifiers, so asserting team-only-pseudonymized against
+  // those modes would 500 every managed/full org as a matter of course, not
+  // catch a bug. `private` (the default, EU-safe posture, and the one the
+  // gated Wave-10 companion-in-team work needs proven at runtime) must never
+  // leak — if it ever does, that's a real bug and failing closed (a 500) beats
+  // silently rendering a real name.
+  if (visibilityMode === "private") {
+    assertTeamOnlyPseudonymized(view);
+  }
+
+  return view;
 }
