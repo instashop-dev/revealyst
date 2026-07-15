@@ -209,6 +209,36 @@ describe("assembleDigest lanes + honesty", () => {
     expect(html).not.toContain("(0%)");
   });
 
+  it("renders a companion-return CTA linking to /dashboard, tagged for digest-return + companion-revisit (T1.1)", () => {
+    const content = assembleDigest({ ...base, lane: "personal" });
+    const html = renderDigestEmail(content, {
+      unsubscribeUrl: "https://app.example/u",
+      manageUrl: "https://app.example/settings",
+      isoWeek: "2026-W28",
+    });
+    // digestReturnDim is pathname-agnostic on ?src=digest, and
+    // isCompanionRevisit matches GET /dashboard — this one click fires both.
+    expect(html).toContain(
+      "https://app.example/dashboard?src=digest&amp;wk=2026-W28",
+    );
+    expect(html).toContain("Open your companion");
+  });
+
+  it("team lane: CTA says 'Open your dashboard' (honest label — /dashboard is the team overview there) and an explicit dashboardUrl wins", () => {
+    const content = assembleDigest({ ...base, lane: "team" });
+    const html = renderDigestEmail(content, {
+      unsubscribeUrl: "https://app.example/u",
+      manageUrl: "https://app.example/settings",
+      isoWeek: "2026-W28",
+      dashboardUrl: "https://app.revealyst.com/dashboard",
+    });
+    expect(html).toContain(
+      "https://app.revealyst.com/dashboard?src=digest&amp;wk=2026-W28",
+    );
+    expect(html).toContain("Open your dashboard");
+    expect(html).not.toContain("Open your companion");
+  });
+
   it("suppresses when the only connection is stale", () => {
     const stale = new Date(NOW.getTime() - 30 * DAY);
     const content = assembleDigest({

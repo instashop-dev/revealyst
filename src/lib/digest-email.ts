@@ -85,6 +85,40 @@ function scoreDeltaText(line: DigestScoreLine): string {
   return f.direction === "none" ? DIGEST_COPY.noChange : f.text;
 }
 
+/** Best-effort origin extraction (`https://app.example/settings` →
+ * `https://app.example`) so the companion CTA (below) can target `/dashboard`
+ * without a new required caller param — the poller only ever passes an
+ * absolute `manageUrl`, so this never falls back to "" in production. */
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * T1.1: the body "Open your companion" button. This is deliberately a
+ * separate, prominent element from the footer's "Manage digest settings"
+ * link — the footer CTA measures a settings visit, this one measures an
+ * actual return to the companion surface (`/dashboard`), which also counts
+ * as a `companion_revisit` (src/lib/launch-events.ts `isCompanionRevisit`)
+ * on top of the week-keyed `digest_return` both CTAs already fire.
+ */
+function ctaButton(href: string, label: string): string {
+  return `<tr><td style="padding:4px 0 20px">
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="border-radius:8px;background:${BRAND}">
+        <a href="${esc(
+          href,
+        )}" style="display:inline-block;padding:12px 24px;font:600 15px/1.2 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#ffffff;text-decoration:none;border-radius:8px">${esc(
+          label,
+        )}</a>
+      </td>
+    </tr></table>
+  </td></tr>`;
+}
+
 function sectionHeading(text: string): string {
   return `<tr><td style="padding:24px 0 8px;font:600 13px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:${MUTED}">${esc(
     text,
@@ -119,9 +153,25 @@ export function renderDigestEmail(
      * CTA as `wk` for digest return-rate instrumentation (W5-I). Optional so a
      * direct caller/test can omit it (then only `src=digest` is tagged). */
     isoWeek?: string;
+    /** Companion surface URL (T1.1), e.g. `${appOrigin}/dashboard`. Optional —
+     * defaults to `${origin of manageUrl}/dashboard` so existing callers don't
+     * need to pass a new param. */
+    dashboardUrl?: string;
   },
 ): string {
   const rows: string[] = [];
+
+  // Companion-return CTA (T1.1): a prominent body button, not just the
+  // footer settings link — measures an actual return to the companion, not a
+  // settings visit. Placed first so it's the top thing a reader can act on.
+  // The team lane's /dashboard shows a team overview, not a personal
+  // companion — the label must say what the click actually opens.
+  const dashboardUrl = urls.dashboardUrl ?? `${originOf(urls.manageUrl)}/dashboard`;
+  const ctaLabel =
+    content.lane === "team"
+      ? DIGEST_COPY.cta.openDashboard
+      : DIGEST_COPY.cta.openCompanion;
+  rows.push(ctaButton(appendDigestUtm(dashboardUrl, urls.isoWeek), ctaLabel));
 
   // Movement
   rows.push(sectionHeading(DIGEST_COPY.sections.movement));

@@ -50,6 +50,15 @@ export const DIGEST_COPY = {
   growthJourneyLead:
     "Progress worth noticing this period — measured against your own past.",
 
+  /** T1.1: the body return-to-companion CTA (distinct from the footer's
+   * "Manage digest settings" link). Plain English, no jargon. The team lane
+   * gets honest wording — /dashboard shows a team overview there, not a
+   * personal companion (rendered copy is a claim surface, invariant b). */
+  cta: {
+    openCompanion: "Open your companion",
+    openDashboard: "Open your dashboard",
+  },
+
   /** Movement metric labels — aggregate quantities, no per-person values. */
   movementLabels: {
     reported_spend: "Reported spend",
