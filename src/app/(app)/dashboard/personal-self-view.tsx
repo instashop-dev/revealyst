@@ -505,6 +505,11 @@ export async function PersonalSelfView({
     hasData: scores.size > 0 || summary.activePeople > 0,
     lastCheckedAt: maturity.dataAsOf,
     now: new Date(),
+    // T1.5 (TEL-016): re-homes the deleted orphaned signal-coverage badge onto
+    // this always-relevant card, so a 1-source person can see their source
+    // coverage without a rec being surfaced. Reuses the same `connectedTools`
+    // already computed above for the coaching gate — zero new queries.
+    sourceCount: connectedTools.size,
   });
   const costDisclosed = dataConfidence.groups.some(
     (g) => g.category === "cost-estimates",

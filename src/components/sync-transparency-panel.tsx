@@ -8,6 +8,7 @@ import {
 } from "@/lib/agent-collection-schema";
 import { TRANSPARENCY_PANEL } from "@/lib/connections-copy";
 import { formatRelativeTime } from "@/lib/format";
+import { deriveSyncPositive } from "@/lib/sync-reward";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -26,6 +27,14 @@ import { Separator } from "@/components/ui/separator";
 // (agent_ingest kind) by the page — existing rows, no new query stages.
 // Honesty gate: no run yet → neutral copy, never a fabricated number, and
 // NEVER a staleness nag (G5).
+//
+// SYNC-003 same-click reward (Spec §10): the factual counts line and the
+// honesty-gated positive nudge render together, in one place, so a sync is
+// one reward moment rather than a fact dump followed by a separate cheer.
+// `deriveSyncPositive` (src/lib/sync-reward.ts) is the server-side mirror of
+// the CLI's `composeSyncReward` (packages/revealyst-agent/src/reward.ts) —
+// same honesty gate, reduced to the one superlative tier the persisted
+// aggregate can support.
 
 export type LastSyncFacts = {
   records: number;
@@ -54,6 +63,9 @@ export function SyncTransparencyPanel({
     lastRun?.windowStart && lastRun?.windowEnd
       ? `${lastRun.windowStart} → ${lastRun.windowEnd}`
       : null;
+  // Same-click reward: composed from facts already in `lastRun` — zero new
+  // queries. Null on thin/unattributable data (see sync-reward.ts).
+  const positive = lastRun ? deriveSyncPositive(lastRun) : null;
 
   return (
     <Card>
@@ -80,6 +92,9 @@ export function SyncTransparencyPanel({
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Synced {formatRelativeTime(lastRun.syncedAt)}.
               </p>
+            )}
+            {positive && (
+              <p className="mt-2 text-sm font-medium">{positive}</p>
             )}
           </div>
         ) : (

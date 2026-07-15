@@ -56,4 +56,44 @@ describe("SyncTransparencyPanel", () => {
     expect(screen.getByText(/2026-07-01 → 2026-07-12/)).toBeInTheDocument();
     expect(screen.queryByText(/No sync yet/)).not.toBeInTheDocument();
   });
+
+  // SYNC-003: the counts line and the honesty-gated positive nudge are one
+  // reward moment, not two — assert they render together.
+  it("renders the positive nudge alongside the counts when the data supports it", () => {
+    render(
+      <SyncTransparencyPanel
+        lastRun={{
+          records: 340,
+          signals: 12,
+          subjects: 1,
+          windowStart: "2026-07-01",
+          windowEnd: "2026-07-12",
+          syncedAt: new Date(),
+        }}
+      />,
+    );
+    expect(screen.getByText(/340 records/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /Here's one thing you did well: 12 active days in this window/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows no positive nudge on thin data (honesty gate, no fabricated cheer)", () => {
+    render(
+      <SyncTransparencyPanel
+        lastRun={{
+          records: 4,
+          signals: 1,
+          subjects: 1,
+          windowStart: "2026-07-12",
+          windowEnd: "2026-07-12",
+          syncedAt: new Date(),
+        }}
+      />,
+    );
+    expect(screen.getByText(/4 records/)).toBeInTheDocument();
+    expect(screen.queryByText(/Here's one thing you did well/)).not.toBeInTheDocument();
+  });
 });

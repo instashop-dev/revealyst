@@ -227,4 +227,54 @@ describe("buildDataConfidence", () => {
     expect(model.state).toBe("sync-failed");
     expect(model.stateLabel).toBe("Sync failed");
   });
+
+  // T1.5 (TEL-016): a 1-source person must be able to see their source
+  // coverage without a rec being surfaced. Re-homed onto this always-relevant
+  // card (replacing the deleted orphaned SignalCoverageBadge).
+  it("adds a singular connected-source line when sourceCount is 1", () => {
+    const model = buildDataConfidence({
+      gaps: [],
+      connectionErrored: false,
+      hasData: true,
+      now,
+      sourceCount: 1,
+    });
+    expect(model.summaryLines).toContain("1 connected source");
+  });
+
+  it("adds a plural connected-sources line when sourceCount is more than 1", () => {
+    const model = buildDataConfidence({
+      gaps: [],
+      connectionErrored: false,
+      hasData: true,
+      now,
+      sourceCount: 3,
+    });
+    expect(model.summaryLines).toContain("3 connected sources");
+  });
+
+  it("omits the connected-source line entirely when sourceCount isn't passed (backward compat)", () => {
+    const model = buildDataConfidence({
+      gaps: [],
+      connectionErrored: false,
+      hasData: true,
+      lastCheckedAt: new Date("2026-07-14T12:00:00Z"),
+      now,
+    });
+    expect(model.summaryLines).toEqual(["Last checked 8m ago"]);
+    expect(model.summaryLines.some((l) => l.includes("connected source"))).toBe(false);
+  });
+
+  it("shows the connected-source line even with zero sources, without fabricating a positive count", () => {
+    const model = buildDataConfidence({
+      gaps: [],
+      connectionErrored: false,
+      hasData: true,
+      now,
+      sourceCount: 0,
+    });
+    // In words, not a bare "0" numeral (house convention) — still a true,
+    // non-fabricated claim.
+    expect(model.summaryLines).toContain("No connected sources");
+  });
 });
