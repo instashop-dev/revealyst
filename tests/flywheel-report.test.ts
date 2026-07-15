@@ -107,5 +107,7 @@ describe("runFlywheelReport", () => {
     expect(res.skipped).toBe("no-recipients");
     expect(res.sent).toBe(0);
     expect(sent).toHaveLength(0);
-  });
+    // In-test migration runs under testTimeout (5s), not hookTimeout — slow under
+    // full-suite parallel load on Windows.
+  }, 30_000);
 });
