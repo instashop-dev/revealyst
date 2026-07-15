@@ -139,15 +139,17 @@ export default {
     // goes. Server-Timing is standard and low-risk: stage names + ms
     // durations only, no query text/user data.
     //
-    // Instrument only documents, /api/*, and RSC soft-navigations (Next sends
-    // an `RSC` header with `Accept: */*` on client-side nav — the dominant
-    // way returning users reach slow pages). Assets and anything else pass
-    // through UNTOUCHED: no ALS wrap, no header clone, no Response
-    // reconstruction — which also keeps 101/WebSocket upgrade responses
-    // intact (a reconstructed Response drops the webSocket pair).
+    // Instrument only documents, /api/*, /v1/* (the OTel receiver — V1-001),
+    // and RSC soft-navigations (Next sends an `RSC` header with
+    // `Accept: */*` on client-side nav — the dominant way returning users
+    // reach slow pages). Assets and anything else pass through UNTOUCHED: no
+    // ALS wrap, no header clone, no Response reconstruction — which also
+    // keeps 101/WebSocket upgrade responses intact (a reconstructed Response
+    // drops the webSocket pair).
     const instrument =
       accept.includes("text/html") ||
       url.pathname.startsWith("/api/") ||
+      url.pathname.startsWith("/v1/") ||
       isRsc;
     if (!instrument) {
       return openNextHandler.fetch!(request, env, ctx);

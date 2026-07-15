@@ -135,4 +135,26 @@ describe("assertTeamOnlyPseudonymized surface registry", () => {
       /shared-account flag exposes a real account identifier/,
     );
   });
+
+  // T2.1: attention items carry no identity-bearing field today (every
+  // real team-level item is built from org-aggregate inputs), but the
+  // surface is registered — with a live `person` check — so a FUTURE
+  // per-person item folded into the team strip can't leak silently.
+  it("passes when attention items are absent (today's real shape)", () => {
+    expect(() => assertTeamOnlyPseudonymized(cleanView())).not.toThrow();
+  });
+
+  it("passes when attention items carry no person", () => {
+    const view = cleanView();
+    view.attentionItems = [{}, { person: null }];
+    expect(() => assertTeamOnlyPseudonymized(view)).not.toThrow();
+  });
+
+  it("throws when a (hypothetical future) attention item exposes a real name", () => {
+    const view = cleanView();
+    view.attentionItems = [{ person: ref("Grace Hopper") }];
+    expect(() => assertTeamOnlyPseudonymized(view)).toThrow(
+      /attention item exposes a real name/,
+    );
+  });
 });

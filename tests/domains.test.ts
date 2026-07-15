@@ -63,6 +63,11 @@ describe("classifyPath", () => {
     // A metadata route under a marketing path must stay neutral so social
     // scrapers get it on whichever host they asked — never a 308.
     expect(classifyPath("/s/abc123/opengraph-image")).toBe("neutral");
+    // The OTel receiver (V1-001): never redirect — the Claude Code OTLP
+    // exporter doesn't follow 308s, and a cross-host redirect strips the
+    // Authorization (device-token) header.
+    expect(classifyPath("/v1/metrics")).toBe("neutral");
+    expect(classifyPath("/v1/logs")).toBe("neutral");
   });
 });
 
@@ -111,6 +116,13 @@ describe("resolveRedirect", () => {
     expect(
       resolveRedirect(APP_HOST, "GET", "/s/abc/opengraph-image", ""),
     ).toBeNull();
+  });
+
+  it("never redirects the OTel receiver (/v1/*), on either host", () => {
+    expect(
+      resolveRedirect(MARKETING_HOST, "GET", "/v1/metrics", ""),
+    ).toBeNull();
+    expect(resolveRedirect(APP_HOST, "GET", "/v1/logs", "")).toBeNull();
   });
 
   it("passes through any unknown host (localhost, previews, self-ref)", () => {

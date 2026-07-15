@@ -41,6 +41,18 @@ export type TeamVisibleView = {
   summary: { scores: readonly { person: PersonRef | null }[] };
   segments: { segments: readonly { members: readonly PersonRef[] }[] };
   sharedAccounts: readonly { externalId: string | null }[];
+  /** The team dashboard's needs-attention strip (src/lib/score-insights.ts's
+   * `AttentionItem`, computed downstream of `readDashboardView` in the page
+   * component — not (yet) a field on the composed `DashboardView`). It carries
+   * NO identity-bearing field today: every team-level item is built from
+   * org-aggregate inputs (score drops, connector gaps, anomalies, catalog
+   * recommendations) with no person attached — `person` is never set. It's
+   * registered here anyway, OPTIONAL (so today's real view — which never has
+   * this field at all — still satisfies this structurally, keeping T2.1's
+   * zero-throw proof intact) so a FUTURE per-person item folded into the team
+   * strip (the same `person: PersonRef | null` shape `summary.scores[]`
+   * already carries) throws instead of silently leaking a real name. */
+  attentionItems?: readonly { person?: PersonRef | null }[];
 };
 
 /**
@@ -113,6 +125,27 @@ export const TEAM_VISIBLE_IDENTITY_SURFACES: readonly IdentitySurface[] = [
         ? `shared-account flag exposes a real account identifier`
         : null,
   }),
+  // T2.1: attention items carry no identity-bearing field today (see
+  // TeamVisibleView.attentionItems doc comment) — this surface is a live
+  // check over an always-undefined `person`, mirroring segments.ts's
+  // always-`[]` `members` (a value that happens to be empty by construction
+  // today, checked anyway so a future regression throws instead of leaking).
+  // HONEST REACH CAVEAT: the team attention strip is computed by
+  // `deriveAttention` in the page component AFTER `readDashboardView`
+  // returned (the composed DashboardView has no attentionItems field), so at
+  // runtime this check sees `undefined` — the protection is live only in the
+  // hand-built-view unit tests until attention items are folded into the
+  // view itself (the W10/T5.1 widening is when that must happen; whoever
+  // folds them in gets this check for free, which is the point).
+  defineSurface<{ person?: PersonRef | null }>({
+    key: "attentionItems[].person",
+    fields: ["attentionItems[].person.displayName"],
+    extract: (view) => view.attentionItems ?? [],
+    leak: (item) =>
+      item.person && item.person.displayName !== null
+        ? `attention item exposes a real name for person ${item.person.id}`
+        : null,
+  }),
 ];
 
 /**
@@ -128,6 +161,7 @@ export const IDENTITY_BEARING_MANIFEST: readonly string[] = [
   "summary.scores[].person.displayName",
   "segments.segments[].members",
   "sharedAccounts[].externalId",
+  "attentionItems[].person.displayName",
 ];
 
 /**
@@ -153,12 +187,24 @@ export function identityManifestGaps(
  * The single audit predicate for the §7 privacy default: a dashboard view is
  * "team-only pseudonymized" iff no registered identity-bearing surface leaks —
  * no surfaced person carries a real name, no individual is listed as a segment
- * member, and no shared-account flag carries a real vendor account identifier
- * (often an email — same leak class as a person's name). Structural on purpose
- * (no import of DashboardView) so it stays the one decision point — the page
- * renders through the visibility gate, and this asserts the gate held. The
- * surface set is the {@link TEAM_VISIBLE_IDENTITY_SURFACES} registry, so a new
- * identity-bearing surface can no longer pass vacuously (W5-A).
+ * member, no shared-account flag carries a real vendor account identifier
+ * (often an email — same leak class as a person's name), and no attention item
+ * carries a named person. Structural on purpose (no import of DashboardView)
+ * so it stays the one decision point — the page renders through the
+ * visibility gate, and this asserts the gate held. The surface set is the
+ * {@link TEAM_VISIBLE_IDENTITY_SURFACES} registry, so a new identity-bearing
+ * surface can no longer pass vacuously (W5-A).
+ *
+ * T2.1: `readDashboardView` (src/lib/dashboard-view.ts) calls this at runtime
+ * — but ONLY when `visibilityMode === "private"`. `managed`/`full` are real,
+ * admin-opted-into governance postures (src/lib/visibility-playbook.ts) that
+ * deliberately surface real names/account identifiers once an org has done
+ * the readiness work; asserting team-only-pseudonymized against THOSE modes
+ * would 500 every managed/full org on every request — that's the feature
+ * working as designed, not a leak. The predicate audits the one invariant
+ * that must always hold for `private` (the EU-safe default, and the
+ * precondition the gated Wave-10 companion-in-team work needs proven at
+ * runtime, not just in tests).
  *
  * A private-mode view passes; a managed/full view (which deliberately surfaces
  * names/members) throws — that asymmetry is what makes the W2 gate item

@@ -67,7 +67,15 @@ function isNeutralPath(pathname: string): boolean {
     pathname === "/favicon.ico" ||
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||
-    pathname === "/health"
+    pathname === "/health" ||
+    // The OTel receiver (/v1/metrics, /v1/logs): never redirect. These paths
+    // were already neutral via classifyPath's fall-through (and the exporter
+    // only POSTs, which resolveRedirect never redirects) — this entry makes
+    // the classification EXPLICIT and test-pinned, because the stakes of a
+    // future classification change are high: the Claude Code OTLP exporter
+    // doesn't follow 308s, and a cross-host redirect strips the
+    // Authorization (device-token) header.
+    pathname.startsWith("/v1/")
   );
 }
 

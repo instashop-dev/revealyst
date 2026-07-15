@@ -13,7 +13,10 @@ import {
   generateAgentSecret,
 } from "../src/lib/agent-token";
 import type { CredentialEnv } from "../src/lib/credentials";
-import { ingestOtelMetrics } from "../src/lib/otel-receiver";
+import {
+  authenticateDeviceToken,
+  ingestOtelMetrics,
+} from "../src/lib/otel-receiver";
 
 // W7-8: the OTLP receiver end-to-end — device-token auth (reusing agent-ingest's
 // scheme), decode a REAL captured payload, land markers in metric_records.
@@ -89,5 +92,85 @@ describe("ingestOtelMetrics", () => {
     await ingestOtelMetrics(db, ENV, token, payload);
     const after = (await db.select().from(schema.metricRecords)).length;
     expect(after).toBe(before); // frozen upsert key — a re-export restates, not appends
+  });
+});
+
+// authenticateDeviceToken (V1-001): the shared device-token auth, factored out
+// of ingestOtelMetrics so /v1/logs can reuse the identical 401/403 semantics.
+// The ingestOtelMetrics tests above already pin the metrics path end-to-end
+// (unchanged behavior post-refactor); these pin the helper directly, incl.
+// the two failure modes ingestOtelMetrics never separately exercised.
+describe("authenticateDeviceToken", () => {
+  let db: Db;
+  let orgId: string;
+  let connId: string;
+  let token: string;
+
+  beforeAll(async () => {
+    const pgliteDb = drizzle(new PGlite(), { schema });
+    await migrate(pgliteDb, { migrationsFolder: "./drizzle" });
+    db = pgliteDb as unknown as Db;
+    orgId = (await createFixtureOrg(db, "otel-auth", "team")).id;
+    const scoped = forOrg(db, orgId);
+    connId = (
+      await scoped.connections.create({
+        vendor: "claude_code_local",
+        displayName: "Claude Code OTel",
+        authKind: "device_token",
+      })
+    ).id;
+    const secret = generateAgentSecret();
+    await scoped.connections.storeCredential(connId, "device_token", secret, ENV);
+    token = composeAgentToken(orgId, connId, secret);
+  });
+
+  it("rejects a missing/empty token with 401", async () => {
+    const result = await authenticateDeviceToken(db, ENV, "");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(401);
+  });
+
+  it("rejects a garbage token with 401", async () => {
+    const result = await authenticateDeviceToken(db, ENV, "rva1.bad.bad.bad");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(401);
+  });
+
+  it("rejects a connection whose authKind isn't device_token with 401", async () => {
+    const scoped = forOrg(db, orgId);
+    const wrongKind = await scoped.connections.create({
+      vendor: "cursor",
+      displayName: "Not a device connection",
+      authKind: "api_key",
+    });
+    // The secret doesn't matter — the authKind check short-circuits before
+    // any credential is read.
+    const badToken = composeAgentToken(orgId, wrongKind.id, "whatever");
+    const result = await authenticateDeviceToken(db, ENV, badToken);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.status).toBe(401);
+  });
+
+  it("rejects a paused connection with 403 (authenticated, but paused)", async () => {
+    const scoped = forOrg(db, orgId);
+    await scoped.connections.update(connId, { status: "paused" });
+    try {
+      const result = await authenticateDeviceToken(db, ENV, token);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.status).toBe(403);
+    } finally {
+      // Un-pause even when an assertion throws — a leaked `paused` would
+      // cascade a confusing failure into the valid-token test below.
+      await scoped.connections.update(connId, { status: "active" });
+    }
+  });
+
+  it("authenticates a valid device token", async () => {
+    const result = await authenticateDeviceToken(db, ENV, token);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.orgId).toBe(orgId);
+      expect(result.connectionId).toBe(connId);
+    }
   });
 });

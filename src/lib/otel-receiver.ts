@@ -23,25 +23,45 @@ export type OtelReceiverOutcome = {
   markersIngested?: number;
 };
 
-const unauthorized: OtelReceiverOutcome = {
+/** A device-token auth failure — shared shape for any /v1/* OTLP route. */
+type DeviceTokenAuthFailure = {
+  ok: false;
+  status: 401 | 403;
+  body: Record<string, unknown>;
+};
+
+/** A successful device-token auth — the org scope + connection to act on. */
+export type DeviceTokenAuthSuccess = {
+  ok: true;
+  orgId: string;
+  connectionId: string;
+  scoped: ReturnType<typeof forOrg>;
+};
+
+export type DeviceTokenAuthResult =
+  | DeviceTokenAuthSuccess
+  | DeviceTokenAuthFailure;
+
+const unauthorized: DeviceTokenAuthFailure = {
   ok: false,
   status: 401,
   body: { error: "invalid device token" },
 };
 
 /**
- * Authenticate, decode, and persist an OTLP metrics export. All logic here so it
- * is unit-testable against PGlite + the real captured fixtures; the route only
- * adapts HTTP.
+ * Authenticate a `/v1/*` OTLP request by its bearer device token — identical
+ * scheme to agent-ingest: parse the `rva1.<orgId>.<connectionId>.<secret>`
+ * token, look up the connection, and timing-safe-compare the stored secret.
+ * Shared by BOTH `/v1/metrics` and `/v1/logs` so their 401/403 semantics never
+ * drift apart: 401 for a missing/malformed/wrong-kind token or connection,
+ * 403 only once authenticated but the connection is paused. Cheap and run
+ * BEFORE the request body is parsed.
  */
-export async function ingestOtelMetrics(
+export async function authenticateDeviceToken(
   db: Db,
   env: CredentialEnv,
   bearerToken: string,
-  rawBody: unknown,
-): Promise<OtelReceiverOutcome> {
-  // 1. Authenticate (cheap, before touching the body) — identical to
-  //    agent-ingest: parse the token, verify the connection + its device secret.
+): Promise<DeviceTokenAuthResult> {
   const token = parseAgentToken(bearerToken);
   if (!token) return unauthorized;
 
@@ -66,6 +86,38 @@ export async function ingestOtelMetrics(
     return { ok: false, status: 403, body: { error: "connection paused" } };
   }
 
+  return { ok: true, orgId: token.orgId, connectionId: token.connectionId, scoped };
+}
+
+/**
+ * Authenticate, decode, and persist an OTLP metrics export. All logic here so it
+ * is unit-testable against PGlite + the real captured fixtures; the route only
+ * adapts HTTP. The route itself authenticates FIRST (via
+ * `authenticateDeviceToken`) so 401/403 happen before the body is parsed —
+ * same ordering as /v1/logs — then hands the auth to
+ * `ingestOtelMetricsAuthed`; this wrapper keeps the original
+ * auth-inclusive contract for tests and any future single-call use.
+ */
+export async function ingestOtelMetrics(
+  db: Db,
+  env: CredentialEnv,
+  bearerToken: string,
+  rawBody: unknown,
+): Promise<OtelReceiverOutcome> {
+  // 1. Authenticate (cheap, before touching the body) — identical to
+  //    agent-ingest: parse the token, verify the connection + its device secret.
+  const auth = await authenticateDeviceToken(db, env, bearerToken);
+  if (!auth.ok) return { ok: false, status: auth.status, body: auth.body };
+  return ingestOtelMetricsAuthed(auth, rawBody);
+}
+
+/** Decode + persist an ALREADY-authenticated OTLP metrics export. */
+export async function ingestOtelMetricsAuthed(
+  auth: DeviceTokenAuthSuccess,
+  rawBody: unknown,
+): Promise<OtelReceiverOutcome> {
+  const { scoped, connectionId } = auth;
+
   // 2. Decode markers (pure, quirk-handling). Nothing to persist → OTLP success.
   const markers = decodeOtelMetrics(rawBody);
   if (markers.length === 0) return { ok: true, status: 200, body: {} };
@@ -74,7 +126,7 @@ export async function ingestOtelMetrics(
   //    connection (idempotent upsert), then map key → id.
   const subjectKeys = [...new Set(markers.map((m) => m.subjectKey))];
   const subjectRows = await scoped.subjects.upsertMany(
-    token.connectionId,
+    connectionId,
     subjectKeys.map((k) => ({ kind: "person" as const, externalId: k })),
   );
   const idByKey = new Map(subjectRows.map((s) => [s.externalId, s.id]));
@@ -88,7 +140,7 @@ export async function ingestOtelMetrics(
       metricKey: m.metricKey,
       day: m.day,
       dim: "",
-      connectionId: token.connectionId,
+      connectionId,
       value: m.value,
       attribution: "person" as const,
       sourceConnector: OTEL_SOURCE,
