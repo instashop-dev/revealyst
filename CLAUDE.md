@@ -188,6 +188,33 @@ it is the interface between agents.
 > preconditions already merged), T5.3 role expansion (OQ-003/OQ-004). Founder ratification
 > queue lives in `docs/product-signoffs.md`.
 
+> **UI/UX execution plan (`docs/Revealyst_UIUX_Execution_Plan.md`) — U0–U5 shipped —
+> 2026-07-16** (PRs #244–#248 + #251): config-driven **nav IA**
+> (`src/lib/nav-items.ts` `navFor` — personal orgs get Today/Growth/Connections/Settings, team
+> orgs get Team/AI maturity/Connections/Settings, admin group Match accounts/Spend/Compliance)
+> + theme toggle + shared primitives (`ConfidencePill`/`Banner`/`EmptyState` inline variant/
+> `RecommendationCard` undo/`ConnectorCard`/`ResponsiveSheetContent`). The undo toast needed a
+> new **`cleared` API action** on the closed-enum `rec_interaction_state` seam (**ADR 0043** —
+> a DELETE, not a stored value; no migration). **U1** split the Personal Companion into **Today**
+> (`/dashboard`) + a new **Growth** (`/growth`) route — a decomposition, not a new surface (Spec
+> V4 §12.1 updated). **U2** added the `scope-claims.ts` per-vendor "what this connector can/can't
+> measure" registry + a "limited" coverage badge, and impact/evidence framing on Match accounts.
+> **U3** consolidated `/account`, `/billing`, `/members`, `/teams`, `/people` into `/settings/*`
+> (all five 308) — a deliberate access change rides along: people management is now **admin-only**
+> (members previously read `/people`/`/teams` as an unretired W5-H leftover). `/playbook` retitled
+> "Shared-account migration guide" (R2 — no Playbooks nav item; Notification center R3 and command
+> palette R4 stay deferred to the §8 ledger, not built). Latest mig still **0035**, latest ADR now
+> **0043**. **U4** shipped the team narrative hero (floor-note copy from the live
+> MIN_PEOPLE constant) + the workspace-setup stepper (scope explainer sourced from
+> scope-claims/agent-collection-schema; server-derived resume). **U5** hardened touch targets
+> (44px), axe coverage on every recomposed route, focus-on-route-change (skip link now visibly
+> confirms — a blanket outline-none was caught as a WCAG 2.4.7 regression in review), dark-mode
+> contrast, and CLS skeletons.
+> **Founder-default decisions applied** (`docs/product-signoffs.md`, all unratified): D-U1/D-U2/
+> D-U3/D-U5 proceed (Today+Growth split, "Today" label, Settings consolidation, benchmark-consent
+> toggle to Settings→Privacy); D-U4 (mobile bottom nav) and D-U6 (persistent Help entry) **not
+> adopted**; D-U7 (Playbooks direction) sits on the Future ledger.
+
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and
 settings page must satisfy them, and any new feature must **preserve or improve**

@@ -6,6 +6,13 @@ this plan is UI, copy, navigation, or read-path composition; no schema, `org-sco
 contract, or fixture change. (If any task drifts into a frozen path, it stops and files an ADR
 per rule 1.)
 
+**Status (2026-07-16, docs-sync pass):** U0–U3 shipped and merged (PRs #244–#247); U4 (team
+narrative hero + workspace-setup stepper) merged as PR #248; U5 (responsive/a11y
+hardening) merged as PR #251 — all build phases U0–U5 are shipped. One exception to the
+"no ADR expected" line above: U0.3's RecommendationCard undo needed **ADR 0043** (a `cleared`
+API action on the closed-enum `rec_interaction_state` seam) — no schema/migration change, so
+the frozen-contracts guard still fired correctly. §8 deferred/gated ledger is unchanged.
+
 > Sources of truth, in order: (1) [Product Spec V4](Revealyst_Product_Spec_V4.md) — hard
 > constraints (NOT-list, privacy invariants, gates) always win; (2) the founder's UI/UX
 > research report ("Revealyst vNext Product Specification for an AI Growth Companion",

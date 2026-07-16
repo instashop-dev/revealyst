@@ -670,7 +670,12 @@ Paddle MoR). The pivot changes what the individual *gets*, not what they pay.
 
 1. **Three audience-scoped surfaces; everything else is a card, a settings page, or gone.**
    - **Personal Companion** (daily/weekly): one home per person — Growth Journey card + coaching
-     card + weekly-progress content. Daily = one nudge card, never a dashboard.
+     card + weekly-progress content. Daily = one nudge card, never a dashboard. As of the UI/UX
+     execution plan's U1 phase, this surface is decomposed into two routes — **Today**
+     (`/dashboard`, the daily habit surface) and **Growth** (`/growth`, the capability/mission/
+     milestone improvement surface) — not a new product surface (`docs/Revealyst_UIUX_Execution_Plan.md`
+     R6/D-U1). Team-member activation of this surface remains gated on the §14 dogfood outcome
+     (W6-A/T5.1); only personal orgs get it today.
    - **Team Intelligence:** one screen — Team AI Health, maturity, training opportunities,
      benchmarks, champions (floored), blockers. The ~17 shipped Team-Overview panels fold into
      ~5 cards.
