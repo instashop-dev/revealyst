@@ -15,18 +15,19 @@ import { BANNED_PHRASING } from "./helpers/banned-phrasing";
 // copy is swept for invented benchmarks like every other claim surface.
 
 describe("settingsTabsFor — role gating", () => {
-  it("a member sees only Profile + Notifications", () => {
+  it("a member sees Profile + Notifications + Devices", () => {
     const tabs = settingsTabsFor("member").map((t) => t.key);
-    expect(tabs).toEqual(["profile", "notifications"]);
+    expect(tabs).toEqual(["profile", "notifications", "devices"]);
   });
 
-  it("an admin sees all seven tabs in order", () => {
+  it("an admin sees all eight tabs in order", () => {
     const tabs = settingsTabsFor("admin").map((t) => t.key);
     expect(tabs).toEqual([
       "profile",
       "workspace",
       "privacy",
       "notifications",
+      "devices",
       "people",
       "billing",
       "advanced",
@@ -39,9 +40,9 @@ describe("settingsTabsFor — role gating", () => {
     }
   });
 
-  it("only Profile + Notifications are non-admin (everyone) tabs", () => {
+  it("Profile + Notifications + Devices are the non-admin (everyone) tabs", () => {
     const everyone = SETTINGS_TABS.filter((t) => !t.adminOnly).map((t) => t.key);
-    expect(everyone).toEqual(["profile", "notifications"]);
+    expect(everyone).toEqual(["profile", "notifications", "devices"]);
   });
 });
 

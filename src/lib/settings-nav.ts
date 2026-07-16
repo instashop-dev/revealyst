@@ -16,6 +16,7 @@ export type SettingsTabKey =
   | "workspace"
   | "privacy"
   | "notifications"
+  | "devices"
   | "people"
   | "billing"
   | "advanced";
@@ -40,6 +41,11 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
     href: "/settings/notifications",
     adminOnly: false,
   },
+  // Devices (Desktop Agent T2.4) — an EVERYONE tab: every member manages their
+  // own enrolled desktop devices (self-view, config.pairedByUserId). Not
+  // admin-gated — a member never sees another member's devices, but they own
+  // their own list.
+  { key: "devices", title: "Devices", href: "/settings/devices", adminOnly: false },
   { key: "people", title: "People", href: "/settings/people", adminOnly: true },
   { key: "billing", title: "Billing", href: "/settings/billing", adminOnly: true },
   { key: "advanced", title: "Advanced", href: "/settings/advanced", adminOnly: true },
