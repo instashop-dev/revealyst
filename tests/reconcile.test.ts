@@ -179,24 +179,24 @@ describe("buildReconcileView — activity signal", () => {
 });
 
 describe("deriveReconcileImpact — counts only (invariant b)", () => {
-  it("counts unresolved subjects WITH activity, plus tracked people", () => {
+  it("counts only unresolved subjects WITH activity (empty stubs don't count)", () => {
     const impact = deriveReconcileImpact({
       unresolved: [
         { hasActivity: true },
         { hasActivity: true },
         { hasActivity: false }, // empty stub — not counted
       ] as never,
-      people: [{ id: "a" }, { id: "b" }] as never,
     });
-    expect(impact).toEqual({ accountsWithData: 2, trackedPeople: 2 });
+    // No "people already tracked" denominator — matching links to an existing
+    // person, it doesn't add one, and people.length isn't the tracked_user count.
+    expect(impact).toEqual({ accountsWithData: 2 });
   });
 
   it("is zero accounts when nothing unresolved carries data", () => {
     const impact = deriveReconcileImpact({
       unresolved: [{ hasActivity: false }] as never,
-      people: [] as never,
     });
-    expect(impact).toEqual({ accountsWithData: 0, trackedPeople: 0 });
+    expect(impact).toEqual({ accountsWithData: 0 });
   });
 });
 

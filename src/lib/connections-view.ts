@@ -26,32 +26,31 @@ export function coverageSummaryLine(connections: StatusLike[]): string {
 
 type RunLike = {
   connectionId: string;
-  startedAt: Date | string;
   gaps: unknown;
 };
 
 /**
- * Reduce a flat list of connector runs to the honesty-gap kinds carried by the
- * LATEST run of each connection. Unknown/malformed gap entries are dropped
- * (drift-safe), so a schema change can never surface a bogus badge. Returns a
- * map keyed by connectionId; a connection with no known gaps has no entry.
+ * Map the honesty-gap kinds carried by each connection's LATEST run.
+ *
+ * The input is ONE run per connection — the connection's true latest, fetched
+ * via `connectorRuns.latest(connectionId)` (nulls for connections that never
+ * ran are tolerated). It is deliberately NOT a capped org-wide run list: a
+ * `LIMIT 100` list ordered by `started_at DESC` can crowd a busy connection's
+ * latest run off the top when several connectors poll hourly, which would drop
+ * the connection's "limited coverage" badge and imply full coverage it doesn't
+ * have (invariant b). Taking per-connection latest runs makes that crowd-out
+ * structurally impossible.
+ *
+ * Unknown/malformed gap entries are dropped (drift-safe), so a schema change
+ * can never surface a bogus badge. Returns a map keyed by connectionId; a
+ * connection with no known gaps (or no run at all) has no entry.
  */
 export function latestGapKindsByConnection(
-  runs: RunLike[],
+  latestRuns: Iterable<RunLike | null | undefined>,
 ): Map<string, HonestyGapKind[]> {
-  const latest = new Map<string, RunLike>();
-  for (const run of runs) {
-    const prev = latest.get(run.connectionId);
-    if (
-      !prev ||
-      new Date(run.startedAt).getTime() > new Date(prev.startedAt).getTime()
-    ) {
-      latest.set(run.connectionId, run);
-    }
-  }
-
   const out = new Map<string, HonestyGapKind[]>();
-  for (const [connectionId, run] of latest) {
+  for (const run of latestRuns) {
+    if (!run) continue;
     const gaps = Array.isArray(run.gaps) ? run.gaps : [];
     const kinds = gaps
       .map((g) =>
@@ -61,7 +60,7 @@ export function latestGapKindsByConnection(
         (k): k is HonestyGapKind =>
           typeof k === "string" && k in HONESTY_GAP_GLOSSARY,
       );
-    if (kinds.length > 0) out.set(connectionId, [...new Set(kinds)]);
+    if (kinds.length > 0) out.set(run.connectionId, [...new Set(kinds)]);
   }
   return out;
 }

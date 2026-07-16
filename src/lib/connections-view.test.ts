@@ -28,28 +28,22 @@ describe("coverage summary — counts only", () => {
 });
 
 describe("latestGapKindsByConnection", () => {
-  it("keeps the gaps of the latest run per connection", () => {
+  it("extracts the gap kinds from each connection's latest run", () => {
+    // The input is already ONE run per connection (from connectorRuns.latest),
+    // so no capped org-wide list can crowd a busy connection's latest run off
+    // the top and drop its badge.
     const map = latestGapKindsByConnection([
-      {
-        connectionId: "c1",
-        startedAt: "2026-07-10T00:00:00Z",
-        gaps: [{ kind: "oauth_actors_missing" }],
-      },
-      {
-        connectionId: "c1",
-        startedAt: "2026-07-16T00:00:00Z",
-        gaps: [{ kind: "sub_daily_unavailable" }],
-      },
+      { connectionId: "c1", gaps: [{ kind: "sub_daily_unavailable" }] },
+      { connectionId: "c2", gaps: [{ kind: "oauth_actors_missing" }] },
     ]);
-    // The newer run wins.
     expect(map.get("c1")).toEqual(["sub_daily_unavailable"]);
+    expect(map.get("c2")).toEqual(["oauth_actors_missing"]);
   });
 
   it("drops unknown/malformed gap kinds and de-dupes", () => {
     const map = latestGapKindsByConnection([
       {
         connectionId: "c2",
-        startedAt: "2026-07-16T00:00:00Z",
         gaps: [
           { kind: "sub_daily_unavailable" },
           { kind: "sub_daily_unavailable" },
@@ -62,11 +56,14 @@ describe("latestGapKindsByConnection", () => {
     expect(map.get("c2")).toEqual(["sub_daily_unavailable"]);
   });
 
-  it("has no entry for a connection whose latest run has no known gaps", () => {
+  it("skips a missing latest run (null) and one with no known gaps", () => {
     const map = latestGapKindsByConnection([
-      { connectionId: "c3", startedAt: "2026-07-16T00:00:00Z", gaps: [] },
+      null,
+      undefined,
+      { connectionId: "c3", gaps: [] },
     ]);
     expect(map.has("c3")).toBe(false);
+    expect(map.size).toBe(0);
   });
 });
 

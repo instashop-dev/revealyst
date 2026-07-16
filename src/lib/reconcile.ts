@@ -59,18 +59,20 @@ export type ReconcileView = {
 
 /** Counts-only impact of finishing reconciliation — no fabricated percentages
  * (invariant b). `accountsWithData` = unresolved subjects that actually carry
- * activity (empty stubs don't count); `trackedPeople` = people already known. */
+ * activity (empty stubs don't count). We deliberately do NOT report a
+ * "people already tracked" denominator: matching an account LINKS its usage to
+ * an existing person rather than adding a new one, and `people.length` is not
+ * the frozen tracked_user count (≥1 metric_record in period), so pairing the
+ * two numbers in one sentence would be misleading. */
 export type ReconcileImpact = {
   accountsWithData: number;
-  trackedPeople: number;
 };
 
 export function deriveReconcileImpact(
-  view: Pick<ReconcileView, "unresolved" | "people">,
+  view: Pick<ReconcileView, "unresolved">,
 ): ReconcileImpact {
   return {
     accountsWithData: view.unresolved.filter((s) => s.hasActivity).length,
-    trackedPeople: view.people.length,
   };
 }
 

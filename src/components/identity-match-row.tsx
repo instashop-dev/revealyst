@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Check, MoreHorizontal } from "lucide-react";
+import { Activity, Check, CircleDashed, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 import { ReconcileSubjectDialog } from "@/components/reconcile-subject-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,10 @@ export type IdentityMatchRowProps = {
     vendor: string;
     kind: string;
     flagged: boolean;
+    /** Whether this account has any usage data in the window. Conveyed as a
+     * plain text+icon hint (not sort order or colour alone), so a data-bearing
+     * account reads as worth matching first. */
+    hasActivity: boolean;
   };
   /** The one evidence line we can honestly show. Comes ONLY from an email
    * match (`email matches <address>`); null when there is no confident signal
@@ -105,12 +109,25 @@ export function IdentityMatchRow({
   return (
     <TableRow>
       <TableCell className="font-medium">
-        {subject.label}
-        {subject.flagged ? (
-          <Badge variant="outline" className="ml-2">
-            shared?
-          </Badge>
-        ) : null}
+        <div className="flex items-center">
+          {subject.label}
+          {subject.flagged ? (
+            <Badge variant="outline" className="ml-2">
+              shared?
+            </Badge>
+          ) : null}
+        </div>
+        {subject.hasActivity ? (
+          <span className="mt-0.5 flex items-center gap-1 text-xs font-normal text-muted-foreground">
+            <Activity className="size-3" aria-hidden />
+            Has usage data
+          </span>
+        ) : (
+          <span className="mt-0.5 flex items-center gap-1 text-xs font-normal text-muted-foreground/70">
+            <CircleDashed className="size-3" aria-hidden />
+            No data yet
+          </span>
+        )}
       </TableCell>
       <TableCell className="text-muted-foreground">{subject.vendor}</TableCell>
       <TableCell className="text-muted-foreground capitalize">

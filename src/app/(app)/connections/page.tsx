@@ -83,19 +83,27 @@ export default async function ConnectionsPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const ctx = await requireAppContext();
+  // Read shape — TWO sequential DB stages (this page is not on the perf-pinned
+  // hot path): (1) list the connections, then (2) fetch each connection's TRUE
+  // latest run in ONE Promise.all (N indexed single-row lookups, fired
+  // concurrently — one round-trip stage). This deliberately replaces the old
+  // single capped `connectorRuns.list()` (ORDER BY started_at DESC LIMIT 100
+  // org-wide): with several hourly-polled connectors a busy connection's latest
+  // run could fall off the top 100, which (a) reverted the local agent's
+  // transparency panel to "never synced" and (b) dropped a gapped connection's
+  // "limited coverage" badge into a plain "Synced" — both invariant-b overclaims.
+  // Per-connection latest runs make that crowd-out structurally impossible.
   const connections = await ctx.scope.connections.list();
+  const latestRuns = await Promise.all(
+    connections.map((c) => ctx.scope.connectorRuns.latest(c.id)),
+  );
   // The local Claude Code agent connection, if paired — it has its own card in
   // the "Local sync" section (never in the polled grid, to avoid showing it
   // twice). Derived from the already-fetched list; no extra query.
   const localAgent = connections.find((c) => c.vendor === "claude_code_local");
-  // One org-wide read of connector runs (indexed, capped) — reduced in JS to
-  // the latest run per connection. Feeds BOTH the per-card "limited coverage"
-  // badge (honesty gaps from the latest run) and the local agent's
-  // transparency panel, so the page adds ONE run query, not one-per-connection.
-  const runs = connections.length > 0 ? await ctx.scope.connectorRuns.list() : [];
-  const gapsByConnection = latestGapKindsByConnection(runs);
+  const gapsByConnection = latestGapKindsByConnection(latestRuns);
   const localAgentRun = localAgent
-    ? runs.find((r) => r.connectionId === localAgent.id) ?? null
+    ? latestRuns.find((r) => r?.connectionId === localAgent.id) ?? null
     : null;
   const lastSyncFacts: LastSyncFacts | null =
     localAgentRun && localAgentRun.status === "success"

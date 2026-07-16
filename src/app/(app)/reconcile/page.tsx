@@ -68,19 +68,19 @@ export default async function ReconcilePage() {
     showNames && p.displayName ? `${p.pseudonym} · ${p.displayName}` : p.pseudonym;
 
   // Counts-only impact of finishing the work (invariant b — never a fabricated
-  // percentage). N = unresolved accounts that actually carry activity; M =
-  // people already tracked.
+  // percentage). N = unresolved accounts that actually carry activity. When
+  // N = 0 we render nothing: the all-matched empty state below already says so,
+  // and an "everything is matched" line above an empty list would be redundant.
   const impact = deriveReconcileImpact(view);
+  const n = impact.accountsWithData;
   const impactLine =
-    impact.accountsWithData === 0
-      ? "Every account with data is already matched to a person."
-      : `Matching these ${impact.accountsWithData} account${
-          impact.accountsWithData === 1 ? "" : "s"
-        } with data links their usage to real people — up to ${
-          impact.accountsWithData
-        } more could join the ${impact.trackedPeople} ${
-          impact.trackedPeople === 1 ? "person" : "people"
-        } you already track.`;
+    n === 0
+      ? null
+      : `${n} account${n === 1 ? "" : "s"} with recent activity ${
+          n === 1 ? "isn't" : "aren't"
+        } matched to a person yet. Matching ${
+          n === 1 ? "it" : "them"
+        } links that usage to the right people, so your numbers are more complete.`;
 
   // Email-match suggestions, keyed by subject. The evidence line is derived
   // ONLY from these (email equality is the one signal we trust) — a subject
@@ -113,7 +113,9 @@ export default async function ReconcilePage() {
         ) : null}
       </PageHeader>
 
-      <p className="mb-6 text-sm text-muted-foreground">{impactLine}</p>
+      {impactLine ? (
+        <p className="mb-6 text-sm text-muted-foreground">{impactLine}</p>
+      ) : null}
 
       <ReconcileExplainer />
 
@@ -225,6 +227,7 @@ export default async function ReconcilePage() {
                         vendor: s.vendor,
                         kind: s.kind,
                         flagged: s.flag !== null,
+                        hasActivity: s.hasActivity,
                       }}
                       evidence={evidence}
                       proposedMatch={proposed}
