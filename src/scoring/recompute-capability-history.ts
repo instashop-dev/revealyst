@@ -68,7 +68,12 @@ export async function recomputeCapabilityHistory(
   // 0-represented capabilities — so no fabricated absence row). True counts,
   // unfloored — the MIN_PEOPLE floor is applied at read.
   const rows = [...coverage.entries()].map(([capabilitySlug, c]) => {
-    const measured = tierCounts.get(capabilitySlug)?.measured ?? 0;
+    // Single-source the tier summary: `measured` AND its denominator both come
+    // from the same coverageTierCounts SELECT, so a concurrent reducer write
+    // landing between the two batched reads can never yield measured > total
+    // (a spurious "measured" cohort claim). representedCount stays sourced
+    // from coverageCounts — the dashboard-parity function.
+    const tier = tierCounts.get(capabilitySlug);
     return {
       teamId: null,
       capabilitySlug,
@@ -78,7 +83,10 @@ export async function recomputeCapabilityHistory(
       totalCount,
       masteredCount: c.mastered,
       developingCount: c.withState - c.mastered,
-      confidenceTier: summarizeConfidenceTier(measured, c.withState),
+      confidenceTier: summarizeConfidenceTier(
+        tier?.measured ?? 0,
+        tier?.withState ?? 0,
+      ),
     };
   });
 
