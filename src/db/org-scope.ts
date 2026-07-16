@@ -25,6 +25,7 @@ import { renewalReminderStateNamespace } from "./org-scope/renewal-reminder-stat
 import { rolesNamespace } from "./org-scope/roles";
 import { scoresNamespace } from "./org-scope/scores";
 import { subjectsNamespace } from "./org-scope/subjects";
+import { teamManagersNamespace } from "./org-scope/team-managers";
 import { teamsNamespace } from "./org-scope/teams";
 
 // The org-scoped input types live next to their namespace factories now (the
@@ -168,6 +169,7 @@ export function forOrg(db: Db, orgId: string) {
     org: orgNamespace(db, orgId),
     people: peopleNamespace(db, orgId),
     teams: teamsNamespace(db, orgId),
+    teamManagers: teamManagersNamespace(db, orgId),
     connections: connectionsNamespace(db, orgId),
     connectorRuns: connectorRunsNamespace(db, orgId),
     subjects: subjectsNamespace(db, orgId),

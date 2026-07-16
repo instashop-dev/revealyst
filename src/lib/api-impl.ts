@@ -21,6 +21,8 @@ import {
   userControlsInstallation,
   userIsOrgAdmin,
 } from "../connectors/copilot/github-app";
+import type { Db } from "../db/client";
+import { orgMembersList } from "../db/invites";
 import type { forOrg } from "../db/org-scope";
 import type { CredentialEnv } from "../lib/credentials";
 import { addDays } from "../poller/backfill";
@@ -419,6 +421,66 @@ export async function setPersonRole(
     metadata: { roleSlug },
   });
   return apiRoutes.roleAssignmentSet.response.parse({ ok: true });
+}
+
+/**
+ * Team → manager assignment (D-TCI-3, ADR 0044). Admin-set org config: an admin
+ * makes an org member a manager of a team, or removes that grant. `teamId` must
+ * be a team in this org (404 otherwise — the composite tenant FK is the
+ * backstop) and `userId` must be a member of this workspace (400 otherwise — a
+ * manager is an org member by definition; the user FK alone would accept any
+ * account). Write-then-audit like every sibling admin mutation. Pure over the
+ * org-scoped repository (+ the org-members read), so it's tested on PGlite; the
+ * route is thin HTTP glue. Assigning a manager confers NO per-person data
+ * visibility (D-TCI-1) — it only records who manages the team.
+ */
+export async function setTeamManager(
+  args: { db: Db; scope: OrgScope },
+  input: {
+    teamId: string;
+    userId: string;
+    action: "add" | "remove";
+    actorUserId: string;
+  },
+) {
+  const { db, scope } = args;
+  const { teamId, userId, action, actorUserId } = input;
+
+  // The team must belong to this org — a clean 404 rather than a composite-FK
+  // 500 on assign (and a meaningful error on remove).
+  const teams = await scope.teams.list();
+  if (!teams.some((t) => t.id === teamId)) {
+    throw new ApiError(404, "team not found");
+  }
+
+  // A manager must be a member of this workspace. Validated against the roster
+  // so a non-member id is a clean 400, not a silent grant to an outside account.
+  const members = await orgMembersList(db, scope.orgId);
+  if (!members.some((m) => m.userId === userId)) {
+    throw new ApiError(400, "not a workspace member");
+  }
+
+  if (action === "remove") {
+    await scope.teamManagers.remove(teamId, userId);
+    await scope.auditLog.record({
+      actorUserId,
+      action: "team.manager_remove",
+      targetKind: "team",
+      targetId: teamId,
+      metadata: { userId },
+    });
+    return { ok: true };
+  }
+
+  await scope.teamManagers.assign(teamId, userId);
+  await scope.auditLog.record({
+    actorUserId,
+    action: "team.manager_add",
+    targetKind: "team",
+    targetId: teamId,
+    metadata: { userId },
+  });
+  return { ok: true };
 }
 
 /**

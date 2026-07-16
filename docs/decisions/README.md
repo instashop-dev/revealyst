@@ -63,3 +63,4 @@ is linked and the affected workstreams are re-synced.
 | 0041 | `schema-split` | schema: public-API-preserving split into per-domain modules | Accepted |
 | 0042 | `context-tokens-signal` | TEL-012 context-window usage signal (`context_tokens`); vocabulary + binding, emitter fixture-gated | Accepted |
 | 0043 | `rec-interaction-clear-action` | Rec-interaction `cleared` API action (honest undo — deletes the row, never fabricates "tried") | Accepted |
+| 0044 | `manager-role-tier` | Manager role tier (`team_managers`, D-TCI-3); derived from a per-team grant, Better Auth roles untouched, no per-person visibility | Accepted |

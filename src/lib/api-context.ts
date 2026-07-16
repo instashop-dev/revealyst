@@ -71,6 +71,30 @@ export const appContext = cache(async () => {
 
 export type AppContext = NonNullable<Awaited<ReturnType<typeof appContext>>>;
 
+/**
+ * The teams the signed-in user manages in their org (D-TCI-3, ADR 0044) — the
+ * "manager" access seam. A manager is an org MEMBER with ≥1 team_managers row;
+ * an empty array means "not a manager". The Better Auth role stays admin|member
+ * (auth schema untouched) — manager is derived from this read, never a role.
+ *
+ * Deliberately a SEPARATE `cache()`d lookup rather than a field on appContext:
+ * it costs one extra Neon round-trip (needs the resolved orgId first, so it
+ * cannot pipeline into the orgContext read), and NO surface consumes it yet
+ * (the manager nav group ships empty; the admin assignment UI gates on role,
+ * not manager). Paying that ~per-RTT cost on every authenticated page for zero
+ * current readers would violate the depth-over-count perf model — so it runs
+ * only when a caller asks. React `cache` still dedupes it within one request.
+ *
+ * Returns [] for an unauthenticated request (mirrors appContext returning null).
+ */
+export const managedTeamIds = cache(async (): Promise<string[]> => {
+  const ctx = await appContext();
+  if (!ctx) {
+    return [];
+  }
+  return ctx.scope.teamManagers.managedTeamIds(ctx.user.id);
+});
+
 /** Page variant: bounce unauthenticated visitors to sign-in, carrying the
  * destination (path + query) as ?next= so deep links round-trip and error
  * params riding the query survive to a page that can show them (e.g. an

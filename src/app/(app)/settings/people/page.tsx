@@ -3,6 +3,7 @@ import { RevokeInviteButton } from "@/components/revoke-invite-button";
 import { AdminOnlyNotice } from "@/components/settings/admin-only-notice";
 import { RoleManagementCard } from "@/components/settings/role-management-card";
 import { TeamManagementCard } from "@/components/settings/team-management-card";
+import { TeamManagersCard } from "@/components/settings/team-managers-card";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -45,16 +46,25 @@ export default async function SettingsPeoplePage() {
 
   // One flat Promise.all (depth 1). Team/role reads are skipped for a personal
   // org-of-one (they have no meaning), mirroring the old settings page.
-  const [members, pending, teams, allMembers, peopleRows, roleList, roleAssignments] =
-    await Promise.all([
-      orgMembersList(ctx.db, ctx.org.id),
-      invitesForOrg(ctx.db, ctx.org.id).listPending(),
-      isPersonal ? Promise.resolve([]) : ctx.scope.teams.list(),
-      isPersonal ? Promise.resolve([]) : ctx.scope.teams.allMembers(),
-      isPersonal ? Promise.resolve([]) : ctx.scope.people.list(),
-      isPersonal ? Promise.resolve([]) : ctx.scope.roles.list(),
-      isPersonal ? Promise.resolve([]) : ctx.scope.roles.assignments(),
-    ]);
+  const [
+    members,
+    pending,
+    teams,
+    allMembers,
+    peopleRows,
+    roleList,
+    roleAssignments,
+    teamManagers,
+  ] = await Promise.all([
+    orgMembersList(ctx.db, ctx.org.id),
+    invitesForOrg(ctx.db, ctx.org.id).listPending(),
+    isPersonal ? Promise.resolve([]) : ctx.scope.teams.list(),
+    isPersonal ? Promise.resolve([]) : ctx.scope.teams.allMembers(),
+    isPersonal ? Promise.resolve([]) : ctx.scope.people.list(),
+    isPersonal ? Promise.resolve([]) : ctx.scope.roles.list(),
+    isPersonal ? Promise.resolve([]) : ctx.scope.roles.assignments(),
+    isPersonal ? Promise.resolve([]) : ctx.scope.teamManagers.list(),
+  ]);
 
   // §7 gating identical to the frozen personRef shape: names only leave the
   // server when the org's visibility mode permits.
@@ -79,6 +89,21 @@ export default async function SettingsPeoplePage() {
   const roleOptions = roleList.map((role) => ({
     slug: role.slug,
     label: role.label,
+  }));
+
+  // Team managers (D-TCI-3) — managers are AUTH USERS (org members), not §7
+  // tracked people, so their name/email is shown to their own workspace (as the
+  // Members table above already does). Reuses the `members` roster (no extra
+  // person read).
+  const managersByTeam = groupBy(teamManagers, (m) => m.teamId);
+  const teamManagerRows = teams.map((team) => ({
+    id: team.id,
+    name: team.name,
+    managerUserIds: (managersByTeam.get(team.id) ?? []).map((m) => m.userId),
+  }));
+  const managerOptions = members.map((member) => ({
+    userId: member.userId,
+    label: member.name || member.email,
   }));
 
   return (
@@ -187,6 +212,9 @@ export default async function SettingsPeoplePage() {
       )}
       {!isPersonal && (
         <RoleManagementCard people={rolePeople} roles={roleOptions} />
+      )}
+      {!isPersonal && (
+        <TeamManagersCard teams={teamManagerRows} members={managerOptions} />
       )}
     </div>
   );
