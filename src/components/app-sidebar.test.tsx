@@ -29,24 +29,31 @@ window.matchMedia =
     dispatchEvent: vi.fn(),
   }));
 
+type SidebarProps = React.ComponentProps<typeof AppSidebar>;
+
+function renderSidebar(
+  pathname = "/dashboard",
+  props: Partial<SidebarProps> = {},
+) {
+  mockPathname.mockReturnValue(pathname);
+  return render(
+    <SidebarProvider>
+      <AppSidebar
+        org={props.org ?? { name: "Acme", kind: "team" }}
+        role={props.role ?? "admin"}
+        user={
+          props.user ?? { name: "Jane Doe", email: "jane@example.com" }
+        }
+        isPlatformAdmin={props.isPlatformAdmin ?? false}
+      />
+    </SidebarProvider>,
+  );
+}
+
 // T2.6 items 2 + the nav-landmark test called for alongside it: a labeled
 // <nav> landmark wrapping the menu groups, and aria-current="page" on the
 // active item only.
 describe("AppSidebar — nav landmark + aria-current (T2.6 item 2)", () => {
-  function renderSidebar(pathname = "/dashboard") {
-    mockPathname.mockReturnValue(pathname);
-    return render(
-      <SidebarProvider>
-        <AppSidebar
-          org={{ name: "Acme", kind: "team" }}
-          role="admin"
-          user={{ name: "Jane Doe", email: "jane@example.com" }}
-          isPlatformAdmin={false}
-        />
-      </SidebarProvider>,
-    );
-  }
-
   it("exposes exactly one nav landmark labeled 'Primary'", () => {
     renderSidebar();
     expect(
@@ -55,11 +62,62 @@ describe("AppSidebar — nav landmark + aria-current (T2.6 item 2)", () => {
   });
 
   it("marks the active nav item with aria-current='page' and leaves the rest unmarked", () => {
+    // Team org: /dashboard nav label is "Team" (U0.1, was "Overview").
     renderSidebar("/dashboard");
-    const overviewLink = screen.getByRole("link", { name: /Overview/i });
-    expect(overviewLink).toHaveAttribute("aria-current", "page");
+    const teamLink = screen.getByRole("link", { name: /Team/i });
+    expect(teamLink).toHaveAttribute("aria-current", "page");
 
     const connectionsLink = screen.getByRole("link", { name: /Connections/i });
     expect(connectionsLink).not.toHaveAttribute("aria-current");
+  });
+});
+
+// U0.1 nav IA: personal vs team labels + AI-maturity gating rendered by the
+// sidebar (the pure resolver is unit-tested in src/lib/nav-items.test.ts).
+describe("AppSidebar — nav IA (U0.1)", () => {
+  it("labels /dashboard 'Team' and shows AI maturity for team orgs", () => {
+    renderSidebar("/dashboard", { org: { name: "Acme", kind: "team" } });
+    expect(screen.getByRole("link", { name: /Team/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /AI maturity/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /Overview/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("labels /dashboard 'Today' and hides AI maturity for personal orgs", () => {
+    renderSidebar("/dashboard", {
+      org: { name: "My space", kind: "personal" },
+      role: "admin",
+    });
+    expect(screen.getByRole("link", { name: /Today/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /AI maturity/i }),
+    ).not.toBeInTheDocument();
+    // /growth does not exist until phase U1 — no Growth item yet.
+    expect(
+      screen.queryByRole("link", { name: /Growth/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the admin group only for admins", () => {
+    renderSidebar("/dashboard", { role: "member" });
+    expect(
+      screen.queryByRole("link", { name: /Billing/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows the platform link only for platform admins", () => {
+    renderSidebar("/dashboard", { isPlatformAdmin: true });
+    expect(
+      screen.getByRole("link", { name: /Platform admin/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the theme toggle in the footer", () => {
+    renderSidebar();
+    // System / Light / Dark segmented control (U0.8).
+    expect(screen.getByRole("group", { name: /theme/i })).toBeInTheDocument();
   });
 });
