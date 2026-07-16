@@ -211,6 +211,19 @@ member-facing companion. The **member companion-in-team-orgs** experience stays
 gated on the ~6-week dogfood clock (running since 2026-07-14, matures
 ~2026-08-25) and its own §9.4 sub-case-C ADR. This ADR does not touch that gate.
 
+## Admin impersonation (audit consideration)
+
+Better Auth admin impersonation (the same caveat ADR 0038 records) swaps the
+session user: a platform admin impersonating a manager reads that manager's
+team members' named capability data **without a `team_managers` grant recorded
+under the admin's own identity**. This is consistent with impersonation's
+"acting as that user" semantics, but it bypasses the explicit-grant audit trail
+this ADR designs for. Accepted for now because impersonation is itself a
+platform-admin-only, audited affordance (`src/lib/auth.ts` admin plugin); any
+future session-cookie-cache enablement or impersonation change must re-audit
+this path (the same tripwire note as ADR 0038). If per-person surfaces grow
+beyond capability + spend, add impersonation-aware audit rows at read time.
+
 ## Consequences
 
 - A manager can see a managed-team member's capability profile (always) and spend

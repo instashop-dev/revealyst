@@ -42,6 +42,7 @@ export const APP_PATH_PREFIXES = [
   // /teams, /people, /members, /billing, /account are consolidated under
   // /settings (U3) and now 308 to their new homes — kept here so those redirect
   // pages still resolve on the app host.
+  "/team",
   "/teams",
   "/people",
   "/connections",

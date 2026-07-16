@@ -198,6 +198,17 @@ describe("loadManagedRoster — the manager entry point", () => {
     expect(r.teams).toHaveLength(1);
     expect(r.teams[0].teamId).toBe(teamAId);
     expect(r.teams[0].members.map((m) => m.displayName)).toContain("Ada Lovelace");
+    // Structural identity guard (review hardening): the roster member shape is
+    // EXACTLY these keys. Adding any identity-bearing field (email, avatar,
+    // etc.) must fail here until it is deliberately registered in
+    // MANAGER_AUTHORIZED_IDENTITY_SURFACES and re-asserted below.
+    for (const m of r.teams[0].members) {
+      expect(Object.keys(m).sort()).toEqual([
+        "displayName",
+        "personId",
+        "pseudonym",
+      ]);
+    }
     // Never leaks a member of a team this manager does NOT manage.
     expect(r.teams[0].members.some((m) => m.personId === personInBId)).toBe(false);
   });
