@@ -5,11 +5,16 @@
 //! Wave M1 surface: ONE read-only snapshot command plus the two autostart
 //! commands used by the privacy screen. No other commands exist.
 
+use std::sync::Arc;
+
 use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_autostart::ManagerExt;
 
+use crate::runtime::{self, CollectionControl};
 use crate::state::{resolve_state, AgentState, StateInputs};
+use crate::store::Store;
+use crate::sync::SyncEngine;
 
 /// The agent's current state. Wave M1 has no enrollment (M2) and no
 /// collection (M3/M5), so the inputs are the honest defaults: not enrolled →
@@ -80,6 +85,44 @@ pub async fn begin_sign_in<R: Runtime>(app: AppHandle<R>) -> Result<bool, String
 #[tauri::command]
 pub fn is_signed_in() -> bool {
     crate::secrets::has_token()
+}
+
+/// Trigger one collect→sync cycle immediately ("Sync now"). Respects the same
+/// enrollment/Personal-org/pause gates as the periodic loop (a no-op if not
+/// enrolled or paused). Returns a plain-English status; never a token or path.
+#[tauri::command]
+pub async fn sync_now<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
+    let store = match app.try_state::<Arc<Store>>() {
+        Some(store) => store.inner().clone(),
+        None => return Err("Collection isn't ready yet.".to_string()),
+    };
+    let control = match app.try_state::<Arc<CollectionControl>>() {
+        Some(control) => control.inner().clone(),
+        None => return Err("Collection isn't ready yet.".to_string()),
+    };
+    if !runtime::collection_allowed(&control) {
+        return Ok(
+            "Nothing to sync yet — sign in first (and make sure sync isn't paused).".to_string(),
+        );
+    }
+    let engine = SyncEngine::new();
+    let cfg = runtime::CollectConfig::from_env();
+    runtime::run_cycle(&store, &engine, &control, &cfg).await;
+    Ok("Sync finished.".to_string())
+}
+
+/// Pause or resume background collection (the tray/privacy "Pause" control). While
+/// paused, neither the periodic loop nor "Sync now" collects.
+#[tauri::command]
+pub fn set_collection_paused<R: Runtime>(app: AppHandle<R>, paused: bool) -> Result<(), String> {
+    match app.try_state::<Arc<CollectionControl>>() {
+        Some(control) => {
+            control.set_paused(paused);
+            tracing::info!(component = "commands", paused, "collection pause toggled");
+            Ok(())
+        }
+        None => Err("Collection isn't ready yet.".to_string()),
+    }
 }
 
 #[tauri::command]
