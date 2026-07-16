@@ -21,3 +21,9 @@ tsconfig.tsbuildinfo
 
 # Transient vitest JSON report consumed by scripts/gate-evidence.mjs
 .vitest-gate-report.json
+
+# Desktop agent (own toolchain — excluded from the root web toolchain; T0.1)
+desktop-agent/src-tauri/target/
+desktop-agent/src-tauri/gen/
+desktop-agent/dist/
+desktop-agent/node_modules/

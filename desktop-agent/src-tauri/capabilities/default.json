@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimal capability for the main window. Core defaults only — no filesystem, shell, credential-store, or network permissions (spec 22.2; hard rule: no unrestricted Tauri filesystem or shell permissions). The frontend reaches everything else through narrowly scoped Rust commands added in later waves.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -13,6 +13,10 @@ chaser routine (per the harness-setup doc) to poll status until each clears.
 | Anthropic / OpenAI / Cursor | — | — | **None needed** — customer-created admin keys | ✅ n/a |
 | Paddle MoR onboarding | paddle.com | The instant W2 has a live site | Days–weeks (KYC) | 🔶 account created; **sandbox + production catalog configured** (see below); MoR/KYC approval status TBC |
 | Legal pass (ToS/DPA/privacy) | counsel | When W3-N drafts terms | Weeks | ☐ **drafts ready — file with counsel** (W3-N: `docs/legal/`, `/legal/terms`, `/legal/privacy`) |
+| Apple Developer Program + Developer ID Application cert (Desktop Agent T0.4) | developer.apple.com | **Now** — notarization lead time is the M6 long pole (rule 5) | Days (enrollment identity check) + cert issuance | ☐ pending founder enrollment (nothing filed yet — this row is the request) |
+| Windows code-signing cert — **EV recommended** per D-DA-7 (avoids SmartScreen reputation lag) | CA of founder's choice (e.g. DigiCert/SSL.com) | **Now** | Days–weeks (EV org validation) | ☐ pending founder purchase |
+| GitHub protected Environment `desktop-release` with required reviewer (Desktop Agent T0.4) | repo Settings → Environments | **Now** | Instant (founder action) | ☐ pending founder |
+| Tauri updater keypair + remote-config Ed25519 keypair (Desktop Agent T0.4) | generate offline; store ONLY as `desktop-release` Environment secrets — never repo/PR-accessible secrets, never committed | With the `desktop-release` Environment | Instant once the Environment exists | ☐ pending founder |
 
 Only GitHub requires an *app-shaped* approval, and only Copilot needs it: every
 other V1 connector authenticates with a customer-created API key pasted into

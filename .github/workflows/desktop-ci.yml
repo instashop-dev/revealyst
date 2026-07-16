@@ -1,0 +1,124 @@
+# PR checks for the desktop-agent tree (Desktop Agent plan T0.3; spec §25.1).
+# Path-filtered so web-only PRs never pay for Rust builds. NO signing anywhere
+# in this workflow — spec §25.2 hard rule: PR workflows must not access
+# signing secrets (signing lands in release-desktop.yml behind the protected
+# `desktop-release` Environment, task T6.2).
+name: Desktop CI
+
+on:
+  pull_request:
+    paths:
+      - "desktop-agent/**"
+      - ".github/workflows/desktop-ci.yml"
+      # The audit must re-run when someone edits the audit itself — otherwise
+      # a PR that only weakens the script gets no desktop checks at all.
+      - "scripts/desktop-capability-audit.mjs"
+
+concurrency:
+  group: desktop-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    # windows-latest, not ubuntu: Tauri on Linux needs webkit2gtk system
+    # packages before the crate even compiles; Windows compiles clean and is
+    # cheaper than macOS.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-agent/package-lock.json
+      # tauri::generate_context! embeds ../dist at compile time, so the
+      # frontend bundle must exist before any cargo command compiles the crate.
+      - name: Install frontend dependencies
+        working-directory: desktop-agent
+        run: npm ci
+      - name: Build frontend (generate_context! embeds ../dist)
+        working-directory: desktop-agent
+        run: npm run build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-agent/src-tauri
+      - name: Rust format
+        working-directory: desktop-agent/src-tauri
+        run: cargo fmt --check
+      - name: Clippy (deny warnings)
+        working-directory: desktop-agent/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Rust tests
+        working-directory: desktop-agent/src-tauri
+        run: cargo test
+      # cargo-audit over the committed Cargo.lock (pinned resolution — a green
+      # PR audits the same tree every run). Prebuilt binary via install-action;
+      # `cargo install` would recompile cargo-audit from source every run.
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+      - name: Dependency audit
+        working-directory: desktop-agent/src-tauri
+        run: cargo audit
+
+  ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop-agent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-agent/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  build:
+    # Unsigned Tauri bundles on both release OSes. Signing is deliberately
+    # absent here (spec §25.2) — these artifacts only prove the app compiles
+    # and bundles.
+    strategy:
+      fail-fast: false
+      matrix:
+        # Pin bundles per OS: tauri.conf.json lists all release targets, but
+        # letting the bundler resolve them cross-platform makes macOS attempt
+        # the experimental NSIS-on-macOS path (tauri-apps/tauri#7563).
+        include:
+          - os: macos-latest
+            bundles: dmg
+          - os: windows-latest
+            bundles: msi,nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-agent/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-agent/src-tauri
+      - name: Install frontend dependencies
+        working-directory: desktop-agent
+        run: npm ci
+      - name: Unsigned Tauri build
+        working-directory: desktop-agent
+        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
+
+  capability-audit:
+    # Spec §22.2/§22.3: capabilities stay minimal (no fs/shell/http grants,
+    # no remote origins), the CSP stays byte-identical to the pinned §22.3
+    # policy, and withGlobalTauri stays off.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tauri capability + CSP audit
+        run: node scripts/desktop-capability-audit.mjs
