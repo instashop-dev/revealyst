@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { CapabilityCurriculumTrigger } from "@/components/companion/capability-curriculum-drawer";
 import {
   CAPABILITY_PROFILE_COPY,
   confidenceTierLabel,
@@ -89,13 +90,13 @@ export function CapabilityProfileCard({
                 </li>
               ))}
             </ul>
-            {nextLabel ? (
-              <p className="mt-3 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {CAPABILITY_PROFILE_COPY.nextLead}:
-                </span>{" "}
-                {nextLabel}
-              </p>
+            {nextLabel && nextSlug ? (
+              <CapabilityCurriculumTrigger
+                slug={nextSlug}
+                label={nextLabel}
+                nextLead={CAPABILITY_PROFILE_COPY.nextLead}
+                labels={labels}
+              />
             ) : null}
           </>
         )}
