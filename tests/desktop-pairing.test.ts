@@ -22,7 +22,7 @@ import {
   type DesktopConnectPayload,
 } from "../src/lib/desktop-pairing";
 import { parseAgentToken } from "../src/lib/agent-token";
-import { authenticateDeviceToken } from "../src/lib/otel-receiver";
+import { authenticateDeviceToken } from "../src/lib/device-token";
 
 // Desktop Agent T2.2 (ADR 0045): the full PKCE pairing dance against PGlite —
 // start (stateless) → consent (org-scoped row) → exchange (CAS + device-token
