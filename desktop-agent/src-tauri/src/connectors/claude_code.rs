@@ -301,7 +301,16 @@ fn parse_line(line: &str, fp: &mut FileParse) {
     match ty {
         "assistant" => {
             let message = record.get("message");
-            let usage = message.and_then(|m| m.get("usage")).map(parse_usage);
+            // Guard to an OBJECT before parsing, mirroring the CLI's truthy
+            // `usageRaw ? {...} : null` check (parse.ts): a `"usage": null`
+            // (or any non-object) yields None, so the extractor does NOT count a
+            // model request / emit model_tokens=0 for a turn the CLI would skip.
+            // Without this, `.map(parse_usage)` on `Some(Value::Null)` produces a
+            // spurious all-zero usage turn — a CLI-parity divergence.
+            let usage = message
+                .and_then(|m| m.get("usage"))
+                .filter(|u| u.is_object())
+                .map(parse_usage);
             fp.records.push(SourceRecord {
                 kind: RecordKind::Assistant,
                 session_id,
@@ -620,6 +629,20 @@ pub fn resolve_local_identity(ctx: &ConnectorContext) -> LocalIdentity {
 /// resolved identity. All honesty gaps (the extractor's + the connector's) ride
 /// the EARLIEST day's event once, so the batch builder carries them a single time
 /// rather than duplicating them per day.
+///
+/// ## Window-authoritative delete contract (T4.1)
+///
+/// The days we emit here become the batch's window: [`build_request`](crate::sync::batch)
+/// derives `window = min..max` of the emitted days, and the server ingest is
+/// DESTRUCTIVE per that whole day-range — `deleteWindowForConnection(start..=end)`
+/// then upsert ("a push is authoritative for its window"). Days with no records
+/// are omitted, so the window auto-pins to real data (no over-deletion at the
+/// edges — ADR 0025). The one residual assumption: a day INSIDE the bounding
+/// range that loses its only local source between pushes (unusual selective
+/// mid-window log deletion) would be delete-erased with no re-upsert, because we
+/// emit no event for it yet it falls within min..max. Full-window re-aggregation
+/// (only the ends can pin) means this cannot happen at the boundaries; it is a
+/// tolerated edge for interior days that vanish from disk mid-window.
 fn build_usage_events(
     out: &ExtractOutput,
     identity: &LocalIdentity,
@@ -828,6 +851,14 @@ fn collect_from_files(
 
     let usage_events = build_usage_events(&out, &identity, &extra_gaps);
 
+    // When ALL detected files are unsupported, `out.records` is empty ⇒
+    // `build_usage_events` emits no event ⇒ the computed honesty gaps (incl. the
+    // "unsupported format" disclosure) never reach the wire, because there is
+    // nothing to sync. That is acceptable: in this case the disclosure lives in
+    // the persisted `connector_state = unsupported_version` (set by
+    // `collect_and_enqueue`), which the status surface reads — not in an
+    // `AgentIngestRequest.gaps[]` entry. `batch.gaps` still carries it for any
+    // in-process consumer/test.
     let state = if unsupported_files > 0 && out.records.is_empty() {
         ConnectorState::UnsupportedVersion
     } else if unsupported_files > 0 {

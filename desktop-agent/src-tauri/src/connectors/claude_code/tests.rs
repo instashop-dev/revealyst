@@ -301,6 +301,49 @@ fn hostile_model_is_bounded_after_extract() {
     assert!(!dump.contains(' '), "sanitized model carries no spaces");
 }
 
+/// F1 CLI-parity: an assistant record with `"usage": null` is NOT a usage-bearing
+/// turn. The CLI's truthy `usageRaw ? {...} : null` (parse.ts) treats a falsy
+/// usage as no-usage, so the summarizer emits no model_requests/model_tokens for
+/// it. A naive `.map(parse_usage)` on `Some(Value::Null)` would spuriously count
+/// it as an all-zero request — the object guard prevents that.
+#[test]
+fn null_usage_does_not_count_a_model_request() {
+    let line = r#"{"type":"assistant","isSidechain":false,"sessionId":"s1","timestamp":"2026-07-01T10:00:00.000Z","requestId":"r1","message":{"id":"m1","model":"claude-fable-5","usage":null}}"#;
+    let records = parse_all(line).records;
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].kind, RecordKind::Assistant);
+    assert!(
+        records[0].usage.is_none(),
+        "null usage must yield None, not an all-zero UsageNumbers"
+    );
+
+    let out = extract(&records, &known_truth_opts());
+    // No usage ⇒ no model request / no model tokens (matches the CLI).
+    assert_eq!(
+        value(
+            &out,
+            MetricKey::ModelRequests,
+            "2026-07-01",
+            "model=claude-fable-5"
+        ),
+        None
+    );
+    assert_eq!(
+        value(
+            &out,
+            MetricKey::ModelTokens,
+            "2026-07-01",
+            "model=claude-fable-5"
+        ),
+        None
+    );
+    // The assistant turn still marks the day active (it just carries no usage).
+    assert_eq!(
+        value(&out, MetricKey::ActiveDay, "2026-07-01", ""),
+        Some(1.0)
+    );
+}
+
 // ---- 3. Unsupported version ------------------------------------------------
 
 /// A file declaring a version beyond the supported major yields ZERO events and
