@@ -67,6 +67,31 @@ export function monthToDateWindow(today: string): { from: string; to: string } {
 }
 
 /**
+ * The UTC window for the FULL calendar month immediately before `today`'s month
+ * (P3-B, the manager per-person spend read): first through last day of the prior
+ * month, inclusive. Handles the January → prior-December year rollover. Used as a
+ * stable "last month" comparison alongside the month-to-date figure — a complete
+ * month, never a partial one, so the two numbers are never mistaken for a
+ * like-for-like trend on the 1st.
+ */
+export function priorMonthWindow(today: string): { from: string; to: string } {
+  if (!DAY_RE.test(today)) {
+    throw new Error(`priorMonthWindow expects YYYY-MM-DD, got "${today}"`);
+  }
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7)); // 1-based
+  // month - 2 is the 0-based index of the prior month; day 0 of THIS month
+  // (index month - 1) is the prior month's last day — both roll the year back
+  // correctly for January.
+  const start = new Date(Date.UTC(year, month - 2, 1));
+  const end = new Date(Date.UTC(year, month - 1, 0));
+  return {
+    from: start.toISOString().slice(0, 10),
+    to: end.toISOString().slice(0, 10),
+  };
+}
+
+/**
  * Budget + observed month-to-date spend — the ONE core the alert, the API, and
  * the /spend view all build on, so the definition of "observed spend" lives in
  * a single place. Vendor-reported (spend_cents) and derived

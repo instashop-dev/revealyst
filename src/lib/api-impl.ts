@@ -484,6 +484,45 @@ export async function setTeamManager(
 }
 
 /**
+ * Per-team settings update (ADR 0045 spend half, D-TCI-2). Admin-set org config:
+ * toggle `managersSeeIndividualCost` for a team — the gate that lets that team's
+ * managers see a managed member's per-person spend by name (default OFF). Mirrors
+ * `setTeamManager` exactly: the team must belong to this org (404 otherwise — the
+ * composite tenant FK is the backstop), and it writes-then-audits with a
+ * `team.settings_update` row naming ONLY the changed field + its new value (never
+ * a person's data). Pure over the org-scoped repository, so it's tested on PGlite;
+ * the route is thin HTTP glue.
+ */
+export async function setTeamSettings(
+  args: { scope: OrgScope },
+  input: {
+    teamId: string;
+    managersSeeIndividualCost: boolean;
+    actorUserId: string;
+  },
+) {
+  const { scope } = args;
+  const { teamId, managersSeeIndividualCost, actorUserId } = input;
+
+  const teams = await scope.teams.list();
+  if (!teams.some((t) => t.id === teamId)) {
+    throw new ApiError(404, "team not found");
+  }
+
+  const settings = await scope.teamSettings.set(teamId, {
+    managersSeeIndividualCost,
+  });
+  await scope.auditLog.record({
+    actorUserId,
+    action: "team.settings_update",
+    targetKind: "team",
+    targetId: teamId,
+    metadata: { managersSeeIndividualCost },
+  });
+  return { managersSeeIndividualCost: settings.managersSeeIndividualCost };
+}
+
+/**
  * GET /api/budget core (W4-V, ADR 0020): the org's budget config + observed
  * month-to-date spend (billed and derived kept separate) + the computed alert.
  * `today` (YYYY-MM-DD, UTC) is caller-supplied so the window is deterministic.

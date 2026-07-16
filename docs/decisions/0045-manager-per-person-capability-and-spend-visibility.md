@@ -24,6 +24,41 @@
   **spend half** (D-TCI-2, the `team_settings` toggle) and its table stay a
   separate later workstream — no schema/migration in this build. The self-view-
   only rec/coaching/exposure/mission surfaces are untouched (V4 NOT-list).
+- **Implemented (spend half): P3-B, branch `p3b-member-cost`** — the manager
+  per-person SPEND drill-in behind the admin toggle, no new migration (reuses the
+  P2-E `team_settings` table + `metric_records` spend facts). Ships:
+  (1) a DEDICATED org-scope read `memberSpend.forManagedPerson` (new namespace
+  `src/db/org-scope/member-spend.ts`, the "spend equivalent" of
+  `mastery.forManagedPerson`; frozen path → this ADR is the required same-PR change,
+  no new ADR number). It mirrors `forManagedPerson`'s person-∈-managed-team authz
+  EXACTLY, PLUS gates on the toggle: it returns spend only when the person is a
+  member of a caller-managed team whose `managersSeeIndividualCost` is ON (the
+  cost-visible team set is computed by the loader from `teamSettings`).
+  **Multi-team edge (recorded — RESTRICTIVE reading, the "Consent / visibility
+  machinery" section was silent on it):** access must derive through a toggle-ON
+  managed team — a person on two managed teams with the toggle on for only one IS
+  cost-visible (the toggle-ON grant is real); a person whose only managed team has
+  the toggle off is `cost-hidden` (capability renders, spend absent). **Allocation
+  confidence** is derived HONESTLY as COUNTS, never a fabricated percentage: spend
+  is summed ONLY over the person's EXCLUSIVE subjects (the §6.1 rule the scoring
+  engine already uses — a shared account's spend is never redistributed to an
+  individual), and the coverage disclosure reports how many attributable vs shared
+  subjects the person has and how many shared subjects carried unshown spend.
+  Vendor-reported (`spend_cents`) and estimated (`spend_cents_estimated`) are kept
+  in structurally separate fields (never summed); per-model is TOKEN volume only
+  (no per-model dollar field exists anywhere). (2) A drill-in spend section on
+  `/team/[personId]` (loader `src/lib/manager-spend-view.ts` +
+  `src/components/manager/manager-spend-section.tsx`), rendered ONLY on loader
+  status `ok`; `unavailable` (private) / `forbidden` (not managed) / `cost-hidden`
+  (toggle off) all OMIT the section entirely (never a teaser). Copy lives in the
+  manager-capability copy module and carries the coverage disclosure + the
+  cost≠capability framing ("operational context, not a measure of skill",
+  TCI-MET-001). (3) The admin toggle UI: a sibling `TeamCostVisibilityCard` in
+  Settings → People + `PATCH /api/teams/:id/settings` (handleApi `adminOnly` →
+  `teamSettings.set` + a `team.settings_update` audit row, mirroring
+  `team.manager_add`). No new identity-bearing field reaches any view (the spend
+  numbers are not identity-bearing; the subject name was already registered by the
+  capability half), so `MANAGER_AUTHORIZED_IDENTITY_SURFACES` is unchanged.
 
 ## Context
 
