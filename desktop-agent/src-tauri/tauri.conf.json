@@ -26,6 +26,13 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none';"
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["revealyst"]
+      }
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["dmg", "msi", "nsis"],

@@ -1,7 +1,24 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// jsdom has no Tauri bridge — mock the core invoke the sign-in step touches.
+// Each test sets the behaviour it needs via `invokeMock`.
+const invokeMock = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (command: string, args?: unknown) => invokeMock(command, args),
+}));
 
 import OnboardingScreen from "./onboarding";
+
+beforeEach(() => {
+  invokeMock.mockReset();
+  // Default: not signed in, and begin_sign_in never resolves during the test
+  // unless a test overrides it.
+  invokeMock.mockImplementation((command: string) => {
+    if (command === "is_signed_in") return Promise.resolve(false);
+    return new Promise(() => {});
+  });
+});
 
 afterEach(cleanup);
 
@@ -15,15 +32,50 @@ describe("OnboardingScreen", () => {
     ).toBeTruthy();
   });
 
-  it("continues to the sign-in step where Open browser is disabled (M2 not built)", () => {
+  it("enables the Sign in button and calls begin_sign_in (M2)", async () => {
     render(<OnboardingScreen />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    const openBrowser = await screen.findByRole("button", { name: "Open browser" });
+    expect((openBrowser as HTMLButtonElement).disabled).toBe(false);
+    // No stale "Available soon" placeholder on the enabled step.
+    expect(screen.queryByText("Available soon")).toBeNull();
+
+    fireEvent.click(openBrowser);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("begin_sign_in", undefined),
+    );
+    // While the browser round-trip is pending the button reflects the wait.
+    expect(screen.getByRole("button", { name: "Waiting for your browser…" })).toBeTruthy();
+  });
+
+  it("reflects an already-signed-in computer without a sign-in button", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "is_signed_in") return Promise.resolve(true);
+      return new Promise(() => {});
+    });
+    render(<OnboardingScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(
-      screen.getByText("Your browser will open so you can securely connect this computer."),
+      await screen.findByText("This computer is signed in to Revealyst."),
     ).toBeTruthy();
-    const openBrowser = screen.getByRole("button", { name: "Open browser" });
-    expect((openBrowser as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("Available soon")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open browser" })).toBeNull();
+  });
+
+  it("shows a plain-English error when sign-in fails", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "is_signed_in") return Promise.resolve(false);
+      if (command === "begin_sign_in")
+        return Promise.reject("Couldn't reach Revealyst. Check your connection and try again.");
+      return new Promise(() => {});
+    });
+    render(<OnboardingScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open browser" }));
+    expect(
+      await screen.findByText(
+        "Couldn't reach Revealyst. Check your connection and try again.",
+      ),
+    ).toBeTruthy();
   });
 
   it("shows the privacy-mode step with Analytics Only selected and the others not selectable", () => {
@@ -52,16 +104,14 @@ describe("OnboardingScreen", () => {
     expect(screen.queryByText(/Ready to connect/)).toBeNull();
   });
 
-  it("shows an honest finish placeholder with disabled buttons — no 'connected' claim", () => {
+  it("shows an honest finish placeholder — no 'connected'/'syncing' claim before sign-in", () => {
     render(<OnboardingScreen />);
     fireEvent.click(screen.getByRole("button", { name: "Finish" }));
     expect(
-      screen.getByText(
-        /Sign-in isn't available yet\. When it is, this step will confirm your connection\./,
-      ),
+      screen.getByText(/Complete the .Sign in. step to connect this computer\./),
     ).toBeTruthy();
-    // Invariant (b): "this computer is connected" must NOT render until real
-    // enrollment backs it (M2).
+    // Invariant (b): "connected" / "syncing" must NOT render until real
+    // enrollment + collection back them.
     expect(screen.queryByText(/This computer is connected/)).toBeNull();
     for (const name of ["Open Revealyst", "Done"]) {
       const button = screen.getByRole("button", { name });
