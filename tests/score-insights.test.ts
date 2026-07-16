@@ -13,6 +13,8 @@ import {
   formatDelta,
   interpretScore,
   personDeltaResult,
+  personScoreDropAttribution,
+  resolveSelfPersonId,
   type ComponentDetailRow,
 } from "../src/lib/score-insights";
 import { BANNED_PHRASING } from "./helpers/banned-phrasing";
@@ -343,6 +345,165 @@ describe("personDeltaResult", () => {
       delta: 5,
       previousPeriodLabel: "May 2026",
     });
+  });
+
+  // ─── Multi-person-org regression (invariant b) ───
+  // `scores.results` has no person filter, so in a personal-kind org with an
+  // invited second member `prevRows` holds BOTH people's rows. Without the
+  // `personId` pin the selector picks the latest row by periodEnd regardless
+  // of person — the caller's delta could be diffed against the OTHER member's
+  // previous score. These pin the fix: two people's rows, where the other
+  // person's row is the one the unpinned selection would pick.
+  const multiPersonRows: Row[] = [
+    // The caller's own latest previous row (April).
+    row({
+      id: "row-caller",
+      personId: "person-caller",
+      definitionId: "def-adoption-1",
+      subjectLevel: "person",
+      periodGrain: "month",
+      periodStart: "2026-04-01",
+      periodEnd: "2026-04-30",
+      value: 40,
+    }),
+    // The invited member's row — LATER periodEnd, so unpinned selection
+    // (latest by periodEnd) would diff against this row, not the caller's.
+    row({
+      id: "row-other",
+      personId: "person-other",
+      definitionId: "def-adoption-1",
+      subjectLevel: "person",
+      periodGrain: "month",
+      periodStart: "2026-05-01",
+      periodEnd: "2026-05-31",
+      value: 20,
+    }),
+  ];
+
+  it("multi-person org: the personId pin keeps the delta on the caller's own rows only", () => {
+    const result = personDeltaResult({
+      currentValue: 70,
+      currentVersion: 1,
+      prevRows: multiPersonRows,
+      definitions: defs,
+      slug: "adoption",
+      grain: "month",
+      previousPeriodLabel: "April 2026",
+      personId: "person-caller",
+    });
+    // 70 vs the caller's own 40 — never the other member's 20 (which would
+    // have read as a fabricated +50 delta on the caller's card).
+    expect(result).toEqual({
+      kind: "delta",
+      current: 70,
+      previous: 40,
+      delta: 30,
+      previousPeriodLabel: "April 2026",
+    });
+  });
+
+  it("multi-person org: a pinned person with no previous rows → first (never someone else's row)", () => {
+    const result = personDeltaResult({
+      currentValue: 70,
+      currentVersion: 1,
+      prevRows: multiPersonRows,
+      definitions: defs,
+      slug: "adoption",
+      grain: "month",
+      previousPeriodLabel: "May 2026",
+      personId: "person-third",
+    });
+    expect(result).toEqual({ kind: "first" });
+  });
+
+  it("no personId pin → unpinned latest-by-periodEnd selection (back-compat, org-of-one)", () => {
+    const result = personDeltaResult({
+      currentValue: 70,
+      currentVersion: 1,
+      prevRows: multiPersonRows,
+      definitions: defs,
+      slug: "adoption",
+      grain: "month",
+      previousPeriodLabel: "May 2026",
+    });
+    // Documents the pre-existing unpinned behavior callers without a pin get:
+    // latest row by periodEnd, whoever's it is. Callers with multi-person rows
+    // must pass `personId` (the dashboard does — see personal-self-view.tsx).
+    expect(result).toEqual({
+      kind: "delta",
+      current: 70,
+      previous: 20,
+      delta: 50,
+      previousPeriodLabel: "May 2026",
+    });
+  });
+
+  it("multi-person org: personScoreDropAttribution resolves the pinned person's previous breakdown (driver stays in lockstep with the delta)", () => {
+    const rows: Row[] = [
+      row({
+        id: "row-caller",
+        personId: "person-caller",
+        definitionId: "def-adoption-1",
+        subjectLevel: "person",
+        periodGrain: "month",
+        periodStart: "2026-04-01",
+        periodEnd: "2026-04-30",
+        value: 40,
+        components: { active_days: { raw: 4, normalized: 20, weight: 1, contribution: 20 } },
+      }),
+      row({
+        id: "row-other",
+        personId: "person-other",
+        definitionId: "def-adoption-1",
+        subjectLevel: "person",
+        periodGrain: "month",
+        periodStart: "2026-05-01",
+        periodEnd: "2026-05-31",
+        value: 20,
+        components: { active_days: { raw: 2, normalized: 10, weight: 1, contribution: 10 } },
+      }),
+    ];
+    const result = personScoreDropAttribution({
+      currentVersion: 1,
+      currentComponents: { active_days: { raw: 8, normalized: 40, weight: 1, contribution: 40 } },
+      prevRows: rows,
+      definitions: defs,
+      slug: "adoption",
+      grain: "month",
+      personId: "person-caller",
+    });
+    // The previous breakdown is the CALLER's April row — the same row the
+    // pinned delta diffed against — never the other member's May row.
+    expect(result).toEqual({
+      currentVersion: 1,
+      previousVersion: 1,
+      currentComponents: { active_days: { raw: 8, normalized: 40, weight: 1, contribution: 40 } },
+      previousComponents: { active_days: { raw: 4, normalized: 20, weight: 1, contribution: 20 } },
+    });
+  });
+});
+
+describe("resolveSelfPersonId", () => {
+  const person = (id: string, authUserId: string | null) => ({ id, authUserId });
+
+  it("linked caller → their own person, even alongside other members", () => {
+    const people = [person("p-other", "user-other"), person("p-me", "user-me")];
+    expect(resolveSelfPersonId(people, "user-me")).toBe("p-me");
+  });
+
+  it("unlinked caller in an org-of-one → the sole person (real solo dashboards keep working)", () => {
+    expect(resolveSelfPersonId([person("p-solo", null)], "user-me")).toBe(
+      "p-solo",
+    );
+  });
+
+  it("unlinked caller in a multi-person org → null (honest-empty, never an arbitrary member's rows)", () => {
+    const people = [person("p-a", null), person("p-b", null)];
+    expect(resolveSelfPersonId(people, "user-me")).toBeNull();
+  });
+
+  it("no people at all → null", () => {
+    expect(resolveSelfPersonId([], "user-me")).toBeNull();
   });
 });
 

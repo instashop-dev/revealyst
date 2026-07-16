@@ -211,22 +211,23 @@ type ScoreResultRow = Awaited<
 
 /** Hydrates raw score_results rows into the frozen scoreResultSchema shape:
  * definitionId → slug/version, personId → privacy-shaped personRef.
- * `prefetched.definitions` lets a caller that already fetched (or already
- * kicked off) the definitions read hand it in — array or promise, either is
- * awaited here (await is a no-op on a plain array) — so a page compositing
- * multiple reads in one Promise.all doesn't pay for the same definitions
- * query twice. */
+ * `prefetched.definitions`/`prefetched.people` let a caller that already
+ * fetched (or already kicked off) those reads hand them in — array or
+ * promise, either is awaited here (await is a no-op on a plain array) — so a
+ * page compositing multiple reads in one Promise.all doesn't pay for the
+ * same query twice. */
 async function hydrateScoreResults(
   scope: OrgScope,
   rows: ScoreResultRow[],
   visibilityMode: VisibilityMode,
   prefetched?: {
     definitions?: readonly DefinitionRow[] | Promise<readonly DefinitionRow[]>;
+    people?: readonly PersonRow[] | Promise<readonly PersonRow[]>;
   },
 ) {
   const [definitions, people] = await Promise.all([
     prefetched?.definitions ?? scope.scores.definitions(),
-    scope.people.list(),
+    prefetched?.people ?? scope.people.list(),
   ]);
   const defById = new Map(definitions.map((d) => [d.id, d]));
   const personById = new Map(people.map((p) => [p.id, p]));
@@ -275,6 +276,7 @@ export async function dashboardSummary(
   period: { from: string; to: string },
   prefetched?: {
     definitions?: readonly DefinitionRow[] | Promise<readonly DefinitionRow[]>;
+    people?: readonly PersonRow[] | Promise<readonly PersonRow[]>;
   },
 ) {
   const { from, to } = period;

@@ -140,17 +140,45 @@ export function formatDelta(
 
 // ─── Person-level delta ───
 
+/**
+ * The personal self-view's "whose rows are yours" rule (invariant b): the
+ * caller's linked person (people.auth_user_id), or — when no link exists —
+ * the org's ONLY person (an org-of-one's rows can't be anyone else's; no
+ * production flow sets the auth link today, so this keeps real solo
+ * dashboards working). An unlinked caller in a genuinely multi-person org
+ * resolves to null — the surface renders EMPTY (the same honest rule
+ * /growth applies to milestones), never an arbitrary member's rows.
+ */
+export function resolveSelfPersonId(
+  people: readonly { id: string; authUserId: string | null }[],
+  authUserId: string,
+): string | null {
+  return (
+    people.find((p) => p.authUserId === authUserId)?.id ??
+    (people.length === 1 ? people[0].id : null)
+  );
+}
+
 /** The ONE previous-row selection rule for the personal self-view:
  * person-level rows of this slug's known definitions at the same grain,
  * latest by periodEnd. `personDeltaResult` and `personScoreDropAttribution`
  * both go through here, so the row a personal delta was diffed against and
  * the row a drop's driver is diagnosed from can never be two different rows
- * (F1.3). */
+ * (F1.3).
+ *
+ * `personId` (optional) pins the match to ONE person's rows. `scores.results`
+ * has no person filter, so in a personal-kind org with an invited second
+ * member `prevRows` can hold BOTH people's rows — without the pin, a delta
+ * could diff the caller's current score against the OTHER person's previous
+ * row (invariant b). Callers pass the person whose current-side row the delta
+ * is shown against; omitted/undefined keeps the unpinned behavior (an
+ * org-of-one's rows are all one person's anyway). */
 function latestMatchingPersonRow(args: {
   prevRows: readonly ScoreRow[];
   definitions: readonly DefinitionRow[];
   slug: ScoreSlug;
   grain: PeriodGrain;
+  personId?: string | null;
 }): ScoreRow | null {
   const defIds = new Set(
     args.definitions.filter((d) => d.slug === args.slug).map((d) => d.id),
@@ -159,6 +187,7 @@ function latestMatchingPersonRow(args: {
     (row) =>
       row.subjectLevel === "person" &&
       row.periodGrain === args.grain &&
+      (args.personId == null || row.personId === args.personId) &&
       defIds.has(row.definitionId),
   );
   if (matches.length === 0) return null;
@@ -184,6 +213,11 @@ function latestMatchingPersonRow(args: {
  * `undefined` all fail SAFE into `{ kind: "notComparable", reason:
  * "definitionVersion" }` — a dangling/unknown version must never silently
  * produce a delta as if it were a same-definition comparison.
+ *
+ * `personId` pins the previous-row match to one person's rows (see
+ * `latestMatchingPersonRow`) — in a multi-person org the delta must diff the
+ * SAME person's two rows, never the caller's current against someone else's
+ * previous.
  */
 export function personDeltaResult(args: {
   currentValue: number | null;
@@ -193,6 +227,7 @@ export function personDeltaResult(args: {
   slug: ScoreSlug;
   grain: PeriodGrain;
   previousPeriodLabel: string;
+  personId?: string | null;
 }): DeltaResult | null {
   if (args.currentValue === null) {
     return null;
@@ -256,7 +291,9 @@ export function teamScoreDropAttribution<
 /** Personal self-view selector: resolves the previous row through the same
  * `latestMatchingPersonRow` selection `personDeltaResult` diffs against, and
  * its version through the same definitions list. `undefined` when there's no
- * prior row — the drop then renders un-attributed. */
+ * prior row — the drop then renders un-attributed. `personId` pins the match
+ * to the same person the delta was pinned to (pass the identical value both
+ * places, or the named driver desynchronizes from the delta beside it). */
 export function personScoreDropAttribution(args: {
   currentVersion: number | undefined;
   currentComponents: unknown;
@@ -264,6 +301,7 @@ export function personScoreDropAttribution(args: {
   definitions: readonly DefinitionRow[];
   slug: ScoreSlug;
   grain: PeriodGrain;
+  personId?: string | null;
 }): ScoreDropAttribution | undefined {
   const latest = latestMatchingPersonRow(args);
   if (!latest) return undefined;
