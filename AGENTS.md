@@ -21,6 +21,8 @@ it is the interface between agents.
 > waves W5–W6 + Future ledger) ·
 > [Execution Plan](docs/Revealyst_Execution_Plan.md) (V1 waves, complete; still the home of
 > rules 1–7 + tripwires; V1.5 waves in Spec V3 §16) ·
+> [Desktop Agent Execution Plan](docs/Revealyst_Desktop_Agent_Execution_Plan.md)
+> (Tauri 2 tray agent, phases M0–M7; spec + gap analysis in `docs/product/desktop-agent-*`) ·
 > [Claude Code Workflow](docs/Revealyst_Claude_Code_Workflow.md) ·
 > [Harness setup status](docs/Revealyst_Harness_Setup.md)
 
@@ -95,6 +97,25 @@ it is the interface between agents.
 > D-U3/D-U5 proceed (Today+Growth split, "Today" label, Settings consolidation, benchmark-consent
 > toggle to Settings→Privacy); D-U4 (mobile bottom nav) and D-U6 (persistent Help entry) **not
 > adopted**; D-U7 (Playbooks direction) sits on the Future ledger.
+
+> **Desktop Agent — planning phase merged, build NOT started — 2026-07-16**
+> (`docs/Revealyst_Desktop_Agent_Execution_Plan.md`, phases M0–M7; spec transcript
+> `docs/product/desktop-agent-spec.md`; gap analysis + registry
+> `docs/product/desktop-agent-{gap-analysis.md,requirements.csv}`). The agent is the
+> resident evolution of the CLI (`packages/revealyst-agent`) — Tauri 2 tray utility,
+> macOS 13+/Win 10 22H2+, **Analytics Only default, never raw prompt/response upload**;
+> reuses the `rva1.` device-token scheme, `AgentIngestRequest` day-aggregates, and the
+> `AGENT_COLLECTION_FIELDS` allowlist (bridged to Rust via generated JSON). Desktop code
+> will live in top-level `desktop-agent/` (excluded from root tsconfig — the only root
+> build-config change, plus a `.gitignore` addition for Rust artifacts), with its own
+> path-filtered `desktop-ci.yml` and a
+> `release-desktop.yml` under a protected GitHub Environment (signing secrets NEVER in
+> PR workflows). **Gates (do not force): D-DA-1** (resident-collector go/no-go —
+> SYNC-007/TEL-017 demotion must be founder-cleared before any product-behavior PR) and
+> **D-DA-2** (Spec V4 §9.4 sub-case-C ADR before any Team-org enrollment; Personal orgs
+> first). Prompt-feature extraction ships shape+counts only until **D-DA-5**. Ledger rows
+> D-DA-1…7 pending in `docs/product-signoffs.md`. Next ADR 0044 / migration 0036 (verify
+> both at PR time).
 
 ## Stack facts
 - Next.js / TypeScript monolith, deployed to **Cloudflare Workers** via OpenNext.
