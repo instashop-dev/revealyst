@@ -16,7 +16,7 @@ import {
   type DesktopConnectPayload,
 } from "@/lib/desktop-pairing";
 
-// /desktop/connect (Desktop Agent T2.2, ADR 0045) — the session-authed
+// /desktop/connect (Desktop Agent T2.2, ADR 0047) — the session-authed
 // consent screen the desktop agent opens in the system browser. Shows what
 // device is asking and which workspace it will connect to; approving POSTs
 // a plain HTML form to /api/desktop/auth/consent, which mints the one-time

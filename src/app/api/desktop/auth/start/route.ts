@@ -3,7 +3,7 @@ import {
   startDesktopPairing,
 } from "@/lib/desktop-pairing";
 
-// POST /api/desktop/auth/start (Desktop Agent T2.2, ADR 0045) — the desktop
+// POST /api/desktop/auth/start (Desktop Agent T2.2, ADR 0047) — the desktop
 // agent begins PKCE pairing. Unauthenticated by design (the human
 // authenticates in the browser at the consent step) and STATELESS: nothing
 // is written — an org-scoped pairing row cannot exist before a user

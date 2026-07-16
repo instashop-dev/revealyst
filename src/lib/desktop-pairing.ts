@@ -6,7 +6,7 @@ import { findDesktopPairingByPairingId } from "../db/system";
 import { composeAgentToken, generateAgentSecret, timingSafeEqualStr } from "./agent-token";
 import type { CredentialEnv } from "./credentials";
 
-// Desktop-agent PKCE pairing (Desktop Agent plan T2.2, spec §8, ADR 0045).
+// Desktop-agent PKCE pairing (Desktop Agent plan T2.2, spec §8, ADR 0047).
 //
 // The human authenticates via the existing web session in the system browser —
 // there is no OAuth server here, no refresh tokens, no password form in the
@@ -334,7 +334,7 @@ export async function exchangeDesktopPairing(
       architecture: row.architecture,
       agentVersion: row.agentVersion,
       installationId: row.installationId,
-      // Self-ownership record (ADR 0045): the member who consented. config
+      // Self-ownership record (ADR 0047): the member who consented. config
       // is the non-secret settings column; this is an id, never a name.
       pairedByUserId: row.consentedUserId,
     },

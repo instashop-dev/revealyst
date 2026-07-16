@@ -8,7 +8,7 @@ import {
 } from "@/lib/desktop-pairing";
 import { APP_ORIGIN } from "@/lib/domains";
 
-// POST /api/desktop/auth/consent (Desktop Agent T2.2, ADR 0045) — the
+// POST /api/desktop/auth/consent (Desktop Agent T2.2, ADR 0047) — the
 // session-authed approval behind the /desktop/connect page's form. Creates
 // the org-scoped pairing row bound to the SESSION user (no parameter can
 // name anyone else — self-owned minting is structural) and 303-redirects the

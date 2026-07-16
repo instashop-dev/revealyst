@@ -24,7 +24,7 @@ import {
 import { parseAgentToken } from "../src/lib/agent-token";
 import { authenticateDeviceToken } from "../src/lib/device-token";
 
-// Desktop Agent T2.2 (ADR 0045): the full PKCE pairing dance against PGlite —
+// Desktop Agent T2.2 (ADR 0047): the full PKCE pairing dance against PGlite —
 // start (stateless) → consent (org-scoped row) → exchange (CAS + device-token
 // mint), plus every refusal path the plan pins: S256 mismatch, code reuse,
 // expiry, cross-org, Team-org consent, double-exchange race.

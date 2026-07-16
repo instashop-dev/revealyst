@@ -1,7 +1,7 @@
 import { getApiContext } from "@/lib/api-context";
 import { exchangeDesktopPairing } from "@/lib/desktop-pairing";
 
-// POST /api/desktop/auth/exchange (Desktop Agent T2.2, ADR 0045) — the
+// POST /api/desktop/auth/exchange (Desktop Agent T2.2, ADR 0047) — the
 // desktop agent exchanges its one-time code + PKCE verifier for the device
 // token. Unauthenticated by session (like /v1/metrics): possession of the
 // code AND the verifier is the credential. All verification + the
