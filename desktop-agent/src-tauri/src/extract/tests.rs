@@ -464,6 +464,7 @@ fn classifier_fields_are_absent() {
     let out = extract(&fixture_records(), &opts());
     let dump = output_dump(&out);
     for banned in [
+        // camelCase (spec `LocalPromptFeatures`)…
         "taskCategory",
         "workflowType",
         "complexityBand",
@@ -477,6 +478,21 @@ fn classifier_fields_are_absent() {
         "hasFollowUp",
         "localClassifierVersion",
         "localClassifierConfidence",
+        // …and snake_case — our structs serde-serialize snake_case, so a
+        // classifier field would surface in these forms, not the camelCase ones.
+        "task_category",
+        "workflow_type",
+        "complexity_band",
+        "has_context",
+        "has_constraints",
+        "has_examples",
+        "has_output_format",
+        "has_success_criteria",
+        "has_role_instruction",
+        "has_data_provided",
+        "has_follow_up",
+        "local_classifier_version",
+        "local_classifier_confidence",
     ] {
         assert!(
             !dump.contains(banned),
@@ -552,4 +568,146 @@ fn candidate_payloads_carry_only_sent_keys() {
             );
         }
     }
+}
+
+// ---- 5. Streamed-usage last-wins (regression guard, real values) ------------
+
+/// The CLI reference has a dedicated `streamed-usage` fixture whose partial and
+/// final lines carry DIFFERENT usage (`input:100` partial → `input:1200`
+/// final). Porting it makes the dedup direction observable: a first-wins
+/// regression would report 100, a sum-both bug 1300; only last-wins yields the
+/// final 1200. (The `main-session` fixture's duplicate lines carry identical
+/// usage, so they can't distinguish these — this test can.)
+#[test]
+fn streamed_usage_dedups_last_wins_with_differing_values() {
+    let records = vec![
+        prompt(
+            "sess-stream",
+            ms(2026, 7, 1, 12, 0, 0),
+            false,
+            "SENTINEL_PROMPT",
+        ),
+        // partial streamed line
+        assistant(
+            "sess-stream",
+            ms(2026, 7, 1, 12, 0, 10),
+            false,
+            "req-stream",
+            "claude-fable-5",
+            usage(100, 50, 0, 0),
+        ),
+        // final cumulative line — SAME dedup key, different usage
+        assistant(
+            "sess-stream",
+            ms(2026, 7, 1, 12, 0, 15),
+            false,
+            "req-stream",
+            "claude-fable-5",
+            usage(1200, 300, 5000, 800),
+        ),
+    ];
+    let out = extract(&records, &opts());
+
+    // Last-wins: the FINAL line's usage, not the partial (100) and not the sum
+    // (1300). A `.or_insert`-style first-wins regression fails here.
+    assert_eq!(
+        value(&out, MetricKey::TokensInput, "2026-07-01", ""),
+        Some(1200.0)
+    );
+    assert_eq!(
+        value(&out, MetricKey::TokensOutput, "2026-07-01", ""),
+        Some(300.0)
+    );
+    assert_eq!(
+        value(&out, MetricKey::TokensCacheRead, "2026-07-01", ""),
+        Some(5000.0)
+    );
+    assert_eq!(
+        value(&out, MetricKey::TokensCacheWrite, "2026-07-01", ""),
+        Some(800.0)
+    );
+    // One deduped turn → one request, not two.
+    assert_eq!(
+        value(&out, MetricKey::Sessions, "2026-07-01", ""),
+        Some(1.0)
+    );
+    assert_eq!(
+        value(
+            &out,
+            MetricKey::ModelRequests,
+            "2026-07-01",
+            "model=claude-fable-5"
+        ),
+        Some(1.0)
+    );
+}
+
+// ---- 6. Honesty gaps (invariant-(b): estimate ships with its caveat) --------
+
+fn gap_details(out: &ExtractOutput) -> Vec<String> {
+    out.gaps.iter().filter_map(|g| g.detail.clone()).collect()
+}
+
+/// Whenever a `spend_cents_estimated` record is emitted, the "list prices, not
+/// invoices" disclosure travels with it — matching the CLI `summarize` gap
+/// wording verbatim. Without it, T5.1 would route a spend ESTIMATE into the
+/// server's `gaps[]`-bearing ingest as if it were exact (invariant-(b) leak).
+#[test]
+fn spend_estimate_gap_accompanies_the_spend_metric() {
+    let out = extract(&fixture_records(), &opts());
+    // Spend IS emitted...
+    assert!(value(&out, MetricKey::SpendCentsEstimated, "2026-07-01", "").is_some());
+    // ...so its disclosure MUST be present, byte-for-byte the CLI wording.
+    let details = gap_details(&out);
+    assert!(
+        details
+            .iter()
+            .any(|d| d == "spend_cents_estimated uses public list prices, not invoices"),
+        "spend-estimate disclosure missing; gaps were {details:?}"
+    );
+    // All fixture models are known — no unknown-model warning.
+    assert!(
+        !details.iter().any(|d| d.starts_with("unknown model rates")),
+        "no unknown-model gap expected for known fixture models"
+    );
+    assert!(out.gaps.iter().all(|g| g.kind == GapKind::Other));
+}
+
+/// A model outside the price table defaults to the highest tier AND raises the
+/// unknown-model warning (sorted, capped at five) — mirrors `summarize.ts`.
+#[test]
+fn unknown_model_raises_the_defaulted_high_gap() {
+    let records = vec![assistant(
+        "sess-x",
+        ms(2026, 7, 1, 9, 0, 0),
+        false,
+        "req-x",
+        "brand-new-model-9000",
+        usage(10, 10, 0, 0),
+    )];
+    let out = extract(&records, &opts());
+    let details = gap_details(&out);
+    // Spend disclosure still present...
+    assert!(details
+        .iter()
+        .any(|d| d == "spend_cents_estimated uses public list prices, not invoices"));
+    // ...plus the unknown-model warning naming the model.
+    assert!(
+        details
+            .iter()
+            .any(|d| d.starts_with("unknown model rates defaulted high:")
+                && d.contains("brand-new-model-9000")),
+        "unknown-model gap missing; gaps were {details:?}"
+    );
+}
+
+/// No spend claim ⇒ no spend disclaimer. With zero in-window events nothing is
+/// aggregated, so the output carries no gaps (a disclaimer with no claim would
+/// be noise, and the property under test is "caveat present WHENEVER the claim
+/// is").
+#[test]
+fn no_gaps_when_nothing_is_aggregated() {
+    let out = extract(&[], &opts());
+    assert!(out.records.is_empty());
+    assert!(out.gaps.is_empty());
 }

@@ -100,8 +100,9 @@ pub struct SourceRecord {
 /// Caller context for one extraction pass.
 #[derive(Debug, Clone)]
 pub struct ExtractOptions {
-    /// Stable subject identity (e.g. the paired person's external id). Used only
-    /// to build deterministic event ids; never enters a payload.
+    /// Stable subject identity (e.g. the paired person's external id). Enters
+    /// only the bounded, deterministic `event_id` (a routing key the server
+    /// dedups on) / subject identity — never a content payload field.
     pub subject_external_id: String,
     /// Owning connector id (e.g. `claude_code`).
     pub connector_id: String,
@@ -190,6 +191,33 @@ pub struct DayCounts {
     pub tool_activity_count: u64,
 }
 
+/// The kind of an honesty gap — the same closed set the CLI emits (mirrors the
+/// frozen `HonestyGap["kind"]` union in `packages/revealyst-agent/src/types.ts`
+/// / `src/contracts`). Serializes to the same snake_case wire strings so T5.1
+/// can route these straight into `AgentIngestRequest.gaps[]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GapKind {
+    OauthActorsMissing,
+    TelemetryOnlyUsersInTotals,
+    SharedKeyNotPersonLevel,
+    ServiceAccountsUnresolved,
+    SubDailyUnavailable,
+    SyncWindowIncomplete,
+    Other,
+}
+
+/// A single honesty disclosure attached to a day-aggregate (mirrors the CLI
+/// `HonestyGap`). Invariant-(b): a claim surface must carry its own caveats — a
+/// spend ESTIMATE ships with the "list prices, not invoices" disclosure, never
+/// silently as if it were exact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HonestyGap {
+    pub kind: GapKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
 /// The extractor's full output.
 #[derive(Debug, Clone, Default)]
 pub struct ExtractOutput {
@@ -204,6 +232,11 @@ pub struct ExtractOutput {
     /// Candidate queue events: payloads restricted to allowlisted `sent: true`
     /// keys. Pass `validate_and_enqueue` by construction.
     pub candidate_events: Vec<NewEvent>,
+    /// Honesty disclosures for the aggregate (mirrors the CLI `summarize` gaps).
+    /// T5.1 routes these into `AgentIngestRequest.gaps[]` — the spend-estimate
+    /// disclosure must never be dropped between the extractor and the wire, or
+    /// the server would present an estimate as if it were an exact figure.
+    pub gaps: Vec<HonestyGap>,
 }
 
 // ---- Pricing (list-price spend estimate; port of prices.ts) -----------------
@@ -246,14 +279,18 @@ const RATE_TABLE: [(&str, ModelRates); 5] = [
     ("haiku", HAIKU),
 ];
 
-fn rates_for_model(model: &str) -> ModelRates {
+/// Returns the model's rates plus whether it was a KNOWN tier. Unknown models
+/// fall back to the most expensive tier (estimates err high) and set
+/// `known = false`, so the caller can disclose the high-defaulted estimate —
+/// mirrors the CLI `ratesForModel` `{ rates, known }`.
+fn rates_for_model(model: &str) -> (ModelRates, bool) {
     let lower = model.to_lowercase();
     for (needle, rates) in RATE_TABLE {
         if lower.contains(needle) {
-            return rates;
+            return (rates, true);
         }
     }
-    OPUS
+    (OPUS, false)
 }
 
 fn estimate_cents(rates: ModelRates, usage: UsageNumbers) -> f64 {
@@ -347,8 +384,16 @@ fn peak_concurrency(intervals: &[(i64, i64)]) -> u32 {
 
 /// Fold one deduped source event into its day-aggregate. Out-of-window events
 /// are ignored (no silent backfill leak). Prompt-like content is streamed for a
-/// char/word count and then dropped — never stored (spec §7.2, D-DA-5).
-fn accumulate(days: &mut BTreeMap<String, DayAgg>, opts: &ExtractOptions, event: &SourceRecord) {
+/// char/word count and then dropped — never stored (spec §7.2, D-DA-5). Models
+/// that miss the price table are recorded in `unknown_models` so the caller can
+/// disclose the high-defaulted spend estimate (mirrors the CLI's `unknownModels`
+/// set).
+fn accumulate(
+    days: &mut BTreeMap<String, DayAgg>,
+    unknown_models: &mut BTreeSet<String>,
+    opts: &ExtractOptions,
+    event: &SourceRecord,
+) {
     let day = utc_day(event.timestamp_ms);
     if !(opts.window_start.as_str()..=opts.window_end.as_str()).contains(&day.as_str()) {
         return;
@@ -389,7 +434,11 @@ fn accumulate(days: &mut BTreeMap<String, DayAgg>, opts: &ExtractOptions, event:
                 agg.usage.cache_write += usage.cache_write;
 
                 let model = counts::sanitize_model(event.model.as_deref());
-                agg.spend_cents += estimate_cents(rates_for_model(&model), usage);
+                let (rates, known) = rates_for_model(&model);
+                if !known {
+                    unknown_models.insert(model.clone());
+                }
+                agg.spend_cents += estimate_cents(rates, usage);
                 *agg.model_requests.entry(model.clone()).or_insert(0) += 1;
                 *agg.model_tokens.entry(model.clone()).or_insert(0) += usage.input + usage.output;
                 let mu = agg.model_usage.entry(model).or_default();
@@ -422,11 +471,12 @@ pub fn extract(records: &[SourceRecord], opts: &ExtractOptions) -> ExtractOutput
     }
 
     let mut days: BTreeMap<String, DayAgg> = BTreeMap::new();
+    let mut unknown_models: BTreeSet<String> = BTreeSet::new();
     for event in others {
-        accumulate(&mut days, opts, event);
+        accumulate(&mut days, &mut unknown_models, opts, event);
     }
     for event in assistant_by_key.values().copied() {
-        accumulate(&mut days, opts, event);
+        accumulate(&mut days, &mut unknown_models, opts, event);
     }
 
     // Emit in the CLI's deterministic order: days sorted (BTreeMap), the eight
@@ -513,6 +563,29 @@ pub fn extract(records: &[SourceRecord], opts: &ExtractOptions) -> ExtractOutput
                 payload,
             ));
         }
+    }
+
+    // Honesty gaps (mirror `summarize.ts`): whenever a `spend_cents_estimated`
+    // record is emitted (i.e. any day aggregated), ship its "estimate, not
+    // invoice" disclosure — invariant-(b), the caveat travels WITH the claim.
+    // Plus the unknown-model-defaulted-high warning when any model missed the
+    // price table (up to five, sorted). T5.1 routes these into
+    // `AgentIngestRequest.gaps[]`.
+    if !days.is_empty() {
+        out.gaps.push(HonestyGap {
+            kind: GapKind::Other,
+            detail: Some("spend_cents_estimated uses public list prices, not invoices".to_string()),
+        });
+    }
+    if !unknown_models.is_empty() {
+        let listed: Vec<&str> = unknown_models.iter().take(5).map(String::as_str).collect();
+        out.gaps.push(HonestyGap {
+            kind: GapKind::Other,
+            detail: Some(format!(
+                "unknown model rates defaulted high: {}",
+                listed.join(", ")
+            )),
+        });
     }
 
     out
