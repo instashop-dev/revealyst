@@ -38,10 +38,14 @@ export function ReconcileSubjectDialog({
   subject,
   people,
   teams,
+  triggerLabel = "Match",
 }: {
   subject: { subjectId: string; label: string; vendor: string };
   people: PersonRef[];
   teams: { id: string; name: string }[];
+  /** Trigger button copy — "Match" by default, "Someone else" when it sits
+   * beside a one-click accept-suggestion button. */
+  triggerLabel?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -119,7 +123,7 @@ export function ReconcileSubjectDialog({
     >
       <DialogTrigger render={<Button size="sm" variant="outline" />}>
         <Link2 data-icon="inline-start" />
-        Match
+        {triggerLabel}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

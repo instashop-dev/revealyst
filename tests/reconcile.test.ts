@@ -8,7 +8,10 @@ import { createFixtureOrg, loadFixture } from "../src/db/fixtures";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
 import { ApiError } from "../src/lib/api-impl";
-import { buildReconcileView } from "../src/lib/reconcile";
+import {
+  buildReconcileView,
+  deriveReconcileImpact,
+} from "../src/lib/reconcile";
 import { applyReconcileAction } from "../src/lib/reconcile-actions";
 
 // View-model assembly over the repo layer (PGlite). The shared-account
@@ -172,6 +175,80 @@ describe("buildReconcileView — activity signal", () => {
     expect(emptyEntry?.hasActivity).toBe(false);
     expect(dataEntry?.hasActivity).toBe(true);
     expect(view.unresolved[0].subjectId).toBe(local.subjects["real-data"]);
+  });
+});
+
+describe("deriveReconcileImpact — counts only (invariant b)", () => {
+  it("counts unresolved subjects WITH activity, plus tracked people", () => {
+    const impact = deriveReconcileImpact({
+      unresolved: [
+        { hasActivity: true },
+        { hasActivity: true },
+        { hasActivity: false }, // empty stub — not counted
+      ] as never,
+      people: [{ id: "a" }, { id: "b" }] as never,
+    });
+    expect(impact).toEqual({ accountsWithData: 2, trackedPeople: 2 });
+  });
+
+  it("is zero accounts when nothing unresolved carries data", () => {
+    const impact = deriveReconcileImpact({
+      unresolved: [{ hasActivity: false }] as never,
+      people: [] as never,
+    });
+    expect(impact).toEqual({ accountsWithData: 0, trackedPeople: 0 });
+  });
+});
+
+describe("buildReconcileView — email-match proposals", () => {
+  it("proposes a link only for a person-kind subject whose email uniquely matches a person", async () => {
+    const org = await createFixtureOrg(db, "w2k-proposals", "team");
+    const local = await loadFixture(db, org.id, {
+      connections: [
+        {
+          key: "cursor",
+          vendor: "cursor",
+          displayName: "Cursor",
+          authKind: "admin_key",
+        },
+      ],
+      people: [
+        { key: "jordan", pseudonym: "Owl-1", email: "jordan@acme.com" },
+      ],
+      teams: [],
+      subjects: [
+        {
+          key: "jordan-acct",
+          connection: "cursor",
+          kind: "person",
+          externalId: "u_jordan",
+          email: "jordan@acme.com",
+        },
+        // A service-account subject is never auto-proposed, even with an email.
+        {
+          key: "svc",
+          connection: "cursor",
+          kind: "service_account",
+          externalId: "svc_1",
+          email: "jordan@acme.com",
+        },
+      ],
+      identities: [],
+      records: [],
+      signals: [],
+    });
+    const view = await buildReconcileView(forOrg(db, org.id), {
+      from: "2026-05-01",
+      to: "2026-07-01",
+    });
+
+    expect(view.proposedMatches).toEqual([
+      {
+        subjectId: local.subjects["jordan-acct"],
+        personId: local.people["jordan"],
+        method: "email_match",
+      },
+    ]);
   });
 });
 

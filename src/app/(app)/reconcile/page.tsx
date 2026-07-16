@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BookOpen, TriangleAlert, UsersRound } from "lucide-react";
-import { ReconcileSubjectDialog } from "@/components/reconcile-subject-dialog";
+import { IdentityMatchRow } from "@/components/identity-match-row";
+import { ReconcileExplainer } from "@/components/reconcile-explainer";
 import { UnlinkIdentityButton } from "@/components/unlink-identity-button";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -24,7 +25,11 @@ import {
 } from "@/components/ui/table";
 import { requireAppContext } from "@/lib/api-context";
 import { SHARED_ACCOUNT_REASON_LABELS as REASON_LABELS } from "@/lib/metrics-glossary";
-import { buildReconcileView, type SubjectResolution } from "@/lib/reconcile";
+import {
+  buildReconcileView,
+  deriveReconcileImpact,
+  type SubjectResolution,
+} from "@/lib/reconcile";
 
 export const dynamic = "force-dynamic";
 
@@ -56,10 +61,43 @@ export default async function ReconcilePage() {
     to: utcDaysAgo(0),
   });
   const showNames = ctx.org.visibilityMode !== "private";
+  const isPersonalOrg = ctx.org.kind === "personal";
   const flagged = [...view.unresolved, ...view.resolved].filter((s) => s.flag);
 
   const personLabel = (p: { pseudonym: string; displayName: string | null }) =>
     showNames && p.displayName ? `${p.pseudonym} · ${p.displayName}` : p.pseudonym;
+
+  // Counts-only impact of finishing the work (invariant b — never a fabricated
+  // percentage). N = unresolved accounts that actually carry activity; M =
+  // people already tracked.
+  const impact = deriveReconcileImpact(view);
+  const impactLine =
+    impact.accountsWithData === 0
+      ? "Every account with data is already matched to a person."
+      : `Matching these ${impact.accountsWithData} account${
+          impact.accountsWithData === 1 ? "" : "s"
+        } with data links their usage to real people — up to ${
+          impact.accountsWithData
+        } more could join the ${impact.trackedPeople} ${
+          impact.trackedPeople === 1 ? "person" : "people"
+        } you already track.`;
+
+  // Email-match suggestions, keyed by subject. The evidence line is derived
+  // ONLY from these (email equality is the one signal we trust) — a subject
+  // with no match shows no evidence rather than an invented one.
+  const personById = new Map(view.people.map((p) => [p.id, p]));
+  const proposedBySubject = new Map(
+    view.proposedMatches.map((m) => {
+      const person = personById.get(m.personId);
+      return [
+        m.subjectId,
+        {
+          personId: m.personId,
+          personLabel: person ? personLabel(person) : "this person",
+        },
+      ];
+    }),
+  );
 
   return (
     <>
@@ -74,6 +112,10 @@ export default async function ReconcilePage() {
           </Badge>
         ) : null}
       </PageHeader>
+
+      <p className="mb-6 text-sm text-muted-foreground">{impactLine}</p>
+
+      <ReconcileExplainer />
 
       {flagged.length > 0 ? (
         <Card className="mb-6 border-amber-500/40">
@@ -95,7 +137,7 @@ export default async function ReconcilePage() {
               render={<Link href="/playbook" />}
             >
               <BookOpen data-icon="inline-start" />
-              Read the visibility playbook
+              Open the shared-account migration guide
             </Button>
           </CardHeader>
           <CardContent>
@@ -147,8 +189,12 @@ export default async function ReconcilePage() {
         {view.unresolved.length === 0 ? (
           <EmptyState
             icon={UsersRound}
-            title="Everything is resolved"
-            description="Every discovered vendor account is mapped to a person, or is a key/account subject that stays unresolved by design."
+            title="All accounts are matched"
+            description={
+              isPersonalOrg
+                ? "With one connector and one person, there's nothing to match — new work only appears if you add a shared or team account."
+                : "Every discovered vendor account is mapped to a person, or is a key/account subject that stays unresolved by design. New work appears when a connector reports an account we can't tie to a person yet."
+            }
           />
         ) : (
           <div className="rounded-xl border">
@@ -158,47 +204,35 @@ export default async function ReconcilePage() {
                   <TableHead>Account</TableHead>
                   <TableHead>Tool</TableHead>
                   <TableHead>Kind</TableHead>
-                  <TableHead>Activity</TableHead>
+                  <TableHead>Evidence</TableHead>
                   <TableHead className="text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {view.unresolved.map((s) => (
-                  <TableRow key={s.subjectId}>
-                    <TableCell className="font-medium">
-                      {subjectLabel(s)}
-                      {s.flag ? (
-                        <Badge variant="outline" className="ml-2">
-                          shared?
-                        </Badge>
-                      ) : null}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {s.vendor}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground capitalize">
-                      {s.kind.replace(/_/g, " ")}
-                    </TableCell>
-                    <TableCell>
-                      {s.hasActivity ? (
-                        <Badge variant="default">Has data</Badge>
-                      ) : (
-                        <span className="text-muted-foreground">No data yet</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <ReconcileSubjectDialog
-                        subject={{
-                          subjectId: s.subjectId,
-                          label: subjectLabel(s),
-                          vendor: s.vendor,
-                        }}
-                        people={view.people}
-                        teams={view.teams}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {view.unresolved.map((s) => {
+                  const proposed = proposedBySubject.get(s.subjectId) ?? null;
+                  // Evidence comes ONLY from an email match — the matched
+                  // person's email equals this subject's email, so we show it
+                  // straight. No match → no evidence line (never fabricated).
+                  const evidence =
+                    proposed && s.email ? `Email matches ${s.email}` : null;
+                  return (
+                    <IdentityMatchRow
+                      key={s.subjectId}
+                      subject={{
+                        subjectId: s.subjectId,
+                        label: subjectLabel(s),
+                        vendor: s.vendor,
+                        kind: s.kind,
+                        flagged: s.flag !== null,
+                      }}
+                      evidence={evidence}
+                      proposedMatch={proposed}
+                      people={view.people}
+                      teams={view.teams}
+                    />
+                  );
+                })}
               </TableBody>
             </Table>
           </div>

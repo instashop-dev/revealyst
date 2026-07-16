@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Users } from "lucide-react";
 import type { SharedAccountFlag } from "@/lib/shared-account";
 import { Badge } from "@/components/ui/badge";
@@ -87,8 +88,15 @@ export function SharedAccountFlags({ flags }: { flags: SharedAccountFlag[] }) {
             </ul>
             <p className="text-xs text-muted-foreground">
               Adoption for people sharing these accounts is likely undercounted.
-              The visibility-readiness playbook (per-user keys; migrate shared
-              plans to Team) restores per-person attribution — no new software.
+              The{" "}
+              <Link
+                href="/playbook"
+                className="font-medium text-foreground underline"
+              >
+                shared-account migration guide
+              </Link>{" "}
+              (per-user keys; migrate shared plans to Team) restores per-person
+              attribution — no new software.
             </p>
           </>
         )}

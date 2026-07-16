@@ -1,6 +1,11 @@
+import { Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatRelativeTime } from "@/lib/format";
+import {
+  HONESTY_GAP_GLOSSARY,
+  type HonestyGapKind,
+} from "@/lib/metrics-glossary";
 
 type SyncStatus = "pending" | "active" | "paused" | "error";
 
@@ -15,6 +20,7 @@ export function SyncStatusBadge({
   lastSuccessAt,
   lastError,
   staleAfterDays,
+  gapKinds,
 }: {
   status: SyncStatus;
   lastSuccessAt: Date | string | null;
@@ -25,6 +31,13 @@ export function SyncStatusBadge({
    * `claude_code_local` rows (manual sync can silently go stale); polled
    * connectors pass nothing and are byte-identical to before. */
   staleAfterDays?: number;
+  /** Honesty-gap kinds from the latest run's `connector_runs.gaps`. When a
+   * successfully-synced connection carries known gaps, the badge says so —
+   * "Working — can't see everything" — instead of a plain green "Synced"
+   * that would imply complete coverage it doesn't have (invariant b). The
+   * specific gaps are explained via HONESTY_GAP_GLOSSARY on hover/focus.
+   * Empty/absent → unchanged behavior. */
+  gapKinds?: HonestyGapKind[];
 }) {
   if (status === "error") {
     const badge = <Badge variant="destructive">Sync error</Badge>;
@@ -72,6 +85,51 @@ export function SyncStatusBadge({
         </Badge>
       );
     }
+  }
+  // Limited coverage: the connection synced fine, but the latest run reported
+  // known honesty gaps (e.g. a vendor that only reports daily grain, or OAuth
+  // users missing from a report). Never a plain green "Synced" when we know
+  // we can't see everything — text + icon, with the gaps spelled out on
+  // hover/focus. Distinct from an error: the sync worked, coverage is partial.
+  const gaps = (gapKinds ?? []).filter((k) => k in HONESTY_GAP_GLOSSARY);
+  if (gaps.length > 0) {
+    const labels = [...new Set(gaps)].map((k) => HONESTY_GAP_GLOSSARY[k]);
+    const badge = (
+      <Badge
+        variant="outline"
+        className="border-amber-500/60 text-amber-700 dark:text-amber-400"
+      >
+        <Info data-icon="inline-start" aria-hidden="true" />
+        Working — can&apos;t see everything
+      </Badge>
+    );
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="inline-flex rounded-full focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            />
+          }
+        >
+          {badge}
+        </TooltipTrigger>
+        <TooltipContent>
+          <span className="flex flex-col gap-1">
+            <span>
+              Synced {formatRelativeTime(lastSuccessAt)}. Some data this
+              connector can&apos;t reach:
+            </span>
+            <span className="flex flex-col gap-0.5">
+              {labels.map((l) => (
+                <span key={l.label}>· {l.shortWhat}</span>
+              ))}
+            </span>
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    );
   }
   return (
     <Badge variant="secondary">

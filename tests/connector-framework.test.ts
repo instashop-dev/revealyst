@@ -132,6 +132,7 @@ function makeFake(behavior?: {
   };
   const entry: RegisteredConnector = {
     connector,
+    scopeClaims: { measures: ["fake"], cannotMeasure: ["fake"] },
     sourceConnector: "fake@1",
     maxCallsPerDay: 1,
     pollIntervalMinutes: 60,
@@ -293,6 +294,7 @@ describe("connector-poll pipeline", () => {
     };
     const entry: RegisteredConnector = {
       connector,
+      scopeClaims: { measures: ["fake"], cannotMeasure: ["fake"] },
       sourceConnector: "fake@1",
       maxCallsPerDay: 1,
       pollIntervalMinutes: 60,

@@ -6,6 +6,7 @@ import type {
   SubjectDescriptor,
 } from "../../contracts/connector";
 import type { RegisteredConnector } from "../registry";
+import { SCOPE_CLAIMS } from "../scope-claims";
 import {
   callSpacing,
   CALL_SPACING_MS,
@@ -287,6 +288,7 @@ function monthsIn(window: DateWindow): Array<{ year: number; month: number }> {
 
 export const copilotEntry: RegisteredConnector = {
   connector: copilotConnector as Connector,
+  scopeClaims: SCOPE_CLAIMS.github_copilot,
   sourceConnector: "github-copilot@1",
   // Per covered day: 1 users-1-day listing + a few NDJSON file downloads +
   // headroom ≈ 6 (facts NLV-C10: file count/sharding unverified).

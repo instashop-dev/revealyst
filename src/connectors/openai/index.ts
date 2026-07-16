@@ -6,6 +6,7 @@ import type {
   SubjectDescriptor,
 } from "../../contracts/connector";
 import type { RegisteredConnector } from "../registry";
+import { SCOPE_CLAIMS } from "../scope-claims";
 import {
   callSpacing,
   CALL_SPACING_MS,
@@ -170,6 +171,7 @@ export const openAiConnector: Connector<OpenAiRaw> = {
 
 export const openAiEntry: RegisteredConnector = {
   connector: openAiConnector as Connector,
+  scopeClaims: SCOPE_CLAIMS.openai,
   sourceConnector: "openai@1",
   // Per covered day: 1h completions buckets (168/request → ~1 call per week) +
   // costs (180d/request) + web-search-calls (1d) + code-interpreter-sessions
