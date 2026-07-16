@@ -29,6 +29,7 @@ export function ConnectorCard({
   secondaryAction,
   muted = false,
   children,
+  scope,
   className,
 }: {
   /** The connector/vendor display name (the card title). */
@@ -56,6 +57,10 @@ export function ConnectorCard({
   /** Card-specific body content that doesn't fit the fixed slots above
    * (a shown-once token, an inline confirmation, per-state copy). */
   children?: ReactNode;
+  /** Optional compact scope note ("what we read / what we never read", U4.2),
+   * rendered as a bordered footer strip below the body. Additive — cards that
+   * pass nothing render exactly as before. */
+  scope?: ReactNode;
   className?: string;
 }) {
   return (
@@ -76,6 +81,13 @@ export function ConnectorCard({
       </CardHeader>
       {children ? (
         <CardContent className="flex flex-col gap-3">{children}</CardContent>
+      ) : null}
+      {scope ? (
+        <CardContent className="pt-0">
+          <div className="rounded-lg border border-dashed bg-muted/30 p-3">
+            {scope}
+          </div>
+        </CardContent>
       ) : null}
       {primaryAction || secondaryAction || meta ? (
         <CardFooter className="flex-col items-start gap-3">

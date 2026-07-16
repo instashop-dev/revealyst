@@ -104,12 +104,19 @@ export function VisibilityModeControl({ current }: { current: VisibilityMode }) 
 
   return (
     <div className="flex flex-col gap-3">
-      <ul className="flex flex-col gap-3" role="radiogroup" aria-label="Visibility mode">
+      {/* APG radiogroup: a container with role="radiogroup" whose children are
+          role="radio" — NOT a <ul>/<li>, whose list semantics the radiogroup
+          role strips (an invalid-listitem a11y violation). */}
+      <div
+        className="flex flex-col gap-3"
+        role="radiogroup"
+        aria-label="Visibility mode"
+      >
         {VISIBILITY_MODES.map((mode, index) => {
           const info = VISIBILITY_MODE_INFO[mode];
           const active = applied === mode;
           return (
-            <li key={mode}>
+            <div key={mode}>
               <button
                 type="button"
                 role="radio"
@@ -150,10 +157,10 @@ export function VisibilityModeControl({ current }: { current: VisibilityMode }) 
                   {info.reveals}
                 </span>
               </button>
-            </li>
+            </div>
           );
         })}
-      </ul>
+      </div>
 
       <Dialog
         open={pending !== null}

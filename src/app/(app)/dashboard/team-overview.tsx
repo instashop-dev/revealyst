@@ -9,7 +9,7 @@ import {
   type CoverageAggregate,
 } from "@/components/dashboard/data-trust-card";
 import { MaturityExportButton } from "@/components/dashboard/maturity-export-button";
-import { PeriodNarrativeCard } from "@/components/dashboard/period-narrative-card";
+import { TeamNarrativeHero } from "@/components/dashboard/team-narrative-hero";
 import { RecentMovementPanel } from "@/components/dashboard/recent-movement-panel";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
@@ -47,6 +47,7 @@ import { readMaturityView } from "@/lib/maturity";
 import { formatCents } from "@/lib/format";
 import { readBudgetAlertForRole, todayUtc } from "@/lib/spend-governance";
 import { SCORE_SLUGS, type ScoreSlug } from "@/lib/metrics-glossary";
+import { SEGMENT_MIN_PEOPLE_TO_NAME } from "@/lib/segments";
 import { isUsableConnection, syncedToolCount } from "@/lib/onboarding-guide";
 import { timeStage } from "@/lib/request-timing";
 import { computeSignalCoverage } from "@/lib/signal-coverage";
@@ -244,6 +245,12 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
         // panel keeps its component; only the grouping changed (curation over
         // the same readDashboardView batch — no new reader, no capability loss).
         <>
+          {/* U4.1 narrative hero: the period story leads (promoted out of
+           * section (a)), with a single CTA into the training section below.
+           * Reorder only — same `narrative`/`correlations` the card always
+           * received. */}
+          <TeamNarrativeHero narrative={narrative} correlations={correlations} />
+
           {/* (a) Team AI health — the three headline scores, how they moved, the
            * period story, and the one-line spend-governance summary. */}
           <section className="flex flex-col gap-3">
@@ -257,10 +264,6 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
               <ScoreCard data={cardData.get("efficiency")!} />
             </div>
             <RecentMovementPanel movement={recentMovement} />
-            <PeriodNarrativeCard
-              narrative={narrative}
-              correlations={correlations}
-            />
             {/* Deliverable 5: Spend Governance folded into the exec view as a
              * one-LINE summary (the full /spend page stays). Reported spend +
              * the measured cost-per-active-person, linking out to manage
@@ -326,16 +329,24 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
           {/* (c) Training opportunities — the action card: leading cohort
            * (floor-gated), plateau verdict, segment split (count-only), and
            * usage concentration. */}
-          <section className="flex flex-col gap-3">
+          <section id="team-training" className="flex flex-col gap-3">
             <SectionHeading>{TEAM_OVERVIEW_COPY.training.title}</SectionHeading>
+            <p className="text-sm text-muted-foreground">
+              {TEAM_OVERVIEW_COPY.training.sectionLead}
+            </p>
             <div className="grid gap-4 lg:grid-cols-2">
               <TrainingOpportunitiesCard
                 segments={segments}
                 plateau={usagePlateau}
               />
               {/* W7-6: aggregate, count-only capability coverage — the manager's
-               * "where to coach" surface, MIN_PEOPLE-floored, no per-person data. */}
-              <CapabilityCoverageCard rows={capabilityCoverage} />
+               * "where to coach" surface, MIN_PEOPLE-floored, no per-person data.
+               * U4.1: the floor note states WHY a small-group capability is
+               * absent instead of it silently vanishing (count-free rule). */}
+              <CapabilityCoverageCard
+                rows={capabilityCoverage}
+                floorNote={TEAM_OVERVIEW_COPY.floorNote(SEGMENT_MIN_PEOPLE_TO_NAME)}
+              />
               <SegmentBreakdown distribution={segments} />
               <UsageConcentrationPanel concentration={usageConcentration} />
             </div>

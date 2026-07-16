@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { GithubAppConnectCard } from "@/components/github-app-connect-card";
 import { SyncAgentCard } from "@/components/sync-agent-card";
+import { OnboardingScopeExplainer } from "@/components/onboarding-scope-explainer";
 import { connectApiKeyVendor } from "@/lib/connect-vendor";
 import {
   connectedToolsLabel,
@@ -44,37 +45,54 @@ type InitialConnection = {
   status: "pending" | "active" | "paused" | "error";
 };
 
-/** The connection for a vendor that counts as "connected" — an errored one
- * (e.g. a rejected key at step 2) does NOT, so its card stays retryable. */
-function usableConnection(
-  connections: InitialConnection[],
-  vendor: string,
-): InitialConnection | undefined {
-  return connections.find((c) => c.vendor === vendor && c.status !== "error");
-}
-
 export function OnboardingWizard({
   initialConnections,
   copilotAvailable = false,
+  continueTo,
+  sessionConnectedVendors,
+  onConnected: onConnectedProp,
 }: {
   initialConnections: InitialConnection[];
   /** Server-checked render-time env gate (ADR 0022): whether the GitHub App
    * secrets are configured, so the Copilot card offers a working install
    * instead of a dead-end. Defaults closed (honest) if a caller forgets. */
   copilotAvailable?: boolean;
+  /** U4.2 stepper integration. When provided, the end-state CTA advances the
+   * setup stepper (there are more steps ahead) instead of linking straight to
+   * the dashboard. When omitted (standalone use), the CTA keeps its shipped
+   * "View my dashboard" link. */
+  continueTo?: { label: string; onContinue: () => void };
+  /** Vendors connected earlier THIS session, owned by the parent flow so the
+   * signal survives this component's remount (e.g. stepping back to connect).
+   * `initialConnections` is only the SSR snapshot — without this, a remount
+   * would drop a same-session connect and wrongly show the card as absent. */
+  sessionConnectedVendors?: ReadonlySet<string>;
+  /** Bubble each successful connect up to the parent flow so it can persist
+   * the session-connected set across remounts + resolve `hasUsableConnection`
+   * for the review step. Optional — standalone use omits it. */
+  onConnected?: (vendor: string) => void;
 }) {
   const [connected, setConnected] = useState<Set<string>>(
     () =>
-      new Set(
-        initialConnections
+      new Set([
+        ...initialConnections
           .filter((c) => c.status !== "error")
           .map((c) => c.vendor),
-      ),
+        // Seed from the parent-owned session set too, so a remount (stepping
+        // back to connect) preserves connects made earlier this session.
+        ...(sessionConnectedVendors ?? []),
+      ]),
   );
 
   function markConnected(vendor: string) {
     setConnected((prev) => new Set(prev).add(vendor));
+    onConnectedProp?.(vendor);
   }
+
+  /** True when a vendor is connected via the SSR snapshot OR this session —
+   * the single per-card "done" signal, so a remount reflects session connects
+   * (the raw `initialConnections` lookups only know the SSR snapshot). */
+  const isConnected = (vendor: string) => connected.has(vendor);
 
   const anyConnected = connected.size > 0;
   // Channel- AND sync-state-aware end-state copy (F1.6). Statuses come from
@@ -121,8 +139,9 @@ export function OnboardingWizard({
               key={v.vendor}
               vendor={v}
               existingConnectionId={existing?.id ?? null}
-              initiallyDone={Boolean(usableConnection(initialConnections, v.vendor))}
+              initiallyDone={isConnected(v.vendor)}
               onConnected={() => markConnected(v.vendor)}
+              scope={<OnboardingScopeExplainer vendor={v.vendor} />}
             />
           );
         })}
@@ -132,18 +151,18 @@ export function OnboardingWizard({
             initialConnections.find((c) => c.vendor === "claude_code_local")
               ?.id ?? null
           }
-          paired={Boolean(
-            usableConnection(initialConnections, "claude_code_local"),
-          )}
+          paired={isConnected("claude_code_local")}
           onConnected={() => markConnected("claude_code_local")}
+          scope={<OnboardingScopeExplainer vendor="claude_code_local" />}
         />
 
         {GITHUB_APP_VENDORS.map((v) => (
           <GithubAppConnectCard
             key={v.vendor}
             vendor={v}
-            connected={Boolean(usableConnection(initialConnections, v.vendor))}
+            connected={isConnected(v.vendor)}
             available={copilotAvailable}
+            scope={<OnboardingScopeExplainer vendor={v.vendor} />}
           />
         ))}
 
@@ -165,13 +184,22 @@ export function OnboardingWizard({
 
       <div className="flex flex-col items-center gap-2">
         {anyConnected ? (
-          // Real link only when enabled — a disabled <a> would still
-          // navigate (anchors ignore `disabled`). The dashboard is a
-          // force-dynamic server component, so the click re-fetches.
-          <Button size="lg" nativeButton={false} render={<Link href="/dashboard" />}>
-            View my dashboard
-            <ArrowRight data-icon="inline-end" />
-          </Button>
+          continueTo ? (
+            // In the stepper: advance to the next setup step rather than
+            // jumping to the dashboard (more steps lie ahead).
+            <Button size="lg" onClick={continueTo.onContinue}>
+              {continueTo.label}
+              <ArrowRight data-icon="inline-end" />
+            </Button>
+          ) : (
+            // Standalone: real link only when enabled — a disabled <a> would
+            // still navigate (anchors ignore `disabled`). The dashboard is a
+            // force-dynamic server component, so the click re-fetches.
+            <Button size="lg" nativeButton={false} render={<Link href="/dashboard" />}>
+              View my dashboard
+              <ArrowRight data-icon="inline-end" />
+            </Button>
+          )
         ) : (
           <Button size="lg" disabled>
             Connect a source to continue
@@ -201,11 +229,14 @@ function ApiKeyConnectCard({
   existingConnectionId,
   initiallyDone,
   onConnected,
+  scope,
 }: {
   vendor: KeyVendor;
   existingConnectionId: string | null;
   initiallyDone: boolean;
   onConnected: () => void;
+  /** Compact scope note (U4.2) rendered as a card footer, in every state. */
+  scope?: React.ReactNode;
 }) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -293,6 +324,13 @@ function ApiKeyConnectCard({
           </form>
         </CardContent>
       )}
+      {scope ? (
+        <CardContent className={done ? undefined : "pt-0"}>
+          <div className="rounded-lg border border-dashed bg-muted/30 p-3">
+            {scope}
+          </div>
+        </CardContent>
+      ) : null}
     </Card>
   );
 }

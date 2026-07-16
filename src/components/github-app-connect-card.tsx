@@ -23,14 +23,18 @@ export function GithubAppConnectCard({
   vendor,
   connected = false,
   available = true,
+  scope,
 }: {
   vendor: GithubAppVendor;
   connected?: boolean;
   available?: boolean;
+  /** Optional scope note (U4.2 onboarding) — passed straight to ConnectorCard. */
+  scope?: React.ReactNode;
 }) {
   return (
     <ConnectorCard
       vendorName={vendor.label}
+      scope={scope}
       muted={!available}
       statusBadge={
         connected ? (
