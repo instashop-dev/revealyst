@@ -1,0 +1,6 @@
+# The desktop allowlist bridge artifact is compared BYTE-FOR-BYTE against a
+# fresh render by tests/desktop-allowlist-drift.test.ts and embedded verbatim
+# into the Rust crate via include_str!. Pin it to LF so core.autocrlf=true
+# checkouts (Windows dev machines) don't rewrite it to CRLF and fail the
+# drift test / change the embedded bytes.
+desktop-agent/src-tauri/generated/*.json text eol=lf
