@@ -175,9 +175,12 @@ type CompanionAgentic = { kind: string; trend?: readonly unknown[] };
  * The feature-breadth crossing reads the `distinct_dims` component's `raw` off
  * BOTH periods' stored breakdowns (the same value `featureBreadthFromRows` reads
  * from the live component detail — one source, self-consistent), compared with
- * W5-E's `compareWorkflowDiversity` against a real prior baseline (never a fixed
- * 0, so a threshold already reached never re-fires — the badge-until-superseded
- * rule). The agentic gates mirror the companion wiring exactly: "agents just
+ * W5-E's `compareWorkflowDiversity` — but ONLY when the prior period actually
+ * has breadth evidence. A missing prior baseline OMITS the breadth comparison
+ * entirely (absence is not a measured 0): a fabricated 0 baseline would fire a
+ * bogus "new best" off data we simply don't have, and a fixed 0 would also let a
+ * threshold already reached re-fire forever (the badge-until-superseded rule).
+ * The agentic gates mirror the companion wiring exactly: "agents just
  * showed up" is measured AND ≤ 1 complete week of trend; the weekly rhythm needs
  * a sustained trend, rendered count-free (the no-streak decision). Pure.
  */
@@ -203,9 +206,13 @@ export function deriveCompanionMilestones(input: {
   const measured = input.agentic.kind === "measured";
   const trendLength = measured ? (input.agentic.trend?.length ?? 0) : 0;
   return detectMilestones({
+    // Compare ONLY when BOTH periods have breadth evidence — a null prior
+    // baseline means "no measured breadth last period", which is absence, not a
+    // measured 0. Passing 0 there would fabricate a "new best" off missing data
+    // (the honesty rule: absence omits the component, never floors to 0).
     breadth:
-      currentBreadth !== null
-        ? compareWorkflowDiversity(currentBreadth, previousBreadth ?? 0)
+      currentBreadth !== null && previousBreadth !== null
+        ? compareWorkflowDiversity(currentBreadth, previousBreadth)
         : null,
     firstAgentSession: measured && trendLength <= 1,
     activeWeeks: trendLength,

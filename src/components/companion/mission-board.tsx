@@ -1,5 +1,4 @@
 import { Flag } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -9,8 +8,9 @@ import {
 } from "@/components/ui/card";
 import { EmptyState } from "@/components/empty-state";
 import { MISSION_COPY } from "@/lib/capability-glossary";
-import { MissionStartButton } from "./mission-start-button";
-import type { MissionCardRow } from "./mission-card";
+import { MissionRow, type MissionBoardRow } from "./mission-row";
+
+export type { MissionBoardRow };
 
 /**
  * The Growth-surface missions board (U1.3), self-view only. The same honest,
@@ -19,25 +19,9 @@ import type { MissionCardRow } from "./mission-card";
  * what they've already completed (with the date). Completion is still a MEASURED
  * capability crossing detected server-side — nothing here lets a user check a
  * step off, and there is NO points/streak/league/badge mechanic (Spec V4 §8.4;
- * the banned-phrasing sweep covers this route's rendered copy). Server-safe,
- * pure props.
+ * the banned-phrasing sweep covers this route's rendered copy). Rows render via
+ * the SHARED `MissionRow` renderer. Server-safe, pure props.
  */
-export type MissionBoardRow = MissionCardRow & {
-  /** Completion date (ISO), rendered on the completed timeline only. */
-  completedAt?: string | null;
-};
-
-function completedOn(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const when = new Date(iso);
-  if (Number.isNaN(when.getTime())) return null;
-  return when.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 export function MissionBoard({ missions }: { missions: readonly MissionBoardRow[] }) {
   const active = missions.filter((m) => m.status === "in-progress");
   const available = missions.filter((m) => m.status === "not-started");
@@ -64,13 +48,7 @@ export function MissionBoard({ missions }: { missions: readonly MissionBoardRow[
             {active.length > 0 ? (
               <Group heading={MISSION_COPY.groups.active}>
                 {active.map((m) => (
-                  <li key={m.slug} className="rounded-lg bg-muted/50 p-4">
-                    <p className="text-sm font-medium">{m.title}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{m.summary}</p>
-                    <p className="mt-2 text-xs font-medium text-muted-foreground">
-                      {MISSION_COPY.stepProgress(m.stepsReached, m.totalSteps)}
-                    </p>
-                  </li>
+                  <MissionRow key={m.slug} mission={m} />
                 ))}
               </Group>
             ) : null}
@@ -78,36 +56,16 @@ export function MissionBoard({ missions }: { missions: readonly MissionBoardRow[
             {available.length > 0 ? (
               <Group heading={MISSION_COPY.groups.available}>
                 {available.map((m) => (
-                  <li key={m.slug} className="rounded-lg bg-muted/50 p-4">
-                    <p className="text-sm font-medium">{m.title}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{m.summary}</p>
-                    <MissionStartButton missionSlug={m.slug} />
-                  </li>
+                  <MissionRow key={m.slug} mission={m} />
                 ))}
               </Group>
             ) : null}
 
             {completed.length > 0 ? (
               <Group heading={MISSION_COPY.groups.completed}>
-                {completed.map((m) => {
-                  const on = completedOn(m.completedAt);
-                  return (
-                    <li key={m.slug} className="rounded-lg bg-muted/50 p-4">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-medium">{m.title}</p>
-                        <Badge variant="secondary" className="font-normal">
-                          {MISSION_COPY.doneBadge}
-                        </Badge>
-                      </div>
-                      <p className="mt-1 text-sm text-muted-foreground">{m.summary}</p>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {on
-                          ? `${MISSION_COPY.completedOnLead} ${on}`
-                          : MISSION_COPY.completeLine}
-                      </p>
-                    </li>
-                  );
-                })}
+                {completed.map((m) => (
+                  <MissionRow key={m.slug} mission={m} />
+                ))}
               </Group>
             ) : null}
           </>

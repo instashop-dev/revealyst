@@ -1,6 +1,5 @@
 import { Compass } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { ConfidencePill, type ConfidencePillTier } from "@/components/confidence-pill";
 import { EmptyState } from "@/components/empty-state";
 import {
   Card,
@@ -9,10 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  CapabilityCurriculumTrigger,
-  CapabilityGrowTrigger,
-} from "@/components/companion/capability-curriculum-drawer";
+import { CapabilityCurriculumTrigger } from "@/components/companion/capability-curriculum-drawer";
 import {
   CAPABILITY_PROFILE_COPY,
   confidenceTierLabel,
@@ -20,13 +16,14 @@ import {
 } from "@/lib/capability-glossary";
 
 /**
- * The capability-profile card (W7-2), self-view only. A compact, positive-first
- * read of the person's strongest AI capabilities — a DECOMPOSITION of their one
- * proficiency band, never a competing third ladder. Renders bands + a plain-
- * English confidence tier + the single eligible-next focus; the raw 0–1 mastery
- * stays behind the existing diagnostic expander (no second expander here). When
- * the person has no capability evidence yet it renders the honest forming state,
- * never zeros. Server-safe, pure props — the caller (personal self-view) passes
+ * The compact capability-profile card (W7-2), self-view only — the Today glance.
+ * A positive-first read of the person's strongest AI capabilities (capped at
+ * `maxRows`) — a DECOMPOSITION of their one proficiency band, never a competing
+ * third ladder. Renders bands + a plain-English confidence tier + the single
+ * eligible-next focus; the raw 0–1 mastery stays behind the existing diagnostic
+ * expander. When the person has no capability evidence yet it renders the honest
+ * forming state, never zeros. The Growth surface's fuller per-row view lives in
+ * its own `CapabilityFullListCard`. Server-safe, pure props — the caller passes
  * only the SIGNED-IN person's own rows (`mastery.forUser`), so no per-person
  * mastery ever leaves self-view.
  */
@@ -38,89 +35,24 @@ export type CapabilityProfileRow = {
   mastery: number;
   confidenceTier: string;
   nextCapability: string | null;
-  /** Most-recent measured evidence (ISO date), self-view only. Rendered only in
-   * full-list mode and only when present — never fabricated (invariant b). */
+  /** Most-recent measured evidence (ISO date), self-view only. Rendered only by
+   * `CapabilityFullListCard` and only when present — never fabricated (invariant
+   * b). */
   lastEvidenceAt?: string | null;
 };
-
-/** Plain-English "last measured" recency, e.g. "Last measured Jul 12". Returns
- * the honest "not recorded" copy when the row carries no date — never invents
- * one. Kept tiny + pure so the full-list row stays server-rendered. */
-function recencyLine(iso: string | null | undefined): string {
-  if (!iso) return CAPABILITY_PROFILE_COPY.noEvidenceDate;
-  const when = new Date(iso);
-  if (Number.isNaN(when.getTime())) return CAPABILITY_PROFILE_COPY.noEvidenceDate;
-  return `${CAPABILITY_PROFILE_COPY.lastEvidenceLead} ${when.toLocaleDateString(
-    "en-US",
-    { month: "short", day: "numeric" },
-  )}`;
-}
 
 export function CapabilityProfileCard({
   rows,
   labels,
-  fullList = false,
 }: {
   /** The signed-in person's capability state rows (strongest first). */
   rows: CapabilityProfileRow[];
   /** Capability slug → display label (for the eligible-next line). */
   labels: ReadonlyMap<string, string>;
-  /** U1.3 Growth surface: render EVERY evidenced row (not just the strongest
-   * few), each with a confidence pill, last-evidence recency, and a per-row
-   * "See how to grow this" trigger. Default (`false`) keeps the compact Today
-   * glance behaviour byte-identical. */
-  fullList?: boolean;
 }) {
   const nextSlug = rows.find((r) => r.nextCapability)?.nextCapability ?? null;
   const nextLabel = nextSlug ? labels.get(nextSlug) : undefined;
-  const shown = fullList ? rows : rows.slice(0, CAPABILITY_PROFILE_COPY.maxRows);
-
-  if (fullList) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Compass className="size-4 text-primary" aria-hidden="true" />
-            {CAPABILITY_PROFILE_COPY.title}
-          </CardTitle>
-          <CardDescription>{CAPABILITY_PROFILE_COPY.subtitle}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ul className="flex flex-col gap-2">
-            {shown.map((row) => (
-              <li
-                key={row.capabilitySlug}
-                className="flex flex-col gap-2 rounded-lg bg-muted/50 px-3 py-2.5"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-sm font-medium">{row.label}</span>
-                  <span className="flex items-center gap-2">
-                    <Badge variant="secondary" className="font-normal">
-                      {masteryBand(row.mastery)}
-                    </Badge>
-                    <ConfidencePill
-                      tier={row.confidenceTier as ConfidencePillTier}
-                      label={confidenceTierLabel(row.confidenceTier)}
-                    />
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-                  <span className="text-xs text-muted-foreground">
-                    {recencyLine(row.lastEvidenceAt)}
-                  </span>
-                  <CapabilityGrowTrigger
-                    slug={row.capabilitySlug}
-                    label={row.label}
-                    labels={labels}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
-    );
-  }
+  const shown = rows.slice(0, CAPABILITY_PROFILE_COPY.maxRows);
 
   return (
     <Card>

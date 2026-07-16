@@ -12,10 +12,12 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
-import { CapabilityProfileCard } from "./capability-profile-card";
+import { CapabilityFullListCard } from "./capability-full-list-card";
 import { GrowthJourneyCard } from "./growth-journey-card";
 import { MissionBoard, type MissionBoardRow } from "./mission-board";
+import { MissionRow, type MissionBoardRow as MissionRowType } from "./mission-row";
 import {
+  CAPABILITY_PROFILE_COPY,
   GROWTH_PAGE_COPY,
   MISSION_COPY,
 } from "@/lib/capability-glossary";
@@ -62,7 +64,7 @@ describe("GrowthJourneyCard — growth variant (U1.3)", () => {
   });
 });
 
-describe("CapabilityProfileCard — full-list mode (Growth, U1.3)", () => {
+describe("CapabilityFullListCard (Growth, U1.3)", () => {
   const ROWS = [
     {
       capabilitySlug: "ai-coding-foundations",
@@ -83,7 +85,7 @@ describe("CapabilityProfileCard — full-list mode (Growth, U1.3)", () => {
   ];
 
   it("renders EVERY evidenced row (not just the strongest few)", () => {
-    render(<CapabilityProfileCard rows={ROWS} labels={LABELS} fullList />);
+    render(<CapabilityFullListCard rows={ROWS} labels={LABELS} />);
     expect(screen.getByText("Make AI part of daily work")).toBeTruthy();
     expect(screen.getByText("Use a range of AI features")).toBeTruthy();
     // Bands, never the raw 0–1 number.
@@ -93,10 +95,11 @@ describe("CapabilityProfileCard — full-list mode (Growth, U1.3)", () => {
 
   it("shows a confidence pill + last-evidence recency, honest when the date is absent", () => {
     const { container } = render(
-      <CapabilityProfileCard rows={ROWS} labels={LABELS} fullList />,
+      <CapabilityFullListCard rows={ROWS} labels={LABELS} />,
     );
     expect(screen.getByText("early read")).toBeTruthy(); // directional
     expect(screen.getByText("measured")).toBeTruthy();
+    // UTC-pinned so the date never renders a day early on a west-of-UTC host.
     expect(screen.getByText(/Last measured Jul 12/)).toBeTruthy();
     // The row with no date shows the honest "not recorded" copy — never a made-up date.
     expect(screen.getByText(/Recency not recorded/)).toBeTruthy();
@@ -105,11 +108,28 @@ describe("CapabilityProfileCard — full-list mode (Growth, U1.3)", () => {
   });
 
   it("renders a per-row 'See how to grow this' trigger for capabilities with a curriculum", () => {
-    render(<CapabilityProfileCard rows={ROWS} labels={LABELS} fullList />);
+    render(<CapabilityFullListCard rows={ROWS} labels={LABELS} />);
     // At least one row exposes the grow trigger.
     expect(
       screen.getAllByRole("button", { name: /See how to grow this/i }).length,
     ).toBeGreaterThan(0);
+  });
+
+  it("guards its own empty state (no evidenced rows) — never an empty card shell", () => {
+    render(<CapabilityFullListCard rows={[]} labels={LABELS} />);
+    // Default forming empty state, honest — no fabricated bar.
+    expect(screen.getByText(CAPABILITY_PROFILE_COPY.forming.headline)).toBeTruthy();
+  });
+
+  it("renders a caller-supplied empty state when there are no rows", () => {
+    render(
+      <CapabilityFullListCard
+        rows={[]}
+        labels={LABELS}
+        emptyState={<p>Connect a tool to get started</p>}
+      />,
+    );
+    expect(screen.getByText("Connect a tool to get started")).toBeTruthy();
   });
 });
 
@@ -148,6 +168,47 @@ describe("MissionBoard — grouped active / available / completed (U1.3)", () =>
     expect(container.textContent?.toLowerCase()).not.toMatch(
       /streak|xp|league|leaderboard|points|badge|level up|level-up/,
     );
+  });
+});
+
+// The SHARED mission-row renderer (U1.3 dedup) — the three honest states used by
+// BOTH MissionCard (Today active strip) and MissionBoard (grouped board). State
+// coverage lives here now that both cards delegate to it.
+describe("MissionRow — shared three-state renderer (U1.3)", () => {
+  const renderRow = (mission: MissionRowType) =>
+    render(
+      <ul>
+        <MissionRow mission={mission} />
+      </ul>,
+    );
+
+  it("not-started renders a Start button (no measured claim)", () => {
+    renderRow({ slug: "m", title: "T", summary: "s", status: "not-started", stepsReached: 0, totalSteps: 1 });
+    expect(screen.getByRole("button", { name: /Start this mission/i })).toBeTruthy();
+  });
+
+  it("in-progress renders 'N of M steps reached' (plain words, not a meter)", () => {
+    renderRow({ slug: "m", title: "T", summary: "s", status: "in-progress", stepsReached: 1, totalSteps: 2 });
+    expect(screen.getByText(/1 of 2 steps reached/)).toBeTruthy();
+  });
+
+  it("complete renders the done badge + a UTC-pinned completion date when present", () => {
+    renderRow({
+      slug: "m",
+      title: "T",
+      summary: "s",
+      status: "complete",
+      stepsReached: 1,
+      totalSteps: 1,
+      completedAt: "2026-07-10T00:00:00.000Z",
+    });
+    expect(screen.getByText(MISSION_COPY.doneBadge)).toBeTruthy();
+    expect(screen.getByText(/Completed Jul 10, 2026/)).toBeTruthy();
+  });
+
+  it("complete with no date falls back to the grounded complete line (never a made-up date)", () => {
+    renderRow({ slug: "m", title: "T", summary: "s", status: "complete", stepsReached: 1, totalSteps: 1 });
+    expect(screen.getByText(MISSION_COPY.completeLine)).toBeTruthy();
   });
 });
 
@@ -202,9 +263,9 @@ describe("Growth cards — axe smoke (U1.3)", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
-  it("CapabilityProfileCard (full list) has no detectable a11y violations", async () => {
+  it("CapabilityFullListCard has no detectable a11y violations", async () => {
     const { container } = render(
-      <CapabilityProfileCard
+      <CapabilityFullListCard
         rows={[
           {
             capabilitySlug: "ai-coding-foundations",
@@ -216,7 +277,6 @@ describe("Growth cards — axe smoke (U1.3)", () => {
           },
         ]}
         labels={LABELS}
-        fullList
       />,
     );
     expect(await axe(container)).toHaveNoViolations();

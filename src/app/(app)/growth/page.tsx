@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CapabilityProfileCard } from "@/components/companion/capability-profile-card";
+import { CapabilityFullListCard } from "@/components/companion/capability-full-list-card";
 import { GrowthJourneyCard } from "@/components/companion/growth-journey-card";
 import { MilestoneCard } from "@/components/companion/milestone-card";
 import { MissionBoard, type MissionBoardRow } from "@/components/companion/mission-board";
@@ -9,15 +9,21 @@ import { InfoTip } from "@/components/info-tip";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { requireAppContext } from "@/lib/api-context";
+import {
+  AGENTIC_WINDOW_DAYS,
+  computeAgenticAdoption,
+} from "@/lib/agentic-adoption";
 import { GROWTH_PAGE_COPY } from "@/lib/capability-glossary";
 import { readMaturityView } from "@/lib/maturity";
 import { deriveCompanionMilestones } from "@/lib/milestones";
 import { timeStage } from "@/lib/request-timing";
 import { vendorLabel } from "@/lib/vendor-labels";
 import { periodFor, previousDay } from "@/scoring";
-import { completedStepCount } from "@/scoring/mission-progress";
+import { deriveMissionRows } from "@/scoring/mission-progress";
 
 export const dynamic = "force-dynamic";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Growth — the personal improvement surface (U1.3). Where an individual sees
@@ -41,13 +47,21 @@ export default async function GrowthPage() {
   const today = new Date().toISOString().slice(0, 10);
   const period = periodFor("month", today);
   const prevPeriod = periodFor("month", previousDay(period.periodStart));
+  // The agentic-adoption inputs span a wider trend window ending TODAY — the
+  // SAME window the dashboard's AgenticAdoptionCard uses (windowTo: today), so
+  // the two surfaces never disagree by a day on first-agent-session / weekly
+  // cadence (readMaturityView's window ends YESTERDAY, so its agentic result is
+  // deliberately NOT reused for the milestone gates here).
+  const agenticFrom = new Date(Date.now() - (AGENTIC_WINDOW_DAYS - 1) * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
 
   // ONE flat Promise.all — round-trip depth 1 (G10), the same discipline as the
   // dashboard. readMaturityView is CALLED as an element of this batch so its own
   // internal flat Promise.all kicks off synchronously alongside the siblings
   // (never readDashboardView/readMaturityView back-to-back). It supplies the
-  // hero level + the agentic-adoption result the milestone helper reads, so this
-  // route adds no separate agentic reads.
+  // hero level; the agentic result the milestone helper reads is computed here
+  // from active_day/agent_active/identities over the window ending TODAY.
   const [
     maturity,
     capabilityGraph,
@@ -57,6 +71,10 @@ export default async function GrowthPage() {
     currentScores,
     prevScores,
     connections,
+    people,
+    personalActiveDay,
+    personalAgentActive,
+    personalIdentities,
   ] = await timeStage("pageData", () =>
     Promise.all([
       readMaturityView(ctx.scope, today),
@@ -64,9 +82,10 @@ export default async function GrowthPage() {
       ctx.scope.mastery.forUser(ctx.user.id),
       ctx.scope.missions.catalog(),
       ctx.scope.missions.progressForUser(ctx.user.id),
-      // Current + previous month's OWN person score rows — the breadth baseline
-      // the milestone helper crosses. Person-level only (team/org rows are never
-      // this person's growth), so those rows are never fetched.
+      // Current + previous month's person score rows — the breadth baseline the
+      // milestone helper crosses. In a personal org with an invited member these
+      // include OTHER people's rows too, so they are filtered to the caller's
+      // OWN person below (invariant b — never celebrate someone else's breadth).
       ctx.scope.scores.results({
         from: period.periodStart,
         to: period.periodEnd,
@@ -79,6 +98,24 @@ export default async function GrowthPage() {
       }),
       // For the honest empty state's "which connector would add evidence" line.
       ctx.scope.connections.list(),
+      // Resolve the CALLER's own person id (people.auth_user_id → id) so the
+      // score rows above can be filtered to this person's growth only. An
+      // EXISTING namespace method (people.list) — no frozen org-scope change.
+      ctx.scope.people.list(),
+      // Agentic-adoption inputs over the window ending TODAY (see agenticFrom) —
+      // numerator + denominator + identity links; the rate + weekly trend derive
+      // in JS below via computeAgenticAdoption(windowTo: today).
+      ctx.scope.metrics.records({
+        metricKey: "active_day",
+        from: agenticFrom,
+        to: today,
+      }),
+      ctx.scope.metrics.records({
+        metricKey: "agent_active",
+        from: agenticFrom,
+        to: today,
+      }),
+      ctx.scope.identities.all(),
     ]),
   );
 
@@ -98,55 +135,44 @@ export default async function GrowthPage() {
     lastEvidenceAt: s.lastEvidenceAt,
   }));
 
-  // Missions — same status derivation as the Today active-strip (measured
-  // mastery + opt-in progress), plus the completion DATE for the completed
-  // timeline. Zero new queries beyond the batch above.
-  const missionMasteryBySlug = new Map(
-    capabilityStates.map((s) => [s.capabilitySlug, s.mastery]),
-  );
-  const missionStepsByMission = new Map<
-    string,
-    { capabilitySlug: string; targetMastery: number }[]
-  >();
-  for (const step of missionCatalog.steps) {
-    const list = missionStepsByMission.get(step.missionSlug);
-    const target = {
-      capabilitySlug: step.capabilitySlug,
-      targetMastery: step.targetMastery,
-    };
-    if (list) list.push(target);
-    else missionStepsByMission.set(step.missionSlug, [target]);
-  }
-  const missionProgressBySlug = new Map(
-    missionProgress.map((p) => [p.missionSlug, p]),
-  );
-  const missionRows: MissionBoardRow[] = missionCatalog.missions.map((m) => {
-    const steps = missionStepsByMission.get(m.slug) ?? [];
-    const prog = missionProgressBySlug.get(m.slug);
-    const status = !prog
-      ? ("not-started" as const)
-      : prog.completedAt
-        ? ("complete" as const)
-        : ("in-progress" as const);
-    return {
-      slug: m.slug,
-      title: m.title,
-      summary: m.summary,
-      status,
-      stepsReached: completedStepCount(steps, missionMasteryBySlug),
-      totalSteps: steps.length,
-      completedAt: prog?.completedAt ? prog.completedAt.toISOString() : null,
-    };
+  // Missions — the SHARED derivation (cannot drift from the Today active-strip):
+  // status from measured mastery + opt-in progress, plus the completion DATE for
+  // the completed timeline. Zero new queries beyond the batch above.
+  const missionRows: MissionBoardRow[] = deriveMissionRows({
+    catalog: missionCatalog,
+    capabilityStates,
+    progress: missionProgress,
+  });
+
+  // Resolve the caller's own person id, then keep ONLY this person's score rows
+  // for the milestone breadth baseline. If no person is linked to the signed-in
+  // user, pass empty rows (no milestone — honest, never someone else's data).
+  const callerPersonId =
+    people.find((p) => p.authUserId === ctx.user.id)?.id ?? null;
+  const ownCurrentScores = callerPersonId
+    ? currentScores.filter((r) => r.personId === callerPersonId)
+    : [];
+  const ownPrevScores = callerPersonId
+    ? prevScores.filter((r) => r.personId === callerPersonId)
+    : [];
+
+  // The person's own agentic adoption over the window ending TODAY — computed
+  // exactly like personal-self-view.tsx, so the milestone gates match the
+  // dashboard's AgenticAdoptionCard to the day.
+  const agentic = computeAgenticAdoption({
+    agentActiveRows: personalAgentActive,
+    activeDayRows: personalActiveDay,
+    identityLinks: personalIdentities,
+    windowTo: today,
   });
 
   // Milestones — the SHARED helper (cannot drift from any other surface), fed
-  // this route's own current/previous score rows + the agentic result from
-  // readMaturityView (already computed over the same rows). Recompute-on-read,
-  // zero storage.
+  // this route's own current/previous score rows (person-scoped) + the agentic
+  // result computed above. Recompute-on-read, zero storage.
   const milestones = deriveCompanionMilestones({
-    currentScoreRows: currentScores,
-    prevScoreRows: prevScores,
-    agentic: maturity.numbers.agenticShare.agentic,
+    currentScoreRows: ownCurrentScores,
+    prevScoreRows: ownPrevScores,
+    agentic,
   });
 
   // Honest empty state (no capability evidence yet): name whether the person has
@@ -159,7 +185,6 @@ export default async function GrowthPage() {
         .map((c) => vendorLabel(c.vendor)),
     ),
   ].sort();
-  const hasCapabilities = capabilityRows.length > 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -190,33 +215,35 @@ export default async function GrowthPage() {
               short={GROWTH_PAGE_COPY.confidenceInfo.short}
             />
           </div>
-          {hasCapabilities ? (
-            <CapabilityProfileCard
-              rows={capabilityRows}
-              labels={capabilityLabels}
-              fullList
-            />
-          ) : (
-            <EmptyState
-              title={GROWTH_PAGE_COPY.empty.headline}
-              description={
-                activeVendors.length > 0
-                  ? `${GROWTH_PAGE_COPY.empty.withSources} Connected: ${activeVendors.join(", ")}.`
-                  : GROWTH_PAGE_COPY.empty.noSources
-              }
-            >
-              {activeVendors.length === 0 ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  nativeButton={false}
-                  render={<Link href="/connections" />}
-                >
-                  {GROWTH_PAGE_COPY.empty.connectLabel}
-                </Button>
-              ) : null}
-            </EmptyState>
-          )}
+          {/* The full-list card guards its own empty state (move-the-gate-inside):
+              on no evidenced rows it renders this connect-oriented empty state
+              instead of an empty card shell. */}
+          <CapabilityFullListCard
+            rows={capabilityRows}
+            labels={capabilityLabels}
+            emptyState={
+              <EmptyState
+                variant="inline"
+                title={GROWTH_PAGE_COPY.empty.headline}
+                description={
+                  activeVendors.length > 0
+                    ? `${GROWTH_PAGE_COPY.empty.withSources} Connected: ${activeVendors.join(", ")}.`
+                    : GROWTH_PAGE_COPY.empty.noSources
+                }
+              >
+                {activeVendors.length === 0 ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    nativeButton={false}
+                    render={<Link href="/connections" />}
+                  >
+                    {GROWTH_PAGE_COPY.empty.connectLabel}
+                  </Button>
+                ) : null}
+              </EmptyState>
+            }
+          />
         </div>
 
         <div className="flex flex-col gap-4 lg:col-span-5">

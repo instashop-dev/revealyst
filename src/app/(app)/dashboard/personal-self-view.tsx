@@ -70,7 +70,7 @@ import { deriveRecInteractionView } from "@/lib/rec-interactions";
 import { recentlyShownRecIds } from "@/lib/recommendation-catalog";
 import { periodFor, previousDay } from "@/scoring";
 import { CAPABILITY_STATE_CONSTANTS } from "@/scoring/capability-state";
-import { completedStepCount } from "@/scoring/mission-progress";
+import { deriveMissionRows } from "@/scoring/mission-progress";
 import { AttentionSection, DAY_MS, SpendGovernanceLine } from "./shared";
 
 export async function PersonalSelfView({
@@ -302,42 +302,13 @@ export async function PersonalSelfView({
 
   // W7-5: mission card rows — status derived from the person's MEASURED mastery
   // (the same numbers the reducer uses to complete a mission) + their opt-in
-  // progress. Zero new queries — all from the batch above.
-  const missionMasteryBySlug = new Map(
-    capabilityStates.map((s) => [s.capabilitySlug, s.mastery]),
-  );
-  const missionStepsByMission = new Map<
-    string,
-    { capabilitySlug: string; targetMastery: number }[]
-  >();
-  for (const step of missionCatalog.steps) {
-    const list = missionStepsByMission.get(step.missionSlug);
-    const target = {
-      capabilitySlug: step.capabilitySlug,
-      targetMastery: step.targetMastery,
-    };
-    if (list) list.push(target);
-    else missionStepsByMission.set(step.missionSlug, [target]);
-  }
-  const missionProgressBySlug = new Map(
-    missionProgress.map((p) => [p.missionSlug, p]),
-  );
-  const missionRows = missionCatalog.missions.map((m) => {
-    const steps = missionStepsByMission.get(m.slug) ?? [];
-    const prog = missionProgressBySlug.get(m.slug);
-    const status = !prog
-      ? ("not-started" as const)
-      : prog.completedAt
-        ? ("complete" as const)
-        : ("in-progress" as const);
-    return {
-      slug: m.slug,
-      title: m.title,
-      summary: m.summary,
-      status,
-      stepsReached: completedStepCount(steps, missionMasteryBySlug),
-      totalSteps: steps.length,
-    };
+  // progress, via the SHARED derivation (cannot drift from the Growth board).
+  // Zero new queries — all from the batch above. The active strip below ignores
+  // the extra `completedAt` field the helper returns.
+  const missionRows = deriveMissionRows({
+    catalog: missionCatalog,
+    capabilityStates,
+    progress: missionProgress,
   });
 
   // Build each card's data once, up front, so the F1.1 coaching gate and the

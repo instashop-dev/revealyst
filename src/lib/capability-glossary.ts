@@ -94,11 +94,19 @@ export const GROWTH_PAGE_COPY = {
   capabilitiesHeading: "Your capabilities",
   missionsHeading: "Missions",
   milestonesHeading: "Milestones",
-  /** The one-sentence directional-vs-measured explainer (an InfoTip). */
+  /** The directional-vs-measured explainer (an InfoTip).
+   * HONESTY (invariant b): "measured" is NOT "two independent signals confirm
+   * it" — the real gate is evidence for ≥2 of the capability's bound OTel MARKER
+   * metrics (src/scoring/capability-state.ts, `MEASURED_MARKER_MIN`, ADR 0039),
+   * and most capabilities have no markers bound at all, so they can never reach
+   * that tier today. The copy must promise only what's actually reachable.
+   * Re-verify against that gate before editing this string. "OTel"/"markers" are
+   * banned UI vocabulary (CLAUDE.md writing rule) — say "detailed coding
+   * telemetry". */
   confidenceInfo: {
     label: "Early read vs measured",
     short:
-      "Early read means one connected channel is pointing this way; measured means at least two independent signals confirm it.",
+      "Early read means it's an early signal from your connected tools. Measured means it's confirmed by detailed coding telemetry — only some skills can be measured this way, and only once the local agent's telemetry is connected.",
   },
   /** Page-level honest empty state when NO capability has evidence yet. The
    * body is completed by the caller with the connector(s) that would add

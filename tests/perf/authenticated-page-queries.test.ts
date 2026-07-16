@@ -287,10 +287,14 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     // hero level via readMaturityView (kicked off synchronously as a batch
     // element, so its internal reads overlap) + the capability graph/state,
     // missions, this-and-last month's own score rows (the milestone breadth
-    // baseline), and connections (the empty-state connector line). It runs on a
-    // SEPARATE page load from Today (a user is on one route or the other), so
-    // its cost is additive to Today only across two navigations — its own budget
-    // is what this pins. Depth must stay 1.
+    // baseline), connections (the empty-state connector line), people (to resolve
+    // the CALLER's own person id so the milestone breadth is person-scoped), and
+    // its OWN agentic-adoption inputs (active_day/agent_active/identities over the
+    // window ending TODAY — so the milestone gates match the dashboard's agentic
+    // card to the day, never readMaturityView's yesterday-ending window). It runs
+    // on a SEPARATE page load from Today (a user is on one route or the other),
+    // so its cost is additive to Today only across two navigations — its own
+    // budget is what this pins. Depth must stay 1.
     const anchor = "2026-06-30";
     const period = periodFor("month", anchor);
     const prevPeriod = periodFor("month", previousDay(period.periodStart));
@@ -313,6 +317,13 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
           subjectLevel: "person",
         }),
         scope.connections.list(),
+        // Finding 1: resolve the caller's own person id for person-scoped
+        // milestone breadth.
+        scope.people.list(),
+        // Finding 3: own agentic inputs over the window ending TODAY.
+        scope.metrics.records({ metricKey: "active_day", from: WINDOW.from, to: WINDOW.to }),
+        scope.metrics.records({ metricKey: "agent_active", from: WINDOW.from, to: WINDOW.to }),
+        scope.identities.all(),
       ]);
       expect(maturity.numbers).toBeDefined();
       ok = graph.capabilities.length >= 0;
@@ -320,11 +331,13 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     results.push(result);
     expect(ok).toBe(true);
 
-    // Measured Growth budget (this fixture): total 21, depth 1. Generous ceiling
-    // (~1.5x). Depth pinned EXACT — the route composes readMaturityView INSIDE
-    // the batch (never back-to-back with another composed read).
+    // Measured Growth budget (this fixture): total 25, depth 1 (U1.3 person-scope
+    // + own-agentic reads added people.list + active_day/agent_active/identities
+    // to the batch). Generous ceiling (~1.5x). Depth pinned EXACT — the route
+    // composes readMaturityView INSIDE the batch (never back-to-back with another
+    // composed read).
     expect(result.total).toBeGreaterThan(0);
-    expect(result.total).toBeLessThanOrEqual(30);
+    expect(result.total).toBeLessThanOrEqual(36);
     expect(result.sequentialDepth).toBe(1);
   });
 

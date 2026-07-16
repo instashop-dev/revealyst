@@ -208,6 +208,35 @@ describe("deriveCompanionMilestones — shared derivation (U1.3)", () => {
     ).toEqual([]);
   });
 
+  it("omits the breadth milestone when the PREVIOUS period has NO breadth evidence (absence ≠ measured 0)", () => {
+    // Prior period has no breadth rows at all: previousBreadth is null, so the
+    // breadth comparison is omitted entirely — a fabricated 0 baseline would fire
+    // a bogus "new best" off data we don't have.
+    expect(
+      deriveCompanionMilestones({
+        currentScoreRows: [scoreRow(6)],
+        prevScoreRows: [],
+        agentic: { kind: "noAgenticData" },
+      }),
+    ).toEqual([]);
+    // Same when the prior rows exist but carry no breadth component.
+    expect(
+      deriveCompanionMilestones({
+        currentScoreRows: [scoreRow(6)],
+        prevScoreRows: [{ components: { depth: breakdownEntry(3) } }],
+        agentic: { kind: "noAgenticData" },
+      }),
+    ).toEqual([]);
+    // A real prior baseline (non-empty breadth) still fires the crossing.
+    expect(
+      deriveCompanionMilestones({
+        currentScoreRows: [scoreRow(6)],
+        prevScoreRows: [scoreRow(4)],
+        agentic: { kind: "noAgenticData" },
+      }).map((m) => m.kind),
+    ).toEqual(["feature-breadth"]);
+  });
+
   it("takes the MAX breadth across multiple current/prev score rows", () => {
     const ms = deriveCompanionMilestones({
       currentScoreRows: [scoreRow(3), scoreRow(6)],
