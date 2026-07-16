@@ -1,4 +1,4 @@
-# 0037 — Fix: `isUniqueViolation` walks the error cause chain
+# 0040 — Fix: `isUniqueViolation` walks the error cause chain
 
 - **Status:** Accepted
 - **Date:** 2026-07-14

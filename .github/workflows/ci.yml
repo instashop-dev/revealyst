@@ -28,6 +28,10 @@ jobs:
       # the mechanical form of CLAUDE.md's review-blocker rule.
       - name: Org-scope guard
         run: node scripts/check-org-scope.mjs
+      # ADR ledger guard (T0.1): duplicate 4-digit ADR prefixes fail CI, except
+      # the two bannered/documented 0014 files — keeps "ADR NNNN" citable.
+      - name: ADR numbering guard
+        run: node scripts/check-adr-numbers.mjs
       # Contract + isolation tests run inside the suite (tests/contracts,
       # tests/tenant-isolation) — the failing-on-drift hook W1-S inherits.
       - run: npm test
