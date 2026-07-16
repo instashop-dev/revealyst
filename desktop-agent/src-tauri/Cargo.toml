@@ -21,8 +21,30 @@ tauri-plugin-single-instance = "2"
 # Revealyst-origin allowlist (lifecycle.rs) — again no frontend capability.
 tauri-plugin-autostart = "2"
 tauri-plugin-opener = "2"
+# Deep-link handling for the revealyst:// callback (spec §8.2). The callback
+# URL is parsed and validated ONLY on the Rust side (deeplink.rs) — the
+# frontend has no deep-link capability and can never read the raw URL/code.
+tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json"] }
 tracing-appender = "0.2"
+# PKCE pairing client (auth.rs, spec §8). rustls (no OpenSSL system dep);
+# json for the tiny start/exchange bodies; gzip for response decoding.
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "json",
+  "gzip",
+] }
+# OS secure storage for the device token (secrets.rs, spec §8.3). The native
+# stores are the only place the token ever lives.
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
+sha2 = "0.10"
+base64 = "0.22"
+getrandom = "0.2"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+hostname = "0.4"
+# oneshot channel + timeout for the browser round-trip in auth.rs.
+tokio = { version = "1", features = ["sync", "time"] }
