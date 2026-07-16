@@ -156,6 +156,40 @@ impl Store {
             .optional()
             .map_err(|_| StoreError::Query)
     }
+
+    /// Every connector's `(connector_id, status)`, id-sorted. Counts/enums only
+    /// (never a payload) — the diagnostics bundle (T4.3) reports these states.
+    pub fn connector_states(&self) -> Result<Vec<(String, String)>, StoreError> {
+        let guard = self.lock()?;
+        let mut stmt = guard
+            .prepare("SELECT connector_id, status FROM connector_state ORDER BY connector_id ASC")
+            .map_err(|_| StoreError::Query)?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|_| StoreError::Query)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|_| StoreError::Query)?);
+        }
+        Ok(out)
+    }
+
+    /// The current self-update rollout state (spec §13.1 `update_state`), or
+    /// `None` before the updater (T6) has written a row. A single opaque marker,
+    /// never a payload.
+    pub fn update_rollout_state(&self) -> Result<Option<String>, StoreError> {
+        let guard = self.lock()?;
+        guard
+            .query_row(
+                "SELECT rollout_state FROM update_state WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| StoreError::Query)
+    }
 }
 
 #[cfg(test)]

@@ -1,0 +1,27 @@
+{
+  "agentVersion": "0.1.0",
+  "architecture": "arm64",
+  "configVersion": 7,
+  "connectorStates": [
+    {
+      "id": "claude_code",
+      "state": "ready"
+    },
+    {
+      "id": "cursor",
+      "state": "collecting"
+    }
+  ],
+  "lastSuccessfulSync": "2026-07-16T12:34:56.000Z",
+  "logTail": [
+    "healthy line",
+    "another healthy line"
+  ],
+  "platform": "macos",
+  "policyVersion": "0",
+  "queueCounts": {
+    "pending": 3,
+    "quarantined": 2
+  },
+  "updateState": "up_to_date"
+}

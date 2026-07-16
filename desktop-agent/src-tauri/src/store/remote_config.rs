@@ -85,6 +85,36 @@ impl Store {
             .map_err(|_| StoreError::Query)?;
         Ok(())
     }
+
+    /// The cached signed-config version marker (spec §21), or `None` if no
+    /// config has been cached. An opaque version string, never a payload — the
+    /// diagnostics bundle (T4.3) parses it to its numeric `config_version`.
+    pub fn remote_config_version(&self) -> Result<Option<String>, StoreError> {
+        let guard = self.lock()?;
+        guard
+            .query_row(
+                "SELECT config_version FROM remote_config_cache WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| StoreError::Query)
+    }
+
+    /// The cached effective-policy version (spec §17), or `None` if no policy has
+    /// been cached. An opaque version string, never a payload — reported by the
+    /// diagnostics bundle (T4.3).
+    pub fn policy_version(&self) -> Result<Option<String>, StoreError> {
+        let guard = self.lock()?;
+        guard
+            .query_row(
+                "SELECT policy_version FROM policy_cache WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| StoreError::Query)
+    }
 }
 
 #[cfg(test)]

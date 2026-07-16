@@ -270,6 +270,18 @@ impl Store {
         Ok(())
     }
 
+    /// The newest upload-receipt timestamp (epoch ms), or `None` if nothing has
+    /// ever synced. Drives the diagnostics bundle's `last_successful_sync`
+    /// (T4.3). `MAX(...)` over an empty table returns SQL NULL → `None`.
+    pub fn latest_upload_at(&self) -> Result<Option<i64>, StoreError> {
+        let guard = self.lock()?;
+        guard
+            .query_row("SELECT MAX(uploaded_at) FROM upload_receipts", [], |row| {
+                row.get::<_, Option<i64>>(0)
+            })
+            .map_err(|_| StoreError::Query)
+    }
+
     /// Whether a receipt exists for `batch_id`.
     pub fn has_receipt(&self, batch_id: &str) -> Result<bool, StoreError> {
         let guard = self.lock()?;
