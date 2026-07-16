@@ -16,13 +16,14 @@ import {
 } from "@/lib/capability-glossary";
 
 /**
- * The capability-profile card (W7-2), self-view only. A compact, positive-first
- * read of the person's strongest AI capabilities — a DECOMPOSITION of their one
- * proficiency band, never a competing third ladder. Renders bands + a plain-
- * English confidence tier + the single eligible-next focus; the raw 0–1 mastery
- * stays behind the existing diagnostic expander (no second expander here). When
- * the person has no capability evidence yet it renders the honest forming state,
- * never zeros. Server-safe, pure props — the caller (personal self-view) passes
+ * The compact capability-profile card (W7-2), self-view only — the Today glance.
+ * A positive-first read of the person's strongest AI capabilities (capped at
+ * `maxRows`) — a DECOMPOSITION of their one proficiency band, never a competing
+ * third ladder. Renders bands + a plain-English confidence tier + the single
+ * eligible-next focus; the raw 0–1 mastery stays behind the existing diagnostic
+ * expander. When the person has no capability evidence yet it renders the honest
+ * forming state, never zeros. The Growth surface's fuller per-row view lives in
+ * its own `CapabilityFullListCard`. Server-safe, pure props — the caller passes
  * only the SIGNED-IN person's own rows (`mastery.forUser`), so no per-person
  * mastery ever leaves self-view.
  */
@@ -34,6 +35,10 @@ export type CapabilityProfileRow = {
   mastery: number;
   confidenceTier: string;
   nextCapability: string | null;
+  /** Most-recent measured evidence (ISO date), self-view only. Rendered only by
+   * `CapabilityFullListCard` and only when present — never fabricated (invariant
+   * b). */
+  lastEvidenceAt?: string | null;
 };
 
 export function CapabilityProfileCard({

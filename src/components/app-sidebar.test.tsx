@@ -95,10 +95,10 @@ describe("AppSidebar — nav IA (U0.1)", () => {
     expect(
       screen.queryByRole("link", { name: /AI maturity/i }),
     ).not.toBeInTheDocument();
-    // /growth does not exist until phase U1 — no Growth item yet.
+    // U1: personal orgs now get the Growth surface (`/growth`).
     expect(
-      screen.queryByRole("link", { name: /Growth/i }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("link", { name: /Growth/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows the admin group only for admins", () => {

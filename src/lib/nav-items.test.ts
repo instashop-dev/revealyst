@@ -5,7 +5,7 @@ const titles = (groups: ReturnType<typeof navFor>) =>
   groups.flatMap((g) => g.items.map((i) => i.title));
 
 describe("navFor — U0.1 nav IA", () => {
-  it("personal org: Today + Connections + Account, no AI maturity, no Growth", () => {
+  it("personal org: Today + Growth + Connections + Account, no AI maturity", () => {
     const groups = navFor({
       orgKind: "personal",
       role: "member",
@@ -13,10 +13,26 @@ describe("navFor — U0.1 nav IA", () => {
     });
     expect(groups.map((g) => g.id)).toEqual(["primary"]);
     expect(groups[0].label).toBe("Personal workspace");
-    expect(titles(groups)).toEqual(["Today", "Connections", "Account"]);
-    // /growth doesn't exist until phase U1.
-    expect(titles(groups)).not.toContain("Growth");
+    expect(titles(groups)).toEqual([
+      "Today",
+      "Growth",
+      "Connections",
+      "Account",
+    ]);
+    // Growth is a personal-only surface (U1); AI maturity stays demoted for
+    // personal orgs (the raw 0–100 diagnostic lives behind the companion).
     expect(titles(groups)).not.toContain("AI maturity");
+  });
+
+  it("team org (member): no Growth item (personal-only until T5.1 clears)", () => {
+    // Growth ships for personal orgs now; team-org members do not get it until
+    // the companion-in-team-orgs dogfood gate (R7) clears — nothing built ahead.
+    const groups = navFor({
+      orgKind: "team",
+      role: "member",
+      isPlatformAdmin: false,
+    });
+    expect(titles(groups)).not.toContain("Growth");
   });
 
   it("team org (member): Team + AI maturity + Connections + Account, no admin group", () => {

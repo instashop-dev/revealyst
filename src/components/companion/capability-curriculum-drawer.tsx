@@ -26,6 +26,32 @@ import {
 const COPY = CAPABILITY_CURRICULUM_COPY;
 
 /**
+ * Shared drawer wiring for both triggers (U1.3 dedup): the open state, the
+ * curriculum-entry lookup, and the mounted `<CapabilityCurriculumDrawer>`.
+ * Returns `hasEntry: false` (drawer null) when the slug has no curriculum entry,
+ * so each trigger can render its own honest no-entry markup. The OUTER markup
+ * (lead line vs. bare button) stays distinct in each trigger below.
+ */
+function useCurriculumDrawer(
+  slug: string,
+  label: string,
+  labels: ReadonlyMap<string, string>,
+) {
+  const [open, setOpen] = React.useState(false);
+  const hasEntry = Boolean(CAPABILITY_CURRICULUM[slug]);
+  const drawer = hasEntry ? (
+    <CapabilityCurriculumDrawer
+      slug={slug}
+      label={label}
+      labels={labels}
+      open={open}
+      onOpenChange={setOpen}
+    />
+  ) : null;
+  return { hasEntry, openDrawer: () => setOpen(true), drawer };
+}
+
+/**
  * The clickable next-focus line. Renders plain text (no affordance) when the
  * slug has no curriculum entry — never a dead link. Opens the drawer on click.
  * `nextLead` is passed in from `CAPABILITY_PROFILE_COPY.nextLead` (the
@@ -44,10 +70,9 @@ export function CapabilityCurriculumTrigger({
   /** Capability slug → display label, for the path list in the drawer. */
   labels: ReadonlyMap<string, string>;
 }) {
-  const [open, setOpen] = React.useState(false);
-  const entry = CAPABILITY_CURRICULUM[slug];
+  const { hasEntry, openDrawer, drawer } = useCurriculumDrawer(slug, label, labels);
 
-  if (!entry) {
+  if (!hasEntry) {
     return (
       <p className="mt-3 text-sm text-muted-foreground">
         <span className="font-medium text-foreground">{nextLead}:</span>{" "}
@@ -63,19 +88,46 @@ export function CapabilityCurriculumTrigger({
         {label}{" "}
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={openDrawer}
           className="font-medium text-primary underline-offset-2 hover:underline"
         >
           {COPY.triggerLabel}
         </button>
       </p>
-      <CapabilityCurriculumDrawer
-        slug={slug}
-        label={label}
-        labels={labels}
-        open={open}
-        onOpenChange={setOpen}
-      />
+      {drawer}
+    </>
+  );
+}
+
+/**
+ * U1.3 Growth full-list variant: a lean per-row "See how to grow this" button
+ * (no "next focus" lead line — the row already names the capability). Renders
+ * NOTHING (null) when the slug has no curriculum entry, so a row never shows a
+ * dead link. Same drawer, same copy source.
+ */
+export function CapabilityGrowTrigger({
+  slug,
+  label,
+  labels,
+}: {
+  slug: string;
+  label: string;
+  labels: ReadonlyMap<string, string>;
+}) {
+  const { hasEntry, openDrawer, drawer } = useCurriculumDrawer(slug, label, labels);
+
+  if (!hasEntry) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={openDrawer}
+        className="text-left text-xs font-medium text-primary underline-offset-2 hover:underline"
+      >
+        {COPY.triggerLabel}
+      </button>
+      {drawer}
     </>
   );
 }

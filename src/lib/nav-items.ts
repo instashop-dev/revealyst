@@ -6,6 +6,7 @@ import {
   ScanFace,
   Settings,
   ShieldCheck,
+  Sprout,
   UserRoundCog,
   UserRoundPlus,
   Wallet,
@@ -53,10 +54,14 @@ export type OrgRole = "admin" | "member";
 
 // Primary group — personal orgs. "Today" replaces the old "Overview" label;
 // the route stays `/dashboard` (R10: bookmarks, digest CTAs, and the §14
-// `companion_revisit` metric all point there). No "Growth" item yet — `/growth`
-// does not exist until phase U1, which will add exactly one entry here.
+// `companion_revisit` metric all point there). "Growth" (`/growth`, phase U1)
+// is the improvement surface — the capability decomposition + missions +
+// milestones cluster moved off the daily Today surface (plan §5.2). It appears
+// for personal orgs only today; the same route activates for team-org members
+// once T5.1 / W6-A clears its dogfood gate (R7) — no build ahead of that gate.
 const PERSONAL_NAV_ITEMS: NavItem[] = [
   { title: "Today", href: "/dashboard", icon: LayoutDashboard },
+  { title: "Growth", href: "/growth", icon: Sprout },
   { title: "Connections", href: "/connections", icon: Cable },
   { title: "Account", href: "/account", icon: UserRoundCog },
 ];

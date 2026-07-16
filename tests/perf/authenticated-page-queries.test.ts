@@ -9,9 +9,12 @@ import { ensureOrgOfOne, forOrg } from "../../src/db/org-scope";
 import * as schema from "../../src/db/schema";
 import { applyPaddleSubscriptionEvent } from "../../src/db/subscriptions";
 import { computeAccess } from "../../src/lib/access";
+import { dashboardSummary } from "../../src/lib/api-impl";
+import { listBenchmarks } from "../../src/db/benchmarks";
+import { readBudgetAlertForRole } from "../../src/lib/spend-governance";
 import { readDashboardView } from "../../src/lib/dashboard-view";
 import { readMaturityView } from "../../src/lib/maturity";
-import { periodFor, recomputeOrg } from "../../src/scoring";
+import { periodFor, previousDay, recomputeOrg } from "../../src/scoring";
 import { buildTeamFixtureGraph } from "./fixture-graph";
 import { formatTable, instrumentPglite, measure, type ScenarioResult } from "./query-counter";
 
@@ -217,45 +220,50 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     expect(result.sequentialDepth).toBeLessThanOrEqual(3);
   });
 
-  it("4. companion (personal surface) — readMaturityView threads into ONE depth-1 batch", async () => {
-    // The W5-C Personal Companion surface adds ONE new read to the personal
-    // dashboard: the modeled maturity LEVEL. It is threaded into the page's
-    // EXISTING single flat Promise.all (round-trip depth 1, G10) rather than
-    // run as a second sequential stage — the perf law's hard rule is "never
-    // readDashboardView + readMaturityView back-to-back". readMaturityView
-    // does its own internal flat Promise.all; because it is CALLED as an
-    // element of an outer Promise.all, its internal reads are kicked off
-    // synchronously (before its first await) alongside the sibling reads, so
-    // the whole batch stays depth 1. This scenario is the guard: it fires
-    // readMaturityView CONCURRENTLY with a representative slice of the personal
-    // batch and pins sequentialDepth to exactly 1 — a regression that
-    // serialized maturity behind the other reads (a second stage) would push
-    // depth to 2 and fail here.
+  it("4. Today (personal self-view) — the WHOLE recomposed batch stays ONE depth-1 stage", async () => {
+    // U1.1 recomposes the personal companion into Today: the RENDERING moves
+    // (growth cluster → /growth), but the page's flat Promise.all reads are
+    // UNCHANGED — the capability graph/state + mission catalog/progress reads
+    // stay (deriveAttention's eligibility gates, the overall band, and the
+    // active-mission strip all consume them). This scenario mirrors the FULL
+    // personal-self-view batch (not a slice) so the "Today budget" is a real
+    // number: it must not grow, and — the whole point — every read overlaps in
+    // ONE stage, so sequentialDepth stays exactly 1 (a regression that
+    // serialized any read behind the rest would push depth to 2 and fail here).
+    const anchor = "2026-06-30";
+    const period = periodFor("month", anchor);
+    const prevPeriod = periodFor("month", previousDay(period.periodStart));
+    const definitionsPromise = scope.scores.definitions();
     let placed = false;
-    const result = await measure(counter, "companion", async () => {
+    const result = await measure(counter, "Today (personal)", async () => {
       const [maturity] = await Promise.all([
-        readMaturityView(scope, "2026-06-30"),
+        readMaturityView(scope, anchor),
         scope.connections.list(),
-        scope.scores.definitions(),
-        scope.metrics.records({
-          metricKey: "active_day",
-          from: WINDOW.from,
-          to: WINDOW.to,
+        dashboardSummary(
+          scope,
+          "private",
+          { from: period.periodStart, to: period.periodEnd },
+          { definitions: definitionsPromise },
+        ),
+        listBenchmarks(db, { status: "verified", segment: "overall" }),
+        definitionsPromise,
+        scope.scores.results({
+          from: prevPeriod.periodStart,
+          to: prevPeriod.periodEnd,
+          subjectLevel: "person",
         }),
-        scope.metrics.records({
-          metricKey: "agent_active",
-          from: WINDOW.from,
-          to: WINDOW.to,
-        }),
-        scope.metrics.records({
-          metricKey: "spend_cents",
-          from: WINDOW.from,
-          to: WINDOW.to,
-        }),
-        // COACH-004: the personal companion folds the signed-in person's OWN
-        // recommendation exposures into this SAME batch (+1 read, still depth 1)
-        // to drive the novelty rotation. Pinned here so a regression that ran it
-        // as a second sequential stage would push depth above 1 and fail below.
+        readBudgetAlertForRole(scope, "admin", anchor),
+        scope.metrics.records({ metricKey: "active_day", from: WINDOW.from, to: WINDOW.to }),
+        scope.metrics.records({ metricKey: "agent_active", from: WINDOW.from, to: WINDOW.to }),
+        scope.identities.all(),
+        scope.metrics.records({ metricKey: "spend_cents", from: WINDOW.from, to: WINDOW.to }),
+        scope.recInteractions.statesForUser(userId),
+        scope.catalog.list(),
+        scope.capabilities.graph(),
+        scope.mastery.forUser(userId),
+        scope.missions.catalog(),
+        scope.missions.progressForUser(userId),
+        // COACH-004: the signed-in person's OWN exposures, for novelty rotation.
         scope.exposures.forUser(userId),
       ]);
       expect(maturity.numbers).toBeDefined();
@@ -264,15 +272,77 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     results.push(result);
     expect(placed).toBe(true);
 
-    // Exact-equality on depth is the whole point: the companion surface must
-    // add NO sequential round-trip stage. Every read above overlaps in one
-    // batch → sequentialDepth 1.
+    // Measured Today budget (this fixture): total 39, depth 1. Generous ceiling
+    // (~1.5x) catches a real regression (an accidental N+1 or a new sequential
+    // stage) without being brittle to a one-query change. Depth is pinned EXACT
+    // — U1 must not add a round-trip stage (the growth cluster's reads stay in
+    // this one batch; only the RENDERING moved).
     expect(result.total).toBeGreaterThan(0);
+    expect(result.total).toBeLessThanOrEqual(60);
+    expect(result.sequentialDepth).toBe(1);
+  });
+
+  it("5. Growth (/growth) — its own flat Promise.all, depth 1", async () => {
+    // U1.3: the new Growth route has its own depth-1 batch. It re-derives the
+    // hero level via readMaturityView (kicked off synchronously as a batch
+    // element, so its internal reads overlap) + the capability graph/state,
+    // missions, this-and-last month's own score rows (the milestone breadth
+    // baseline), connections (the empty-state connector line), people (to resolve
+    // the CALLER's own person id so the milestone breadth is person-scoped), and
+    // its OWN agentic-adoption inputs (active_day/agent_active/identities over the
+    // window ending TODAY — so the milestone gates match the dashboard's agentic
+    // card to the day, never readMaturityView's yesterday-ending window). It runs
+    // on a SEPARATE page load from Today (a user is on one route or the other),
+    // so its cost is additive to Today only across two navigations — its own
+    // budget is what this pins. Depth must stay 1.
+    const anchor = "2026-06-30";
+    const period = periodFor("month", anchor);
+    const prevPeriod = periodFor("month", previousDay(period.periodStart));
+    let ok = false;
+    const result = await measure(counter, "Growth", async () => {
+      const [maturity, graph] = await Promise.all([
+        readMaturityView(scope, anchor),
+        scope.capabilities.graph(),
+        scope.mastery.forUser(userId),
+        scope.missions.catalog(),
+        scope.missions.progressForUser(userId),
+        scope.scores.results({
+          from: period.periodStart,
+          to: period.periodEnd,
+          subjectLevel: "person",
+        }),
+        scope.scores.results({
+          from: prevPeriod.periodStart,
+          to: prevPeriod.periodEnd,
+          subjectLevel: "person",
+        }),
+        scope.connections.list(),
+        // Finding 1: resolve the caller's own person id for person-scoped
+        // milestone breadth.
+        scope.people.list(),
+        // Finding 3: own agentic inputs over the window ending TODAY.
+        scope.metrics.records({ metricKey: "active_day", from: WINDOW.from, to: WINDOW.to }),
+        scope.metrics.records({ metricKey: "agent_active", from: WINDOW.from, to: WINDOW.to }),
+        scope.identities.all(),
+      ]);
+      expect(maturity.numbers).toBeDefined();
+      ok = graph.capabilities.length >= 0;
+    });
+    results.push(result);
+    expect(ok).toBe(true);
+
+    // Measured Growth budget (this fixture): total 25, depth 1 (U1.3 person-scope
+    // + own-agentic reads added people.list + active_day/agent_active/identities
+    // to the batch). Generous ceiling (~1.5x). Depth pinned EXACT — the route
+    // composes readMaturityView INSIDE the batch (never back-to-back with another
+    // composed read).
+    expect(result.total).toBeGreaterThan(0);
+    expect(result.total).toBeLessThanOrEqual(36);
     expect(result.sequentialDepth).toBe(1);
   });
 
   it("prints the baseline table", () => {
-    expect(results).toHaveLength(5);
+    expect(results).toHaveLength(6);
     // eslint-disable-next-line no-console
     console.log(`\nAuthenticated-page query baseline (org: ${PEOPLE_COUNT} tracked people, 30d window)\n${formatTable(results)}\n`);
   });

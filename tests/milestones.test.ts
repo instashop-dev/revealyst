@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   detectMilestones,
+  deriveCompanionMilestones,
   MAX_MILESTONES,
   WEEKLY_CADENCE_MIN_WEEKS,
 } from "../src/lib/milestones";
@@ -176,5 +177,102 @@ describe("featureBreadth extraction helpers (query-free milestone input)", () =>
       breadth: compareWorkflowDiversity(current!, previous ?? 0),
     });
     expect(ms.map((m) => m.kind)).toEqual(["feature-breadth"]);
+  });
+});
+
+// U1.3: the SHARED companion milestone derivation (the Growth route's source;
+// extracted so no surface can drift onto a different milestone computation). It
+// reads the distinct-workflow count off BOTH periods' stored breakdowns and the
+// agentic result's trend — same gates as the prior inline dashboard wiring.
+describe("deriveCompanionMilestones — shared derivation (U1.3)", () => {
+  const scoreRow = (breadth: number) => ({
+    components: { breadth: breakdownEntry(breadth) },
+  });
+
+  it("fires the feature-breadth milestone on a real period-over-period crossing", () => {
+    const ms = deriveCompanionMilestones({
+      currentScoreRows: [scoreRow(5)],
+      prevScoreRows: [scoreRow(4)],
+      agentic: { kind: "noAgenticData" },
+    });
+    expect(ms.map((m) => m.kind)).toEqual(["feature-breadth"]);
+  });
+
+  it("a tie with the prior baseline fires nothing (strict >, no re-celebration)", () => {
+    expect(
+      deriveCompanionMilestones({
+        currentScoreRows: [scoreRow(5)],
+        prevScoreRows: [scoreRow(5)],
+        agentic: { kind: "noAgenticData" },
+      }),
+    ).toEqual([]);
+  });
+
+  it("omits the breadth milestone when the PREVIOUS period has NO breadth evidence (absence ≠ measured 0)", () => {
+    // Prior period has no breadth rows at all: previousBreadth is null, so the
+    // breadth comparison is omitted entirely — a fabricated 0 baseline would fire
+    // a bogus "new best" off data we don't have.
+    expect(
+      deriveCompanionMilestones({
+        currentScoreRows: [scoreRow(6)],
+        prevScoreRows: [],
+        agentic: { kind: "noAgenticData" },
+      }),
+    ).toEqual([]);
+    // Same when the prior rows exist but carry no breadth component.
+    expect(
+      deriveCompanionMilestones({
+        currentScoreRows: [scoreRow(6)],
+        prevScoreRows: [{ components: { depth: breakdownEntry(3) } }],
+        agentic: { kind: "noAgenticData" },
+      }),
+    ).toEqual([]);
+    // A real prior baseline (non-empty breadth) still fires the crossing.
+    expect(
+      deriveCompanionMilestones({
+        currentScoreRows: [scoreRow(6)],
+        prevScoreRows: [scoreRow(4)],
+        agentic: { kind: "noAgenticData" },
+      }).map((m) => m.kind),
+    ).toEqual(["feature-breadth"]);
+  });
+
+  it("takes the MAX breadth across multiple current/prev score rows", () => {
+    const ms = deriveCompanionMilestones({
+      currentScoreRows: [scoreRow(3), scoreRow(6)],
+      prevScoreRows: [scoreRow(4), scoreRow(2)],
+      agentic: { kind: "noAgenticData" },
+    });
+    // current max 6, prev max 4 → crosses the 5-workflow mark.
+    expect(ms.map((m) => m.kind)).toEqual(["feature-breadth"]);
+    expect(ms[0].body).toMatch(/6 distinct workflows/);
+  });
+
+  it("gates first-agent-session on measured + ≤1 trend week; weekly rhythm on sustained trend", () => {
+    // Measured, exactly one trend week → agents just showed up (no weekly rhythm yet).
+    const early = deriveCompanionMilestones({
+      currentScoreRows: [],
+      prevScoreRows: [],
+      agentic: { kind: "measured", trend: [{}] },
+    });
+    expect(early.map((m) => m.kind)).toEqual(["first-agent-session"]);
+
+    // Measured, many trend weeks → the weekly rhythm, no "just showed up".
+    const sustained = deriveCompanionMilestones({
+      currentScoreRows: [],
+      prevScoreRows: [],
+      agentic: { kind: "measured", trend: [{}, {}, {}, {}, {}] },
+    });
+    expect(sustained.map((m) => m.kind)).toEqual(["weekly-cadence"]);
+  });
+
+  it("no evidence at all → no milestones (never fabricated)", () => {
+    expect(
+      deriveCompanionMilestones({
+        currentScoreRows: [],
+        prevScoreRows: [],
+        agentic: { kind: "noActivity" },
+      }),
+    ).toEqual([]);
   });
 });
