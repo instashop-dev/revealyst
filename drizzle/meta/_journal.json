@@ -260,6 +260,13 @@
       "when": 1784212034522,
       "tag": "0036_team-managers",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1784216373399,
+      "tag": "0037_desktop-pairing-codes",
+      "breakpoints": true
     }
   ]
 }

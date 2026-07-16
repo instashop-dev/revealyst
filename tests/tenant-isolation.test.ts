@@ -189,6 +189,16 @@ const SCOPED_READS: Array<{
     tables: ["recommendation_catalog"],
     run: (s) => s.catalog.list(),
   },
+  // Desktop pairing codes (ADR 0047): consent-time rows keyed on the GLOBALLY
+  // unique pairing handle. Both orgs seed a pairing below; keying `get` on B's
+  // handle from org A's scope is the sharpest probe — the handle EXISTS
+  // globally, so only the org filter stands between A and B's row (a dropped
+  // filter deterministically surfaces it; non-vacuous by construction).
+  {
+    name: "desktopPairing.get(B)",
+    tables: ["desktop_pairing_codes"],
+    run: (s) => s.desktopPairing.get(bPairingHandle),
+  },
   { name: "connectorRuns.list", tables: ["connector_runs"], run: (s) => s.connectorRuns.list() },
   { name: "connectorRuns.latest(B)", tables: ["connector_runs"], run: (s, c) => s.connectorRuns.latest(c.B.connections.anthropic) },
   // Credentials are read-only via withCredential, which throws for foreign
@@ -219,6 +229,10 @@ const EXEMPT_TABLES = new Set([
 ]);
 
 let bDefinitionId: string;
+/** Org B's desktop-pairing handle (ADR 0047) — globally unique, so probing it
+ * through org A's scope isolates the org filter itself. Assigned in
+ * beforeAll, read only inside test bodies. */
+let bPairingHandle!: string;
 
 beforeAll(async () => {
   const pgliteDb = drizzle(new PGlite(), { schema });
@@ -347,6 +361,25 @@ beforeAll(async () => {
         variant: null,
       },
     ]);
+    // A desktop pairing row per org (ADR 0047), consented by this org's
+    // inviter user. Each org's handle is globally unique; B's is what the
+    // desktopPairing.get(B) sweep probes through org A's scope, so its row id
+    // joins the leak universe and the sweep is non-vacuous.
+    const pairing = await scoped.desktopPairing.create({
+      pairingId: `pair-${orgId}`,
+      codeChallenge: "c".repeat(43),
+      codeHash: "h".repeat(43),
+      consentedUserId: inviter.id,
+      deviceDisplayName: `Iso laptop ${orgId.slice(0, 8)}`,
+      platform: "macos",
+      architecture: "arm64",
+      agentVersion: "0.1.0",
+      installationId: crypto.randomUUID(),
+      expiresAt: new Date(Date.now() + 600_000),
+    });
+    if (orgId === orgB) {
+      bPairingHandle = pairing.pairingId;
+    }
     // An audit row per org (ADR 0010) whose target is a fixture team id, so
     // the B-side row carries a B id and the auditLog sweep is non-vacuous.
     await scoped.auditLog.record({

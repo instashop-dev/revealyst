@@ -6,6 +6,7 @@ import {
   connectionCredentials,
   connections,
   connectorRuns,
+  desktopPairingCodes,
   invites,
   orgMembers,
   orgs,
@@ -391,6 +392,27 @@ export async function countCredentialsNeedingRewrap(
  * System-level telemetry (poller liveness, not tenant data), so it reads
  * across the table like the other jobs here.
  */
+/**
+ * Pre-auth desktop-pairing lookup by its globally-unique pairing handle
+ * (T2.2, ADR 0045). The exchange route is unauthenticated by design — the
+ * caller proves possession of the one-time code + PKCE verifier, so no org
+ * scope exists yet. This is the one sanctioned cross-org read for that flow:
+ * bounded to a single row by the unique index, returns the row (whose orgId
+ * establishes the scope), and every subsequent write goes back through
+ * forOrg(row.orgId).desktopPairing.
+ */
+export async function findDesktopPairingByPairingId(
+  db: Db,
+  pairingId: string,
+) {
+  const [row] = await db
+    .select()
+    .from(desktopPairingCodes)
+    .where(eq(desktopPairingCodes.pairingId, pairingId))
+    .limit(1);
+  return row;
+}
+
 export async function latestHeartbeatAt(db: Db): Promise<Date | null> {
   const [row] = await db
     .select({ observedAt: pollHeartbeats.observedAt })

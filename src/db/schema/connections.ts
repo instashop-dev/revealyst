@@ -10,6 +10,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
+import { user } from "../auth-schema";
 import { orgs } from "./core";
 
 // A configured vendor integration. Multiple connections per vendor per org
@@ -109,6 +110,79 @@ export const connectionCredentials = pgTable(
       foreignColumns: [connections.orgId, connections.id],
     }).onDelete("cascade"),
     unique("connection_credentials_conn_kind_uq").on(t.connectionId, t.kind),
+  ],
+);
+
+// Desktop-agent PKCE pairing codes (Desktop Agent plan T2.2, ADR 0047). One
+// row per APPROVED pairing attempt — the row is created at CONSENT time (a
+// signed-in user approving the device on /desktop/connect), never at
+// /api/desktop/auth/start: start is stateless, so an org-less write is
+// unrepresentable and unconsented pairing attempts leave no rows to garbage-
+// collect. The one-time code is stored ONLY as a SHA-256 hash (base64url);
+// the S256 code challenge is stored as-is (it is already a hash of the
+// agent's verifier, RFC 7636). `used_at` is the single-use compare-and-set
+// target: exchange claims it atomically, so a replayed or raced exchange
+// mints exactly one device token. `connection_id` is stamped by the winning
+// exchange (nullable until then); its composite tenant FK cascades the row
+// away with the device connection. Rows expire ≤10 minutes after consent and
+// are inert afterwards. D-DA-2: consent is minted for PERSONAL orgs only —
+// enforced at the consent surface, not by a schema constraint (a future
+// sub-case-C ADR lifts it without a migration).
+export const desktopPairingCodes = pgTable(
+  "desktop_pairing_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    // Public pairing handle (random 128-bit base64url, minted at start and
+    // carried through the browser URL) — the exchange route's lookup key, so
+    // the secret code is only ever COMPARED, never used as a key.
+    pairingId: text("pairing_id").notNull(),
+    // RFC 7636 S256 challenge submitted by the agent, stored as-is.
+    codeChallenge: text("code_challenge").notNull(),
+    // SHA-256 (base64url) of the one-time code; the code itself is returned
+    // once in the consent redirect and never stored.
+    codeHash: text("code_hash").notNull(),
+    // The signed-in member who approved the device — the pairing row's owner.
+    consentedUserId: text("consented_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    // Device metadata as submitted by the agent (display-only + diagnostics;
+    // never identity — spec §9.1 forbids hardware-derived identifiers).
+    deviceDisplayName: text("device_display_name").notNull(),
+    platform: text("platform", { enum: ["macos", "windows"] }).notNull(),
+    architecture: text("architecture", { enum: ["arm64", "x64"] }).notNull(),
+    agentVersion: text("agent_version").notNull(),
+    // Locally generated per-install UUID (spec §9.1) — echoed into the minted
+    // connection's config for support/dedup, never used as auth.
+    installationId: uuid("installation_id").notNull(),
+    // The device connection minted by the winning exchange; null until then.
+    connectionId: uuid("connection_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Anchor for composite tenant FKs, per D1a — kept for shape parity with
+    // every other org-scoped table.
+    unique("desktop_pairing_codes_org_id_id_uq").on(t.orgId, t.id),
+    // GLOBAL unique: the pairing handle is the pre-auth exchange lookup key
+    // (the one sanctioned cross-org read, src/db/system.ts) and doubles as
+    // the consent replay guard — re-POSTing the consent form can never mint
+    // a second code for the same handle.
+    unique("desktop_pairing_codes_pairing_id_uq").on(t.pairingId),
+    // Composite tenant FK: the minted connection must live in the SAME org
+    // (cross-org minting unrepresentable). MATCH SIMPLE semantics: rows with
+    // a null connection_id are unconstrained. Cascade so deleting the device
+    // connection removes its pairing record.
+    foreignKey({
+      name: "desktop_pairing_codes_org_connection_fk",
+      columns: [t.orgId, t.connectionId],
+      foreignColumns: [connections.orgId, connections.id],
+    }).onDelete("cascade"),
   ],
 );
 
