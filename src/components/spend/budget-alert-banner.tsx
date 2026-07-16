@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Banner } from "@/components/banner";
 import { formatCents } from "@/lib/format";
 import type { BudgetAlert } from "@/lib/spend-governance";
 
@@ -26,35 +25,34 @@ export function BudgetAlertBanner({
 }) {
   const pct = Math.round(alert.pctUsed);
   return (
-    <Alert variant={alert.overBudget ? "destructive" : "default"}>
-      <TriangleAlert />
-      <AlertTitle>
-        {alert.overBudget
+    <Banner
+      tone={alert.overBudget ? "critical" : "info"}
+      title={
+        alert.overBudget
           ? "AI spend is over budget this month"
-          : `AI spend has reached ${alert.crossedThreshold}% of budget`}
-      </AlertTitle>
-      <AlertDescription>
-        <p>
-          Vendor-reported spend so far this month is{" "}
-          {formatCents(reportedCents)} of your {formatCents(monthlyLimitCents)}{" "}
-          budget ({pct}%). Derived/estimated costs are shown separately and
-          aren&apos;t counted toward the budget — they can overlap billed
-          figures. Vendor spend data is day-grain and can be restated for up to
-          ~24 hours, so this reflects observed billed burn, not a real-time
-          overspend guarantee.
-        </p>
-        {showManageLink ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-2"
-            nativeButton={false}
-            render={<Link href="/spend" />}
-          >
-            View spend & budget
-          </Button>
-        ) : null}
-      </AlertDescription>
-    </Alert>
+          : `AI spend has reached ${alert.crossedThreshold}% of budget`
+      }
+    >
+      <p>
+        Vendor-reported spend so far this month is{" "}
+        {formatCents(reportedCents)} of your {formatCents(monthlyLimitCents)}{" "}
+        budget ({pct}%). Derived/estimated costs are shown separately and
+        aren&apos;t counted toward the budget — they can overlap billed
+        figures. Vendor spend data is day-grain and can be restated for up to
+        ~24 hours, so this reflects observed billed burn, not a real-time
+        overspend guarantee.
+      </p>
+      {showManageLink ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-2"
+          nativeButton={false}
+          render={<Link href="/spend" />}
+        >
+          View spend & budget
+        </Button>
+      ) : null}
+    </Banner>
   );
 }

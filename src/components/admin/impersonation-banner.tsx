@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
+import { Banner } from "@/components/banner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { authClient } from "@/lib/auth-client";
@@ -37,22 +37,21 @@ export function ImpersonationBanner({
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive">
-      <div className="flex items-center gap-2">
-        <TriangleAlert className="size-4 shrink-0" />
-        <span>
-          Viewing as {name} — actions are real
-        </span>
-      </div>
-      <Button
-        size="xs"
-        variant="destructive"
-        onClick={endImpersonation}
-        disabled={busy}
-      >
-        {busy && <Spinner />}
-        End impersonation
-      </Button>
-    </div>
+    <Banner
+      tone="critical"
+      persistent
+      title={<>Viewing as {name} — actions are real</>}
+      action={
+        <Button
+          size="xs"
+          variant="destructive"
+          onClick={endImpersonation}
+          disabled={busy}
+        >
+          {busy && <Spinner />}
+          End impersonation
+        </Button>
+      }
+    />
   );
 }

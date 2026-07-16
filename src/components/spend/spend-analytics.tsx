@@ -1,4 +1,4 @@
-import { ConfidenceBadge } from "@/components/analytics/confidence-badge";
+import { ConfidencePill } from "@/components/confidence-pill";
 import { InfoTip } from "@/components/info-tip";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  CONFIDENCE_LABELS,
   COST_PER_UNIT_COPY,
   MODEL_MIX_TREND_COPY,
   SPEND_PROJECTION_COPY,
@@ -52,7 +53,11 @@ export function SpendProjectionCard({
         <CardTitle className="flex items-center gap-1.5 text-base">
           {C.title}
           <InfoTip label={C.title} short={C.info} />
-          <ConfidenceBadge tier={C.confidence} detail={C.confidenceDetail} />
+          <ConfidencePill
+            tier={C.confidence}
+            label={CONFIDENCE_LABELS[C.confidence]}
+            detail={C.confidenceDetail}
+          />
         </CardTitle>
         <CardDescription>{C.description}</CardDescription>
       </CardHeader>
@@ -97,7 +102,11 @@ export function CostPerUnitCard({
         <CardTitle className="flex items-center gap-1.5 text-base">
           {C.title}
           <InfoTip label={C.title} short={C.info} />
-          <ConfidenceBadge tier={C.confidence} detail={C.confidenceDetail} />
+          <ConfidencePill
+            tier={C.confidence}
+            label={CONFIDENCE_LABELS[C.confidence]}
+            detail={C.confidenceDetail}
+          />
         </CardTitle>
         <CardDescription>{C.description}</CardDescription>
       </CardHeader>
@@ -187,7 +196,11 @@ export function ModelMixTrendCard({ trend }: { trend: ModelMixTrend }) {
         <CardTitle className="flex items-center gap-1.5 text-base">
           {C.title}
           <InfoTip label={C.title} short={C.info} />
-          <ConfidenceBadge tier={C.confidence} detail={C.confidenceDetail} />
+          <ConfidencePill
+            tier={C.confidence}
+            label={CONFIDENCE_LABELS[C.confidence]}
+            detail={C.confidenceDetail}
+          />
         </CardTitle>
         <CardDescription>{C.description}</CardDescription>
       </CardHeader>

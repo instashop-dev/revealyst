@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Lightbulb } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/empty-state";
 import {
   Card,
   CardContent,
@@ -53,12 +54,11 @@ export function CoachingCard({
       </CardHeader>
       <CardContent>
         {recommendations.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-4">
-            <p className="text-sm font-medium">{COACHING_COPY.empty.headline}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {COACHING_COPY.empty.body}
-            </p>
-          </div>
+          <EmptyState
+            variant="inline"
+            title={COACHING_COPY.empty.headline}
+            description={COACHING_COPY.empty.body}
+          />
         ) : (
           <ul className="flex flex-col gap-3">
             {recommendations.map((item, i) => (

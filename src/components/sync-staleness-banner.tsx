@@ -1,5 +1,5 @@
 import { Clock } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Banner } from "@/components/banner";
 import { AGENT_SYNC_COMMAND, SYNC_STALE_AFTER_DAYS } from "@/lib/agent-sync";
 import { formatRelativeTime } from "@/lib/format";
 
@@ -45,26 +45,22 @@ export function SyncStalenessBanner({
 
   const neverSynced = freshest === null;
   return (
-    <Alert className="border-amber-500/60 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-400">
-      <Clock />
-      <AlertTitle>Data as of your last sync</AlertTitle>
-      <AlertDescription>
-        <p>
-          {neverSynced ? (
-            <>
-              Waiting for your first sync. Run{" "}
-              <code>{AGENT_SYNC_COMMAND}</code> on your machine to bring in your
-              Claude Code usage.
-            </>
-          ) : (
-            <>
-              Last synced {formatRelativeTime(new Date(freshest))}. Run{" "}
-              <code>{AGENT_SYNC_COMMAND}</code> to refresh — some recent days may
-              not be reflected yet.
-            </>
-          )}
-        </p>
-      </AlertDescription>
-    </Alert>
+    <Banner tone="warning" icon={Clock} title="Data as of your last sync">
+      <p>
+        {neverSynced ? (
+          <>
+            Waiting for your first sync. Run{" "}
+            <code>{AGENT_SYNC_COMMAND}</code> on your machine to bring in your
+            Claude Code usage.
+          </>
+        ) : (
+          <>
+            Last synced {formatRelativeTime(new Date(freshest))}. Run{" "}
+            <code>{AGENT_SYNC_COMMAND}</code> to refresh — some recent days may
+            not be reflected yet.
+          </>
+        )}
+      </p>
+    </Banner>
   );
 }

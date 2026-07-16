@@ -1,4 +1,4 @@
-import { ConfidenceBadge } from "@/components/analytics/confidence-badge";
+import { ConfidencePill } from "@/components/confidence-pill";
 import { RawDeltaChip } from "@/components/analytics/raw-delta-chip";
 import { InfoTip } from "@/components/info-tip";
 import {
@@ -8,7 +8,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { RECENT_MOVEMENT_COPY } from "@/lib/analytics-glossary";
+import {
+  CONFIDENCE_LABELS,
+  RECENT_MOVEMENT_COPY,
+} from "@/lib/analytics-glossary";
 import { formatCents } from "@/lib/format";
 import type { MovementMetric, RecentMovement } from "@/lib/recent-movement";
 
@@ -40,7 +43,10 @@ export function RecentMovementPanel({ movement }: { movement: RecentMovement }) 
         <CardTitle className="flex items-center gap-1.5 text-base">
           {RECENT_MOVEMENT_COPY.title}
           <InfoTip label={RECENT_MOVEMENT_COPY.title} short={RECENT_MOVEMENT_COPY.info} />
-          <ConfidenceBadge tier={RECENT_MOVEMENT_COPY.confidence} />
+          <ConfidencePill
+            tier={RECENT_MOVEMENT_COPY.confidence}
+            label={CONFIDENCE_LABELS[RECENT_MOVEMENT_COPY.confidence]}
+          />
         </CardTitle>
         <CardDescription>
           {RECENT_MOVEMENT_COPY.description(movement.periodDays)}
