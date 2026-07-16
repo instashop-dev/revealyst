@@ -17,6 +17,7 @@ import { exposuresNamespace } from "./org-scope/exposures";
 import { heartbeatsNamespace } from "./org-scope/heartbeats";
 import { identitiesNamespace } from "./org-scope/identities";
 import { masteryNamespace } from "./org-scope/mastery";
+import { memberSpendNamespace } from "./org-scope/member-spend";
 import { metricsNamespace } from "./org-scope/metrics";
 import { missionsNamespace } from "./org-scope/missions";
 import { orgNamespace } from "./org-scope/org";
@@ -197,6 +198,7 @@ export function forOrg(db: Db, orgId: string) {
     capabilities: capabilitiesNamespace(db, orgId),
     capabilityHistory: capabilityHistoryNamespace(db, orgId),
     mastery: masteryNamespace(db, orgId),
+    memberSpend: memberSpendNamespace(db, orgId),
     missions: missionsNamespace(db, orgId),
     exposures: exposuresNamespace(db, orgId),
   };

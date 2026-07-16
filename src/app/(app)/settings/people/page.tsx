@@ -2,6 +2,7 @@ import { InviteMemberDialog } from "@/components/invite-member-dialog";
 import { RevokeInviteButton } from "@/components/revoke-invite-button";
 import { AdminOnlyNotice } from "@/components/settings/admin-only-notice";
 import { RoleManagementCard } from "@/components/settings/role-management-card";
+import { TeamCostVisibilityCard } from "@/components/settings/team-cost-visibility-card";
 import { TeamManagementCard } from "@/components/settings/team-management-card";
 import { TeamManagersCard } from "@/components/settings/team-managers-card";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +67,16 @@ export default async function SettingsPeoplePage() {
     isPersonal ? Promise.resolve([]) : ctx.scope.teamManagers.list(),
   ]);
 
+  // Per-team cost-visibility settings (ADR 0045 spend half) — one read per team,
+  // AFTER teams resolve (settings.get is keyed by team id). A cold admin page, so
+  // the extra round trips are acceptable; an absent row IS the default (OFF).
+  const teamCostSettings = await Promise.all(
+    teams.map(async (team) => ({
+      team,
+      settings: await ctx.scope.teamSettings.get(team.id),
+    })),
+  );
+
   // §7 gating identical to the frozen personRef shape: names only leave the
   // server when the org's visibility mode permits.
   const showNames = ctx.org.visibilityMode !== "private";
@@ -104,6 +115,14 @@ export default async function SettingsPeoplePage() {
   const managerOptions = members.map((member) => ({
     userId: member.userId,
     label: member.name || member.email,
+  }));
+
+  // Cost-visibility rows (ADR 0045) — count-only per-team booleans, no per-person
+  // data. Same order as the teams list.
+  const teamCostRows = teamCostSettings.map(({ team, settings }) => ({
+    id: team.id,
+    name: team.name,
+    managersSeeIndividualCost: settings.managersSeeIndividualCost,
   }));
 
   return (
@@ -216,6 +235,7 @@ export default async function SettingsPeoplePage() {
       {!isPersonal && (
         <TeamManagersCard teams={teamManagerRows} members={managerOptions} />
       )}
+      {!isPersonal && <TeamCostVisibilityCard teams={teamCostRows} />}
     </div>
   );
 }

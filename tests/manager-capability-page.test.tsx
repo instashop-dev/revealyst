@@ -36,6 +36,14 @@ vi.mock("@/lib/manager-capability-view", () => ({
   loadManagedRoster: async () => h.roster,
 }));
 
+// P3-B added a spend read alongside the capability loader. This page test owns
+// only the outcome→HTTP mapping, so the spend loader is stubbed to the neutral
+// "cost-hidden" outcome (section omitted); its own authz/render behavior is
+// covered by tests/manager-spend-view.test.ts + the section component test.
+vi.mock("@/lib/manager-spend-view", () => ({
+  loadManagerSpendDrillIn: async () => ({ status: "cost-hidden" as const }),
+}));
+
 import ManagerCapabilityDrillInPage from "@/app/(app)/team/[personId]/page";
 import ManagerRosterPage from "@/app/(app)/team/page";
 

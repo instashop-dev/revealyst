@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { ManagerCapabilityProfile } from "@/components/manager/manager-capability-profile";
+import { ManagerSpendSection } from "@/components/manager/manager-spend-section";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { requireAppContext } from "@/lib/api-context";
@@ -10,6 +11,8 @@ import {
   MANAGER_ROSTER_COPY,
 } from "@/lib/manager-capability-copy";
 import { loadManagerCapabilityDrillIn } from "@/lib/manager-capability-view";
+import { loadManagerSpendDrillIn } from "@/lib/manager-spend-view";
+import { todayUtc } from "@/lib/spend-governance";
 import { timeStage } from "@/lib/request-timing";
 
 export const dynamic = "force-dynamic";
@@ -32,12 +35,25 @@ export default async function ManagerCapabilityDrillInPage({
 }) {
   const { personId } = await params;
   const ctx = await requireAppContext();
-  const result = await timeStage("pageData", () =>
-    loadManagerCapabilityDrillIn(ctx.scope, {
-      callerUserId: ctx.user.id,
-      personId,
-      visibilityMode: ctx.org.visibilityMode,
-    }),
+  // Capability drill-in owns the 404 semantics (a person the caller can't manage
+  // is notFound). The spend read is loaded alongside it and rendered only when
+  // the per-team admin toggle authorizes it (status "ok"); every other status
+  // (private mode, not managed, or toggle off) simply omits the section — never
+  // a teaser.
+  const [result, spendResult] = await timeStage("pageData", () =>
+    Promise.all([
+      loadManagerCapabilityDrillIn(ctx.scope, {
+        callerUserId: ctx.user.id,
+        personId,
+        visibilityMode: ctx.org.visibilityMode,
+      }),
+      loadManagerSpendDrillIn(ctx.scope, {
+        callerUserId: ctx.user.id,
+        personId,
+        visibilityMode: ctx.org.visibilityMode,
+        today: todayUtc(),
+      }),
+    ]),
   );
   if (result.status !== "ok") {
     notFound();
@@ -63,6 +79,9 @@ export default async function ManagerCapabilityDrillInPage({
       </div>
 
       <ManagerCapabilityProfile rows={subject.capabilities} />
+      {spendResult.status === "ok" ? (
+        <ManagerSpendSection spend={spendResult.spend} />
+      ) : null}
     </div>
   );
 }
