@@ -45,6 +45,10 @@ const CANONICAL_KEYS = [
   "otel_active_time",
   "otel_edit_accepted",
   "otel_edit_rejected",
+  // TEL-012 (ADR 0042): context-window usage — tokens carried in the model's
+  // context per request. Additive; no emitter yet (Anthropic context_window
+  // harvest is fixture-gated), so no rows are written today.
+  "context_tokens",
 ];
 
 let db: Db;

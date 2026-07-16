@@ -94,6 +94,17 @@ export const CANONICAL_METRICS = {
   otel_active_time: { family: "markers", unit: "seconds", dimKind: null },
   otel_edit_accepted: { family: "markers", unit: "count", dimKind: null },
   otel_edit_rejected: { family: "markers", unit: "count", dimKind: null },
+  // TEL-012 (ADR 0042, founder D11): context-window usage — how many tokens a
+  // person carries in the model's context per request. A `tokens`-family
+  // signal, NOT an `markers`/OTel key: the OTel receiver emits no context
+  // marker (no `context*` field exists in any captured OTel fixture), so this
+  // is deliberately NOT in OTEL_MARKER_METRIC_KEYS and never upgrades a
+  // capability to `measured`. Its honest source is the Anthropic usage report
+  // `context_window` dimension (docs/connector-facts.md) — documented but not
+  // yet harvested; the emitter is gated on a real recorded payload (rule 2), so
+  // no producer writes this key today. With no rows it is skipped by the
+  // capability engine (no evidence → no row), never zero-filled.
+  context_tokens: { family: "tokens", unit: "tokens", dimKind: null },
 } as const satisfies Record<string, CatalogEntry>;
 
 /** The OTel marker metric keys (W7-8). A capability with evidence for ≥2 of
