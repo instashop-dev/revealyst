@@ -134,7 +134,10 @@ impl Store {
         let mut encrypted: Vec<(&NewEvent, Vec<u8>)> = Vec::with_capacity(events.len());
         for event in events {
             let bytes = serde_json::to_vec(&event.payload).map_err(|_| StoreError::Encode)?;
-            encrypted.push((event, self.key.encrypt(&bytes)?));
+            // Bind the ciphertext to this row's event_id (AAD): a payload lifted
+            // into a row with a different event_id will fail to decrypt.
+            let blob = self.key.encrypt(&bytes, event.event_id.as_bytes())?;
+            encrypted.push((event, blob));
         }
 
         let mut guard = self.lock()?;
@@ -212,7 +215,8 @@ impl Store {
                 enqueued_at,
                 blob,
             ) = row.map_err(|_| StoreError::Query)?;
-            let plaintext = self.key.decrypt(&blob)?;
+            // Decrypt under the same AAD used at enqueue: this row's event_id.
+            let plaintext = self.key.decrypt(&blob, event_id.as_bytes())?;
             let payload = serde_json::from_slice(&plaintext).map_err(|_| StoreError::Encode)?;
             events.push(PendingEvent {
                 id,
@@ -296,7 +300,7 @@ pub(crate) fn now_ms() -> i64 {
 mod tests {
     use super::*;
     use crate::store::crypto::{DbKey, KEY_LEN};
-    use crate::store::{Store, DB_FILE_NAME};
+    use crate::store::{Store, StoreError, DB_FILE_NAME};
     use serde_json::json;
 
     fn key() -> DbKey {
@@ -461,6 +465,54 @@ mod tests {
         store.record_receipt("batch-1", 3, "accepted", 200).unwrap();
         assert!(store.has_receipt("batch-1").unwrap());
         assert!(!store.has_receipt("batch-2").unwrap());
+    }
+
+    /// AAD binding end-to-end (R2): swapping two rows' payload ciphertexts in
+    /// the database — something the encryption key alone would otherwise let a
+    /// bug or attacker do undetected — is caught on read, because each payload
+    /// is bound to its row's `event_id` as associated data.
+    #[test]
+    fn cross_row_payload_swap_is_detected_on_dequeue() {
+        let store = Store::open_in_memory(key()).unwrap();
+        store
+            .enqueue_and_checkpoint("claude_code", &[sample("a"), sample("b")], "c1")
+            .unwrap();
+
+        // Swap the two rows' payload blobs directly (bypassing the API) — the
+        // key is unchanged, only the ciphertext↔event_id pairing is broken.
+        {
+            let guard = store.lock().unwrap();
+            let blob_a: Vec<u8> = guard
+                .query_row(
+                    "SELECT payload FROM pending_events WHERE event_id='a'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            let blob_b: Vec<u8> = guard
+                .query_row(
+                    "SELECT payload FROM pending_events WHERE event_id='b'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            guard
+                .execute(
+                    "UPDATE pending_events SET payload=?1 WHERE event_id='a'",
+                    [&blob_b],
+                )
+                .unwrap();
+            guard
+                .execute(
+                    "UPDATE pending_events SET payload=?1 WHERE event_id='b'",
+                    [&blob_a],
+                )
+                .unwrap();
+        }
+
+        // The mismatched AAD makes decryption fail rather than silently
+        // returning the other row's payload.
+        assert!(matches!(store.dequeue_batch(10), Err(StoreError::Crypto)));
     }
 
     /// Structural Analytics-Only floor (spec §29): the queue table has NO

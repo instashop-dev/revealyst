@@ -26,7 +26,7 @@
 //! structure over the payloads.
 
 use aes_gcm::aead::generic_array::GenericArray;
-use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
@@ -45,13 +45,22 @@ pub const NONCE_LEN: usize = 12;
 pub struct DbKey([u8; KEY_LEN]);
 
 impl DbKey {
-    /// Wrap raw key bytes (used by tests that inject a fixed key).
+    /// Wrap raw key bytes. **Test-only** (`#[cfg(test)]`): production code must
+    /// obtain the key from the OS keychain via [`load_or_create_db_key`] — a
+    /// constant/injected key would defeat encryption-at-rest, so it is gated
+    /// out of release builds entirely.
+    #[cfg(test)]
     pub fn from_bytes(bytes: [u8; KEY_LEN]) -> Self {
         DbKey(bytes)
     }
 
-    /// Encrypt `plaintext` into `nonce || ciphertext+tag`.
-    pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, StoreError> {
+    /// Encrypt `plaintext` into `nonce || ciphertext+tag`, binding the result
+    /// to `aad` (associated data) via AES-GCM. The `aad` is authenticated but
+    /// NOT stored — the reader must supply the identical bytes to decrypt. The
+    /// store passes the row's `event_id`, so a ciphertext lifted into a
+    /// different row (a different `event_id`) fails authentication rather than
+    /// silently decrypting under the wrong identity.
+    pub fn encrypt(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, StoreError> {
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.0));
 
         let mut nonce_bytes = [0u8; NONCE_LEN];
@@ -59,7 +68,13 @@ impl DbKey {
         let nonce = GenericArray::from_slice(&nonce_bytes);
 
         let ciphertext = cipher
-            .encrypt(nonce, plaintext)
+            .encrypt(
+                nonce,
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
             .map_err(|_| StoreError::Crypto)?;
 
         let mut out = Vec::with_capacity(NONCE_LEN + ciphertext.len());
@@ -68,10 +83,12 @@ impl DbKey {
         Ok(out)
     }
 
-    /// Decrypt a `nonce || ciphertext+tag` blob produced by [`Self::encrypt`].
-    /// A truncated blob, a wrong key, or any tampering fails authentication
-    /// and returns [`StoreError::Crypto`] — never partial plaintext.
-    pub fn decrypt(&self, blob: &[u8]) -> Result<Vec<u8>, StoreError> {
+    /// Decrypt a `nonce || ciphertext+tag` blob produced by [`Self::encrypt`],
+    /// using `aad` as the associated data. A truncated blob, a wrong key, any
+    /// tampering, OR a mismatched `aad` (e.g. the wrong row's `event_id`) fails
+    /// authentication and returns [`StoreError::Crypto`] — never partial
+    /// plaintext.
+    pub fn decrypt(&self, blob: &[u8], aad: &[u8]) -> Result<Vec<u8>, StoreError> {
         if blob.len() < NONCE_LEN {
             return Err(StoreError::Crypto);
         }
@@ -79,7 +96,13 @@ impl DbKey {
         let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&self.0));
         let nonce = GenericArray::from_slice(nonce_bytes);
         cipher
-            .decrypt(nonce, ciphertext)
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: ciphertext,
+                    aad,
+                },
+            )
             .map_err(|_| StoreError::Crypto)
     }
 }
@@ -120,19 +143,23 @@ mod tests {
         DbKey::from_bytes([7u8; KEY_LEN])
     }
 
+    /// A stand-in for a row's `event_id`, the associated data the store binds
+    /// each ciphertext to.
+    const AAD: &[u8] = b"event-A";
+
     #[test]
     fn round_trips_plaintext() {
         let key = test_key();
         let plaintext = br#"{"promptWordCount":233,"taskCategory":"coding"}"#;
-        let blob = key.encrypt(plaintext).unwrap();
-        assert_eq!(key.decrypt(&blob).unwrap(), plaintext);
+        let blob = key.encrypt(plaintext, AAD).unwrap();
+        assert_eq!(key.decrypt(&blob, AAD).unwrap(), plaintext);
     }
 
     #[test]
     fn ciphertext_hides_the_plaintext_and_prepends_a_nonce() {
         let key = test_key();
         let plaintext = b"SENTINEL_PLAINTEXT_MARKER";
-        let blob = key.encrypt(plaintext).unwrap();
+        let blob = key.encrypt(plaintext, AAD).unwrap();
         // Layout: nonce (12) + ciphertext + 16-byte GCM tag.
         assert!(blob.len() >= NONCE_LEN + plaintext.len() + 16);
         // The raw marker never appears in the encrypted bytes.
@@ -143,36 +170,55 @@ mod tests {
     fn distinct_nonces_make_ciphertext_non_deterministic() {
         let key = test_key();
         let plaintext = b"same input every time";
-        let a = key.encrypt(plaintext).unwrap();
-        let b = key.encrypt(plaintext).unwrap();
+        let a = key.encrypt(plaintext, AAD).unwrap();
+        let b = key.encrypt(plaintext, AAD).unwrap();
         assert_ne!(a, b, "a fresh nonce must randomize the ciphertext");
         // Both still decrypt back to the same plaintext.
-        assert_eq!(key.decrypt(&a).unwrap(), plaintext);
-        assert_eq!(key.decrypt(&b).unwrap(), plaintext);
+        assert_eq!(key.decrypt(&a, AAD).unwrap(), plaintext);
+        assert_eq!(key.decrypt(&b, AAD).unwrap(), plaintext);
     }
 
     #[test]
     fn wrong_key_fails_authentication() {
-        let blob = test_key().encrypt(b"secret").unwrap();
+        let blob = test_key().encrypt(b"secret", AAD).unwrap();
         let other = DbKey::from_bytes([9u8; KEY_LEN]);
-        assert!(matches!(other.decrypt(&blob), Err(StoreError::Crypto)));
+        assert!(matches!(other.decrypt(&blob, AAD), Err(StoreError::Crypto)));
+    }
+
+    /// AAD binding (R2): a ciphertext encrypted under one row's `event_id`
+    /// fails to decrypt when a different `event_id` is claimed — even with the
+    /// correct key. This makes cross-row ciphertext swaps detectable.
+    #[test]
+    fn mismatched_aad_fails_authentication() {
+        let key = test_key();
+        let blob = key.encrypt(b"secret", b"event-A").unwrap();
+        // Correct key, wrong associated data → authentication failure.
+        assert!(matches!(
+            key.decrypt(&blob, b"event-B"),
+            Err(StoreError::Crypto)
+        ));
+        // The matching AAD still decrypts.
+        assert_eq!(key.decrypt(&blob, b"event-A").unwrap(), b"secret");
     }
 
     #[test]
     fn tampered_ciphertext_is_rejected() {
         let key = test_key();
-        let mut blob = key.encrypt(b"secret").unwrap();
+        let mut blob = key.encrypt(b"secret", AAD).unwrap();
         // Flip a bit in the ciphertext body (past the nonce).
         let last = blob.len() - 1;
         blob[last] ^= 0x01;
-        assert!(matches!(key.decrypt(&blob), Err(StoreError::Crypto)));
+        assert!(matches!(key.decrypt(&blob, AAD), Err(StoreError::Crypto)));
     }
 
     #[test]
     fn truncated_blob_is_rejected() {
         let key = test_key();
-        assert!(matches!(key.decrypt(&[0u8; 4]), Err(StoreError::Crypto)));
-        assert!(matches!(key.decrypt(&[]), Err(StoreError::Crypto)));
+        assert!(matches!(
+            key.decrypt(&[0u8; 4], AAD),
+            Err(StoreError::Crypto)
+        ));
+        assert!(matches!(key.decrypt(&[], AAD), Err(StoreError::Crypto)));
     }
 
     #[test]
@@ -182,8 +228,8 @@ mod tests {
         let decoded = decode_key(&encoded).expect("valid base64 key decodes");
         // The decoded key encrypts/decrypts identically to the source bytes.
         let src = DbKey::from_bytes(bytes);
-        let blob = src.encrypt(b"x").unwrap();
-        assert_eq!(decoded.decrypt(&blob).unwrap(), b"x");
+        let blob = src.encrypt(b"x", AAD).unwrap();
+        assert_eq!(decoded.decrypt(&blob, AAD).unwrap(), b"x");
     }
 
     #[test]
