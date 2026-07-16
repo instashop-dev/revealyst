@@ -13,6 +13,7 @@ import { runFlywheelReport } from "./flywheel-report";
 import { maybeSendRenewalReminders } from "./renewal-reminder";
 import { periodFor, recomputeOrg } from "../scoring";
 import { recomputeCapabilityState } from "../scoring/recompute-capability-state";
+import { recomputeCapabilityHistory } from "../scoring/recompute-capability-history";
 import {
   SYSTEM_ORG_ID,
   SYSTEM_ORG_NAME,
@@ -112,6 +113,17 @@ export async function processPollMessage(
       });
       console.log(
         `[capability-state] org ${message.orgId}: ${capSummary.rowsWritten} rows across ${capSummary.peopleWithState}/${capSummary.peopleConsidered} people; ${capSummary.missionsCompleted} missions completed`,
+      );
+      // TCI Phase 2-D (ADR 0046): the per-capability team history rollup, AFTER
+      // the capability-state reducer (it reads the fresh user_capability_state).
+      // Count-only, derived from the SAME coverageCounts the dashboard uses;
+      // idempotent per period (re-delivery harmless — only the open period's row
+      // is rewritten, then frozen). Reads batched once (person-count-independent).
+      const histSummary = await recomputeCapabilityHistory(db, message.orgId, {
+        asOfDay: message.day,
+      });
+      console.log(
+        `[capability-history] org ${message.orgId}: ${histSummary.capabilitiesRolledUp} capabilities rolled up for ${histSummary.periodStart}..${histSummary.periodEnd}`,
       );
       return;
     }

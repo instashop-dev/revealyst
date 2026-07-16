@@ -216,5 +216,32 @@ export function masteryNamespace(db: Db, orgId: string) {
       }
       return out;
     },
+
+    /**
+     * Per-capability confidence-tier composition for the history rollup (ADR
+     * 0046). COUNT-ONLY — no person id ever leaves this method. One query,
+     * independent of person count (the rollup writer's tier-summary source, a
+     * sibling of `coverageCounts`). `withState` mirrors `coverageCounts`'s so a
+     * caller can cross-check the two agree.
+     */
+    async coverageTierCounts(): Promise<
+      Map<string, { measured: number; withState: number }>
+    > {
+      const rows = await db
+        .select({
+          capabilitySlug: userCapabilityState.capabilitySlug,
+          confidenceTier: userCapabilityState.confidenceTier,
+        })
+        .from(userCapabilityState)
+        .where(eq(userCapabilityState.orgId, orgId));
+      const out = new Map<string, { measured: number; withState: number }>();
+      for (const r of rows) {
+        const entry = out.get(r.capabilitySlug) ?? { measured: 0, withState: 0 };
+        entry.withState += 1;
+        if (r.confidenceTier === "measured") entry.measured += 1;
+        out.set(r.capabilitySlug, entry);
+      }
+      return out;
+    },
   };
 }
