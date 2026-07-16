@@ -18,6 +18,8 @@ import { SharedAccountFlags } from "@/components/dashboard/shared-account-flags"
 import { TeamFreshnessLine } from "@/components/dashboard/team-freshness-line";
 import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
 import { CapabilityCoverageCard } from "@/components/dashboard/capability-coverage-card";
+import { ManagerInsightsCard } from "@/components/dashboard/manager-insights-card";
+import { CapabilityGrowthCard } from "@/components/dashboard/capability-growth-card";
 import { TrainingOpportunitiesCard } from "@/components/dashboard/training-opportunities-card";
 import { UsageConcentrationPanel } from "@/components/dashboard/usage-concentration-panel";
 import { UsageDistributionPanel } from "@/components/dashboard/usage-distribution-panel";
@@ -148,6 +150,8 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
     recommendations,
     capabilityLabels,
     capabilityCoverage,
+    teamInsights,
+    capabilityGrowth,
   } = view;
 
   // Signal coverage (W5-H card e) — computed from rows ALREADY in the view
@@ -337,6 +341,29 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
               spendCentsEstimated={summary.spendCentsEstimated}
               costPerActiveUser={maturity.numbers.costPerActiveUser}
             />
+          </section>
+
+          {/* TCI Phase 2-F: the aggregate manager insight feed (≤3, count-only,
+           * dismissible) + the capability growth trend. ONE self-contained
+           * section, so a parallel edit to this file (the P3-A manager entry
+           * card) rebases cleanly. Both cards are aggregate/MIN_PEOPLE-floored
+           * with no per-person data. */}
+          <section id="team-insights" className="flex flex-col gap-3">
+            <SectionHeading>Insights &amp; growth</SectionHeading>
+            <p className="text-sm text-muted-foreground">
+              A short, prioritized read on what&apos;s worth your attention, and
+              how your team&apos;s capabilities are trending — aggregate only.
+            </p>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <ManagerInsightsCard
+                insights={teamInsights}
+                capabilityLabels={capabilityLabels}
+              />
+              <CapabilityGrowthCard
+                rows={capabilityGrowth}
+                capabilityLabels={capabilityLabels}
+              />
+            </div>
           </section>
 
           {/* (b) AI maturity — the modeled level + measured axes, plus how the

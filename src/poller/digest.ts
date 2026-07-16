@@ -1,7 +1,10 @@
 import { scoreComponentsSchema } from "../contracts/scores";
 import type { Db } from "../db/client";
 import { forOrg } from "../db/org-scope";
-import { listDigestRecipients } from "../db/system";
+import { listDigestRecipients, listManagerRecipients } from "../db/system";
+import { buildCapabilityCoverage } from "../lib/capability-coverage";
+import { applyMinPeopleFloor } from "../lib/capability-history";
+import { composeTeamBrief } from "../lib/team-brief";
 import { readScoreTrends } from "../lib/dashboard-trends";
 import {
   assembleDigest,
@@ -130,8 +133,27 @@ export async function runWeeklyDigest(
     };
   }
 
-  const { recipients, memberCount } = await listDigestRecipients(db, orgId);
+  const { recipients: adminRecipients, memberCount } =
+    await listDigestRecipients(db, orgId);
   const lane: DigestLane = memberCount > 1 ? "team" : "personal";
+  // TCI Phase 2-F (ADR 0050): a team's MANAGERS (≥1 team_managers grant,
+  // verified email) also receive the weekly digest — which now carries the
+  // aggregate manager brief section (team lane only). Unioned with the admin
+  // recipients and DEDUPED by userId, so a manager who is also an admin gets
+  // ONE email (the per-user week-CAS also guarantees a single send). Managers
+  // inherit the existing team-lane preference model: an absent digest_preferences
+  // row defaults OFF, so a manager opts in via the same Settings toggle and
+  // unsubscribes via the same footer link (no new opt-out surface). Personal
+  // orgs have no managers, so this is a no-op there.
+  const { recipients: managerRecipients } =
+    lane === "team"
+      ? await listManagerRecipients(db, orgId)
+      : { recipients: [] as Array<{ userId: string; email: string }> };
+  const recipientById = new Map<string, { userId: string; email: string }>();
+  for (const r of [...adminRecipients, ...managerRecipients]) {
+    if (!recipientById.has(r.userId)) recipientById.set(r.userId, r);
+  }
+  const recipients = [...recipientById.values()];
   if (recipients.length === 0) {
     console.log(`[digest] org ${orgId}: no eligible recipients — skipped`);
     return { orgId, lane, recipients: 0, suppressed: false, sent: 0 };
@@ -159,6 +181,10 @@ export async function runWeeklyDigest(
     ownerCapabilityState,
     ownerRecStates,
     ownerExposures,
+    briefCoverageCounts,
+    briefHistory,
+    briefInsights,
+    briefLabels,
   ] = await Promise.all([
     scope.scores.results({ from, to }),
     scope.scores.definitions(),
@@ -193,6 +219,19 @@ export async function runWeeklyDigest(
     lane === "personal"
       ? scope.exposures.forUser(recipients[0].userId)
       : Promise.resolve([]),
+    // TCI Phase 2-F (ADR 0050): the team-brief inputs — coverage counts, the
+    // per-capability history rollup (for movement), the open insight feed, and
+    // the capability labels. TEAM LANE ONLY (personal orgs have no team brief),
+    // folded into this SAME flat Promise.all (still round-trip depth 1). Built
+    // from the SAME sources the team dashboard renders (shared-source parity).
+    lane === "team"
+      ? scope.mastery.coverageCounts(CAPABILITY_STATE_CONSTANTS.MASTERED_THRESHOLD)
+      : Promise.resolve(new Map<string, { mastered: number; withState: number }>()),
+    lane === "team" ? scope.capabilityHistory.list() : Promise.resolve([]),
+    lane === "team" ? scope.teamInsights.listOpen() : Promise.resolve([]),
+    lane === "team"
+      ? scope.capabilities.labels()
+      : Promise.resolve(new Map<string, string>()),
   ]);
 
   // W7-3 personal-lane eligibility context (mirrors the dashboard, incl. the
@@ -244,6 +283,39 @@ export async function runWeeklyDigest(
     lastSuccessAt: c.lastSuccessAt,
   }));
 
+  // TCI Phase 2-F (ADR 0050): compose the manager team-brief section (team lane
+  // only) from the SAME dashboard sources — the shared `buildCapabilityCoverage`
+  // (parity with the dashboard coverage card), the ADR-0046 history (MIN_PEOPLE-
+  // floored, org-wide, oldest-first) for movement, and the ADR-0048 open feed
+  // for the insight titles. Aggregate-only; null on the personal lane / when
+  // there's nothing worth a brief (composeTeamBrief returns null), so the
+  // renderer omits the section.
+  const briefLabelFor = (slug: string) => briefLabels.get(slug) ?? slug;
+  const teamBrief =
+    lane === "team"
+      ? composeTeamBrief({
+          headline: DASHBOARD_SLUGS.map((slug) => {
+            const t = trends.find((x) => x.slug === slug);
+            const points = t?.points ?? [];
+            return {
+              label: slug.charAt(0).toUpperCase() + slug.slice(1),
+              value: points.length > 0 ? points[points.length - 1].value : null,
+            };
+          }),
+          coverage: buildCapabilityCoverage(briefCoverageCounts, briefLabels),
+          history: applyMinPeopleFloor(
+            briefHistory.filter((r) => r.teamId === null),
+          ),
+          insights: briefInsights.map((i) => ({
+            category: i.category,
+            params: i.params,
+          })),
+          insightSeverities: briefInsights.map((i) => i.severity),
+          labelFor: briefLabelFor,
+          connectedCount: connections.filter((c) => c.status === "active").length,
+        })
+      : null;
+
   const content = assembleDigest({
     lane,
     now,
@@ -272,6 +344,8 @@ export async function runWeeklyDigest(
             : {}),
         }
       : {}),
+    // TCI Phase 2-F: the composed manager brief (team lane only; null otherwise).
+    teamBrief,
   });
 
   // G5 staleness gate: no usable connection synced within the window → suppress

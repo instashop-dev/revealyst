@@ -35,6 +35,32 @@ export const DIGEST_COPY = {
     growthJourney: "Your growth journey",
     focus: "What to focus on",
     freshness: "Data freshness",
+    /** TCI Phase 2-F (ADR 0050): the manager team-brief section (team lane, for
+     * manager recipients). */
+    teamBrief: "Your team this week",
+  },
+
+  /** TCI Phase 2-F (ADR 0050) manager team-brief sub-labels. Plain English,
+   * aggregate framing — never a per-person value. */
+  teamBrief: {
+    lead: "A quick, aggregate read on how your team is doing — never any one person's data.",
+    maturity: "Team AI health",
+    coverage: "Where the team is strong",
+    movement: "What moved this month",
+    insights: "Worth your attention",
+    coverageRow: (label: string, mastered: number, total: number) =>
+      `${label}: ${mastered} of ${total} at a strong level`,
+    movementRow: (
+      label: string,
+      direction: "up" | "down" | "flat",
+      masteredNow: number,
+      masteredBefore: number,
+    ) =>
+      direction === "up"
+        ? `${label}: up from ${masteredBefore} to ${masteredNow}`
+        : direction === "down"
+          ? `${label}: down from ${masteredBefore} to ${masteredNow}`
+          : `${label}: steady at ${masteredNow}`,
   },
 
   /** W5-F kind-aware labels for the "What to focus on" section: a coaching rec

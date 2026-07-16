@@ -189,6 +189,52 @@ export function renderDigestEmail(
     }
   }
 
+  // TCI Phase 2-F (ADR 0050): the manager team-brief section — TEAM LANE ONLY,
+  // present only when the sender composed it for a team with manager recipients.
+  // Aggregate/count-only: a compact team-health headline, capability coverage,
+  // period-over-period movement, the open insight titles, and an honest
+  // data-confidence line. Never a per-person value.
+  if (content.teamBrief) {
+    const brief = content.teamBrief;
+    rows.push(sectionHeading(DIGEST_COPY.sections.teamBrief));
+    const briefLines: string[] = [DIGEST_COPY.teamBrief.lead];
+    const headline = brief.headline
+      .filter((h) => h.value !== null)
+      .map((h) => `${h.label} ${Math.round(h.value as number)}`)
+      .join(" · ");
+    if (headline) {
+      briefLines.push(`${DIGEST_COPY.teamBrief.maturity}: ${headline}`);
+    }
+    if (brief.coverage.length > 0) {
+      briefLines.push(`${DIGEST_COPY.teamBrief.coverage}:`);
+      for (const c of brief.coverage) {
+        briefLines.push(
+          `• ${DIGEST_COPY.teamBrief.coverageRow(c.label, c.mastered, c.total)}`,
+        );
+      }
+    }
+    if (brief.movement.length > 0) {
+      briefLines.push(`${DIGEST_COPY.teamBrief.movement}:`);
+      for (const m of brief.movement) {
+        briefLines.push(
+          `• ${DIGEST_COPY.teamBrief.movementRow(m.label, m.direction, m.masteredNow, m.masteredBefore)}`,
+        );
+      }
+    }
+    if (brief.insights.length > 0) {
+      briefLines.push(`${DIGEST_COPY.teamBrief.insights}:`);
+      for (const i of brief.insights) {
+        briefLines.push(`• ${i.title}`);
+      }
+    }
+    briefLines.push(brief.dataConfidenceLine);
+    rows.push(
+      `<tr><td style="padding:6px 0;font:400 14px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:${MUTED}">${briefLines
+        .map((l) => esc(l))
+        .join("<br>")}</td></tr>`,
+    );
+  }
+
   // Your growth journey (W5-F): the celebratory Growth-Journey section — the
   // digest is now the delivery channel it's specced to be (§8.4). Milestones
   // subsume the old standalone "Personal best" block (a new personal best is

@@ -17,6 +17,7 @@ import {
   scoreResults,
   shareLinks,
   subscriptions,
+  teamManagers,
   user,
 } from "./schema";
 
@@ -176,6 +177,41 @@ export async function listDigestRecipients(
     .filter((r) => r.role === "admin" && r.emailVerified)
     .map((r) => ({ userId: r.userId, email: r.email }));
   return { recipients, memberCount: rows.length };
+}
+
+/**
+ * Weekly-team-brief recipients for one org (TCI Phase 2-F, ADR 0050). Returns
+ * the DISTINCT auth users who hold ≥1 team_managers grant in this org AND have
+ * a VERIFIED email — the only people the manager brief is ever sent to. A
+ * sibling of `listDigestRecipients` (same system-level rationale: it joins the
+ * auth `user` table, read outside src/db only via the org-scope seam, and is
+ * invoked from the queue consumer). COUNTS-ONLY cross-org shape (the §14 law):
+ * the returned rows carry only {userId, email} — no capability/spend/per-person
+ * data. A user managing several teams appears ONCE (deduped by userId). An
+ * unverified manager is excluded (mirrors the digest's verified-only rule).
+ */
+export async function listManagerRecipients(
+  db: Db,
+  orgId: string,
+): Promise<{ recipients: Array<{ userId: string; email: string }> }> {
+  const rows = await db
+    .selectDistinct({
+      userId: teamManagers.userId,
+      email: user.email,
+      emailVerified: user.emailVerified,
+    })
+    .from(teamManagers)
+    .innerJoin(user, eq(teamManagers.userId, user.id))
+    .where(eq(teamManagers.orgId, orgId));
+  const seen = new Set<string>();
+  const recipients: Array<{ userId: string; email: string }> = [];
+  for (const r of rows) {
+    if (!r.emailVerified) continue;
+    if (seen.has(r.userId)) continue;
+    seen.add(r.userId);
+    recipients.push({ userId: r.userId, email: r.email });
+  }
+  return { recipients };
 }
 
 /**

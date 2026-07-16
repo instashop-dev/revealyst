@@ -14,6 +14,7 @@ import { maybeSendRenewalReminders } from "./renewal-reminder";
 import { periodFor, recomputeOrg } from "../scoring";
 import { recomputeCapabilityState } from "../scoring/recompute-capability-state";
 import { recomputeCapabilityHistory } from "../scoring/recompute-capability-history";
+import { recomputeTeamInsights } from "../scoring/recompute-team-insights";
 import {
   SYSTEM_ORG_ID,
   SYSTEM_ORG_NAME,
@@ -124,6 +125,18 @@ export async function processPollMessage(
       });
       console.log(
         `[capability-history] org ${message.orgId}: ${histSummary.capabilitiesRolledUp} capabilities rolled up for ${histSummary.periodStart}..${histSummary.periodEnd}`,
+      );
+      // TCI Phase 2-F (ADR 0050): the aggregate manager insight feed, AFTER the
+      // history rollup (it reads the fresh org-wide history for the
+      // period-over-period movement categories). Deterministic (NO LLM),
+      // count-only, MIN_PEOPLE-suppressed; idempotent per period (re-delivery
+      // harmless — the natural-key upsert converges and a dismissed insight
+      // never re-opens). Reads batched once (person-count-independent).
+      const insightSummary = await recomputeTeamInsights(db, message.orgId, {
+        asOfDay: message.day,
+      });
+      console.log(
+        `[team-insights] org ${message.orgId}: ${insightSummary.openInsights} open insights (${insightSummary.candidates} candidates) for ${insightSummary.periodStart}`,
       );
       return;
     }

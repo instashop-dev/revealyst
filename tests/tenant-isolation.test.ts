@@ -181,6 +181,16 @@ const SCOPED_READS: Array<{
     tables: ["team_capability_history"],
     run: (s) => s.capabilityHistory.list(),
   },
+  // Aggregate manager insight feed (ADR 0050): org-scoped count-only rows. Both
+  // orgs seed a TEAM-scoped insight on their own core team below, so the B-side
+  // row's `teamId` (a uuid `list()` returns) is a B team uuid in the leak
+  // universe — a dropped org filter would surface it (non-vacuous, mirrors
+  // capabilityHistory.list). The row carries NO person id.
+  {
+    name: "teamInsights.list",
+    tables: ["team_insights"],
+    run: (s) => s.teamInsights.list(),
+  },
   // Mission progress (ADR 0037): org-scoped opt-in rows (org, person, mission).
   // Both orgs seed a started mission for their own alice below, so B's row
   // carries a B personId — org A's progressForOrg must surface only A's rows.
@@ -392,6 +402,20 @@ beforeAll(async () => {
         masteredCount: 1,
         developingCount: 2,
         confidenceTier: "directional",
+      },
+    ]);
+    // A TEAM-scoped manager insight per org (ADR 0050) on this org's core team,
+    // so the B-side row's teamId is a B team uuid in the leak universe and the
+    // teamInsights.list sweep is non-vacuous (mirrors the capability-history
+    // seed). Count-only — the row carries no person id.
+    await scoped.teamInsights.upsertGenerated([
+      {
+        teamId: loaded.teams.core,
+        category: "capability_gap",
+        severity: "attention",
+        subject: "ai-coding-foundations",
+        params: { capabilitySlug: "ai-coding-foundations", mastered: 0, total: 3 },
+        periodStart: PERIOD.start,
       },
     ]);
     // An exposure per org (ADR 0038) keyed on this org's alice, so the B-side

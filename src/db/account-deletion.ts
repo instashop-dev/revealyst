@@ -25,6 +25,7 @@ import {
   subjectDaySignals,
   subjects,
   teamCapabilityHistory,
+  teamInsights,
   teamManagers,
   teamMembers,
   teamSettings,
@@ -97,6 +98,13 @@ export const PURGE_TABLES = [
   // explicit org-scoped delete is required, ordered BEFORE `teams` (matching the
   // sibling pattern and independent of the partial cascade).
   teamCapabilityHistory,
+  // TCI Phase 2-F (ADR 0050): the aggregate manager insight feed, org-scoped.
+  // Its composite tenant FK to `teams` is ON DELETE CASCADE, but only
+  // team-scoped rows (team_id non-null) are cascaded by a teams delete —
+  // org-wide rows (team_id NULL, the common case) have no cascade and org_id
+  // carries no FK to orgs. So an explicit org-scoped delete is required, ordered
+  // BEFORE `teams` (mirrors team_capability_history exactly).
+  teamInsights,
   // TCI Phase 2-E (ADR 0045): per-team admin settings, org-scoped. Its composite
   // tenant FK to `teams` is ON DELETE CASCADE, but an explicit org-scoped delete
   // (ordered BEFORE `teams`) matches every sibling and keeps ordering independent

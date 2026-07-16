@@ -523,6 +523,53 @@ export async function setTeamSettings(
 }
 
 /**
+ * POST /api/team-insights/:id/dismiss (TCI Phase 2-F, ADR 0050): dismiss ONE
+ * aggregate manager insight. AUTHORIZATION: an org ADMIN or a team MANAGER (≥1
+ * team_managers grant) may dismiss; a plain member 403s. The insight feed is
+ * org-level (team_id null today), so any manager/admin of the org may act on
+ * it. Idempotent-ish: a missing/already-dismissed id is a 404 (never a silent
+ * success — the caller should know the row wasn't there). Writes an audit row.
+ */
+export async function dismissTeamInsight(
+  args: {
+    scope: OrgScope;
+    role: "admin" | "member";
+    actorUserId: string;
+  },
+  id: string,
+) {
+  const { scope, role, actorUserId } = args;
+
+  // Manager-OR-admin gate. Admin short-circuits (no extra read); otherwise the
+  // caller must hold ≥1 team-manager grant in this org.
+  const isManager =
+    role === "admin" ||
+    (await scope.teamManagers.managedTeamIds(actorUserId)).length > 0;
+  if (!isManager) {
+    throw new ApiError(403, "only a manager or admin can dismiss insights");
+  }
+
+  const dismissed = await scope.teamInsights.dismiss(id);
+  if (!dismissed) {
+    throw new ApiError(404, "insight not found");
+  }
+  await scope.auditLog.record({
+    actorUserId,
+    action: "team_insight.dismiss",
+    targetKind: "team_insight",
+    targetId: id,
+    // Count-only metadata — category/subject/severity, never a person id (the
+    // insight itself carries none).
+    metadata: {
+      category: dismissed.category,
+      subject: dismissed.subject,
+      severity: dismissed.severity,
+    },
+  });
+  return { ok: true };
+}
+
+/**
  * GET /api/budget core (W4-V, ADR 0020): the org's budget config + observed
  * month-to-date spend (billed and derived kept separate) + the computed alert.
  * `today` (YYYY-MM-DD, UTC) is caller-supplied so the window is deterministic.

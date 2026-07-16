@@ -23,6 +23,7 @@ import {
   WEEKLY_CADENCE_MIN_WEEKS,
   type Milestone,
 } from "./milestones";
+import type { TeamBriefSection } from "./team-brief";
 import { vendorLabel } from "./vendor-labels";
 
 // PURE weekly-digest assembly (F2.2). Zero I/O — the sender (src/poller/digest.ts)
@@ -94,6 +95,13 @@ export type DigestContent = {
    * Empty when nothing crossed. Personal lane leads with them; team lane keeps
    * them aggregate (new-highs on org/team-level trends only). */
   milestones: Milestone[];
+  /** TCI Phase 2-F (ADR 0050): the manager team-brief section — TEAM LANE ONLY,
+   * aggregate/count-only. Present only when the sender composed it for a team
+   * that has manager recipients (null otherwise, incl. the personal lane), so
+   * the renderer omits the section entirely rather than mailing an empty shell.
+   * Folded into the existing digest (no new state table — the per-user week-CAS
+   * already dedupes the send). */
+  teamBrief: TeamBriefSection | null;
 };
 
 const PRESET_SLUGS = new Set<string>(DASHBOARD_SLUGS);
@@ -217,6 +225,12 @@ export function assembleDigest(input: {
    * aggregates, not one person's); omitted → every rec treated as fresh. */
   fatigueRecIds?: ReadonlySet<string>;
   recentlyShownRecIds?: ReadonlySet<string>;
+  /** TCI Phase 2-F (ADR 0050): the composed manager team-brief section, TEAM
+   * LANE ONLY (the sender passes it only for a team with manager recipients).
+   * Threaded straight through to `DigestContent.teamBrief` — this pure
+   * assembler does not recompute it (it is built from the same dashboard
+   * sources by `composeTeamBrief`). Omitted/undefined → no brief section. */
+  teamBrief?: TeamBriefSection | null;
 }): DigestContent {
   const { lane, now } = input;
   const fresh = digestFreshness(input.connections, now);
@@ -309,6 +323,9 @@ export function assembleDigest(input: {
     personalBest,
     recommendations,
     milestones,
+    // TCI Phase 2-F: threaded straight through (null on the personal lane / when
+    // the sender didn't compose one). Aggregate-only, built upstream.
+    teamBrief: input.teamBrief ?? null,
   };
 }
 

@@ -28,6 +28,7 @@ import { renewalReminderStateNamespace } from "./org-scope/renewal-reminder-stat
 import { rolesNamespace } from "./org-scope/roles";
 import { scoresNamespace } from "./org-scope/scores";
 import { subjectsNamespace } from "./org-scope/subjects";
+import { teamInsightsNamespace } from "./org-scope/team-insights";
 import { teamManagersNamespace } from "./org-scope/team-managers";
 import { teamSettingsNamespace } from "./org-scope/team-settings";
 import { teamsNamespace } from "./org-scope/teams";
@@ -176,6 +177,7 @@ export function forOrg(db: Db, orgId: string) {
     teams: teamsNamespace(db, orgId),
     teamManagers: teamManagersNamespace(db, orgId),
     teamSettings: teamSettingsNamespace(db, orgId),
+    teamInsights: teamInsightsNamespace(db, orgId),
     connections: connectionsNamespace(db, orgId),
     connectorRuns: connectorRunsNamespace(db, orgId),
     desktopPairing: desktopPairingNamespace(db, orgId),
