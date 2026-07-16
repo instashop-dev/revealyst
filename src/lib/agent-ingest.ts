@@ -6,8 +6,8 @@ import type { Db } from "../db/client";
 import { forOrg } from "../db/org-scope";
 import type { PollMessage } from "../poller/messages";
 import { previousDay } from "../scoring";
-import { parseAgentToken, timingSafeEqualStr } from "./agent-token";
 import type { CredentialEnv } from "./credentials";
+import { authenticateDeviceToken } from "./device-token";
 
 // Core of POST /api/agent/ingest (ADR 0002), kept out of the Next route
 // handler so it is unit-testable against PGlite. Auth and tenancy both
@@ -26,14 +26,6 @@ export type AgentIngestOutcome =
       body: { ok: true; subjects: number; records: number; signals: number };
     }
   | { ok: false; status: 400 | 401 | 403; body: { error: string } };
-
-const unauthorized: AgentIngestOutcome = {
-  ok: false,
-  status: 401,
-  // One message for every auth-shaped failure — a probe can't distinguish
-  // "no such connection" from "wrong secret".
-  body: { error: "invalid device token" },
-};
 
 /** A dimensionless metric has dim ""; a dimensioned one is "model=<id>" /
  * "feature=<name>". 128 chars is generous for any real label and hostile
@@ -60,43 +52,18 @@ export async function ingestAgentBatch(
   deps: AgentIngestDeps = {},
 ): Promise<AgentIngestOutcome> {
   // --- 1. Authenticate (cheap, before touching the body) ---------------
-  const token = parseAgentToken(bearerToken);
-  if (!token) {
-    return unauthorized;
+  // Shared verifier (T2.1, src/lib/device-token.ts) — semantics identical to
+  // the inline check this replaced: 401 for a malformed token / unknown
+  // connection / wrong authKind / wrong secret (one indistinguishable
+  // message), 403 only for an authenticated-but-paused connection (the
+  // operator's revocation gesture — ingest never re-activates it), all
+  // BEFORE the body is parsed. The success carries the connection row the
+  // verifier already fetched, so adoption added no DB round-trip.
+  const auth = await authenticateDeviceToken(db, env, bearerToken);
+  if (!auth.ok) {
+    return { ok: false, status: auth.status, body: auth.body };
   }
-
-  const scoped = forOrg(db, token.orgId);
-  const connection = await scoped.connections.get(token.connectionId);
-  if (!connection || connection.authKind !== "device_token") {
-    return unauthorized;
-  }
-
-  try {
-    await scoped.connections.withCredential(
-      token.connectionId,
-      "device_token",
-      env,
-      async (stored) => {
-        // Throw (not return-false) on mismatch so withCredential's
-        // last_used_at stamp only ever records a GENUINE match — forged
-        // probes must not read as legitimate device activity.
-        if (!timingSafeEqualStr(stored, token.secret)) {
-          throw new Error("device token mismatch");
-        }
-      },
-    );
-  } catch {
-    // Missing credential, expired credential, AAD/decrypt failure, or
-    // secret mismatch — all collapse to the same 401.
-    return unauthorized;
-  }
-
-  // A paused connection is the operator's revocation gesture: reject after
-  // auth (the caller proved identity, so a specific message leaks nothing)
-  // and never let ingest re-activate it.
-  if (connection.status === "paused") {
-    return { ok: false, status: 403, body: { error: "connection paused" } };
-  }
+  const { connection, orgId } = auth;
 
   // --- 2. Validate (authenticated callers only) -------------------------
   const parsed = agentIngestRequestSchema.safeParse(rawBody);
@@ -155,7 +122,7 @@ export async function ingestAgentBatch(
   // --- 3. Write (transactional: a re-push replaces the window) ----------
   const sourceConnector = `claude-code-local@${body.summarizerVersion}`;
   const counts = await db.transaction(async (tx) => {
-    const txScoped = forOrg(tx as unknown as Db, token.orgId);
+    const txScoped = forOrg(tx as unknown as Db, orgId);
 
     // Land the sanitized batch itself as the raw payload (it contains only
     // metric shapes by construction) so normalization stays replayable and
@@ -252,7 +219,7 @@ export async function ingestAgentBatch(
     try {
       await deps.send({
         kind: "score-recompute",
-        orgId: token.orgId,
+        orgId,
         day: previousDay(new Date().toISOString().slice(0, 10)),
       });
     } catch (error) {
