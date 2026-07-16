@@ -109,6 +109,34 @@ describe("RecommendationCard — U0.3 extraction", () => {
     });
   });
 
+  it("mark-tried then dismiss BEFORE the server repaint: undo restores 'tried', never cleared (stale-prop race)", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    // Mounted with tried=false — the prop stays stale for the whole test
+    // (router.refresh() is fire-and-forget; no repaint happens here), which
+    // is exactly the window the component's own state record must cover.
+    render(<RecommendationCard item={REC} personId="p-1" />);
+    await user.click(screen.getByRole("button", { name: /Mark as tried/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: /Dismiss/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const undoCall = toastSuccess.mock.calls.find(
+      (c) => (c[1] as { action?: unknown } | undefined)?.action,
+    ) as [string, { action: { onClick: () => void } }];
+    undoCall[1].action.onClick();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    const [, undoInit] = fetchMock.mock.calls[2];
+    expect(JSON.parse((undoInit as { body: string }).body)).toEqual({
+      personId: "p-1",
+      recId: "adoption-active-days",
+      state: "tried",
+    });
+  });
+
   it("Undo on an already-tried rec restores 'tried' (the true prior state)", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });

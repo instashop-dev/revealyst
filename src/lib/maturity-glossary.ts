@@ -16,6 +16,21 @@
 //    never estimated numbers.
 //  - No in-product target ("reach L4 by Q3") anywhere — Goodhart guard.
 
+import type { ConfidenceTier } from "./maturity";
+
+/**
+ * Confidence-tier display labels — the ONE label map for maturity confidence
+ * everywhere it renders (maturity board ConfidencePill, exec-memo seat lines).
+ * Homed here (the maturity copy module) so an exec-report copy edit can never
+ * silently change live dashboard badge text (U0 review finding).
+ */
+export const CONFIDENCE_TIER_LABEL: Record<ConfidenceTier, string> = {
+  measured: "Measured",
+  modeled: "Modeled",
+  directional: "Directional",
+  not_measured: "Not measured",
+};
+
 /** The five telemetry-derived maturity levels (research §10 table). */
 export const MATURITY_LEVELS = [0, 1, 2, 3, 4] as const;
 export type MaturityLevelValue = (typeof MATURITY_LEVELS)[number];

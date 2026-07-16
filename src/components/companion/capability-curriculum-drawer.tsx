@@ -9,11 +9,10 @@
 
 import * as React from "react";
 import { ArrowRight } from "lucide-react";
-import { useIsMobile } from "@/hooks/use-mobile";
 import { Badge } from "@/components/ui/badge";
+import { ResponsiveSheetContent } from "@/components/responsive-sheet-content";
 import {
   Sheet,
-  SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
@@ -96,19 +95,14 @@ function CapabilityCurriculumDrawer({
 }) {
   const entry = CAPABILITY_CURRICULUM[slug];
   const position = CAPABILITY_CURRICULUM_ORDER.indexOf(slug);
-  // U0.7: below the mobile breakpoint this becomes a bottom sheet (comfortable
-  // max-height + internal scroll, explicit close via Esc/button — no
-  // gesture-only dismissal) instead of a right-side drawer.
-  const isMobile = useIsMobile();
 
   if (!entry) return null;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent
-        side={isMobile ? "bottom" : "right"}
-        className="w-full gap-0 sm:max-w-md"
-      >
+      {/* U0.7: right-side drawer on desktop, bottom sheet on mobile — the
+          side switch lives in ResponsiveSheetContent, never per drawer. */}
+      <ResponsiveSheetContent className="w-full gap-0 sm:max-w-md">
         <SheetHeader>
           <SheetTitle>
             {COPY.titleLead} {label}
@@ -194,7 +188,7 @@ function CapabilityCurriculumDrawer({
             </section>
           ) : null}
         </div>
-      </SheetContent>
+      </ResponsiveSheetContent>
     </Sheet>
   );
 }

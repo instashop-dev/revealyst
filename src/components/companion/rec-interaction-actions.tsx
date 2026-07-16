@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BellOff, Check, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
@@ -37,6 +37,20 @@ export function RecInteractionActions({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<RecInteractionAction | null>(null);
+  // The component's own record of what the server row holds NOW, updated on
+  // every successful POST — the undo's prior-state source. Seeding it from
+  // the `tried` prop alone would race: props only refresh after the
+  // fire-and-forget router.refresh() lands, so a fast second action (e.g.
+  // mark-tried, then dismiss before the repaint) would capture a stale prior
+  // and undo would delete real feedback. `"none"` = no stored row.
+  const knownStateRef = useRef<RecInteractionAction | "none">(
+    tried ? "tried" : "none",
+  );
+  // When the server repaint DOES land, the prop is fresher than anything a
+  // stale mount knew — resync.
+  useEffect(() => {
+    knownStateRef.current = tried ? "tried" : "none";
+  }, [tried]);
 
   async function act(
     state: RecInteractionAction,
@@ -44,6 +58,8 @@ export function RecInteractionActions({
     options?: { offerUndo?: boolean },
   ) {
     setBusy(state);
+    // Captured BEFORE the write: the state this action is replacing.
+    const prior = knownStateRef.current;
     try {
       const res = await fetch("/api/recommendations/interaction", {
         method: "POST",
@@ -54,16 +70,18 @@ export function RecInteractionActions({
         toast.error("Couldn't update — please try again.");
         return;
       }
+      knownStateRef.current = state === "cleared" ? "none" : state;
       if (options?.offerUndo) {
         toast.success(successMsg, {
           duration: 10_000,
           action: {
             label: "Undo",
             onClick: () => {
-              // Restore the ACTUAL prior state: "tried" if the person had
-              // marked it tried before this snooze/dismiss, else clear the
-              // row entirely (ADR 0043).
-              void act(tried ? "tried" : "cleared", "Restored");
+              // Restore the ACTUAL prior state (ADR 0043): the state this
+              // action overwrote — or clear the row entirely when there was
+              // none. (A restored snooze re-derives its expiry server-side
+              // from the default window.)
+              void act(prior === "none" ? "cleared" : prior, "Restored");
             },
           },
         });

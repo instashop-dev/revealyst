@@ -58,12 +58,10 @@ export function execReportApproxDollars(cents: number): string {
 /** Human labels for the four confidence tiers — rendered as a small tag next to
  * each board number so the reader never mistakes a modeled/directional signal
  * for a measured fact (G2). */
-export const CONFIDENCE_TIER_LABEL: Record<ConfidenceTier, string> = {
-  measured: "Measured",
-  modeled: "Modeled",
-  directional: "Directional",
-  not_measured: "Not measured",
-};
+// Confidence labels are homed in maturity-glossary.ts (the maturity copy
+// module) and re-exported for this module's existing consumers — the memo
+// deliberately shares the dashboard's vocabulary rather than owning a copy.
+export { CONFIDENCE_TIER_LABEL } from "./maturity-glossary";
 
 export const EXEC_REPORT_COPY = {
   /** Subject — names the month, never a private number (inbox-preview privacy). */

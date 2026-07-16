@@ -26,13 +26,20 @@ Add a `cleared` **API action** (not a stored value) to the interaction seam:
 - The stored enum stays three-valued; no migration. After `cleared`, the
   person's state is literal absence — exactly as if they had never touched the
   rec. No history is kept (unchanged from ADR 0028).
-- The undo toast posts `tried` when the rec was already tried before the
-  snooze/dismiss, else `cleared`.
+- The undo toast posts whatever state the action actually overwrote — the
+  component keeps its own record of the server row across rapid successive
+  actions (a stale-prop snapshot would race the fire-and-forget refresh) —
+  or `cleared` when there was no row.
 
 ## Consequences
 
-- Undo is exact in both cases; no fabricated `tried` rows, no fatigue-ranking
-  bias from undone actions.
+- No fabricated `tried` rows, no fatigue-ranking bias from undone actions.
+  One disclosed approximation, not an exactness claim: a rec whose stored
+  state is an EXPIRED snooze renders identically to a never-touched rec, so
+  undoing a dismiss on it clears the row rather than resurrecting the inert
+  `snoozed` row (behaviorally identical today; observable only if a future
+  surface reads raw stored state). A restored snooze re-derives its expiry
+  from the default window rather than the original timestamp.
 - `cleared` is self-view-only like every other action on this route; the
   digest's "a dismissed rec never re-mails" rule is unaffected (a cleared
   dismissal legitimately makes the rec mailable again — that is the undo).

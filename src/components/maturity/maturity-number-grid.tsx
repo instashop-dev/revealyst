@@ -15,7 +15,7 @@ import {
   MATURITY_NUMBER_COPY,
 } from "@/lib/maturity-glossary";
 import type { ConfidenceTier } from "@/lib/maturity";
-import { CONFIDENCE_TIER_LABEL } from "@/lib/exec-report-copy";
+import { CONFIDENCE_TIER_LABEL } from "@/lib/maturity-glossary";
 
 // The board artifact: the eight CTO numbers, each with its confidence tier and
 // an honest empty/insufficient state. EVERY card carries a paired counterweight

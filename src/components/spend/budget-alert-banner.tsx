@@ -26,7 +26,10 @@ export function BudgetAlertBanner({
   const pct = Math.round(alert.pctUsed);
   return (
     <Banner
-      tone={alert.overBudget ? "critical" : "info"}
+      // Threshold-crossed-but-under-budget is a WARNING (it kept the
+      // triangle icon pre-U0.4 too), never neutral info — only a full
+      // over-budget state escalates to critical.
+      tone={alert.overBudget ? "critical" : "warning"}
       title={
         alert.overBudget
           ? "AI spend is over budget this month"

@@ -35,6 +35,24 @@ describe("navFor — U0.1 nav IA", () => {
     ]);
   });
 
+  it("system org kind falls through to the team IA (labels + item set), not personal", () => {
+    // The internal `system` org kind must never regress to the personal item
+    // set (U0 review finding — previously only the personal/other ternary
+    // covered it implicitly).
+    const groups = navFor({
+      orgKind: "system",
+      role: "member",
+      isPlatformAdmin: false,
+    });
+    expect(groups[0].label).toBe("Workspace");
+    expect(titles(groups)).toEqual([
+      "Team",
+      "AI maturity",
+      "Connections",
+      "Account",
+    ]);
+  });
+
   it("team org (admin): appends the Administration group unchanged", () => {
     const groups = navFor({
       orgKind: "team",

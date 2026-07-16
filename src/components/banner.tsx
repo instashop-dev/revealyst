@@ -33,15 +33,43 @@ const BOXED_TONE_CLASS: Record<BannerTone, string | undefined> = {
   critical: undefined,
 };
 
-/** Persistent (full-width bar) variant tone → classes. Only `critical` is
- * used today (ImpersonationBanner); the others are defined for completeness
- * so a future persistent info/warning bar doesn't need a new primitive. */
-const PERSISTENT_TONE_CLASS: Record<BannerTone, string> = {
-  info: "border-border bg-muted text-foreground",
-  warning:
-    "border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300",
+/** Persistent (full-width bar) variant → classes. Persistent bars are
+ * critical-only today (ImpersonationBanner) and the prop union below makes
+ * that a compile-time rule — a future persistent info/warning bar adds its
+ * mapping (and widens the union) when it actually exists. */
+const PERSISTENT_TONE_CLASS: Record<"critical", string> = {
   critical: "border-destructive/30 bg-destructive/10 text-destructive",
 };
+
+type BannerBaseProps = {
+  title: ReactNode;
+  /** Optional action (e.g. a button/link) rendered alongside the banner. */
+  action?: ReactNode;
+  /** Overrides the tone's default icon. */
+  icon?: LucideIcon;
+  className?: string;
+};
+
+/**
+ * Discriminated on `persistent` so an unsupported combination is a compile
+ * error, not a silent no-op: a persistent bar is single-line (no `children`)
+ * and critical-only today.
+ */
+export type BannerProps =
+  | (BannerBaseProps & {
+      tone: BannerTone;
+      persistent?: false;
+      /** The banner body — rendered inside `AlertDescription`. */
+      children?: ReactNode;
+    })
+  | (BannerBaseProps & {
+      /** Full-width, edge-to-edge system bar (e.g. impersonation) instead of
+       * the boxed card look — for a banner that must stay visible above/within
+       * the whole app shell rather than sit inside page content. */
+      persistent: true;
+      tone: "critical";
+      children?: never;
+    });
 
 export function Banner({
   tone,
@@ -51,22 +79,7 @@ export function Banner({
   icon,
   persistent = false,
   className,
-}: {
-  tone: BannerTone;
-  title: ReactNode;
-  /** The banner body — rendered inside `AlertDescription` (boxed variant
-   * only; ignored for `persistent` bars, which are single-line). */
-  children?: ReactNode;
-  /** Optional action (e.g. a button/link) rendered alongside the banner. */
-  action?: ReactNode;
-  /** Overrides the tone's default icon. */
-  icon?: LucideIcon;
-  /** Full-width, edge-to-edge system bar (e.g. impersonation) instead of the
-   * boxed card look — for a banner that must stay visible above/within the
-   * whole app shell rather than sit inside page content. */
-  persistent?: boolean;
-  className?: string;
-}) {
+}: BannerProps) {
   const Icon = icon ?? TONE_ICON[tone];
 
   if (persistent) {
@@ -75,7 +88,10 @@ export function Banner({
         role="alert"
         className={cn(
           "flex items-center justify-between gap-3 border-b px-4 py-2 text-sm",
-          PERSISTENT_TONE_CLASS[tone],
+          // The prop union pins persistent bars to tone="critical" (see
+          // BannerProps) — destructuring erases that narrowing, so index the
+          // literal.
+          PERSISTENT_TONE_CLASS.critical,
           className,
         )}
       >
