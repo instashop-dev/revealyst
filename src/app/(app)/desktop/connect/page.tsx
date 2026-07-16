@@ -134,10 +134,11 @@ export default async function DesktopConnectPage({
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground">
-            If you approve, this computer will send daily AI usage summaries
-            to <span className="font-medium text-foreground">{ctx.org.name}</span>.
-            It never sends your prompts, code, or files. You can disconnect it
-            anytime from Connections.
+            If you approve, this computer connects to{" "}
+            <span className="font-medium text-foreground">{ctx.org.name}</span>.
+            Revealyst only accepts daily AI usage summaries from it — never
+            your prompts, code, or files. You can disconnect it anytime from
+            Connections.
           </p>
           <form
             method="post"

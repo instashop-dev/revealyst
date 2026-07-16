@@ -211,6 +211,11 @@ export async function consentDesktopPairing(
     return { ok: false, error: "expired" };
   }
 
+  // Opportunistic self-reclamation: sweep this org's already-expired rows on
+  // the way in, so the table cleans up on use without a cron (org deletion is
+  // the cascade backstop). One bounded statement.
+  await scope.desktopPairing.deleteExpired(new Date(now));
+
   const code = generateOneTimeCode();
   const codeHash = await sha256Base64Url(code);
   let rowId: string;

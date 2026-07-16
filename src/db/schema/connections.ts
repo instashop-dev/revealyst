@@ -124,8 +124,11 @@ export const connectionCredentials = pgTable(
 // target: exchange claims it atomically, so a replayed or raced exchange
 // mints exactly one device token. `connection_id` is stamped by the winning
 // exchange (nullable until then); its composite tenant FK cascades the row
-// away with the device connection. Rows expire ≤10 minutes after consent and
-// are inert afterwards. D-DA-2: consent is minted for PERSONAL orgs only —
+// away with the device connection. Rows expire 10 minutes after consent: past
+// `expires_at` a row is rejected at both consent and exchange, and it is
+// reclaimed opportunistically by the next consent in the SAME org (a bounded
+// DELETE in the consent path — no cron); org deletion is the cascade backstop.
+// D-DA-2: consent is minted for PERSONAL orgs only —
 // enforced at the consent surface, not by a schema constraint (a future
 // sub-case-C ADR lifts it without a migration).
 export const desktopPairingCodes = pgTable(

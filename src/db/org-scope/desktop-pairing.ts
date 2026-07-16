@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import type { Db } from "../client";
 import { desktopPairingCodes } from "../schema";
 
@@ -24,6 +24,26 @@ export type CreateDesktopPairingInput = {
 // read); every write comes back through here.
 export function desktopPairingNamespace(db: Db, orgId: string) {
   return {
+    /**
+     * Opportunistic self-reclamation — one bounded DELETE of THIS org's
+     * already-expired rows. Called at the start of a consent, so the table
+     * cleans up on use without a cron; expired rows are hashes with no live
+     * value (they are already rejected at consent + exchange), and org
+     * deletion is the cascade backstop. Returns the number reclaimed.
+     */
+    async deleteExpired(now = new Date()): Promise<number> {
+      const deleted = await db
+        .delete(desktopPairingCodes)
+        .where(
+          and(
+            eq(desktopPairingCodes.orgId, orgId),
+            lt(desktopPairingCodes.expiresAt, now),
+          ),
+        )
+        .returning({ id: desktopPairingCodes.id });
+      return deleted.length;
+    },
+
     /** Insert the consent-time row. Throws a unique violation if the pairing
      * handle was already consumed (consent-form replay) — callers translate
      * via isUniqueViolation. */

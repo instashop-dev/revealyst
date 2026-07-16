@@ -246,6 +246,56 @@ describe("consent", () => {
     expect(replay).toEqual({ ok: false, error: "already_used" });
   });
 
+  it("opportunistically reclaims this org's expired rows on the next consent", async () => {
+    // Seed an already-expired row for the org directly, then run a fresh
+    // consent — the bounded DELETE in the consent path must have removed it.
+    const staleHandle = "STALE".repeat(4) + "ab"; // 22 base64url chars
+    await forOrg(db, personalOrg).desktopPairing.create({
+      pairingId: staleHandle,
+      codeChallenge: "c".repeat(43),
+      codeHash: "h".repeat(43),
+      consentedUserId: personalUser,
+      deviceDisplayName: "Stale device",
+      platform: "macos",
+      architecture: "arm64",
+      agentVersion: "0.1.0",
+      installationId: crypto.randomUUID(),
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    expect(
+      await findDesktopPairingByPairingId(db, staleHandle),
+    ).toBeDefined();
+
+    const { outcome } = await startAndConsent();
+    expect(outcome.ok).toBe(true);
+    // The expired row is gone; a live, unexpired row is untouched.
+    expect(
+      await findDesktopPairingByPairingId(db, staleHandle),
+    ).toBeUndefined();
+  });
+
+  it("does not reclaim another org's expired rows", async () => {
+    const otherStale = "OTHER".repeat(4) + "cd"; // 22 base64url chars
+    await forOrg(db, otherPersonalOrg).desktopPairing.create({
+      pairingId: otherStale,
+      codeChallenge: "c".repeat(43),
+      codeHash: "h".repeat(43),
+      consentedUserId: otherPersonalUser,
+      deviceDisplayName: "Other org stale",
+      platform: "windows",
+      architecture: "x64",
+      agentVersion: "0.1.0",
+      installationId: crypto.randomUUID(),
+      expiresAt: new Date(Date.now() - 60_000),
+    });
+    // A consent in personalOrg must not touch otherPersonalOrg's rows.
+    const { outcome } = await startAndConsent();
+    expect(outcome.ok).toBe(true);
+    expect(
+      await findDesktopPairingByPairingId(db, otherStale),
+    ).toBeDefined();
+  });
+
   it("echoes the agent's state untouched in the redirect", async () => {
     const { outcome } = await startAndConsent();
     if (!outcome.ok) throw new Error("consent failed");
