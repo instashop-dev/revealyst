@@ -15,17 +15,41 @@
 //! `events` / `payload` / `prompt` / `response` / `content` field for content to
 //! ride in, and `#[serde(deny_unknown_fields)]` at every level rejects one on
 //! deserialize. This mirrors the backend's strict zod `diagnosticBundleSchema`
-//! (which `.strict()`s and constrains every string to an enum or a version/slug
-//! regex) field-for-field; the round-trip contract test
-//! (`diagnostic_bundle_round_trips_the_backend_schema_fixture`) proves the two
-//! shapes agree. The one multi-line field, [`DiagnosticBundle::log_tail`], is
-//! scrubbed HERE (agent-side, spec §23.1) and re-scrubbed server-side — the
-//! belt-and-braces on top of the "no payload field at all" structural floor.
+//! (which `.strict()`s and constrains every string to a closed enum or a
+//! version/slug regex) field-for-field: `platform`/`architecture`/`update_state`
+//! AND `connector_states[].state` are all real Rust enums whose `#[serde(rename)]`
+//! literals equal the backend's, so the round-trip contract test
+//! (`diagnostic_bundle_round_trips_the_backend_schema_fixture`) proves the shapes
+//! agree AND an out-of-enum value is unrepresentable (it can't reach the wire).
+//!
+//! # Defensive normalization (F1 — an unexpected value must never 400 the bundle)
+//!
+//! The backend `.strict()` schema 400s the WHOLE bundle on any single invalid
+//! field, and the agent can't tell why. So [`build_bundle`] normalizes every
+//! open-charset value into the backend's accepted set BEFORE sending:
+//!   - a stored connector status outside the §11.2 set maps to `degraded` (a
+//!     representable "something's off" bucket), never a raw string;
+//!   - a connector `id` that isn't a slug (`^[a-z0-9_-]{1,64}$`) is DROPPED (it
+//!     can't be sanitized without inventing an identity);
+//!   - the list is capped to [`MAX_CONNECTOR_STATES`] (50) — truncated, not 400'd;
+//!   - a `policy_version` that isn't version-shaped falls back to `"0"`.
+//!
+//! # Log-tail scrub is belt-and-braces, NOT a complete secret filter
+//!
+//! The one multi-line field, [`DiagnosticBundle::log_tail`], is scrubbed HERE
+//! (agent-side, spec §23.1) and re-scrubbed server-side. The scrub drops
+//! LABELLED secrets (`key: value`), `rva1.` tokens, bearer/PEM headers, and 40+
+//! char encoded runs — it is a best-effort filter in the SAFE direction, not a
+//! proof that a surviving line carries no secret (it can miss a short unlabelled
+//! secret or a letter-spaced marker). The real guarantee is the structural one:
+//! there is no payload field at all, and the agent's own logs wrap secrets in
+//! `Redact` at the source ([`crate::logging`]); the scrub + the server re-scrub
+//! are defense-in-depth on top of that floor.
 //!
 //! # What comes from where (counts, never content)
 //!
-//! - `connector_states` ← [`crate::store::Store::connector_states`] (enum status
-//!   strings the connector writes; never a payload).
+//! - `connector_states` ← [`crate::store::Store::connector_states`] (enum-shaped
+//!   status strings the connector writes, normalized as above; never a payload).
 //! - `queue_counts.pending` ← [`crate::store::Store::pending_count`];
 //!   `queue_counts.quarantined` ← [`crate::store::Store::diagnostic_count`] under
 //!   [`crate::privacy::QUARANTINE_KIND`] (spec §16.3: quarantines are COUNTED,
@@ -52,6 +76,9 @@ pub const MAX_LOG_LINES: usize = 500;
 /// longer line is DROPPED (never truncated — a cut could split a secret across
 /// the boundary and defeat the scrub), not sent.
 pub const MAX_LOG_LINE_LENGTH: usize = 1000;
+/// Max connector states carried, mirroring the backend `MAX_CONNECTOR_STATES`.
+/// Over this, the server rejects the whole bundle — so the builder truncates.
+pub const MAX_CONNECTOR_STATES: usize = 50;
 /// Per-request timeout for the diagnostics POST (spec §23.2; matches the sync
 /// engine's 10s ceiling).
 pub const REQUEST_TIMEOUT_SECS: u64 = 10;
@@ -79,6 +106,61 @@ pub enum Architecture {
     X64,
 }
 
+/// A connector's operational state (spec §11.2), mirroring the backend
+/// `connectorStateSchema` — the closed set the strict schema accepts. A stored
+/// status outside this set is normalized (never emitted raw); see
+/// [`ConnectorState::from_status`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConnectorState {
+    #[serde(rename = "not_detected")]
+    NotDetected,
+    #[serde(rename = "detected")]
+    Detected,
+    #[serde(rename = "permission_required")]
+    PermissionRequired,
+    #[serde(rename = "ready")]
+    Ready,
+    #[serde(rename = "collecting")]
+    Collecting,
+    #[serde(rename = "partially_supported")]
+    PartiallySupported,
+    #[serde(rename = "paused")]
+    Paused,
+    #[serde(rename = "degraded")]
+    Degraded,
+    #[serde(rename = "blocked")]
+    Blocked,
+    #[serde(rename = "disabled_remotely")]
+    DisabledRemotely,
+    #[serde(rename = "unsupported_version")]
+    UnsupportedVersion,
+}
+
+impl ConnectorState {
+    /// Map a stored `connector_state.status` string to a backend-accepted
+    /// variant. A KNOWN §11.2 literal passes through; an UNKNOWN/unexpected
+    /// status (e.g. an agent-level `healthy`/`idle`, or anything a future
+    /// connector writes) maps to [`ConnectorState::Degraded`] — a representable
+    /// "something's off" bucket — so it can never 400 the whole bundle with a
+    /// raw out-of-enum string. Pure + tested.
+    pub fn from_status(status: &str) -> Self {
+        match status {
+            "not_detected" => ConnectorState::NotDetected,
+            "detected" => ConnectorState::Detected,
+            "permission_required" => ConnectorState::PermissionRequired,
+            "ready" => ConnectorState::Ready,
+            "collecting" => ConnectorState::Collecting,
+            "partially_supported" => ConnectorState::PartiallySupported,
+            "paused" => ConnectorState::Paused,
+            "degraded" => ConnectorState::Degraded,
+            "blocked" => ConnectorState::Blocked,
+            "disabled_remotely" => ConnectorState::DisabledRemotely,
+            "unsupported_version" => ConnectorState::UnsupportedVersion,
+            _ => ConnectorState::Degraded,
+        }
+    }
+}
+
 /// Agent self-update state (spec §13.1 `update_state`), mirroring the backend
 /// `updateStateSchema`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -101,13 +183,14 @@ pub enum UpdateState {
 // The bundle (mirrors the backend strict `diagnosticBundleSchema`)
 // ---------------------------------------------------------------------------
 
-/// One connector's reported state. `id` is a connector SLUG and `state` is a
-/// spec §11.2 status string — both enum-shaped, never content.
+/// One connector's reported state. `id` is a connector SLUG (validated against
+/// [`is_valid_connector_slug`] before send) and `state` is the closed
+/// [`ConnectorState`] enum — both enum/slug-shaped, never content.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConnectorStateEntry {
     pub id: String,
-    pub state: String,
+    pub state: ConnectorState,
 }
 
 /// Queue depth counts — non-negative integers only. `uploaded`/`failed` are
@@ -170,6 +253,29 @@ pub fn arch_for(arch: &str) -> Architecture {
         "aarch64" => Architecture::Arm64,
         _ => Architecture::X64,
     }
+}
+
+/// `true` if `id` is a connector SLUG the backend accepts (`^[a-z0-9_-]{1,64}$`):
+/// 1–64 chars of lowercase letters, digits, `_` or `-`. An id that fails this is
+/// dropped from the bundle rather than 400 it. Pure + tested (no regex crate).
+pub fn is_valid_connector_slug(id: &str) -> bool {
+    let len = id.chars().count();
+    (1..=64).contains(&len)
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '-'))
+}
+
+/// `true` if `version` is version-shaped the backend accepts
+/// (`^[A-Za-z0-9.+-]{1,64}$`): 1–64 chars of alphanumerics plus `.`/`+`/`-`. A
+/// value that fails this falls back to a safe default rather than 400 the
+/// bundle. Pure + tested (no regex crate).
+pub fn is_valid_version(version: &str) -> bool {
+    let len = version.chars().count();
+    (1..=64).contains(&len)
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '-'))
 }
 
 /// Map a stored `update_state.rollout_state` string to the closed
@@ -379,11 +485,26 @@ fn latest_log_file(log_dir: &Path) -> Option<std::path::PathBuf> {
 /// no payload field) and by construction (every value is a count/version/enum/
 /// timestamp/scrubbed-line).
 pub fn build_bundle(store: &Store, log_dir: Option<&Path>) -> Result<DiagnosticBundle, StoreError> {
-    let connector_states = store
+    // Normalize every connector state into the backend's accepted set so no
+    // single unexpected value 400s the whole bundle (F1): drop ids that aren't
+    // slugs, map statuses to the closed enum (unknown → degraded), cap to 50.
+    let mut connector_states: Vec<ConnectorStateEntry> = store
         .connector_states()?
         .into_iter()
-        .map(|(id, state)| ConnectorStateEntry { id, state })
+        .filter(|(id, _)| is_valid_connector_slug(id))
+        .map(|(id, status)| ConnectorStateEntry {
+            id,
+            state: ConnectorState::from_status(&status),
+        })
         .collect();
+    if connector_states.len() > MAX_CONNECTOR_STATES {
+        tracing::warn!(
+            component = "diagnostics",
+            error_code = "connector_states_capped",
+            "more connector states than the bundle cap; truncating"
+        );
+        connector_states.truncate(MAX_CONNECTOR_STATES);
+    }
 
     let pending = store.pending_count()?.max(0) as u64;
     let quarantined = store
@@ -399,11 +520,12 @@ pub fn build_bundle(store: &Store, log_dir: Option<&Path>) -> Result<DiagnosticB
         .and_then(|v| v.trim().parse::<u64>().ok())
         .unwrap_or(0);
 
-    // No policy cached → "0" (a version-shaped placeholder the backend regex
-    // accepts), never a fabricated identifier.
+    // No policy cached (or a stored value that isn't version-shaped) → "0" (a
+    // version-shaped placeholder the backend regex accepts), never a fabricated
+    // or invalid identifier that would 400 the bundle.
     let policy_version = store
         .policy_version()?
-        .filter(|v| !v.trim().is_empty())
+        .filter(|v| is_valid_version(v))
         .unwrap_or_else(|| "0".to_string());
 
     let update_state = update_state_for(store.update_rollout_state()?.as_deref());
@@ -699,14 +821,96 @@ mod tests {
             vec![
                 ConnectorStateEntry {
                     id: "claude_code".to_string(),
-                    state: "ready".to_string(),
+                    state: ConnectorState::Ready,
                 },
                 ConnectorStateEntry {
                     id: "cursor".to_string(),
-                    state: "collecting".to_string(),
+                    state: ConnectorState::Collecting,
                 },
             ],
         );
+    }
+
+    /// F1: a stored connector status OUTSIDE the §11.2 set (here an agent-level
+    /// `healthy`) maps to `degraded` — a representable enum value — never a raw
+    /// out-of-enum string that would 400 the whole bundle.
+    #[test]
+    fn unknown_connector_status_maps_to_a_safe_enum_value() {
+        let store = store();
+        store
+            .set_connector_state("claude_code", "healthy", Some(1), None, 1)
+            .unwrap();
+        let bundle = build_bundle(&store, None).unwrap();
+        assert_eq!(
+            bundle.connector_states,
+            vec![ConnectorStateEntry {
+                id: "claude_code".to_string(),
+                state: ConnectorState::Degraded,
+            }],
+            "an unexpected status normalizes to degraded, not a raw string"
+        );
+
+        // ConnectorState only ever serializes to a backend-accepted literal.
+        assert_eq!(
+            serde_json::to_value(&bundle.connector_states[0]).unwrap()["state"],
+            "degraded"
+        );
+    }
+
+    /// F1: a connector id that isn't a slug (`^[a-z0-9_-]{1,64}$`) is DROPPED —
+    /// it can't be sanitized without inventing an identity, and a raw one would
+    /// 400 the bundle.
+    #[test]
+    fn non_slug_connector_id_is_dropped() {
+        let store = store();
+        store
+            .set_connector_state("Claude Code!", "ready", Some(1), None, 1)
+            .unwrap();
+        store
+            .set_connector_state("cursor", "ready", Some(2), None, 2)
+            .unwrap();
+        let bundle = build_bundle(&store, None).unwrap();
+        assert_eq!(
+            bundle.connector_states,
+            vec![ConnectorStateEntry {
+                id: "cursor".to_string(),
+                state: ConnectorState::Ready,
+            }],
+            "only the valid-slug connector survives"
+        );
+    }
+
+    /// F1: more than the backend cap (50) connector states is TRUNCATED, not
+    /// left to 400 the bundle on the 51st entry.
+    #[test]
+    fn connector_states_are_capped_to_the_backend_max() {
+        let store = store();
+        for i in 0..(MAX_CONNECTOR_STATES + 10) {
+            store
+                .set_connector_state(&format!("c-{i:03}"), "ready", Some(1), None, 1)
+                .unwrap();
+        }
+        let bundle = build_bundle(&store, None).unwrap();
+        assert_eq!(bundle.connector_states.len(), MAX_CONNECTOR_STATES);
+    }
+
+    #[test]
+    fn slug_and_version_validators_match_the_backend_charsets() {
+        assert!(is_valid_connector_slug("claude_code"));
+        assert!(is_valid_connector_slug("cursor-2"));
+        assert!(!is_valid_connector_slug("")); // empty
+        assert!(!is_valid_connector_slug("Cursor")); // uppercase
+        assert!(!is_valid_connector_slug("a b")); // space
+        assert!(!is_valid_connector_slug("has.dot")); // '.' not allowed in a slug
+        assert!(!is_valid_connector_slug(&"x".repeat(65))); // too long
+
+        assert!(is_valid_version("1.4.2"));
+        assert!(is_valid_version("1.4.2-beta.1+build7"));
+        assert!(is_valid_version("0"));
+        assert!(!is_valid_version("")); // empty
+        assert!(!is_valid_version("has space"));
+        assert!(!is_valid_version("under_score")); // '_' not in the version set
+        assert!(!is_valid_version(&"1".repeat(65))); // too long
     }
 
     /// `last_successful_sync` is the RFC-3339 form of the newest upload receipt;
