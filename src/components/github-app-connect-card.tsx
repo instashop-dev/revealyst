@@ -1,13 +1,7 @@
 import { Cable, Check, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ConnectorCard } from "@/components/connector-card";
 import type { GithubAppVendor } from "@/lib/vendor-connect-meta";
 
 // Connect card for a GitHub-App vendor (Copilot). Presentational only (no
@@ -22,6 +16,9 @@ import type { GithubAppVendor } from "@/lib/vendor-connect-meta";
 // "not yet available" state with NO connect control — never a button that
 // dead-ends at github.com or bounces back with an error. It flips
 // automatically when the secrets sync (no code change).
+//
+// U0.6: renders through the shared `ConnectorCard` shell — presentation only,
+// the vendor/available/connected logic is unchanged.
 export function GithubAppConnectCard({
   vendor,
   connected = false,
@@ -32,27 +29,28 @@ export function GithubAppConnectCard({
   available?: boolean;
 }) {
   return (
-    <Card className={available ? undefined : "opacity-70"}>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base">{vendor.label}</CardTitle>
-          {connected ? (
-            <Badge variant="outline">
-              <Check data-icon="inline-start" />
-              Connected
-            </Badge>
-          ) : !available ? (
-            <Badge variant="outline">
-              <Clock data-icon="inline-start" />
-              Not yet available
-            </Badge>
-          ) : null}
-        </div>
-        <CardDescription>{vendor.blurb}</CardDescription>
-      </CardHeader>
-      <CardFooter className="flex-col items-start gap-3">
+    <ConnectorCard
+      vendorName={vendor.label}
+      muted={!available}
+      statusBadge={
+        connected ? (
+          <Badge variant="outline">
+            <Check data-icon="inline-start" />
+            Connected
+          </Badge>
+        ) : !available ? (
+          <Badge variant="outline">
+            <Clock data-icon="inline-start" />
+            Not yet available
+          </Badge>
+        ) : null
+      }
+      summary={vendor.blurb}
+      meta={
         <p className="text-sm text-muted-foreground">{vendor.requirements}</p>
-        {available ? (
+      }
+      primaryAction={
+        available ? (
           <Button
             variant={connected ? "outline" : "default"}
             nativeButton={false}
@@ -66,8 +64,8 @@ export function GithubAppConnectCard({
             The {vendor.label} integration is going through final live
             verification and isn&apos;t connectable on this deployment yet.
           </p>
-        )}
-      </CardFooter>
-    </Card>
+        )
+      }
+    />
   );
 }

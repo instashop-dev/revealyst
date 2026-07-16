@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -263,6 +264,10 @@ function DataConfidenceDrawer({
   onOpenChange: (open: boolean) => void;
   target: DisclosureCategory | null;
 }) {
+  // U0.7: below the mobile breakpoint this becomes a bottom sheet (comfortable
+  // max-height + internal scroll, explicit close via Esc/button — no
+  // gesture-only dismissal) instead of a right-side drawer.
+  const isMobile = useIsMobile();
   const sectionRefs = React.useRef<
     Partial<Record<DisclosureCategory, HTMLElement | null>>
   >({});
@@ -284,13 +289,16 @@ function DataConfidenceDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-md">
+      <SheetContent
+        side={isMobile ? "bottom" : "right"}
+        className="w-full gap-0 sm:max-w-md"
+      >
         <SheetHeader>
           <SheetTitle>{COPY.drawerTitle}</SheetTitle>
           <SheetDescription>{COPY.drawerDescription}</SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-6 overflow-y-auto p-4 pt-0">
+        <div className="flex min-h-0 flex-col gap-6 overflow-y-auto p-4 pt-0">
           {CATEGORY_RENDER_ORDER.filter((c) => byCategory.has(c)).map(
             (category) => (
               <section

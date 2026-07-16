@@ -1,7 +1,4 @@
-import Link from "next/link";
 import { Lightbulb } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
 import {
   Card,
@@ -12,7 +9,7 @@ import {
 } from "@/components/ui/card";
 import { COACHING_COPY } from "@/lib/companion-glossary";
 import type { AttentionItem } from "@/lib/score-insights";
-import { RecInteractionActions } from "./rec-interaction-actions";
+import { RecommendationCard } from "./recommendation-card";
 
 /**
  * The persistent coaching card (W5-C deliverable 2). Today coaching
@@ -62,74 +59,12 @@ export function CoachingCard({
         ) : (
           <ul className="flex flex-col gap-3">
             {recommendations.map((item, i) => (
-              <li
+              <RecommendationCard
                 key={`${i}-${item.title}`}
-                className="rounded-lg bg-muted/50 p-4"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-medium">{item.title}</p>
-                  <Badge variant="outline" className="font-normal">
-                    {COACHING_COPY.guidanceBadge}
-                  </Badge>
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{item.body}</p>
-                {item.whyLine ? (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    <span className="font-medium text-foreground">
-                      {COACHING_COPY.whyLead}:
-                    </span>{" "}
-                    {item.whyLine}
-                    {item.confidenceNote ? ` ${item.confidenceNote}` : ""}
-                  </p>
-                ) : null}
-                {item.capabilityLabel ? (
-                  <p className="mt-2 text-xs font-medium text-primary">
-                    {COACHING_COPY.advancesLead}: {item.capabilityLabel}
-                  </p>
-                ) : null}
-                {item.href ? (
-                  item.suggestedActionType === "link-out" ? (
-                    // COACH-008: external guidance — open in a new tab with the
-                    // safe rel (noreferrer + noopener), labelled "Learn more".
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="mt-3"
-                      nativeButton={false}
-                      render={
-                        <a
-                          href={item.href}
-                          target="_blank"
-                          rel="noreferrer noopener"
-                        />
-                      }
-                    >
-                      {COACHING_COPY.learnMore}
-                    </Button>
-                  ) : (
-                    // `in-product-setting` → in-app navigation. `vendor-deep-link`
-                    // is DEFERRED (no per-rec target URL exists yet), so it falls
-                    // back to this same in-app affordance rather than a broken
-                    // external jump.
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="mt-3"
-                      nativeButton={false}
-                      render={<Link href={item.href} />}
-                    >
-                      {COACHING_COPY.takeALook}
-                    </Button>
-                  )
-                ) : null}
-                {personId && item.recId ? (
-                  <RecInteractionActions
-                    personId={personId}
-                    recId={item.recId}
-                    tried={tried.has(item.recId)}
-                  />
-                ) : null}
-              </li>
+                item={item}
+                personId={personId}
+                tried={item.recId ? tried.has(item.recId) : false}
+              />
             ))}
           </ul>
         )}

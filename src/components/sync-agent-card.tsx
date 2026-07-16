@@ -5,14 +5,7 @@ import { AlertCircle, Check, Copy, TerminalSquare } from "lucide-react";
 import { Alert, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ConnectorCard } from "@/components/connector-card";
 import { errorText, postJson } from "@/lib/client-fetch";
 import {
   AGENT_DRY_RUN_COMMAND,
@@ -127,144 +120,143 @@ export function SyncAgentCard({
     }
   }
 
+  // U0.6: renders through the shared `ConnectorCard` shell — the per-state
+  // body (token / paired / neither) plus the mint-error alert is passed as
+  // `children`; the primary action (Generate / Re-generate / the confirm
+  // step's "Yes, regenerate") and its "Cancel" sibling move into the shell's
+  // action row, and the show-once token's footnote becomes the `meta` line.
+  // Logic, state, and polling are unchanged — presentation only moved.
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="text-base">
-            Revealyst Agent (Claude Code)
-          </CardTitle>
-          {isPaired && (
-            <Badge variant="secondary">
-              <Check data-icon="inline-start" />
-              Paired
-            </Badge>
-          )}
-        </div>
-        <CardDescription>
-          Summarizes your local Claude Code sessions on your machine — never raw
-          prompt content — and pushes metrics with a device token. You run it
-          yourself; nothing runs in the background.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {token ? (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm text-muted-foreground">
-                Copy this token now — it is shown once. Then run both commands:
-              </p>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={copyFirstRun}
-              >
-                {copied ? (
-                  <Check data-icon="inline-start" />
-                ) : (
-                  <Copy data-icon="inline-start" />
-                )}
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            </div>
-            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
-              <code>{firstRunBlock}</code>
-            </pre>
-            <p className="text-xs text-muted-foreground">
-              Want to see exactly what would be sent first? Run{" "}
-              <code className="rounded bg-muted px-1 py-0.5">
-                {AGENT_DRY_RUN_COMMAND}
-              </code>{" "}
-              — it inspects your logs locally and pushes nothing.
-            </p>
-          </div>
-        ) : isPaired ? (
-          <div className="flex flex-col gap-2">
-            <p className="text-sm text-muted-foreground">
-              Agent paired. Run this on your machine whenever you want to
-              refresh your data:
-            </p>
-            <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
-              <code>{AGENT_SYNC_COMMAND}</code>
-            </pre>
-            {lastSuccessAt ? (
-              <p className="text-xs text-muted-foreground">
-                Last synced {formatRelativeTime(lastSuccessAt)}.
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                No sync yet — run the command above to bring in your Claude Code
-                usage.
-              </p>
-            )}
-            {confirming && (
-              <Alert>
-                <AlertCircle />
-                <AlertTitle>
-                  Regenerating invalidates the previous token — the agent on any
-                  paired machine stops syncing until you re-run{" "}
-                  <code>login</code>. Continue?
-                </AlertTitle>
-              </Alert>
-            )}
-          </div>
-        ) : null}
-        {/* Mint errors surface once, regardless of paired state (the token
-         * block above only renders on success). */}
-        {!token && error && (
-          <Alert variant="destructive">
-            <AlertCircle />
-            <AlertTitle>{error}</AlertTitle>
-          </Alert>
-        )}
-        {!token && (
-          <div className="flex items-center gap-2">
-            {confirming ? (
-              <>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="destructive"
-                  disabled={busy}
-                  onClick={setup}
-                >
-                  <TerminalSquare data-icon="inline-start" />
-                  Yes, regenerate token
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => setConfirming(false)}
-                >
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={isPaired ? () => setConfirming(true) : setup}
-              >
-                <TerminalSquare data-icon="inline-start" />
-                {isPaired ? "Re-generate device token" : "Generate device token"}
-              </Button>
-            )}
-          </div>
-        )}
-      </CardContent>
-      {token && (
-        <CardFooter>
+    <ConnectorCard
+      vendorName="Revealyst Agent (Claude Code)"
+      statusBadge={
+        isPaired ? (
+          <Badge variant="secondary">
+            <Check data-icon="inline-start" />
+            Paired
+          </Badge>
+        ) : null
+      }
+      summary="Summarizes your local Claude Code sessions on your machine — never raw prompt content — and pushes metrics with a device token. You run it yourself; nothing runs in the background."
+      meta={
+        token ? (
           <p className="text-xs text-muted-foreground">
             Lost it? Re-generate from this connection later — that rotates the
             token.
           </p>
-        </CardFooter>
+        ) : null
+      }
+      primaryAction={
+        !token ? (
+          confirming ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              disabled={busy}
+              onClick={setup}
+            >
+              <TerminalSquare data-icon="inline-start" />
+              Yes, regenerate token
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={isPaired ? () => setConfirming(true) : setup}
+            >
+              <TerminalSquare data-icon="inline-start" />
+              {isPaired ? "Re-generate device token" : "Generate device token"}
+            </Button>
+          )
+        ) : null
+      }
+      secondaryAction={
+        !token && confirming ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => setConfirming(false)}
+          >
+            Cancel
+          </Button>
+        ) : null
+      }
+    >
+      {token ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              Copy this token now — it is shown once. Then run both commands:
+            </p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={copyFirstRun}
+            >
+              {copied ? (
+                <Check data-icon="inline-start" />
+              ) : (
+                <Copy data-icon="inline-start" />
+              )}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+          <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
+            <code>{firstRunBlock}</code>
+          </pre>
+          <p className="text-xs text-muted-foreground">
+            Want to see exactly what would be sent first? Run{" "}
+            <code className="rounded bg-muted px-1 py-0.5">
+              {AGENT_DRY_RUN_COMMAND}
+            </code>{" "}
+            — it inspects your logs locally and pushes nothing.
+          </p>
+        </div>
+      ) : isPaired ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-muted-foreground">
+            Agent paired. Run this on your machine whenever you want to
+            refresh your data:
+          </p>
+          <pre className="overflow-x-auto rounded-md bg-muted p-3 text-xs">
+            <code>{AGENT_SYNC_COMMAND}</code>
+          </pre>
+          {lastSuccessAt ? (
+            <p className="text-xs text-muted-foreground">
+              Last synced {formatRelativeTime(lastSuccessAt)}.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              No sync yet — run the command above to bring in your Claude Code
+              usage.
+            </p>
+          )}
+          {confirming && (
+            <Alert>
+              <AlertCircle />
+              <AlertTitle>
+                Regenerating invalidates the previous token — the agent on any
+                paired machine stops syncing until you re-run{" "}
+                <code>login</code>. Continue?
+              </AlertTitle>
+            </Alert>
+          )}
+        </div>
+      ) : null}
+      {/* Mint errors surface once, regardless of paired state (the token
+       * block above only renders on success). */}
+      {!token && error && (
+        <Alert variant="destructive">
+          <AlertCircle />
+          <AlertTitle>{error}</AlertTitle>
+        </Alert>
       )}
-    </Card>
+    </ConnectorCard>
   );
 }
