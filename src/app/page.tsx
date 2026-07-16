@@ -14,6 +14,7 @@ import "@/connectors";
 import { registeredVendors } from "@/connectors/registry";
 import type { VendorId } from "@/contracts/attribution";
 import { FREE_TRACKED_USER_LIMIT } from "@/lib/entitlements";
+import { founderPricingFootnote } from "@/lib/pricing";
 import { BrandMark } from "@/components/brand-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -222,8 +223,7 @@ const TIERS: {
       "Shared-account detection",
       "Privacy modes, pseudonymized default",
     ],
-    footnote:
-      "Founder pricing: 50% off — $1 per tracked user — through Aug 31, 2026.",
+    footnote: founderPricingFootnote(),
   },
   {
     name: "Enterprise",

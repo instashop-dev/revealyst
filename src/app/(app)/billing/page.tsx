@@ -14,6 +14,7 @@ import { subscriptionsForOrg } from "@/db/subscriptions";
 import { requireAppContext } from "@/lib/api-context";
 import { FREE_TRACKED_USER_LIMIT, trailing30dPeriod } from "@/lib/entitlements";
 import { resolvePaddleClientConfig, type PaddleEnv } from "@/lib/paddle";
+import { FOUNDER_DISCOUNT_PCT, listPriceDisplay } from "@/lib/pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -65,7 +66,7 @@ export default async function BillingPage() {
               </CardTitle>
               <CardDescription>
                 {isTeam
-                  ? `${entitlement.quantity} seat${entitlement.quantity === 1 ? "" : "s"} billed per tracked user / month — $2 list${hasFounderDiscount ? ", 50% off with the FOUNDER discount where applied" : ""}.`
+                  ? `${entitlement.quantity} seat${entitlement.quantity === 1 ? "" : "s"} billed per tracked user / month — ${listPriceDisplay()} list${hasFounderDiscount ? `, ${FOUNDER_DISCOUNT_PCT}% off with the FOUNDER discount where applied` : ""}.`
                   : `${trackedCount} of ${FREE_TRACKED_USER_LIMIT} free tracked users used.`}
               </CardDescription>
             </div>
@@ -88,9 +89,9 @@ export default async function BillingPage() {
             )
           ) : clientConfig ? (
             <p>
-              Team is $2 per tracked user / month.
+              Team is {listPriceDisplay()} per tracked user / month.
               {hasFounderDiscount
-                ? " Early adopters get 50% off with the FOUNDER discount, applied automatically at checkout."
+                ? ` Early adopters get ${FOUNDER_DISCOUNT_PCT}% off with the FOUNDER discount, applied automatically at checkout.`
                 : ""}
             </p>
           ) : (
