@@ -20,18 +20,24 @@ export type ScopeClaims = {
 /**
  * Every claim below cites docs/connector-facts.md. Summary of the load-bearing
  * facts:
- *  - Anthropic Console: person for API-key actors; OAuth/subscription actors
- *    missing (bug #27780); usage report 1m/1h buckets; NO request count;
- *    Claude Code core_metrics (sessions/LoC/commits/PRs); AWS-platform orgs
- *    excluded.
+ *  - Anthropic Console: API-key usage lands at KEY_PROJECT attribution — an
+ *    api_key subject is never auto-resolved to a person (normalize.ts
+ *    subjectForUsage + identity/resolve.ts; matching a key to a person is a
+ *    manual Match-accounts step). Only OAuth console-account usage maps to a
+ *    person automatically, and those actors can be missing (bug #27780).
+ *    Usage report 1m/1h buckets; NO request count; Claude Code core_metrics
+ *    (sessions/LoC/commits/PRs); AWS-platform orgs excluded.
  *  - OpenAI: person-level only via user-owned keys; costs are 1d and have NO
  *    user_id (org total only); acceptance not on this surface; 1h buckets.
  *  - Cursor: person (userId+email); per-request events → time-of-day; accepts/
  *    rejects; per-member spend; service accounts unresolved; no personal-plan
  *    usage API (Team/Enterprise only); retry is a gap.
- *  - GitHub Copilot: person daily only — NO sub-daily of any kind; tokens/
- *    prompts CLI-only; ai_credits per user; PR block; individual plans get
- *    spend context only, need Business/Enterprise.
+ *  - GitHub Copilot: person daily only — NO sub-daily of any kind; tokens
+ *    CLI-only (prompts ARE per-user across surfaces via
+ *    user_initiated_interaction_count); ai_credits per user; the vendor PR
+ *    block is org-AGGREGATE only and NOT ingested (normalize emits no
+ *    pull_requests) — never claim PR measurement; individual plans get spend
+ *    context only, need Business/Enterprise.
  *  - Claude Code local logs: person (this machine's user); ms timestamps;
  *    ~30-day retention; spend estimated from tokens (no costUSD); prompt/code
  *    content never read; true accept/reject only via OTel (proxies otherwise).
@@ -39,11 +45,12 @@ export type ScopeClaims = {
 export const SCOPE_CLAIMS: Record<string, ScopeClaims> = {
   anthropic_console: {
     measures: [
-      "Tokens used, by person, when each person has their own API key",
+      "Total tokens used, and tokens for each API key or signed-in account",
       "Claude Code work — sessions, lines of code, commits, and pull requests",
       "Which AI models were used, and activity by hour of day",
     ],
     cannotMeasure: [
+      "Who is behind each API key — key usage is tied to a person only after you match it on the Match accounts page",
       "People who sign in with their Anthropic login instead of an API key — they may be missing",
       "How many prompts or messages were sent",
       "Anything billed through AWS, Google Cloud, or Azure",
@@ -77,7 +84,7 @@ export const SCOPE_CLAIMS: Record<string, ScopeClaims> = {
     measures: [
       "Each person's daily Copilot activity, acceptance, and lines of code",
       "Which features and AI models were used, and AI Credits spent per person",
-      "Pull requests created and merged with Copilot",
+      "Agent and command-line use, including how many agent requests were made",
     ],
     cannotMeasure: [
       "Activity by time of day — Copilot reports whole days only",
