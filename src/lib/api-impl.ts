@@ -279,13 +279,22 @@ export async function dashboardSummary(
   prefetched?: {
     definitions?: readonly DefinitionRow[] | Promise<readonly DefinitionRow[]>;
     people?: readonly PersonRow[] | Promise<readonly PersonRow[]>;
+    /** Score rows EXACTLY as `scope.scores.results({ from, to })` for THIS
+     * period would return them (all subject levels) — callers holding a
+     * wider-span read slice it to the period predicate (periodStart ≥ from
+     * AND periodEnd ≤ to) before passing it in. Saves the duplicate read on
+     * pages that fetch score rows for their own delta/milestone math. */
+    results?: Promise<Awaited<ReturnType<OrgScope["scores"]["results"]>>>;
+    /** `spend_cents` metric rows sliced to [from, to] — same sharing rule. */
+    spendRows?: Promise<Awaited<ReturnType<OrgScope["metrics"]["records"]>>>;
   },
 ) {
   const { from, to } = period;
   const [resultRows, spendRows, estimatedRows, tracked, runs] =
     await Promise.all([
-      scope.scores.results({ from, to }),
-      scope.metrics.records({ metricKey: "spend_cents", from, to }),
+      prefetched?.results ?? scope.scores.results({ from, to }),
+      prefetched?.spendRows ??
+        scope.metrics.records({ metricKey: "spend_cents", from, to }),
       scope.metrics.records({ metricKey: "spend_cents_estimated", from, to }),
       scope.billing.trackedUsers({ start: from, end: to }),
       scope.connectorRuns.list({ limit: 200 }),

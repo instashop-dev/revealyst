@@ -1,6 +1,6 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import type { Db } from "./client";
-import { orgMembers } from "./auth-schema";
+import { orgMembers, session } from "./auth-schema";
 import { orgs } from "./schema";
 
 /**
@@ -45,3 +45,53 @@ export async function orgContextForUser(db: Db, userId: string) {
 export type OrgContext = NonNullable<
   Awaited<ReturnType<typeof orgContextForUser>>
 >;
+
+/**
+ * SPECULATIVE org context keyed by the raw session token (perf: collapses the
+ * session→orgContext round-trip chain). `appContext` fires this CONCURRENTLY
+ * with Better Auth's `getSession` using the token parsed from the cookie —
+ * one Workers→Hyperdrive→Neon round-trip wave instead of two sequential ones
+ * (~600ms of authenticated TTFB at the measured per-trip cost).
+ *
+ * This is NOT an authentication path and grants nothing on its own:
+ * `getSession` remains the sole authority (ban checks, impersonation, expiry
+ * refresh). The caller uses this result ONLY when `getSession` returns a
+ * valid session AND `userId` here equals the verified `session.user.id`
+ * (they key off the same token, so a mismatch means a race — fall back to
+ * `orgContextForUser`). The expiry predicate mirrors the session's validity
+ * conservatively; an expired token returns undefined AND `getSession`
+ * rejects it, so nothing is ever served off this read alone.
+ *
+ * Same org-resolution rule as `orgContextForUser` (ADR 0004): most recent
+ * membership wins.
+ */
+export async function orgContextForSessionToken(db: Db, token: string) {
+  const [row] = await db
+    .select({
+      userId: session.userId,
+      orgId: orgs.id,
+      orgName: orgs.name,
+      orgKind: orgs.kind,
+      visibilityMode: orgs.visibilityMode,
+      role: orgMembers.role,
+    })
+    .from(session)
+    .innerJoin(orgMembers, eq(orgMembers.userId, session.userId))
+    .innerJoin(orgs, eq(orgMembers.orgId, orgs.id))
+    .where(and(eq(session.token, token), gt(session.expiresAt, new Date())))
+    .orderBy(desc(orgMembers.createdAt))
+    .limit(1);
+  if (!row) {
+    return undefined;
+  }
+  return {
+    userId: row.userId,
+    org: {
+      id: row.orgId,
+      name: row.orgName,
+      kind: row.orgKind,
+      visibilityMode: row.visibilityMode,
+    },
+    role: row.role,
+  };
+}

@@ -950,6 +950,37 @@ export function computeMaturity(input: MaturityInput): MaturityView {
 
 // ─── The DB-touching reader (ONE flat Promise.all — round-trip depth 1, G10) ──
 
+type MetricRecordRows = Awaited<ReturnType<OrgScope["metrics"]["records"]>>;
+type ScoreResultRows = Awaited<ReturnType<OrgScope["scores"]["results"]>>;
+
+/**
+ * Optional pre-fetched inputs (the `dashboardSummary` prefetched pattern):
+ * the /dashboard and /growth pages already fetch several of the SAME tables
+ * this reader needs in their own depth-1 batch, so they hand the in-flight
+ * promises in here instead of paying a duplicate ~one-round-trip-each read
+ * per table. Every prefetched row set may be WIDER than this reader's own
+ * window/filters — each is sliced below to EXACTLY what the direct read
+ * would have returned (same day span, same dim filter, same score-row
+ * period/level predicate), so output is byte-identical either way.
+ */
+export type MaturityPrefetched = {
+  people?: ReturnType<OrgScope["people"]["list"]>;
+  identities?: ReturnType<OrgScope["identities"]["all"]>;
+  connections?: ReturnType<OrgScope["connections"]["list"]>;
+  /** `active_day` metric rows covering at least `fullSpan` (any dim — the
+   * dim="" slice the direct read applies in SQL happens here in JS). */
+  activeDayRows?: Promise<MetricRecordRows>;
+  /** `agent_active` rows covering at least `fullSpan`. */
+  agentActiveRows?: Promise<MetricRecordRows>;
+  /** `spend_cents` rows covering at least `fullSpan`. */
+  spendRows?: Promise<MetricRecordRows>;
+  /** Score rows (any subject level) covering at least
+   * [fullSpan.from, current.to] by the `results()` predicate
+   * (periodStart ≥ from AND periodEnd ≤ to) — sliced to team-level here. */
+  scoreRows?: Promise<ScoreResultRows>;
+  definitions?: ReturnType<OrgScope["scores"]["definitions"]>;
+};
+
 /**
  * Reads everything the maturity report needs in a SINGLE flat Promise.all
  * (round-trip depth 1 on Workers→Hyperdrive→Neon, the same discipline as
@@ -960,13 +991,17 @@ export function computeMaturity(input: MaturityInput): MaturityView {
  * slices per-window in JS.
  *
  * `windowTo` is caller-supplied (YYYY-MM-DD, UTC — "today") so the windows are
- * deterministic and testable.
+ * deterministic and testable. `prefetched` (optional) lets the caller share
+ * reads it already has in flight — see {@link MaturityPrefetched}.
  */
 export async function readMaturityView(
   scope: OrgScope,
   windowTo: string,
+  prefetched?: MaturityPrefetched,
 ): Promise<MaturityView> {
   const { fullSpan, current } = maturityWindows(windowTo);
+  const inSpan = (r: { day: string }) =>
+    r.day >= fullSpan.from && r.day <= fullSpan.to;
   const [
     people,
     identities,
@@ -980,20 +1015,26 @@ export async function readMaturityView(
     scoreRows,
     definitions,
   ] = await Promise.all([
-    scope.people.list(),
-    scope.identities.all(),
-    scope.connections.list(),
-    scope.metrics.records({
-      metricKey: "active_day",
-      from: fullSpan.from,
-      to: fullSpan.to,
-      dim: "",
-    }),
-    scope.metrics.records({
-      metricKey: "agent_active",
-      from: fullSpan.from,
-      to: fullSpan.to,
-    }),
+    prefetched?.people ?? scope.people.list(),
+    prefetched?.identities ?? scope.identities.all(),
+    prefetched?.connections ?? scope.connections.list(),
+    // The direct read filters dim="" in SQL; the prefetched (dim-unfiltered,
+    // possibly wider-span) rows get the identical slice in JS.
+    prefetched?.activeDayRows?.then((rows) =>
+      rows.filter((r) => (r.dim ?? "") === "" && inSpan(r)),
+    ) ??
+      scope.metrics.records({
+        metricKey: "active_day",
+        from: fullSpan.from,
+        to: fullSpan.to,
+        dim: "",
+      }),
+    prefetched?.agentActiveRows?.then((rows) => rows.filter(inSpan)) ??
+      scope.metrics.records({
+        metricKey: "agent_active",
+        from: fullSpan.from,
+        to: fullSpan.to,
+      }),
     scope.metrics.records({
       metricKey: "feature_used",
       from: fullSpan.from,
@@ -1008,19 +1049,30 @@ export async function readMaturityView(
     // Spend is summed over the CURRENT window only (cost-per-active-user), but
     // fetched over the full span here to keep the Promise.all uniform; the
     // pure path slices to `current`.
-    scope.metrics.records({
-      metricKey: "spend_cents",
-      from: fullSpan.from,
-      to: fullSpan.to,
-    }),
+    prefetched?.spendRows?.then((rows) => rows.filter(inSpan)) ??
+      scope.metrics.records({
+        metricKey: "spend_cents",
+        from: fullSpan.from,
+        to: fullSpan.to,
+      }),
     // Latest team-level adoption score feeds the modeled benchmark; the wide
-    // window catches the most recent scored period regardless of grain.
-    scope.scores.results({
-      subjectLevel: "team",
-      from: fullSpan.from,
-      to: current.to,
-    }),
-    scope.scores.definitions(),
+    // window catches the most recent scored period regardless of grain. The
+    // prefetched slice replicates the direct read's exact predicate:
+    // subjectLevel=team, periodStart ≥ fullSpan.from, periodEnd ≤ current.to.
+    prefetched?.scoreRows?.then((rows) =>
+      rows.filter(
+        (r) =>
+          r.subjectLevel === "team" &&
+          r.periodStart >= fullSpan.from &&
+          r.periodEnd <= current.to,
+      ),
+    ) ??
+      scope.scores.results({
+        subjectLevel: "team",
+        from: fullSpan.from,
+        to: current.to,
+      }),
+    prefetched?.definitions ?? scope.scores.definitions(),
   ]);
 
   // Latest team adoption score value by periodEnd. Raw score_results carry

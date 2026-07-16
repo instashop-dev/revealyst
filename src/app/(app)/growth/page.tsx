@@ -14,8 +14,12 @@ import {
   computeAgenticAdoption,
 } from "@/lib/agentic-adoption";
 import { GROWTH_PAGE_COPY } from "@/lib/capability-glossary";
-import { readMaturityView } from "@/lib/maturity";
+import { maturityWindows, readMaturityView } from "@/lib/maturity";
 import { deriveCompanionMilestones } from "@/lib/milestones";
+import {
+  cachedCapabilityGraph,
+  cachedMissionCatalog,
+} from "@/lib/reference-cache";
 import { timeStage } from "@/lib/request-timing";
 import { vendorLabel } from "@/lib/vendor-labels";
 import { periodFor, previousDay } from "@/scoring";
@@ -56,6 +60,43 @@ export default async function GrowthPage() {
     .toISOString()
     .slice(0, 10);
 
+  // Shared in-flight reads: this page and readMaturityView used to fetch the
+  // SAME tables separately (people/identities/connections + the active_day/
+  // agent_active/score reads over overlapping windows). Each is now ONE read
+  // over the UNION of the two windows, handed both to the batch below and to
+  // readMaturityView as `prefetched` — every consumer window-slices in JS
+  // (computeAgenticAdoption and the maturity math both already did), so
+  // output is unchanged while the page drops ~11 Neon round trips.
+  const windows = maturityWindows(today);
+  const metricFrom =
+    windows.fullSpan.from < agenticFrom ? windows.fullSpan.from : agenticFrom;
+  const scoreFrom =
+    windows.fullSpan.from < prevPeriod.periodStart
+      ? windows.fullSpan.from
+      : prevPeriod.periodStart;
+  const scoreTo =
+    period.periodEnd > windows.current.to ? period.periodEnd : windows.current.to;
+  const peoplePromise = ctx.scope.people.list();
+  const identitiesPromise = ctx.scope.identities.all();
+  const connectionsPromise = ctx.scope.connections.list();
+  const activeDayPromise = ctx.scope.metrics.records({
+    metricKey: "active_day",
+    from: metricFrom,
+    to: today,
+  });
+  const agentActivePromise = ctx.scope.metrics.records({
+    metricKey: "agent_active",
+    from: metricFrom,
+    to: today,
+  });
+  // One score read (all subject levels) spanning the milestone months AND
+  // maturity's team-score window — sliced per consumer below with the exact
+  // `results()` predicate (periodStart ≥ from AND periodEnd ≤ to).
+  const scoreRowsPromise = ctx.scope.scores.results({
+    from: scoreFrom,
+    to: scoreTo,
+  });
+
   // ONE flat Promise.all — round-trip depth 1 (G10), the same discipline as the
   // dashboard. readMaturityView is CALLED as an element of this batch so its own
   // internal flat Promise.all kicks off synchronously alongside the siblings
@@ -68,8 +109,7 @@ export default async function GrowthPage() {
     capabilityStates,
     missionCatalog,
     missionProgress,
-    currentScores,
-    prevScores,
+    scoreSpanRows,
     connections,
     people,
     personalActiveDay,
@@ -77,46 +117,55 @@ export default async function GrowthPage() {
     personalIdentities,
   ] = await timeStage("pageData", () =>
     Promise.all([
-      readMaturityView(ctx.scope, today),
-      ctx.scope.capabilities.graph(),
+      readMaturityView(ctx.scope, today, {
+        people: peoplePromise,
+        identities: identitiesPromise,
+        connections: connectionsPromise,
+        activeDayRows: activeDayPromise,
+        agentActiveRows: agentActivePromise,
+        scoreRows: scoreRowsPromise,
+      }),
+      // Capability graph + mission catalog are seeded GLOBAL reference tables —
+      // served from the isolate-scope reference cache (5-min TTL) instead of
+      // five Neon round trips per page load.
+      cachedCapabilityGraph(ctx.scope),
       ctx.scope.mastery.forUser(ctx.user.id),
-      ctx.scope.missions.catalog(),
+      cachedMissionCatalog(ctx.scope),
       ctx.scope.missions.progressForUser(ctx.user.id),
-      // Current + previous month's person score rows — the breadth baseline the
-      // milestone helper crosses. In a personal org with an invited member these
-      // include OTHER people's rows too, so they are filtered to the caller's
-      // OWN person below (invariant b — never celebrate someone else's breadth).
-      ctx.scope.scores.results({
-        from: period.periodStart,
-        to: period.periodEnd,
-        subjectLevel: "person",
-      }),
-      ctx.scope.scores.results({
-        from: prevPeriod.periodStart,
-        to: prevPeriod.periodEnd,
-        subjectLevel: "person",
-      }),
+      scoreRowsPromise,
       // For the honest empty state's "which connector would add evidence" line.
-      ctx.scope.connections.list(),
+      connectionsPromise,
       // Resolve the CALLER's own person id (people.auth_user_id → id) so the
       // score rows above can be filtered to this person's growth only. An
       // EXISTING namespace method (people.list) — no frozen org-scope change.
-      ctx.scope.people.list(),
-      // Agentic-adoption inputs over the window ending TODAY (see agenticFrom) —
-      // numerator + denominator + identity links; the rate + weekly trend derive
-      // in JS below via computeAgenticAdoption(windowTo: today).
-      ctx.scope.metrics.records({
-        metricKey: "active_day",
-        from: agenticFrom,
-        to: today,
-      }),
-      ctx.scope.metrics.records({
-        metricKey: "agent_active",
-        from: agenticFrom,
-        to: today,
-      }),
-      ctx.scope.identities.all(),
+      peoplePromise,
+      // Agentic-adoption inputs (numerator + denominator + identity links);
+      // the rate + weekly trend derive in JS below via
+      // computeAgenticAdoption(windowTo: today), which slices to its own
+      // window ending TODAY — the wider shared fetch changes nothing.
+      activeDayPromise,
+      agentActivePromise,
+      identitiesPromise,
     ]),
+  );
+
+  // Current + previous month's person score rows — the breadth baseline the
+  // milestone helper crosses, sliced from the one shared score read with the
+  // exact predicate the two narrow reads used. In a personal org with an
+  // invited member these include OTHER people's rows too, so they are filtered
+  // to the caller's OWN person below (invariant b — never celebrate someone
+  // else's breadth).
+  const currentScores = scoreSpanRows.filter(
+    (r) =>
+      r.subjectLevel === "person" &&
+      r.periodStart >= period.periodStart &&
+      r.periodEnd <= period.periodEnd,
+  );
+  const prevScores = scoreSpanRows.filter(
+    (r) =>
+      r.subjectLevel === "person" &&
+      r.periodStart >= prevPeriod.periodStart &&
+      r.periodEnd <= prevPeriod.periodEnd,
   );
 
   const capabilityLabels = new Map(

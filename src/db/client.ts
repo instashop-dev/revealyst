@@ -46,15 +46,35 @@ export function createDb(env: DbEnv): Db {
   // local dev db connect without client TLS.
   const wantsTls =
     !env.HYPERDRIVE && /[?&]sslmode=(require|prefer|allow)/.test(connectionString);
+  // The local dev db (`npm run dev:db`, a PGlite socket — reached either via
+  // DATABASE_URL or via wrangler's HYPERDRIVE localConnectionString) supports
+  // ONE client connection and rejects prepared statements (08P01), so it keeps
+  // the old single-connection/unprepared settings. Every REAL database
+  // (Hyperdrive in prod, direct Neon fallback) gets the Cloudflare-documented
+  // settings instead — and both matter a lot for authenticated TTFB:
+  //  - max: 5 — postgres.js does NOT pipeline concurrent queries on one
+  //    connection, it queues them, so with max: 1 every "depth-1 Promise.all"
+  //    batch actually serialized on the wire at one ~600ms Workers→Hyperdrive→
+  //    Neon round-trip PER QUERY (measured in prod: a 3-query access stage
+  //    cost 2250ms; the 39-query Today batch streamed for ~20s). Five
+  //    connections let a batch of N queries complete in ~ceil(N/5) round-trip
+  //    waves. 5 (not more) per Hyperdrive's guidance — Workers allow 6
+  //    simultaneous outgoing connections per invocation.
+  //  - prepare: true — Hyperdrive does not cache/pool unnamed (prepare:false)
+  //    statements and they cost additional round-trips per query (see
+  //    developers.cloudflare.com/hyperdrive → postgres.js driver notes).
+  const isLoopbackDb = /^[a-z+]+:\/\/([^@/]*@)?(127\.0\.0\.1|localhost|\[::1\])([:/]|$)/i.test(
+    connectionString,
+  );
   const client = postgres(connectionString, {
-    max: 1,
-    prepare: false,
+    max: isLoopbackDb ? 1 : 5,
+    prepare: !isLoopbackDb,
     connect_timeout: 10,
     idle_timeout: 20,
     // postgres.js defaults fetch_types:true, which issues a pg_catalog
     // type-introspection query on first use of every new connection — and
-    // Workers open a new connection per request (max: 1, no cross-request
-    // reuse), so every request was paying that extra round trip on top of
+    // Workers open new connections per request (no cross-request reuse),
+    // so every request was paying that extra round trip on top of
     // its real queries. Cloudflare's Hyperdrive docs recommend disabling it.
     // Safe here: fetch_types only affects parsing of CUSTOM/extension
     // (composite/domain) Postgres types, which this schema has none of —
