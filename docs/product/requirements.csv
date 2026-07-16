@@ -157,5 +157,5 @@ OQ-004,§16.4,Open,Documentation,"'Conversation structure' scope must be clarifi
 OQ-005,§16.5,Resolved,Documentation,"Daily cadence mechanic decided: daily content, no daily nag/streak; weekly-with-forgiveness if any streak mechanic ships"
 OQ-006,§16.6,Open,Documentation,"Resident-agent go/no-go decided by measured last_success_at cadence"
 OQ-007,§16.7,Resolved,Documentation,"Digest-in-MVP resolved: digest already shipped; only content extension remains"
-OQ-008,§16.8,Resolved,Documentation,"Third-ladder line: capability profile card confirmed as decomposition of the one band (founder sign-off received per W7)"
+OQ-008,§16.8,Open,Documentation,"Third-ladder line: capability profile card built as decomposition of the one band (decided autonomously per directive (ADR 0036), awaiting founder confirmation — see docs/product-signoffs.md)"
 OQ-009,§16.9,Resolved,Documentation,"Exposure-logging reversal: founder-signed ADR 0038 reverses the don't-log stance (W7-7)"

@@ -55,7 +55,7 @@ Enterprise customer appears; requesting enterprise permissions on day one
 widens the review surface for every org-level install.
 
 ### Post-creation actions
-1. Generate + store the App private key per the W0-C encrypted-credential contract (KMS envelope) — never in the repo.
+1. Generate + store the App private key per the W0-C encrypted-credential contract (versioned Worker-secret KEK envelope) — never in the repo.
 2. Note the App ID / client ID into deployment secrets.
 3. Add the install flow to W2-J's Copilot connector plan (org admin installs the app → installation token → reports API).
 4. When the W2 site is live: update homepage/callback URLs, then (optionally) submit the Marketplace listing — that is the only step with a human GitHub review queue.
