@@ -54,5 +54,17 @@ aes-gcm = "0.10"
 uuid = { version = "1", features = ["v4"] }
 url = "2"
 hostname = "0.4"
-# oneshot channel + timeout for the browser round-trip in auth.rs.
+# oneshot channel + timeout for the browser round-trip in auth.rs; `time` also
+# drives the sync engine's backoff sleeps (sync/mod.rs).
 tokio = { version = "1", features = ["sync", "time"] }
+# Request-body gzip for the sync upload (sync/, spec §14.3). reqwest's `gzip`
+# feature only DECODES responses; the ingest body must be compressed manually
+# and sent with Content-Encoding: gzip. flate2 defaults to the pure-Rust
+# miniz_oxide backend — no system/zlib dep, matching the tree's rustls posture.
+flate2 = "1"
+
+[dev-dependencies]
+# The sync-engine unit tests drive the async upload orchestration against a
+# mock transport, so they need a runtime + the test macro. Kept in
+# dev-dependencies so the release build's tokio surface stays sync+time only.
+tokio = { version = "1", features = ["rt", "macros", "time"] }

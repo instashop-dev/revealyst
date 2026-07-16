@@ -17,6 +17,7 @@ pub mod privacy;
 pub mod secrets;
 pub mod state;
 pub mod store;
+pub mod sync;
 pub mod tray;
 
 use tauri::{AppHandle, Manager, Runtime};
