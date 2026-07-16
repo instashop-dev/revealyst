@@ -18,7 +18,7 @@ import {
 import { recordDesktopHeartbeat } from "../src/lib/desktop-heartbeat";
 import { authenticateDeviceToken } from "../src/lib/device-token";
 
-// Desktop device management (Desktop Agent T2.4, ADR 0050): heartbeat stamping,
+// Desktop device management (Desktop Agent T2.4, ADR 0048): heartbeat stamping,
 // self-owned rename/revoke, self-view filtering, and the §27.4 multi-device
 // independence guarantee. All against PGlite, mirroring device-token.test.ts.
 
