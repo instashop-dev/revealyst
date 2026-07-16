@@ -267,6 +267,13 @@
       "when": 1784216373399,
       "tag": "0037_desktop-pairing-codes",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1784224543232,
+      "tag": "0038_capability-history",
+      "breakpoints": true
     }
   ]
 }

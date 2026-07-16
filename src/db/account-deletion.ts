@@ -24,6 +24,7 @@ import {
   shareLinks,
   subjectDaySignals,
   subjects,
+  teamCapabilityHistory,
   teamManagers,
   teamMembers,
   teams,
@@ -88,6 +89,13 @@ export const PURGE_TABLES = [
   // independent of cascade). Mirrors team_members' registration.
   teamManagers,
   teamMembers,
+  // TCI Phase 2-D (ADR 0046): the per-capability team history rollup, org-scoped.
+  // Its composite tenant FK to `teams` is ON DELETE CASCADE, but only team-scoped
+  // rows (team_id non-null) are cascaded by the teams delete — org-wide rows
+  // (team_id NULL) have no cascade, and org_id carries no FK to orgs. So an
+  // explicit org-scoped delete is required, ordered BEFORE `teams` (matching the
+  // sibling pattern and independent of the partial cascade).
+  teamCapabilityHistory,
   scoreResults,
   connections,
   teams,

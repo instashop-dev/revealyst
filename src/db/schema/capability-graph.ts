@@ -15,7 +15,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { people } from "./core";
+import { people, teams } from "./core";
 import { metricCatalog } from "./tracking";
 
 // ─── AI Capability graph (W7-1, ADR 0035) ───
@@ -209,6 +209,99 @@ export const userCapabilityState = pgTable(
     index("user_capability_state_org_capability_idx").on(
       t.orgId,
       t.capabilitySlug,
+    ),
+  ],
+);
+
+// Per-capability team history rollup (TCI Phase 2-D, ADR 0046) — an ORG-SCOPED,
+// append-only PERIODIC rollup: one row per (org, optional team, capability,
+// period). A deliberate compute-on-read EXCEPTION (the repo's default is
+// compute-on-read), justified because the only timestamp source that could serve
+// as a history axis — `score_results.computed_at` — is REWRITTEN by the nightly
+// recompute upsert (CLAUDE.md timestamp gotcha), so history is otherwise
+// unrecoverable. It exists to make per-capability TRENDS, movement counts, and
+// coaching baselines computable (§6.5 Growth surface).
+//
+// COUNT-ONLY and NO per-person data: the row carries member/coverage COUNTS and a
+// single confidence-tier summary — never a person id or a per-person value, so a
+// per-person leak is structurally impossible (mirrors `mastery.coverageCounts`,
+// which never emits a person id). Rows are derived from the SAME pure function the
+// dashboard uses (`mastery.coverageCounts`), never a parallel re-implementation —
+// a shared-source parity test pins that a snapshot can never disagree with the
+// live dashboard for the same inputs.
+//
+// Rows are ORG-LEVEL by default with an optional `team_id` (an org IS one team
+// for most customers today; `team_id NULL` = the org-wide series). The writer (the
+// poller's parallel rollup step) only produces org-wide rows; `team_id` lets a
+// multi-team org carry per-team series later without a schema change.
+//
+// True counts are STORED; the `MIN_PEOPLE` floor is a RENDER-time rule (applied
+// by `applyMinPeopleFloor`, src/lib/capability-history.ts), never at write —
+// flooring at write would bake gaps/zeros into the stored series and make a later
+// trend uncomputable and dishonest.
+export const teamCapabilityHistory = pgTable(
+  "team_capability_history",
+  {
+    // Surrogate PK: the natural key (org_id, team_id, capability_slug,
+    // period_start) spans the NULLABLE `team_id`, and a Postgres PRIMARY KEY
+    // forces its columns NOT NULL — which would forbid the org-wide (team_id
+    // NULL) series. Uniqueness is enforced by the NULLS NOT DISTINCT index below
+    // instead (same pattern as `capability_signals`).
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").notNull(),
+    // NULL = the org-wide series; non-null = a specific team's series (anchored
+    // by the composite tenant FK below).
+    teamId: uuid("team_id"),
+    capabilitySlug: text("capability_slug")
+      .notNull()
+      .references(() => capabilities.slug),
+    // Inclusive UTC calendar-day period bounds (the month grain the dashboard
+    // coverage uses). The current, still-open period's row is rewritten each
+    // nightly pass; it freezes once the period closes and the window moves on.
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
+    // People with a state row for this capability (== coverageCounts.withState).
+    representedCount: integer("represented_count").notNull(),
+    // Team/org member denominator (org member count for the org-wide series).
+    totalCount: integer("total_count").notNull(),
+    // Coverage counts by mastery band. `mastered` == coverageCounts.mastered
+    // (mastery ≥ MASTERED_THRESHOLD); `developing` == represented − mastered
+    // (has evidence but below the mastered threshold). Two bands today.
+    masteredCount: integer("mastered_count").notNull(),
+    developingCount: integer("developing_count").notNull(),
+    // A single count-derived confidence-tier SUMMARY for the cohort: "measured"
+    // only when EVERY represented person is measured (a team claim bounded by its
+    // weakest member — honest), else "directional"; "not_measured" only when
+    // represented is 0 (not written in practice — no row for 0-represented).
+    confidenceTier: text("confidence_tier", {
+      enum: ["measured", "modeled", "directional", "not_measured"],
+    }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // The natural key / upsert conflict target. NULLS NOT DISTINCT so an org-wide
+    // row (team_id NULL) still CONFLICTS with itself on an idempotent re-run
+    // (Postgres would otherwise treat two NULL team_ids as distinct and append a
+    // duplicate period row).
+    unique("team_capability_history_period_uq")
+      .on(t.orgId, t.teamId, t.capabilitySlug, t.periodStart)
+      .nullsNotDistinct(),
+    // Composite tenant FK — enforced ONLY when team_id is non-null (MATCH SIMPLE
+    // skips a partially-null FK), so the org-wide series (team_id NULL) is
+    // permitted while a team-scoped row must reference a team in the SAME org. A
+    // team delete cascades its history.
+    foreignKey({
+      name: "team_capability_history_org_team_fk",
+      columns: [t.orgId, t.teamId],
+      foreignColumns: [teams.orgId, teams.id],
+    }).onDelete("cascade"),
+    // The trend read: a capability's series over a period range, one org.
+    index("team_capability_history_org_capability_period_idx").on(
+      t.orgId,
+      t.capabilitySlug,
+      t.periodStart,
     ),
   ],
 );

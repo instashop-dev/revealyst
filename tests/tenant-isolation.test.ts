@@ -159,6 +159,16 @@ const SCOPED_READS: Array<{
     tables: ["user_capability_state"],
     run: (s, c) => s.mastery.forPerson(c.B.people.alice),
   },
+  // Per-capability team history rollup (ADR 0046): org-scoped count-only rows.
+  // Both orgs seed a TEAM-scoped history row on their own core team below, so
+  // the B-side row's `teamId` (the only uuid `list()` returns) is a B team uuid
+  // in the leak universe — a dropped org filter would surface it (non-vacuous,
+  // mirrors teamManagers.listForTeam). The row shape carries NO person id.
+  {
+    name: "capabilityHistory.list",
+    tables: ["team_capability_history"],
+    run: (s) => s.capabilityHistory.list(),
+  },
   // Mission progress (ADR 0037): org-scoped opt-in rows (org, person, mission).
   // Both orgs seed a started mission for their own alice below, so B's row
   // carries a B personId — org A's progressForOrg must surface only A's rows.
@@ -349,6 +359,23 @@ beforeAll(async () => {
     // B-side row carries a B personId and the missions.progressForOrg sweep is
     // non-vacuous (the mission slug is seeded globally by the migration).
     await scoped.missions.start(loaded.people.alice, "get-started-with-ai");
+    // A TEAM-scoped capability-history row per org (ADR 0046) on this org's core
+    // team, so the B-side row's teamId is a B team uuid in the leak universe and
+    // the capabilityHistory.list sweep is non-vacuous (mirrors the team-manager
+    // seed). Count-only — the row carries no person id.
+    await scoped.capabilityHistory.upsertPeriod([
+      {
+        teamId: loaded.teams.core,
+        capabilitySlug: "ai-coding-foundations",
+        periodStart: PERIOD.start,
+        periodEnd: PERIOD.end,
+        representedCount: 3,
+        totalCount: 5,
+        masteredCount: 1,
+        developingCount: 2,
+        confidenceTier: "directional",
+      },
+    ]);
     // An exposure per org (ADR 0038) keyed on this org's alice, so the B-side
     // row carries a B personId and the exposures.list sweep is non-vacuous.
     await scoped.exposures.log([
