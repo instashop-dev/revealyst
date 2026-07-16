@@ -43,6 +43,11 @@ keyring = { version = "3", features = ["apple-native", "windows-native"] }
 sha2 = "0.10"
 base64 = "0.22"
 getrandom = "0.2"
+# Verify-only Ed25519 for the signed remote config (config.rs, spec §17). Pure
+# Rust (RustCrypto), matching the tree's no-OpenSSL posture; `default-features
+# = false` drops the RNG (`rand_core`) surface we never use — signature
+# verification needs no randomness, only `VerifyingKey::verify_strict`.
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # Encrypted local store + queue (store/, spec §13, plan T3.2). SQLCipher is
 # deliberately NOT used (risk #3): `rusqlite` `bundled` compiles the SQLite
 # amalgamation with the C toolchain Tauri already needs — no OpenSSL, matching
