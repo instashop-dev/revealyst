@@ -4,3 +4,9 @@
 # checkouts (Windows dev machines) don't rewrite it to CRLF and fail the
 # drift test / change the embedded bytes.
 desktop-agent/src-tauri/generated/*.json text eol=lf
+
+# The agent-ingest contract fixture (T4.1) is likewise compared byte-for-byte
+# by tests/desktop-ingest-fixture-drift.test.ts and embedded verbatim into the
+# Rust crate via include_str! in sync/batch.rs — pin it to LF for the same
+# reason as the allowlist artifact above.
+desktop-agent/src-tauri/fixtures/*.json text eol=lf

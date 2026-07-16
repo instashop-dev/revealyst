@@ -1,0 +1,105 @@
+{
+  "agentVersion": "0.1.0",
+  "gaps": [
+    {
+      "detail": "Some sessions on 2026-07-16 could not be attributed to a source file.",
+      "kind": "other"
+    }
+  ],
+  "records": [
+    {
+      "attribution": "person",
+      "day": "2026-07-15",
+      "dim": "",
+      "metricKey": "prompts",
+      "subject": {
+        "externalId": "user-abc",
+        "kind": "person"
+      },
+      "value": 12
+    },
+    {
+      "attribution": "person",
+      "day": "2026-07-15",
+      "dim": "",
+      "metricKey": "sessions",
+      "subject": {
+        "externalId": "user-abc",
+        "kind": "person"
+      },
+      "value": 2
+    },
+    {
+      "attribution": "person",
+      "day": "2026-07-15",
+      "dim": "claude-sonnet-4",
+      "metricKey": "model_requests",
+      "subject": {
+        "externalId": "user-abc",
+        "kind": "person"
+      },
+      "value": 8
+    },
+    {
+      "attribution": "person",
+      "day": "2026-07-16",
+      "dim": "",
+      "metricKey": "prompts",
+      "subject": {
+        "externalId": "user-abc",
+        "kind": "person"
+      },
+      "value": 5
+    }
+  ],
+  "signals": [
+    {
+      "day": "2026-07-15",
+      "hours": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        3,
+        1,
+        0,
+        4,
+        2,
+        1,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "peakConcurrency": 1,
+      "sourceGranularity": "1h",
+      "subject": {
+        "externalId": "user-abc",
+        "kind": "person"
+      }
+    }
+  ],
+  "subjects": [
+    {
+      "displayName": null,
+      "email": null,
+      "externalId": "user-abc",
+      "kind": "person"
+    }
+  ],
+  "summarizerVersion": 1,
+  "window": {
+    "end": "2026-07-16",
+    "start": "2026-07-15"
+  }
+}
