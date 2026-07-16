@@ -27,7 +27,7 @@ export default function StatusScreen({ snapshot }: { snapshot: AgentSnapshot | n
         <dd>Never — not connected yet</dd>
 
         <dt>Privacy mode</dt>
-        <dd>Analytics Only (the default)</dd>
+        <dd>Analytics Only (the default — collection isn&apos;t built yet)</dd>
 
         <dt>Connected sources</dt>
         <dd>None yet</dd>

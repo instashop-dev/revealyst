@@ -6,12 +6,28 @@
 // The pause / delete / disconnect controls are present but disabled with
 // plain explanations: there is nothing to pause, delete, or disconnect yet.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { setAutostart, type AgentSnapshot } from "../lib/agent";
+import { getAutostart, setAutostart, type AgentSnapshot } from "../lib/agent";
 
 export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | null }) {
+  // The snapshot value is only the first paint; the mount read below is the
+  // truth (the one-shot snapshot goes stale as soon as the user toggles).
   const [startAtLogin, setStartAtLogin] = useState(snapshot?.autostart ?? false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAutostart()
+      .then((enabled) => {
+        if (!cancelled) setStartAtLogin(enabled);
+      })
+      .catch(() => {
+        // Outside Tauri (tests, plain browser dev): keep the snapshot value.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onToggleAutostart(enabled: boolean) {
     setStartAtLogin(enabled);
@@ -20,6 +36,14 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
     } catch {
       // Roll back so the checkbox never lies about the real setting.
       setStartAtLogin(!enabled);
+      return;
+    }
+    try {
+      // Re-read the persisted state so the checkbox shows what the OS
+      // actually stored, not what we hoped it stored.
+      setStartAtLogin(await getAutostart());
+    } catch {
+      // Keep the optimistic value — the set itself succeeded.
     }
   }
 
@@ -30,7 +54,8 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
       <section>
         <h2>Current mode</h2>
         <p>
-          <strong>Analytics Only</strong> — the default. Prompt text is not
+          <strong>Analytics Only</strong> — the default. Nothing is collected
+          or uploaded yet. When collection arrives, prompt text will not be
           uploaded in this mode.
         </p>
       </section>

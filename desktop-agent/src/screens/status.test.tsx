@@ -21,6 +21,11 @@ describe("StatusScreen", () => {
     expect(screen.getByText("Not signed in yet")).toBeTruthy();
     expect(screen.getByText("Not set up yet")).toBeTruthy();
     expect(screen.getByText("Never — not connected yet")).toBeTruthy();
+    // F3 honesty: the mode row states the default without implying an active
+    // collection mechanism.
+    expect(
+      screen.getByText("Analytics Only (the default — collection isn't built yet)"),
+    ).toBeTruthy();
     expect(screen.getByText("None yet")).toBeTruthy();
     expect(screen.getByText("Source detection is not available yet")).toBeTruthy();
     expect(screen.getByText("Nothing — no data is collected yet")).toBeTruthy();

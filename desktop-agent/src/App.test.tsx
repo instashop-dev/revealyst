@@ -14,6 +14,9 @@ vi.mock("@tauri-apps/api/core", () => ({
         logDir: "C:\\logs",
       });
     }
+    if (command === "get_autostart") {
+      return Promise.resolve(false);
+    }
     return Promise.resolve();
   }),
 }));

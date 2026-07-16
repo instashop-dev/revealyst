@@ -100,7 +100,8 @@ export default function OnboardingScreen() {
             <label htmlFor="mode-analytics">
               <strong>Analytics Only</strong>
               <p className="muted">
-                The default. Prompt text is not uploaded in this mode.
+                The default. It takes effect when collection arrives — prompt
+                text will not be uploaded in this mode.
               </p>
             </label>
           </div>
