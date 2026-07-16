@@ -85,7 +85,9 @@ credential shape, metric catalog, and `connector-facts.md` are all untouched.
 - The frozen-contract guard now covers a directory; the widened regex is the
   load-bearing part — a future editor must not narrow it back to `\.ts$`.
 - Follow-up (deferred, not done here): the analogous `src/db/schema.ts` split
-  (§3 W5-A item 5).
+  (§3 W5-A item 5). **Done in ADR 0041 (2026-07-16, W9-T5.2)** — same recipe
+  (barrel + per-domain modules, public API unchanged, zero-diff `drizzle-kit
+  generate`).
 - Adds a small indirection (composition root → factory modules); the returned
   object shape and runtime behavior are identical, verified by the full test
   suite (tenant-isolation sweep, all `forOrg` consumers) staying green.
