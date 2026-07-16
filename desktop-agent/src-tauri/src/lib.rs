@@ -11,6 +11,7 @@ pub mod allowlist;
 pub mod auth;
 pub mod commands;
 pub mod deeplink;
+pub mod extract;
 pub mod lifecycle;
 pub mod logging;
 pub mod privacy;
