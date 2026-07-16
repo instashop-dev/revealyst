@@ -6,6 +6,7 @@
 //! Revealyst website in the user's default browser from the tray (validated
 //! against the two Revealyst origins in `lifecycle.rs`).
 
+pub mod allowlist;
 pub mod commands;
 pub mod lifecycle;
 pub mod logging;

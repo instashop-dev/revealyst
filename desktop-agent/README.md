@@ -65,6 +65,30 @@ Production build (unsigned):
 npm run tauri build
 ```
 
+## Allowlist bridge (T3.1)
+
+`src-tauri/generated/allowlist.json` is a **generated, checked-in** projection
+of `src/lib/agent-collection-schema.ts` (the repo's single source of truth for
+"what leaves the device" — plan law 3). The Rust crate embeds it at compile
+time (`src-tauri/src/allowlist.rs` via `include_str!`) and all Rust
+collection code must reference fields through that module (`is_allowed` /
+`project`, which drops every non-allowlisted key — allowlist, never
+blocklist).
+
+Never edit the JSON by hand. After any change to the TS schema, regenerate
+from the **repo root**:
+
+```sh
+npm run generate:desktop-allowlist
+```
+
+CI fails on drift: `tests/desktop-allowlist-drift.test.ts` (root Vitest
+suite) re-renders the projection from the TS schema and compares it
+byte-for-byte to the checked-in file, so a schema edit without regeneration —
+or a hand-edit to the JSON — cannot merge. The artifact is pinned to LF via
+`.gitattributes` so `core.autocrlf` checkouts don't break the byte
+comparison.
+
 ## CI
 
 `.github/workflows/desktop-ci.yml` runs on PRs touching `desktop-agent/**`:
