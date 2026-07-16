@@ -69,6 +69,7 @@ jobs:
           SES_SECRET_ACCESS_KEY: ${{ secrets.SES_SECRET_ACCESS_KEY }}
           SES_REGION: ${{ secrets.SES_REGION }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          DESKTOP_CONFIG_SIGNING_KEY: ${{ secrets.DESKTOP_CONFIG_SIGNING_KEY }}
         run: |
           put() {
             if [ -n "$2" ]; then
@@ -106,6 +107,12 @@ jobs:
           put SES_SECRET_ACCESS_KEY "$SES_SECRET_ACCESS_KEY"
           put SES_REGION "$SES_REGION"
           put EMAIL_FROM "$EMAIL_FROM"
+          # Desktop-agent signed remote config (T4.2): Ed25519 private key
+          # (v<N>:<base64 pkcs8>) that signs GET /api/desktop/config. The
+          # matching public key is baked into the agent at build time. Distinct
+          # from the credential KEK. Generated OFFLINE and never exposed to PR
+          # workflows (spec §29). Unset = /api/desktop/config 500s (no key).
+          put DESKTOP_CONFIG_SIGNING_KEY "$DESKTOP_CONFIG_SIGNING_KEY"
           # PREVIOUS exists only during a rotation window: when the repo
           # secret is removed, delete it from the Worker too — otherwise the
           # retired KEK could decrypt not-yet-rewrapped rows forever.
