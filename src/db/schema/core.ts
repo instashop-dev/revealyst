@@ -182,6 +182,43 @@ export const teamMembers = pgTable(
   ],
 );
 
+// Team → manager assignment (D-TCI-3, ADR 0044). A MANAGER is a dashboard AUTH
+// USER (org member) responsible for a team — distinct from team_members, which
+// groups tracked PEOPLE. The Better Auth per-org role stays admin|member (auth
+// schema untouched); "manager" is derived — an org member with ≥1 row here.
+// The shared org_id feeds the composite tenant FK to teams, so a row linking a
+// team and a manager from different orgs cannot exist. Granting a manager row
+// confers NO per-person data visibility today (self-view-only mastery still
+// stands, D-TCI-1); it only records who manages a team and gates future
+// manager-only aggregate surfaces.
+export const teamManagers = pgTable(
+  "team_managers",
+  {
+    orgId: uuid("org_id").notNull(),
+    teamId: uuid("team_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // A user manages a team once; org_id is fixed by team_id (a team belongs to
+    // exactly one org), so it need not sit in the key — mirrors team_members.
+    primaryKey({ columns: [t.teamId, t.userId] }),
+    // Composite tenant FK: the team must belong to the SAME org (D1a). A team
+    // delete tears its manager rows down.
+    foreignKey({
+      name: "team_managers_org_team_fk",
+      columns: [t.orgId, t.teamId],
+      foreignColumns: [teams.orgId, teams.id],
+    }).onDelete("cascade"),
+    // "Which teams does this user manage?" — the access-seam read (managedTeamIds).
+    index("team_managers_org_user_idx").on(t.orgId, t.userId),
+  ],
+);
+
 // A pending/settled invitation of an AUTH USER into an org (ADR 0004) —
 // distinct from team_members, which groups tracked PEOPLE. The token is
 // stored hashed; its plaintext leaves the server exactly once, at creation.

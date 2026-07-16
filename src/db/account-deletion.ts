@@ -24,6 +24,7 @@ import {
   shareLinks,
   subjectDaySignals,
   subjects,
+  teamManagers,
   teamMembers,
   teams,
   userCapabilityState,
@@ -81,6 +82,11 @@ export const PURGE_TABLES = [
   rawPayloads,
   connectionCredentials,
   connectorRuns,
+  // D-TCI-3 (ADR 0044): team → manager (auth user) grants, org-scoped. Deleted
+  // BEFORE teams (its composite tenant FK to teams would otherwise cascade, but
+  // an explicit org-scoped delete matches every sibling and keeps ordering
+  // independent of cascade). Mirrors team_members' registration.
+  teamManagers,
   teamMembers,
   scoreResults,
   connections,

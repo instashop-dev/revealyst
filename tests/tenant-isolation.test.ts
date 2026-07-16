@@ -138,6 +138,16 @@ const SCOPED_READS: Array<{
     tables: ["role_assignments"],
     run: (s) => s.roles.assignments(),
   },
+  // Team → manager grants (ADR 0044): org-scoped rows keyed on (team_id,
+  // user_id) with the composite tenant FK to teams. Both orgs seed a manager on
+  // their own core team below, so keying `listForTeam` on B's core team puts a
+  // B team uuid in the leak universe — a dropped org filter would surface B's
+  // row (non-vacuous, mirrors teams.members).
+  {
+    name: "teamManagers.listForTeam(B)",
+    tables: ["team_managers"],
+    run: (s, c) => s.teamManagers.listForTeam(c.B.teams.core),
+  },
   // Per-person capability state (ADR 0036): org-scoped rows (org_id, person_id,
   // capability). Both orgs seed a row for their own alice below, so keying
   // `forPerson` on B's alice puts a B personId in the leak universe — a dropped
@@ -300,6 +310,10 @@ beforeAll(async () => {
       personId: loaded.people.alice,
       roleSlug: "backend",
     });
+    // A team-manager grant per org (ADR 0044) on this org's core team, keyed on
+    // the org's own inviter user, so the B-side row carries a B team uuid and
+    // the teamManagers.listForTeam sweep is non-vacuous (mirrors the role seed).
+    await scoped.teamManagers.assign(loaded.teams.core, inviter.id);
     // A capability-state row per org (ADR 0036) keyed on this org's alice, so
     // the B-side row carries a B personId and the mastery.forPerson sweep is
     // non-vacuous (mirrors the rec-interaction/role seeds above).

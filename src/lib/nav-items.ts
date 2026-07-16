@@ -38,7 +38,7 @@ export type NavItem = {
   icon: LucideIcon;
 };
 
-export type NavGroupId = "primary" | "admin" | "platform";
+export type NavGroupId = "primary" | "admin" | "manager" | "platform";
 
 export type NavGroup = {
   id: NavGroupId;
@@ -88,6 +88,13 @@ const ADMIN_NAV_ITEMS: NavItem[] = [
   { title: "Compliance", href: "/compliance", icon: ShieldCheck },
 ];
 
+// Manager-gated surfaces (D-TCI-3, ADR 0044). A manager is an org MEMBER (the
+// Better Auth role stays admin|member) with ≥1 team_managers row. This group is
+// EMPTY today — the vocabulary is wired so a later TCI phase adds items here by
+// editing config, not by re-plumbing navFor. Empty ⇒ the group is omitted, so
+// no manager-gated nav item ships in this slice.
+const MANAGER_NAV_ITEMS: NavItem[] = [];
+
 // Platform-staff-only discovery link (ADR 0016) — a different axis from the
 // admin group (per-org membership role): this is gated on isPlatformAdmin, never
 // on org role. The /admin route re-checks via requireAdminContext; this entry is
@@ -105,10 +112,15 @@ export function navFor({
   orgKind,
   role,
   isPlatformAdmin,
+  isManager = false,
 }: {
   orgKind: OrgKind;
   role: OrgRole;
   isPlatformAdmin: boolean;
+  // D-TCI-3 (ADR 0044): the manager gate — an org member who manages ≥1 team.
+  // Orthogonal to `role` (a manager is still role "member"). Optional so the
+  // ~30 existing callers/tests need no change; defaults to non-manager.
+  isManager?: boolean;
 }): NavGroup[] {
   const isPersonal = orgKind === "personal";
   const groups: NavGroup[] = [
@@ -125,6 +137,12 @@ export function navFor({
   // membership role is admin, independent of org kind.
   if (role === "admin") {
     groups.push({ id: "admin", label: "Administration", items: ADMIN_NAV_ITEMS });
+  }
+
+  // Manager group (D-TCI-3): shown to a manager once it has items. Empty today,
+  // so this never adds a group — the gate is wired, no item ships (plan §P2A).
+  if (isManager && MANAGER_NAV_ITEMS.length > 0) {
+    groups.push({ id: "manager", label: "Managed teams", items: MANAGER_NAV_ITEMS });
   }
 
   if (isPlatformAdmin) {
