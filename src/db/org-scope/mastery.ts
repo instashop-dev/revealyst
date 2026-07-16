@@ -1,6 +1,6 @@
-import { and, eq, notInArray } from "drizzle-orm";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
 import type { Db } from "../client";
-import { people, userCapabilityState } from "../schema";
+import { people, teamMembers, userCapabilityState } from "../schema";
 import type { CapabilityComponentBreakdown } from "../../scoring/capability-state";
 
 // Per-person capability mastery reads/writes (W7-2, ADR 0036). ORG-SCOPED.
@@ -13,6 +13,15 @@ import type { CapabilityComponentBreakdown } from "../../scoring/capability-stat
 // separately, aggregate + count-only). This mirrors `rec_interaction_state`'s
 // three-layer self-view posture. The write surface (`replaceForPerson`) is the
 // nightly reducer's only entry point.
+//
+// P3-A MANAGER READ EXCEPTION (ADR 0045, founder-signed privacy reversal
+// D-TCI-1): `forManagedPerson` is the ONE narrow, separately-documented method
+// that returns ANOTHER person's mastery — and ONLY when that person is a member
+// of a team the caller manages. It is not a general other-person read: it
+// fails closed (returns null) unless the person is in one of the caller's
+// managed teams, so the membership check IS the authorization. The self-view
+// `forPerson`/`forUser` methods above are unchanged. See the method doc for the
+// preconditions the CALLER must have verified before calling.
 
 export type UserCapabilityStateRow = {
   capabilitySlug: string;
@@ -114,6 +123,96 @@ export function masteryNamespace(db: Db, orgId: string) {
           components: r.components as CapabilityComponentBreakdown,
         }))
         .sort((a, b) => b.mastery - a.mastery || a.capabilitySlug.localeCompare(b.capabilitySlug));
+    },
+
+    /**
+     * MANAGER READ (ADR 0045, capability half): one person's capability profile
+     * for a manager reading a member of a team they manage. Returns the person's
+     * identity + their capability rows (same shape + strongest-first order as the
+     * self-view `forPerson`), or `null` when the caller is NOT authorized to read
+     * this person — i.e. the person is not a member of any team in `managedTeamIds`
+     * (also `null` when `managedTeamIds` is empty). The membership join IS the
+     * authorization: an unauthorized person is indistinguishable from a missing
+     * one (null), so the surface never confirms a person exists.
+     *
+     * PRECONDITIONS THE CALLER MUST HAVE VERIFIED (this method does NOT re-check
+     * them — it only enforces the person-∈-managed-team half):
+     *  1. Org visibility mode is `managed` or `full`. In `private` the per-person
+     *     manager surface is UNAVAILABLE (ADR 0045 — absent, not pseudonymized);
+     *     the caller must short-circuit before reaching here.
+     *  2. `managedTeamIds` are the SIGNED-IN caller's OWN managed teams, resolved
+     *     from `teamManagers.managedTeamIds(callerUserId)` — never a caller-
+     *     supplied list. Passing another user's managed teams would defeat the
+     *     grant model (admins get no ambient read; they self-assign a grant).
+     *
+     * This returns ONLY mastery/profile data — never recommendations, coaching,
+     * rec-interaction, exposure, or mission state (those stay self-view-only
+     * FOREVER, V4 NOT-list). Two round trips (authorize, then read), acceptable
+     * for a cold drill-in that is never on a hot path.
+     */
+    async forManagedPerson(
+      personId: string,
+      managedTeamIds: readonly string[],
+    ): Promise<{
+      person: { id: string; displayName: string | null; pseudonym: string };
+      capabilities: UserCapabilityStateRow[];
+    } | null> {
+      if (managedTeamIds.length === 0) return null;
+      const [member] = await db
+        .select({
+          id: people.id,
+          displayName: people.displayName,
+          pseudonym: people.pseudonym,
+        })
+        .from(teamMembers)
+        .innerJoin(
+          people,
+          and(
+            eq(people.orgId, teamMembers.orgId),
+            eq(people.id, teamMembers.personId),
+          ),
+        )
+        .where(
+          and(
+            eq(teamMembers.orgId, orgId),
+            eq(teamMembers.personId, personId),
+            inArray(teamMembers.teamId, [...managedTeamIds]),
+          ),
+        )
+        .limit(1);
+      if (!member) return null;
+      const rows = await db
+        .select({
+          capabilitySlug: userCapabilityState.capabilitySlug,
+          mastery: userCapabilityState.mastery,
+          confidence: userCapabilityState.confidence,
+          confidenceTier: userCapabilityState.confidenceTier,
+          evidenceCount: userCapabilityState.evidenceCount,
+          lastEvidenceAt: userCapabilityState.lastEvidenceAt,
+          staleness: userCapabilityState.staleness,
+          nextCapability: userCapabilityState.nextCapability,
+          components: userCapabilityState.components,
+        })
+        .from(userCapabilityState)
+        .where(
+          and(
+            eq(userCapabilityState.orgId, orgId),
+            eq(userCapabilityState.personId, personId),
+          ),
+        );
+      return {
+        person: member,
+        capabilities: rows
+          .map((r) => ({
+            ...r,
+            components: r.components as CapabilityComponentBreakdown,
+          }))
+          .sort(
+            (a, b) =>
+              b.mastery - a.mastery ||
+              a.capabilitySlug.localeCompare(b.capabilitySlug),
+          ),
+      };
     },
 
     /** The set of person ids that currently have ≥1 state row (ONE query). The

@@ -13,6 +13,17 @@
   sketch's "under its own ADR" line is read as "under this ADR's authority"). The
   admin toggle UI and the manager spend-read consumer ship in a later workstream;
   no inert control renders from this PR.
+- **Implemented (capability half):** P3-A, branch `p3a-manager-drill-in` (PR
+  pending). Ships the manager per-person capability drill-in only: the new
+  manager-scoped read `mastery.forManagedPerson` (org-scope frozen path — this
+  ADR is that PR's required same-PR change), the `/team` roster + `/team/[personId]`
+  drill-in surfaces (managed/full only; `notFound()` in private mode and for any
+  non-manager, incl. admins-without-a-grant), a manager-only entry card on the
+  team dashboard (the count-only 5-card fold is untouched, D-TCI-5), and the
+  manager-authorized identity-surface registry in `src/lib/visibility.ts`. The
+  **spend half** (D-TCI-2, the `team_settings` toggle) and its table stay a
+  separate later workstream — no schema/migration in this build. The self-view-
+  only rec/coaching/exposure/mission surfaces are untouched (V4 NOT-list).
 
 ## Context
 
