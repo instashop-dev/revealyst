@@ -16,6 +16,24 @@ export const TEAM_OVERVIEW_COPY = {
   hero: {
     ctaLabel: "See where to focus",
   },
+  /** Data-freshness indicator (P2c / TCI-FE-002): a small "Data as of …" line in
+   * the page header so a manager reads how current the whole surface is without
+   * scrolling to the maturity banner. `date` is pre-formatted at the edge;
+   * `staleSuffix` appends only when the freshest sync predates the current
+   * period (the maturity banner carries the full explanation). Honest by
+   * construction — omitted entirely when nothing has synced yet. */
+  freshness: {
+    asOf: (date: string) => `Data as of ${date}`,
+    staleSuffix: "older than the current period",
+  },
+  /** Distribution completeness (P2c): the honest count of tracked people with no
+   * measured AI activity in the period yet, shown beside the segment split so
+   * the breakdown never implies the segmented people are the whole team.
+   * COUNT-ONLY (no names/ids) and positive-first — "not yet active", never a
+   * deficiency label — and it states they'll appear once their first activity
+   * comes in. */
+  notYetActive: (count: number) =>
+    `${count} ${count === 1 ? "person" : "people"} not yet active — no AI usage measured yet this period. They'll appear here once their first activity comes in.`,
   /** ONE shared suppression note (U4.1). Rendered wherever a small-group floor
    * would otherwise drop a row or panel with no explanation. `minPeople` is the
    * live floor constant (SEGMENT_MIN_PEOPLE_TO_NAME) — never hard-coded — and

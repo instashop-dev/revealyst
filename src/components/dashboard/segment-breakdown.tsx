@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { CONCEPT_GLOSSARY } from "@/lib/metrics-glossary";
+import { TEAM_OVERVIEW_COPY } from "@/lib/team-overview-copy";
 
 /**
  * User segmentation (§8), team-level and COUNT-ONLY in every visibility mode
@@ -15,11 +16,22 @@ import { CONCEPT_GLOSSARY } from "@/lib/metrics-glossary";
  * thing §7.3 kills, so individual members are never listed — not even under
  * managed/full visibility. People without a per-person score are surfaced as
  * "unsegmented", never bucketed.
+ *
+ * Distribution completeness (P2c): `notYetActive` is the COUNT of tracked people
+ * with no measured AI activity in the period yet (the honest complement of the
+ * segmented + unsegmented-but-active people). It is a number, never a per-person
+ * list — the same structural no-person-id contract the segment counts keep — so
+ * the breakdown can disclose how much of the team it does not yet cover instead
+ * of implying the segmented people are the whole team.
  */
 export function SegmentBreakdown({
   distribution,
+  notYetActive,
 }: {
   distribution: SegmentDistribution;
+  /** Tracked people with no activity yet this period — count only. Omitted (or
+   * 0) renders no line, so a fully-active team shows nothing extra. */
+  notYetActive?: number;
 }) {
   const total = distribution.segments.reduce((sum, s) => sum + s.count, 0);
 
@@ -63,6 +75,11 @@ export function SegmentBreakdown({
             {distribution.unsegmented}{" "}
             {distribution.unsegmented === 1 ? "person" : "people"} not yet
             segmented (no individual score — often shared-account activity).
+          </p>
+        ) : null}
+        {notYetActive && notYetActive > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {TEAM_OVERVIEW_COPY.notYetActive(notYetActive)}
           </p>
         ) : null}
       </CardContent>

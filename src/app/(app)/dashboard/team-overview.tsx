@@ -15,6 +15,7 @@ import { RecentMovementPanel } from "@/components/dashboard/recent-movement-pane
 import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
 import { SharedAccountFlags } from "@/components/dashboard/shared-account-flags";
+import { TeamFreshnessLine } from "@/components/dashboard/team-freshness-line";
 import { ToolCoveragePanel } from "@/components/dashboard/tool-coverage-panel";
 import { CapabilityCoverageCard } from "@/components/dashboard/capability-coverage-card";
 import { TrainingOpportunitiesCard } from "@/components/dashboard/training-opportunities-card";
@@ -241,7 +242,12 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
       <PageHeader
         title={TEAM_OVERVIEW_COPY.header.title}
         description={TEAM_OVERVIEW_COPY.header.description}
-      />
+      >
+        {/* P2c freshness indicator — reuses maturity.dataAsOf (already in the
+         * page's single Promise.all), so the header shows how current the whole
+         * surface is with zero extra reads. */}
+        <TeamFreshnessLine dataAsOf={maturity.dataAsOf} stale={maturity.stale} />
+      </PageHeader>
 
       {budgetAlert ? (
         <BudgetAlertBanner
@@ -365,7 +371,13 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
                 rows={capabilityCoverage}
                 floorNote={TEAM_OVERVIEW_COPY.floorNote(SEGMENT_MIN_PEOPLE_TO_NAME)}
               />
-              <SegmentBreakdown distribution={segments} />
+              {/* P2c distribution completeness: the count-only tally of tracked
+               * people with no activity yet this period, so the split never
+               * implies the segmented people are the whole team. */}
+              <SegmentBreakdown
+                distribution={segments}
+                notYetActive={summary.notYetActive}
+              />
               <UsageConcentrationPanel concentration={usageConcentration} />
             </div>
           </section>
