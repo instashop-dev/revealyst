@@ -13,7 +13,15 @@ import {
 // to write anything at all. Non-frozen route: schema colocated in
 // src/lib/desktop-pairing.ts (the /v1/* receiver convention), not apiRoutes.
 
+// Pairing payloads are tiny; the cap exists because every unauthenticated
+// JSON route carries one (the agent-ingest / /v1/* sibling guard).
+const MAX_BODY_BYTES = 64_000;
+
 export async function POST(req: Request) {
+  const contentLength = Number(req.headers.get("content-length") ?? "0");
+  if (!Number.isFinite(contentLength) || contentLength > MAX_BODY_BYTES) {
+    return Response.json({ error: "body too large" }, { status: 413 });
+  }
   let body: unknown;
   try {
     body = await req.json();
