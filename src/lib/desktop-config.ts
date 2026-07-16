@@ -116,6 +116,18 @@ export const DESKTOP_CLAUDE_CODE_DEFAULT: DesktopConnectorConfig = {
 /** Default update channel for the general fleet. */
 export const DESKTOP_DEFAULT_UPDATE_CHANNEL: DesktopUpdateChannel = "stable";
 
+/** Sane bounds for a signed poll cadence (inclusive). A config below the floor
+ * would hammer the vendor surface; above the ceiling it is effectively off and
+ * a typo'd huge value should not be silently trusted. Enforced fail-closed so
+ * a future admin path can never get an out-of-range cadence SIGNED. */
+export const DESKTOP_MIN_POLL_INTERVAL_SECONDS = 5;
+export const DESKTOP_MAX_POLL_INTERVAL_SECONDS = 24 * 60 * 60; // 1 day
+
+/** A plain `MAJOR.MINOR.PATCH` version — all our version fields (agent +
+ * connector minimums) use this shape; anything else is rejected before it can
+ * be signed and trusted by the agent. */
+const SEMVER_RE = /^\d+\.\d+\.\d+$/;
+
 // ---------------------------------------------------------------------------
 // Composition
 // ---------------------------------------------------------------------------
@@ -132,6 +144,39 @@ export type ComposeDesktopConfigInput = {
   signingKeyVersion: string;
 };
 
+function assertSemver(value: string, field: string): void {
+  if (!SEMVER_RE.test(value)) {
+    throw new Error(
+      `desktop config ${field} must be MAJOR.MINOR.PATCH, got ${JSON.stringify(value)}`,
+    );
+  }
+}
+
+/**
+ * Fail-closed validation of a connector override (never used by the route
+ * today, but a future admin path could supply one — an out-of-range or
+ * malformed value must never get SIGNED and trusted by the agent). Rejects a
+ * malformed `minimumVersion` and a `pollIntervalSeconds` outside the sane
+ * bounded range; throws rather than silently clamping so a mistaken value is
+ * surfaced, not quietly reshaped.
+ */
+function validateConnectorConfig(
+  connector: DesktopConnectorConfig,
+  field: string,
+): void {
+  assertSemver(connector.minimumVersion, `${field}.minimumVersion`);
+  const poll = connector.pollIntervalSeconds;
+  if (
+    !Number.isInteger(poll) ||
+    poll < DESKTOP_MIN_POLL_INTERVAL_SECONDS ||
+    poll > DESKTOP_MAX_POLL_INTERVAL_SECONDS
+  ) {
+    throw new Error(
+      `desktop config ${field}.pollIntervalSeconds must be an integer in [${DESKTOP_MIN_POLL_INTERVAL_SECONDS}, ${DESKTOP_MAX_POLL_INTERVAL_SECONDS}], got ${JSON.stringify(poll)}`,
+    );
+  }
+}
+
 /**
  * Compose the (unsigned) config body. `defaultContentMode` is hard-coded to
  * `analytics_only` and then re-asserted — the never-broaden law (spec §16.2)
@@ -141,16 +186,21 @@ export function composeDesktopConfig(
   input: ComposeDesktopConfigInput,
 ): DesktopConfig {
   const now = input.now ?? Date.now();
+  const minimumAgentVersion =
+    input.minimumAgentVersion ?? DESKTOP_MINIMUM_AGENT_VERSION;
+  assertSemver(minimumAgentVersion, "minimumAgentVersion");
+  const claudeCode = input.claudeCode ?? DESKTOP_CLAUDE_CODE_DEFAULT;
+  validateConnectorConfig(claudeCode, "connectors.claude_code");
+
   const config: DesktopConfig = {
     configurationVersion:
       input.configurationVersion ?? DESKTOP_CONFIGURATION_VERSION,
     issuedAt: new Date(now).toISOString(),
     expiresAt: new Date(now + DESKTOP_CONFIG_TTL_MS).toISOString(),
-    minimumAgentVersion:
-      input.minimumAgentVersion ?? DESKTOP_MINIMUM_AGENT_VERSION,
+    minimumAgentVersion,
     defaultContentMode: DESKTOP_DEFAULT_CONTENT_MODE,
     connectors: {
-      claude_code: input.claudeCode ?? DESKTOP_CLAUDE_CODE_DEFAULT,
+      claude_code: claudeCode,
     },
     updateChannel: input.updateChannel ?? DESKTOP_DEFAULT_UPDATE_CHANNEL,
     emergencyShutdown: input.emergencyShutdown ?? false,
@@ -181,6 +231,15 @@ export function composeDesktopConfig(
  *   - standard JSON number/string escaping (via `JSON.stringify`),
  *   - the result encoded as UTF-8 bytes.
  * The `signature` field is never part of the canonical body.
+ *
+ * CRITICAL for the agent side: the wire JSON is insertion-order, but the
+ * signature covers this SORTED-key canonical form — the Rust `config.rs`
+ * (later PR) must reproduce this exact byte layout or every verify fails. A
+ * checked-in golden vector, `desktop-agent/src-tauri/fixtures/
+ * desktop-config-vector.json` (fixed test keypair; `canonicalBytes` = base64
+ * of the exact signed bytes), is the byte-parity fixture the Rust test
+ * consumes via `include_str!`; `tests/desktop-config.test.ts` regenerates it
+ * from this code and asserts it matches the file, so the vector can't rot.
  */
 export function canonicalizeConfig(config: DesktopConfig): string {
   return canonicalize(config);

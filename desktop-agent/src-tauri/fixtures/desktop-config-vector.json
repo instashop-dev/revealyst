@@ -1,0 +1,22 @@
+{
+  "config": {
+    "configurationVersion": 7,
+    "issuedAt": "2026-01-01T00:00:00.000Z",
+    "expiresAt": "2026-01-08T00:00:00.000Z",
+    "minimumAgentVersion": "1.2.3",
+    "defaultContentMode": "analytics_only",
+    "connectors": {
+      "claude_code": {
+        "enabled": true,
+        "minimumVersion": "1.0.0",
+        "pollIntervalSeconds": 60
+      }
+    },
+    "updateChannel": "beta",
+    "emergencyShutdown": false,
+    "signingKeyVersion": "vtest"
+  },
+  "canonicalBytes": "eyJjb25maWd1cmF0aW9uVmVyc2lvbiI6NywiY29ubmVjdG9ycyI6eyJjbGF1ZGVfY29kZSI6eyJlbmFibGVkIjp0cnVlLCJtaW5pbXVtVmVyc2lvbiI6IjEuMC4wIiwicG9sbEludGVydmFsU2Vjb25kcyI6NjB9fSwiZGVmYXVsdENvbnRlbnRNb2RlIjoiYW5hbHl0aWNzX29ubHkiLCJlbWVyZ2VuY3lTaHV0ZG93biI6ZmFsc2UsImV4cGlyZXNBdCI6IjIwMjYtMDEtMDhUMDA6MDA6MDAuMDAwWiIsImlzc3VlZEF0IjoiMjAyNi0wMS0wMVQwMDowMDowMC4wMDBaIiwibWluaW11bUFnZW50VmVyc2lvbiI6IjEuMi4zIiwic2lnbmluZ0tleVZlcnNpb24iOiJ2dGVzdCIsInVwZGF0ZUNoYW5uZWwiOiJiZXRhIn0=",
+  "publicKeyRaw": "QRMp+h+t+11d1fBZgzrMRR2yb/FmPE4tRhtOBMl6Zrw=",
+  "signature": "N+R0MOfcW6Am6j4BeLcfsIjwaBQzuoviiUQEh6H/7ZjqlWJQrYXs1IZIewG35PAKchIifgvzV1cZ4g6jLE87BQ=="
+}

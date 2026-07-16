@@ -114,6 +114,10 @@ are minted fresh per request.
 
 - **None frozen.** New: `src/app/api/desktop/config/route.ts`,
   `src/lib/desktop-config.ts`, `.github/workflows/deploy.yml` (additive secret
-  sync). `src/contracts/**`, schema, `org-scope`, `credentials`, `drizzle/**`
-  all untouched (device-facing route → two-tier convention, zod colocated in
-  the lib).
+  sync), plus the byte-parity fixture
+  `desktop-agent/src-tauri/fixtures/desktop-config-vector.json` and its
+  generator/helper. `src/contracts/**`, schema, `org-scope`, `credentials`,
+  `drizzle/**` all untouched. This is a device-token-authed **GET with no
+  request body** (the endpoint takes no input — it returns the composed +
+  signed config), so there is no request schema to register in the frozen
+  `apiRoutes` contract; the response type lives in `src/lib/desktop-config.ts`.

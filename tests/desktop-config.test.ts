@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { buildDesktopConfigVector } from "./helpers/desktop-config-vector";
 import type { Db } from "../src/db/client";
 import { createFixtureOrg } from "../src/db/fixtures";
 import { forOrg } from "../src/db/org-scope";
@@ -179,6 +181,88 @@ describe("desktop-config lib", () => {
     expect(() => parseSigningKey("no-separator")).toThrow(/v<N>:<base64/);
     expect(() => parseSigningKey("v1:!!!not-base64!!!")).toThrow();
   });
+
+  it("fail-closed: rejects an out-of-range or malformed connector override", () => {
+    // A future admin path could supply a connector override — an out-of-range
+    // cadence or malformed version must never get SIGNED and trusted.
+    const base = { enabled: true, minimumVersion: "1.0.0", pollIntervalSeconds: 30 };
+    // pollIntervalSeconds below the floor / above the ceiling / non-integer.
+    expect(() =>
+      composeDesktopConfig({
+        signingKeyVersion: "v1",
+        claudeCode: { ...base, pollIntervalSeconds: 0 },
+      }),
+    ).toThrow(/pollIntervalSeconds/);
+    expect(() =>
+      composeDesktopConfig({
+        signingKeyVersion: "v1",
+        claudeCode: { ...base, pollIntervalSeconds: 999_999 },
+      }),
+    ).toThrow(/pollIntervalSeconds/);
+    expect(() =>
+      composeDesktopConfig({
+        signingKeyVersion: "v1",
+        claudeCode: { ...base, pollIntervalSeconds: 30.5 },
+      }),
+    ).toThrow(/pollIntervalSeconds/);
+    // Malformed connector minimumVersion.
+    expect(() =>
+      composeDesktopConfig({
+        signingKeyVersion: "v1",
+        claudeCode: { ...base, minimumVersion: "not-a-version" },
+      }),
+    ).toThrow(/minimumVersion/);
+    // Malformed minimumAgentVersion.
+    expect(() =>
+      composeDesktopConfig({ signingKeyVersion: "v1", minimumAgentVersion: "1.2" }),
+    ).toThrow(/minimumAgentVersion/);
+    // A valid in-range override is accepted.
+    expect(
+      composeDesktopConfig({
+        signingKeyVersion: "v1",
+        claudeCode: { ...base, pollIntervalSeconds: 60 },
+      }).connectors.claude_code.pollIntervalSeconds,
+    ).toBe(60);
+  });
+});
+
+describe("desktop-config golden vector (agent byte-parity fixture)", () => {
+  const FIXTURE_PATH = "desktop-agent/src-tauri/fixtures/desktop-config-vector.json";
+
+  it("the checked-in vector matches a fresh regeneration (drift guard)", async () => {
+    const onDisk = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
+    const regenerated = JSON.parse(
+      JSON.stringify(await buildDesktopConfigVector()),
+    );
+    // If this fails, the config shape / canonicalization / fixed inputs
+    // changed — re-run `npx tsx scripts/gen-desktop-config-vector.mts` and
+    // ship the agent side against the new bytes.
+    expect(onDisk).toEqual(regenerated);
+  });
+
+  it("the vector's signature verifies against its own public key over canonicalBytes", async () => {
+    const v = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
+    const publicKeyRaw = new Uint8Array(
+      atob(v.publicKeyRaw)
+        .split("")
+        .map((c) => c.charCodeAt(0)),
+    );
+    // Reconstruct the signed object and verify — proves the agent, given only
+    // the baked public key + this JSON, can validate it.
+    const signed: SignedDesktopConfig = { ...v.config, signature: v.signature };
+    expect(await verifyDesktopConfig(publicKeyRaw, signed)).toBe(true);
+
+    // And the canonicalBytes field really is the signed byte layout: decoding
+    // it must equal the canonicalization of the config body.
+    const decoded = new TextDecoder().decode(
+      new Uint8Array(
+        atob(v.canonicalBytes)
+          .split("")
+          .map((c) => c.charCodeAt(0)),
+      ),
+    );
+    expect(decoded).toBe(canonicalizeConfig(v.config));
+  });
 });
 
 describe("GET /api/desktop/config route", () => {
@@ -282,5 +366,22 @@ describe("GET /api/desktop/config route", () => {
     );
     expect(signed.defaultContentMode).toBe("analytics_only");
     expect(await verifyDesktopConfig(publicKeyRaw, signed)).toBe(true);
+  });
+
+  it("fails closed with 500 (never an unsigned 200) when the signing key is unset", async () => {
+    const { GET } = await import("../src/app/api/desktop/config/route");
+    const withKey = mockEnv;
+    // Authenticate succeeds (KEK present) but there is NO signing key.
+    mockEnv = { ...ENV_KEK };
+    try {
+      const res = await GET(req(token));
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as Record<string, unknown>;
+      // Must NOT be a config body — no signature, no config fields leaked.
+      expect(body).not.toHaveProperty("signature");
+      expect(body).not.toHaveProperty("defaultContentMode");
+    } finally {
+      mockEnv = withKey;
+    }
   });
 });

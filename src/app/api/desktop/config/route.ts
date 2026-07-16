@@ -34,8 +34,23 @@ export async function GET(req: Request) {
   // The signing key lives on the same Worker env (a distinct Worker secret,
   // DESKTOP_CONFIG_SIGNING_KEY). Compose + sign per request — configs are
   // minted fresh (issuedAt/expiresAt are current), never stored.
-  const signed = await composeAndSignDesktopConfig(
-    env as unknown as DesktopConfigSigningEnv,
-  );
+  //
+  // Fail CLOSED: a missing/malformed signing key (a deploy misconfiguration)
+  // must 500 — NEVER a 200 carrying an unsigned or empty-signature body, which
+  // the agent would either reject or, worse, be tricked into trusting. The
+  // try/catch pins that against a future refactor: an unsignable config is an
+  // outage, not a silently-unsigned config.
+  let signed: Awaited<ReturnType<typeof composeAndSignDesktopConfig>>;
+  try {
+    signed = await composeAndSignDesktopConfig(
+      env as unknown as DesktopConfigSigningEnv,
+    );
+  } catch (error) {
+    console.error("[desktop-config] failed to compose/sign config:", error);
+    return Response.json(
+      { error: "config signing unavailable" },
+      { status: 500 },
+    );
+  }
   return Response.json(signed, { status: 200 });
 }
