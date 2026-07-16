@@ -32,12 +32,15 @@
 // The API token needs the "Account Analytics: Read" permission (Analytics
 // Engine SQL API scope) for CLOUDFLARE_ACCOUNT_ID.
 //
-// IMPORTANT — no ratio THRESHOLD is baked in here, and none should be added
-// without a founder sign-off. OQ-001 has two parts: the measurement window (N)
-// and the pass/fail ratio bar. The founder ratified N = 1 week on 2026-07-16
-// (see docs/product-signoffs.md), so DEFAULT_WEEKS is 1 below. The ratio bar
-// itself remains an unsigned founder call — this script reports the ratio only;
-// it is the founder's job to read it against whatever bar they sign off on.
+// OQ-001 has two parts: the measurement window (N) and the pass/fail ratio
+// bar. Both are now founder-signed (2026-07-16, see docs/product-signoffs.md):
+// N = 1 week (DEFAULT_WEEKS below) and bar = ratio >= 2.0 with a non-empty
+// denominator (SIGNED_RATIO_BAR below). Rationale for 2.0: the digest CTA
+// click fires BOTH events, so ratio 1.0 means all companion traffic is
+// email-driven; >= 2.0 means at least half of companion engagement is
+// voluntary (no email prompt) — the §14 voluntary-return bet as a number.
+// The script prints the ratio against the signed bar; it stays a manually-run
+// founder gauge, never a CI gate.
 
 import { isoWeekString } from "../src/lib/digest-content";
 import {
@@ -46,7 +49,11 @@ import {
 } from "../src/lib/digest-return-rate";
 
 const DATASET = "revealyst_launch_events"; // wrangler.jsonc analytics_engine_datasets binding LAUNCH_EVENTS
-const DEFAULT_WEEKS = 6;
+// OQ-001 founder-signed values (2026-07-16, docs/product-signoffs.md). Note:
+// PR #242 recorded the 1-week window in the header comment but left this
+// constant at 6 — fixed here when the ratio bar was signed.
+const DEFAULT_WEEKS = 1;
+const SIGNED_RATIO_BAR = 2.0; // pass = overall ratio >= 2.0 with a non-empty denominator
 const MAX_WEEKS = 52; // sanity cap — this is interpolated into the SQL INTERVAL below
 
 interface AeSqlResponse {
@@ -153,10 +160,10 @@ async function main() {
     "(companion_revisit ÷ digest_return per week; coarse aggregate index, not a per-user funnel — see src/lib/digest-return-rate.ts)",
   );
   console.log(
-    "NOTE: this script reports the ratio only. No pass/fail threshold is baked in — the",
+    `NOTE: OQ-001 is founder-signed (2026-07-16): window = 1 week, pass bar = ratio >= ${SIGNED_RATIO_BAR}`,
   );
   console.log(
-    "bar for OQ-001 is an unsigned founder decision (Closure Execution Plan §6, D1).",
+    "with a non-empty denominator (docs/product-signoffs.md). Verdict below uses the overall ratio.",
   );
   console.log("");
   for (const w of result.weeks) {
@@ -168,6 +175,18 @@ async function main() {
   console.log(
     `  overall  digest_return=${result.overall.digestReturns}  companion_revisit=${result.overall.companionRevisits}  ratio=${fmtRatio(result.overall.ratio)}`,
   );
+  console.log("");
+  if (result.overall.ratio === null) {
+    // Honesty rule (invariant b): an empty denominator is "not evaluable",
+    // never a fabricated fail/pass.
+    console.log(
+      "  OQ-001 verdict: NOT EVALUABLE — zero digest_return events in the window, so the signed bar cannot be applied.",
+    );
+  } else {
+    console.log(
+      `  OQ-001 verdict: ${result.overall.ratio >= SIGNED_RATIO_BAR ? "PASS" : "BELOW BAR"} (ratio ${fmtRatio(result.overall.ratio)} vs signed bar ${SIGNED_RATIO_BAR})`,
+    );
+  }
 
   await new Promise((resolve) => process.stdout.write("", () => resolve(null)));
   process.exit(0);

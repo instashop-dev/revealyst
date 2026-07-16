@@ -52,6 +52,18 @@ Six decisions need the founder before any Conflicting item is built; they are li
 
 **Standing gates that this analysis does not touch:** companion-in-team-orgs (W6-A) stays gated on the ~6-week dogfood clock running since 2026-07-14; non-engineering role expansion stays gated on an honest telemetry source (OQ-003/OQ-004). Nothing below proposes forcing either.
 
+> **Update 2026-07-16 (same day):** the founder signed all six D-TCI decisions — see the ratified rows in
+> [docs/product-signoffs.md](../product-signoffs.md). Outcomes: **D-TCI-1 YES** (managers may see named
+> per-person capability data — the ADR-0038-mold ADR is still required before build), **D-TCI-2 YES**
+> (named per-person spend, behind the admin toggle, default off), **D-TCI-3 YES** (manager role tier),
+> **D-TCI-4 keep the 4-band**, **D-TCI-5 keep growing the 5-card page**, **D-TCI-6 YES** (capability
+> history, via its own ADR). The founder also ratified D12, adopted the recommended OQ-001 pass bar
+> (trailing-1-week `companion_revisit/digest_return` ratio ≥ 2.0, non-empty denominator), and held the
+> W6-A gate per the recommended approach. Consequence for §5: conflicts **C1/C2 are now founder-approved
+> directions** (privacy-reversal ADRs pending), **C6/C7 resolve to the shipped design**, C9 resolves to
+> "build the history table via ADR"; §9's Phase 2 is unblocked and Phase 3's D-TCI-gated items move to
+> "awaiting ADRs", still respecting W6-A. The §5/§9 prose below is kept as written for the record.
+
 ---
 
 ## 3. How to read this analysis
