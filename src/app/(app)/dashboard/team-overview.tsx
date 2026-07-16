@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { Cable, Gauge, UsersRound } from "lucide-react";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
@@ -51,6 +52,7 @@ import { SEGMENT_MIN_PEOPLE_TO_NAME } from "@/lib/segments";
 import { isUsableConnection, syncedToolCount } from "@/lib/onboarding-guide";
 import { timeStage } from "@/lib/request-timing";
 import { computeSignalCoverage } from "@/lib/signal-coverage";
+import { isTeamOverviewView, trackLaunchEvent } from "@/lib/launch-events";
 import { TEAM_OVERVIEW_COPY } from "@/lib/team-overview-copy";
 import {
   connectionAttentionInputs,
@@ -92,6 +94,22 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
       readMaturityView(ctx.scope, todayUtc()),
     ]),
   );
+
+  // TCI §15 team_overview_view (P2-B): the manager-engagement signal for a
+  // team-dashboard view. Emitted HERE, not at the src/worker.ts seam, because
+  // the seam is path-based and `/dashboard` is shared with the personal
+  // companion — only this branch knows the org is a team (page.tsx routed here
+  // on `org.kind !== "personal"`). Content-free by construction: no dim, not
+  // even the org id (same privacy rule as companion_revisit). RSC soft-navs are
+  // excluded (isTeamOverviewView) so a client-side route transition isn't
+  // double-counted, matching companion_revisit at the seam. trackLaunchEvent
+  // no-ops without the LAUNCH_EVENTS binding (plain `next dev`, tests, build)
+  // and never throws; fired after the pageData reads so it adds nothing to TTFB
+  // (writeDataPoint is a synchronous, buffered Analytics Engine write — no
+  // request-path round trip).
+  if (isTeamOverviewView((await headers()).has("rsc"))) {
+    await trackLaunchEvent("team_overview_view");
+  }
   const {
     summary,
     benchmarks,

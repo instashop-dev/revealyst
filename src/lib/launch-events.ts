@@ -36,7 +36,18 @@ export type LaunchEventName =
   //    surface. No dim, no identity: repeated views by returning users are
   //    exactly what the count measures.
   | "digest_return"
-  | "companion_revisit";
+  | "companion_revisit"
+  // TCI §15 manager-engagement instrumentation (P2-B). Fired when the TEAM
+  // dashboard (the TeamOverview branch) is viewed. Unlike the three edge-seam
+  // events above, this one CANNOT fire at the src/worker.ts seam: the team and
+  // personal surfaces share the `/dashboard` path, and the seam is path-based
+  // by design (no DB read), so it cannot tell a team org from a personal one —
+  // `companion_revisit` already counts BOTH. So team_overview_view is emitted
+  // from the TeamOverview server-component render, the one place the org kind
+  // is known (page.tsx branched on `org.kind !== "personal"`). No dim, no
+  // identity (not even the org id — same privacy rule as companion_revisit):
+  // the count of these views over time IS the manager-engagement signal.
+  | "team_overview_view";
 
 /**
  * True for a landing-page view to count under §15 `landing_view`. The Worker
@@ -116,6 +127,23 @@ export function isCompanionRevisit(
     pathname === "/dashboard" &&
     !isRscRequest
   );
+}
+
+/**
+ * TCI §15 team_overview_view signal (P2-B): true when this TeamOverview render
+ * should count as a team-dashboard view. Unlike the seam predicates above, the
+ * method/path are already implied — the caller is the TeamOverview server
+ * component, which only renders for a GET document of `/dashboard` in a team
+ * org — so the only thing left to filter is the RSC soft-navigation, exactly
+ * as `isCompanionRevisit` does at the seam. A client-side route transition to
+ * `/dashboard` re-renders the server component (producing the flight payload)
+ * but is not a fresh view; counting it would also push team_overview_view above
+ * the `companion_revisit` count that conceptually bounds it (companion_revisit
+ * counts non-RSC `/dashboard` views across BOTH personal and team orgs). The
+ * caller passes `headers().has("rsc")`.
+ */
+export function isTeamOverviewView(isRscRequest: boolean): boolean {
+  return !isRscRequest;
 }
 
 /** Pure write: testable, never throws, no-ops without a dataset binding. */

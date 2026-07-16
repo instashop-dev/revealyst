@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   digestReturnDim,
   isCompanionRevisit,
+  isTeamOverviewView,
 } from "../src/lib/launch-events";
 import { appendDigestUtm, renderDigestEmail } from "../src/lib/digest-email";
 import { renderBudgetAlertEmail } from "../src/lib/budget-alert-email";
@@ -47,6 +48,16 @@ describe("isCompanionRevisit", () => {
     expect(isCompanionRevisit("GET", "/dashboard", true)).toBe(false); // RSC soft-nav
     expect(isCompanionRevisit("GET", "/spend", false)).toBe(false);
     expect(isCompanionRevisit("POST", "/dashboard", false)).toBe(false);
+  });
+});
+
+describe("isTeamOverviewView (TCI §15 team-dashboard view, render-path)", () => {
+  it("is true for a full-document render, false for an RSC soft-nav", () => {
+    // The caller (the TeamOverview server component) already implies GET
+    // /dashboard in a team org; the only thing left to filter is the RSC
+    // soft-navigation, matching companion_revisit's RSC exclusion at the seam.
+    expect(isTeamOverviewView(false)).toBe(true);
+    expect(isTeamOverviewView(true)).toBe(false); // RSC soft-nav, not a fresh view
   });
 });
 
