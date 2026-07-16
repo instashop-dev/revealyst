@@ -54,6 +54,15 @@ jobs:
       - name: Rust tests
         working-directory: desktop-agent/src-tauri
         run: cargo test
+      # Privacy tests (spec §26.1) as a DISTINCT, merge-blocking step so a
+      # privacy regression is unmissable, not buried in the general suite above.
+      # Runs only the `privacy::` module tests (policy engine, payload validator,
+      # quarantine + the store-integration scan) with warnings denied.
+      - name: Privacy tests (merge-blocking, spec §26.1)
+        working-directory: desktop-agent/src-tauri
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: cargo test privacy::
       # cargo-audit over the committed Cargo.lock (pinned resolution — a green
       # PR audits the same tree every run). Prebuilt binary via install-action;
       # `cargo install` would recompile cargo-audit from source every run.
