@@ -31,7 +31,7 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
-use crate::deeplink::{PendingAuth, PendingAuthStore};
+use crate::deeplink::PendingAuthStore;
 
 /// Shipped default: the app + Better Auth origin (spec / `docs/infra.md`). A
 /// dev or preview build overrides it at runtime with `REVEALYST_APP_ORIGIN`
@@ -251,14 +251,11 @@ pub async fn run_pairing<R: Runtime>(app: &AppHandle<R>) -> Result<(), AuthError
     }
 
     // 2. arm the callback slot BEFORE opening the browser, so a fast redirect
-    // can never race ahead of the waiter.
+    // can never race ahead of the waiter. `generation` scopes our cleanup to
+    // THIS flow so we can never wipe a newer sign-in's pending.
     let (tx, rx) = oneshot::channel();
     let store = app.state::<PendingAuthStore>();
-    store.arm(PendingAuth {
-        expected_state: state,
-        expected_pairing: start.pairing_id.clone(),
-        sender: tx,
-    });
+    let generation = store.arm(state, start.pairing_id.clone(), tx);
 
     // 3. open the browser to the consent page.
     if app
@@ -266,7 +263,7 @@ pub async fn run_pairing<R: Runtime>(app: &AppHandle<R>) -> Result<(), AuthError
         .open_url(&start.browser_url, None::<&str>)
         .is_err()
     {
-        store.clear();
+        store.clear_if(generation);
         return Err(AuthError::OpenBrowser);
     }
 
@@ -275,7 +272,7 @@ pub async fn run_pairing<R: Runtime>(app: &AppHandle<R>) -> Result<(), AuthError
         Ok(Ok(code)) => code,
         _ => {
             // Timed out, or the sender was dropped (e.g. re-armed by a retry).
-            store.clear();
+            store.clear_if(generation);
             return Err(AuthError::TimedOut);
         }
     };

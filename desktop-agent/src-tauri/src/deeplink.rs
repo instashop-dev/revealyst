@@ -18,10 +18,14 @@
 //! [`first_scheme_url`]) carry no Tauri types so they are unit-testable
 //! without a running app.
 
+use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use tokio::sync::oneshot;
 use url::Url;
+
+use crate::logging::Redact;
 
 /// The custom URI scheme the agent registers.
 pub const SCHEME: &str = "revealyst";
@@ -37,11 +41,26 @@ const CALLBACK_PATH: &str = "/callback";
 /// The three query parameters carried on the callback. `pairing` is optional
 /// on the wire (the authoritative pairing id comes from the start response);
 /// when present it is cross-checked as defence in depth.
-#[derive(Debug, PartialEq, Eq)]
+///
+/// `Debug` is a MANUAL redacting impl, not a derive: `code` is the one-time
+/// secret and `state` the CSRF token, so neither may ever reach a log line —
+/// even via a future `tracing::debug!(?params)` (token-discipline footgun,
+/// spec §23.1). `pairing` is a non-secret handle and shown as-is.
+#[derive(PartialEq, Eq)]
 pub struct CallbackParams {
     pub code: String,
     pub state: String,
     pub pairing: Option<String>,
+}
+
+impl fmt::Debug for CallbackParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CallbackParams")
+            .field("code", &Redact(&self.code))
+            .field("state", &Redact(&self.state))
+            .field("pairing", &self.pairing)
+            .finish()
+    }
 }
 
 /// Why a callback URL was not accepted. Every reason is a fixed,
@@ -103,11 +122,14 @@ pub fn parse_callback(raw: &str) -> Result<CallbackParams, CallbackError> {
 
 /// A sign-in awaiting its browser callback. Holds the `state`/`pairing` the
 /// agent generated and the channel the code is delivered on.
-pub struct PendingAuth {
-    pub expected_state: String,
-    pub expected_pairing: String,
+struct PendingAuth {
+    /// Monotonic id identifying THIS flow, so a stale flow's cleanup can only
+    /// clear its own pending (see [`PendingAuthStore::clear_if`]).
+    generation: u64,
+    expected_state: String,
+    expected_pairing: String,
     /// Delivers the one-time `code` to the waiting [`crate::auth`] flow.
-    pub sender: oneshot::Sender<String>,
+    sender: oneshot::Sender<String>,
 }
 
 /// The outcome of handling one incoming callback URL — used only for logging.
@@ -124,19 +146,55 @@ pub enum CallbackOutcome {
 /// The single in-flight pending sign-in. At most one pairing runs at a time
 /// (the UI drives one), so a single slot is sufficient and keeps single-fire
 /// semantics trivial: a match `take`s the slot.
-#[derive(Default)]
-pub struct PendingAuthStore(Mutex<Option<PendingAuth>>);
+///
+/// Each arm stamps the pending with a monotonic generation id so cleanup is
+/// ownership-scoped: a timed-out flow can only clear ITS OWN pending, never a
+/// newer flow that re-armed the slot. Single-fire correctness therefore does
+/// not rest on the UI serializing sign-ins.
+pub struct PendingAuthStore {
+    slot: Mutex<Option<PendingAuth>>,
+    next_generation: AtomicU64,
+}
+
+impl Default for PendingAuthStore {
+    fn default() -> Self {
+        Self {
+            slot: Mutex::new(None),
+            next_generation: AtomicU64::new(1),
+        }
+    }
+}
 
 impl PendingAuthStore {
-    /// Arm the store for a new sign-in. Replaces any prior pending (the old
-    /// waiter's receiver drops and that flow errors out with a timeout).
-    pub fn arm(&self, pending: PendingAuth) {
-        *self.0.lock().expect("pending-auth mutex poisoned") = Some(pending);
+    /// Arm the store for a new sign-in, returning the generation id that
+    /// identifies THIS flow (pass it to [`Self::clear_if`] on cleanup).
+    /// Replaces any prior pending (the old waiter's receiver drops and that
+    /// flow errors out with a timeout).
+    pub fn arm(
+        &self,
+        expected_state: String,
+        expected_pairing: String,
+        sender: oneshot::Sender<String>,
+    ) -> u64 {
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
+        *self.slot.lock().expect("pending-auth mutex poisoned") = Some(PendingAuth {
+            generation,
+            expected_state,
+            expected_pairing,
+            sender,
+        });
+        generation
     }
 
-    /// Drop any pending sign-in (called on timeout / cancellation).
-    pub fn clear(&self) {
-        *self.0.lock().expect("pending-auth mutex poisoned") = None;
+    /// Drop the pending sign-in ONLY if the slot still holds `generation` —
+    /// so a stale flow's timeout/drop cleanup never wipes a newer flow's
+    /// pending. A no-op if a newer flow (or a completed callback) already
+    /// replaced/consumed the slot.
+    pub fn clear_if(&self, generation: u64) {
+        let mut guard = self.slot.lock().expect("pending-auth mutex poisoned");
+        if guard.as_ref().map(|pending| pending.generation) == Some(generation) {
+            *guard = None;
+        }
     }
 
     /// Handle an incoming callback URL. On a full match, consumes the pending
@@ -151,7 +209,7 @@ impl PendingAuthStore {
             Err(err) => return CallbackOutcome::Rejected(err.reason()),
         };
 
-        let mut guard = self.0.lock().expect("pending-auth mutex poisoned");
+        let mut guard = self.slot.lock().expect("pending-auth mutex poisoned");
         let Some(pending) = guard.as_ref() else {
             // No sign-in in flight, or already consumed → replay/stray.
             return CallbackOutcome::Ignored;
@@ -258,11 +316,7 @@ mod tests {
     fn pending(state: &str) -> (PendingAuthStore, oneshot::Receiver<String>) {
         let store = PendingAuthStore::default();
         let (tx, rx) = oneshot::channel();
-        store.arm(PendingAuth {
-            expected_state: state.to_string(),
-            expected_pairing: "pair-1".to_string(),
-            sender: tx,
-        });
+        store.arm(state.to_string(), "pair-1".to_string(), tx);
         (store, rx)
     }
 
@@ -324,6 +378,52 @@ mod tests {
         assert!(
             rx.try_recv().is_err(),
             "no code delivered on a bad callback"
+        );
+    }
+
+    #[test]
+    fn stale_flow_cleanup_does_not_wipe_a_newer_pending() {
+        let store = PendingAuthStore::default();
+
+        // Flow A arms the slot…
+        let (tx_a, _rx_a) = oneshot::channel();
+        let gen_a = store.arm("state-a".to_string(), "pair-a".to_string(), tx_a);
+
+        // …then flow B re-arms it before A finishes (unreachable via the UI
+        // today, but correctness must not depend on that).
+        let (tx_b, mut rx_b) = oneshot::channel();
+        let gen_b = store.arm("state-b".to_string(), "pair-b".to_string(), tx_b);
+        assert_ne!(gen_a, gen_b, "each arm gets a distinct generation");
+
+        // Flow A times out and runs its ownership-scoped cleanup. It must NOT
+        // clear B's pending, because the slot no longer holds A's generation.
+        store.clear_if(gen_a);
+
+        // B's genuine callback still resolves.
+        let url_b = "revealyst://desktop-auth/callback?code=code-b&state=state-b&pairing=pair-b";
+        assert_eq!(store.handle(url_b), CallbackOutcome::Accepted);
+        assert_eq!(rx_b.try_recv().unwrap(), "code-b");
+
+        // B's own later cleanup is a harmless no-op (slot already consumed).
+        store.clear_if(gen_b);
+    }
+
+    #[test]
+    fn debug_redacts_the_code_and_state() {
+        let params = parse_callback(OK_URL).expect("valid callback parses");
+        let rendered = format!("{params:?}");
+        assert!(
+            !rendered.contains("the-code") && !rendered.contains("the-state"),
+            "code and state must never appear in Debug output: {rendered}"
+        );
+        assert!(
+            rendered.contains("[redacted]"),
+            "fields are redacted: {rendered}"
+        );
+        // The non-secret pairing handle is still shown for diagnostics.
+        assert!(
+            rendered.contains("pair-1"),
+            "pairing handle is shown: {rendered}"
         );
     }
 
