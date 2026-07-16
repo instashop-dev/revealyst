@@ -1,19 +1,52 @@
 //! Revealyst Desktop Agent — Tauri 2 application core.
 //!
 //! Wave M1 app foundation: tray lifecycle, window shells, agent state
-//! machine, structured logging. **No data collection exists** (M3/M5) and
-//! **no network calls are made** — the only outbound action is opening the
-//! Revealyst website in the user's default browser from the tray (validated
-//! against the two Revealyst origins in `lifecycle.rs`).
+//! machine, structured logging. Wave M2 adds browser-based sign-in: the ONLY
+//! network calls are the two PKCE pairing requests in `auth.rs`
+//! (`/api/desktop/auth/start` + `/exchange`); **no data collection exists**
+//! (M3/M5). The resulting device token lives solely in the OS keychain
+//! (`secrets.rs`) and never touches the frontend, logs, or disk.
 
 pub mod allowlist;
+pub mod auth;
 pub mod commands;
+pub mod deeplink;
 pub mod lifecycle;
 pub mod logging;
+pub mod secrets;
 pub mod state;
 pub mod tray;
 
-use tauri::Manager;
+use tauri::{AppHandle, Manager, Runtime};
+use tauri_plugin_deep_link::DeepLinkExt;
+
+/// Route one incoming `revealyst://` URL through the pending-auth store and log
+/// the outcome. The URL itself is NEVER logged — it carries the one-time code
+/// (spec §23.1); only the fixed outcome reason is.
+fn dispatch_deep_link<R: Runtime>(app: &AppHandle<R>, url: &str) {
+    let store = app.state::<deeplink::PendingAuthStore>();
+    match store.handle(url) {
+        deeplink::CallbackOutcome::Accepted => {
+            tracing::info!(
+                component = "deeplink",
+                result = "accepted",
+                "pairing callback accepted"
+            );
+            lifecycle::show_main_window(app);
+        }
+        deeplink::CallbackOutcome::Ignored => tracing::info!(
+            component = "deeplink",
+            result = "ignored",
+            "callback ignored (no pending sign-in or a replay)"
+        ),
+        deeplink::CallbackOutcome::Rejected(reason) => tracing::warn!(
+            component = "deeplink",
+            result = "rejected",
+            error_code = reason,
+            "callback rejected"
+        ),
+    }
+}
 
 /// The agent version, sourced from Cargo.toml so it can never drift from the
 /// crate manifest.
@@ -27,8 +60,14 @@ pub fn run() {
         // A second launch shows + focuses the existing instance instead of
         // starting a duplicate background process (spec §19.1). Must be the
         // first plugin registered.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             lifecycle::show_main_window(app);
+            // On Windows/Linux a deep link fired while the app is already
+            // running re-launches it with the URL as an argv entry, which
+            // single-instance forwards here.
+            if let Some(url) = deeplink::first_scheme_url(&args) {
+                dispatch_deep_link(app, url);
+            }
         }))
         // Autostart is OFF by default and only toggled by the user from the
         // privacy screen via `set_autostart` (plan T1.1).
@@ -39,10 +78,16 @@ pub fn run() {
         // Opener is used ONLY from the Rust side (tray "Open Revealyst",
         // validated allowlist) — the frontend has no opener capability.
         .plugin(tauri_plugin_opener::init())
+        // Deep-link callbacks are handled ONLY on the Rust side (deeplink.rs);
+        // no frontend deep-link capability exists. Production scheme
+        // registration is via tauri.conf.json `plugins.deep-link`.
+        .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
             commands::get_agent_snapshot,
             commands::get_autostart,
             commands::set_autostart,
+            commands::begin_sign_in,
+            commands::is_signed_in,
         ])
         .setup(|app| {
             if let Ok(log_dir) = app.path().app_log_dir() {
@@ -51,6 +96,36 @@ pub fn run() {
                     app.manage(guard);
                 }
             }
+
+            // The single in-flight pairing slot the deep-link handler and the
+            // auth flow share.
+            app.manage(deeplink::PendingAuthStore::default());
+
+            // Register the revealyst:// scheme at runtime on Windows/Linux so
+            // it works in a dev build without an installer. macOS registers it
+            // from the bundle's Info.plist (tauri.conf.json config), where
+            // runtime registration is not supported.
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            {
+                if let Err(error) = app.deep_link().register(deeplink::SCHEME) {
+                    tracing::warn!(
+                        component = "deeplink",
+                        error_code = "scheme_register_failed",
+                        error = %error,
+                        "could not register the deep-link scheme"
+                    );
+                }
+            }
+
+            // Deep links received while the app is running (macOS always;
+            // Windows/Linux cold-start).
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    dispatch_deep_link(&handle, url.as_str());
+                }
+            });
+
             tray::setup_tray(app.handle())?;
             lifecycle::apply_startup_visibility(app.handle());
             tracing::info!(

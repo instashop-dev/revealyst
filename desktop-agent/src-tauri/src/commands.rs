@@ -56,6 +56,32 @@ pub fn get_autostart<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
 
 /// Toggle "start at login". OFF by default; only ever changed by the user
 /// from the privacy screen (plan T1.1: opt-in, "after user approval").
+/// Begin browser-based sign-in (spec §8). Runs the full PKCE pairing dance and
+/// stores the resulting device token in the OS keychain. Returns ONLY a
+/// boolean (`true` = now signed in) — the token never crosses this boundary
+/// (spec §8.3/§22.2). Errors surface as plain-English strings, never a token.
+#[tauri::command]
+pub async fn begin_sign_in<R: Runtime>(app: AppHandle<R>) -> Result<bool, String> {
+    match crate::auth::run_pairing(&app).await {
+        Ok(()) => Ok(true),
+        Err(error) => {
+            tracing::warn!(
+                component = "commands",
+                error_code = error.code(),
+                "sign-in failed"
+            );
+            Err(error.user_message().to_string())
+        }
+    }
+}
+
+/// Whether this computer is signed in — a keychain-token presence check. The
+/// ONLY signed-in signal the frontend can observe (never the token itself).
+#[tauri::command]
+pub fn is_signed_in() -> bool {
+    crate::secrets::has_token()
+}
+
 #[tauri::command]
 pub fn set_autostart<R: Runtime>(app: AppHandle<R>, enabled: bool) -> Result<(), String> {
     let autolaunch = app.autolaunch();
