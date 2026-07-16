@@ -47,8 +47,8 @@ use crate::store::queue::now_ms;
 use crate::store::{Store, StoreError};
 
 use batch::{
-    build_request, prepare_batch, split_events, MAX_COMPRESSED_BYTES, MAX_EVENTS_PER_BATCH,
-    SUMMARIZER_VERSION,
+    build_request, distinct_day_count, prepare_batch, split_events_by_day, MAX_COMPRESSED_BYTES,
+    MAX_EVENTS_PER_BATCH, SUMMARIZER_VERSION,
 };
 use retry::{classify_status, HttpDisposition, RetryPolicy};
 
@@ -190,23 +190,46 @@ impl SyncOutcome {
         }
     }
 
-    /// Fold this outcome into the state-machine inputs. Sync OWNS exactly three
-    /// condition flags — `offline`, `authentication_required`, `degraded` — and
-    /// resets them together so a recovered sync clears a stale problem. Other
-    /// flags (`paused`, `policy_blocked`, …) belong to other subsystems and are
-    /// never touched here. `Busy` is a no-op (it carries no new information).
+    /// Fold this outcome into the state-machine inputs. Sync owns three condition
+    /// flags, with two different lifetimes:
+    ///
+    /// - `offline` / `authentication_required` are FRESH per attempt — each
+    ///   outcome sets exactly the relevant one and clears the other.
+    /// - `degraded` is STICKY (M1): it flags a real drop — a quarantined poison
+    ///   event, or a dropped undecodable batch — whose only visible trace is this
+    ///   flag. It is set by `Degraded` and cleared ONLY by a genuinely successful
+    ///   `Healthy` sync. An `Idle` cycle (empty queue) must NOT clear it, or a
+    ///   permanent data drop's only signal would vanish the moment the queue
+    ///   empties.
+    ///
+    /// `Idle`/`Busy` make no upload attempt, so they leave every flag standing.
+    /// Other flags (`paused`, `policy_blocked`, …) belong to other subsystems and
+    /// are never touched here.
     pub fn apply(&self, inputs: &mut StateInputs) {
-        if *self == SyncOutcome::Busy {
-            return;
-        }
-        inputs.offline = false;
-        inputs.authentication_required = false;
-        inputs.degraded = false;
         match self {
-            SyncOutcome::Healthy | SyncOutcome::Idle | SyncOutcome::Busy => {}
-            SyncOutcome::Offline => inputs.offline = true,
-            SyncOutcome::AuthenticationRequired => inputs.authentication_required = true,
-            SyncOutcome::Degraded => inputs.degraded = true,
+            // No upload attempt — never clear a standing condition (esp. a
+            // sticky `degraded`, M1).
+            SyncOutcome::Idle | SyncOutcome::Busy => {}
+            SyncOutcome::Healthy => {
+                // The only thing that clears the sticky drop signal.
+                inputs.offline = false;
+                inputs.authentication_required = false;
+                inputs.degraded = false;
+            }
+            SyncOutcome::Offline => {
+                inputs.offline = true;
+                inputs.authentication_required = false;
+                // `degraded` is sticky — left as-is.
+            }
+            SyncOutcome::AuthenticationRequired => {
+                inputs.authentication_required = true;
+                inputs.offline = false;
+            }
+            SyncOutcome::Degraded => {
+                inputs.degraded = true;
+                inputs.offline = false;
+                inputs.authentication_required = false;
+            }
         }
     }
 }
@@ -307,9 +330,11 @@ impl<T: IngestTransport> SyncEngine<T> {
         Ok(outcome)
     }
 
-    /// Upload `events`, bisect-splitting on oversize / 413 / 422. Returns the
-    /// most severe outcome across all chunks. Uses an explicit work stack rather
-    /// than async recursion (which would need boxing).
+    /// Upload `events`, DAY-splitting on oversize / 413 / 422 so every sub-batch
+    /// covers a disjoint set of whole days (P0 — see the `batch` module's
+    /// day-window-authoritative invariant). Returns the most severe outcome
+    /// across all chunks. Uses an explicit work stack rather than async recursion
+    /// (which would need boxing).
     async fn flush(
         &self,
         store: &Store,
@@ -325,15 +350,45 @@ impl<T: IngestTransport> SyncEngine<T> {
             }
 
             let request = build_request(&self.agent_version, SUMMARIZER_VERSION, &chunk);
+
+            // M2: never upload a batch with nothing to persist. Such a body would
+            // either delete-then-upsert-nothing (an empty summary with a real
+            // day → data loss) or carry `window.start = ""` (all-undecodable → a
+            // poison 400 retried forever). Skip the POST and purge the events so
+            // the queue can't wedge. If the batch carried gaps (events were
+            // skipped/undecodable), that is a real drop — surface it as degraded.
+            if request.records.is_empty() && request.signals.is_empty() {
+                let ids: Vec<i64> = chunk.iter().map(|e| e.id).collect();
+                store.purge_events(&ids)?;
+                if !request.gaps.is_empty() {
+                    tracing::warn!(
+                        component = "sync",
+                        error_code = "empty_batch_dropped",
+                        "dropped a batch with no persistable rows (skipped/undecodable events)"
+                    );
+                    worst = worst.worsen(SyncOutcome::Degraded);
+                }
+                continue;
+            }
+
             let prepared = prepare_batch(request, &chunk)?;
 
             // Proactive size cap (spec §14.3): a body over 1 MB compressed is
-            // split BEFORE upload, reusing the bisect mechanism.
-            if prepared.gzip_body.len() > MAX_COMPRESSED_BYTES && chunk.len() > 1 {
-                let (left, right) = split_events(chunk);
-                stack.push(left);
-                stack.push(right);
-                continue;
+            // DAY-split before upload (never count-split — that overlaps
+            // windows). A single day too big to fit is sent whole (can't be split
+            // without corrupting the window); Phase 1 never reaches this.
+            if prepared.gzip_body.len() > MAX_COMPRESSED_BYTES {
+                if distinct_day_count(&chunk) > 1 {
+                    let (left, right) = split_events_by_day(chunk);
+                    stack.push(left);
+                    stack.push(right);
+                    continue;
+                }
+                tracing::warn!(
+                    component = "sync",
+                    error_code = "oversized_single_day",
+                    "sending a single day that exceeds the size cap whole (cannot split without overlapping windows)"
+                );
             }
 
             // Crash-safe short-circuit: a receipt for this exact batch means a
@@ -361,22 +416,25 @@ impl<T: IngestTransport> SyncEngine<T> {
                     store.purge_events(&prepared.event_ids)?;
                 }
                 UploadResult::SplitBisect => {
-                    if chunk.len() == 1 {
-                        // A single event the server rejects as invalid/too-large
-                        // (413/422) cannot be split further. Quarantine it so it
-                        // never wedges the whole queue behind a poison pill, and
-                        // mark degraded. Loud, never silent.
+                    if distinct_day_count(&chunk) > 1 {
+                        // Bisect on a DAY boundary so the halves keep disjoint
+                        // windows (P0).
+                        let (left, right) = split_events_by_day(chunk);
+                        stack.push(left);
+                        stack.push(right);
+                    } else {
+                        // A SINGLE day the server rejects (413/422) cannot be
+                        // split without overlapping windows. Quarantine the whole
+                        // day so it never wedges the queue behind a poison pill,
+                        // and mark degraded. Loud, never silent. (Phase 1: a day
+                        // is ~one event.)
                         tracing::warn!(
                             component = "sync",
-                            error_code = "event_quarantined",
-                            "dropping a single event the server rejected (413/422)"
+                            error_code = "day_quarantined",
+                            "dropping a single day the server rejected (413/422)"
                         );
                         store.purge_events(&prepared.event_ids)?;
                         worst = worst.worsen(SyncOutcome::Degraded);
-                    } else {
-                        let (left, right) = split_events(chunk);
-                        stack.push(left);
-                        stack.push(right);
                     }
                 }
                 UploadResult::AuthRequired => {
@@ -594,6 +652,130 @@ mod tests {
         )
     }
 
+    /// A `usage_summary` event for a NAMED subject on `day` (one prompts record).
+    fn summary_event_for(event_id: &str, subject: &str, day: &str) -> NewEvent {
+        NewEvent::analytics_only(
+            event_id,
+            "claude_code",
+            batch::USAGE_SUMMARY_EVENT_TYPE,
+            0,
+            json!({
+                "subject": { "kind": "person", "externalId": subject },
+                "day": day,
+                "records": [
+                    { "metricKey": "prompts", "value": 1, "attribution": "person" }
+                ]
+            }),
+        )
+    }
+
+    /// An event the batch builder cannot decode into a summary (unknown type),
+    /// so it carries nothing persistable.
+    fn undecodable_event(event_id: &str) -> NewEvent {
+        NewEvent::analytics_only(event_id, "claude_code", "some_future_type", 0, json!({}))
+    }
+
+    /// A transport that FAITHFULLY SIMULATES the server's destructive ingest:
+    /// each accepted POST runs `deleteWindow(start..=end)` (removes every stored
+    /// row whose day is in that inclusive range) then upserts the batch's rows —
+    /// "a push is authoritative for its window". This is what makes the P0
+    /// data-loss hazard observable: with an overlapping-window (count) split, a
+    /// later push's window-delete erases an earlier push's rows; with a
+    /// day-disjoint split it cannot. `statuses` is a scripted status sequence
+    /// (extra calls default to 200).
+    /// A natural key persisted server-side: `(subject_externalId, metricKey)`.
+    type NaturalKey = (String, String);
+    /// The simulated server store: day -> set of natural keys currently present.
+    type DayRows = std::collections::BTreeMap<String, std::collections::BTreeSet<NaturalKey>>;
+
+    struct SimTransport {
+        statuses: Mutex<VecDeque<u16>>,
+        rows: Mutex<DayRows>,
+        calls: Mutex<usize>,
+    }
+
+    impl SimTransport {
+        fn new(statuses: Vec<u16>) -> Self {
+            SimTransport {
+                statuses: Mutex::new(statuses.into_iter().collect()),
+                rows: Mutex::new(DayRows::new()),
+                calls: Mutex::new(0),
+            }
+        }
+
+        fn calls(&self) -> usize {
+            *self.calls.lock().unwrap()
+        }
+
+        /// Every persisted `(day, subject)` tuple — the ground truth to assert no
+        /// day's data was lost.
+        fn persisted(&self) -> std::collections::BTreeSet<(String, String)> {
+            let rows = self.rows.lock().unwrap();
+            let mut out = std::collections::BTreeSet::new();
+            for (day, keys) in rows.iter() {
+                for (subject, _metric) in keys {
+                    out.insert((day.clone(), subject.clone()));
+                }
+            }
+            out
+        }
+    }
+
+    impl IngestTransport for SimTransport {
+        async fn post(
+            &self,
+            request: TransportRequest<'_>,
+        ) -> Result<TransportResponse, TransportError> {
+            use flate2::read::GzDecoder;
+            use std::io::Read;
+            *self.calls.lock().unwrap() += 1;
+
+            let mut decoder = GzDecoder::new(request.gzip_body);
+            let mut out = Vec::new();
+            decoder.read_to_end(&mut out).expect("sim body is gzip");
+            let body: batch::IngestRequest =
+                serde_json::from_slice(&out).expect("sim body is a valid IngestRequest");
+
+            let code = self.statuses.lock().unwrap().pop_front().unwrap_or(200);
+
+            if (200..300).contains(&code) {
+                let mut rows = self.rows.lock().unwrap();
+                // deleteWindow(start..=end): remove every stored day in range.
+                let start = body.window.start.clone();
+                let end = body.window.end.clone();
+                let doomed: Vec<String> = rows
+                    .keys()
+                    .filter(|d| **d >= start && **d <= end)
+                    .cloned()
+                    .collect();
+                for day in doomed {
+                    rows.remove(&day);
+                }
+                // upsert the batch's rows.
+                for record in &body.records {
+                    rows.entry(record.day.clone()).or_default().insert((
+                        record.subject.external_id.clone(),
+                        record.metric_key.clone(),
+                    ));
+                }
+            }
+
+            Ok(TransportResponse {
+                status: code,
+                body: Vec::new(),
+            })
+        }
+    }
+
+    fn engine_sim(sim: SimTransport, max_attempts: u32) -> SyncEngine<SimTransport> {
+        SyncEngine::with_transport(
+            sim,
+            RetryPolicy::no_delay(max_attempts),
+            "https://app.example.test/api/agent/ingest".to_string(),
+            "0.1.0".to_string(),
+        )
+    }
+
     fn enrolled_state(outcome: SyncOutcome) -> AgentState {
         let mut inputs = StateInputs {
             enrolled: true,
@@ -768,6 +950,119 @@ mod tests {
             0,
             "every split half is accepted and purged"
         );
+    }
+
+    /// P0 REGRESSION (data loss): a multi-subject queue where one DAY straddles
+    /// the count-midpoint, simulated against a server that deletes-window-then-
+    /// upserts. A count-based split would give the two halves OVERLAPPING
+    /// windows, and the later push's window-delete would erase the earlier's
+    /// same-day rows. The day-based split keeps every day whole in ONE push, so
+    /// NO day's data is lost. (This test loses `2026-01-03/X` under the old
+    /// count split; it passes under the day split.)
+    #[tokio::test]
+    async fn day_split_never_loses_a_straddling_days_rows() {
+        let store = Store::open_in_memory(key()).unwrap();
+        // Queue order (row-id/FIFO) interleaves two subjects on 2026-01-03 across
+        // the middle of the four events — the exact count-split hazard.
+        store
+            .enqueue_and_checkpoint(
+                "claude_code",
+                &[
+                    summary_event_for("e1", "P", "2026-01-01"),
+                    summary_event_for("e2", "Q", "2026-01-03"),
+                    summary_event_for("e3", "X", "2026-01-03"),
+                    summary_event_for("e4", "R", "2026-01-05"),
+                ],
+                "cp",
+            )
+            .unwrap();
+
+        // Full batch → 413 (forces a split); each resulting sub-batch → 200,
+        // with the server applying delete-window-then-upsert on each.
+        let engine = engine_sim(SimTransport::new(vec![413, 200, 200]), 3);
+        let outcome = engine.sync_once(&store, "rva1.tok").await.unwrap();
+
+        assert_eq!(outcome, SyncOutcome::Healthy);
+        assert_eq!(store.pending_count().unwrap(), 0, "all events uploaded");
+
+        // Ground truth: every (day, subject) survived — nothing clobbered.
+        let expected: std::collections::BTreeSet<(String, String)> = [
+            ("2026-01-01", "P"),
+            ("2026-01-03", "Q"),
+            ("2026-01-03", "X"),
+            ("2026-01-05", "R"),
+        ]
+        .iter()
+        .map(|(d, s)| (d.to_string(), s.to_string()))
+        .collect();
+        assert_eq!(
+            engine.transport.persisted(),
+            expected,
+            "no day's data may be lost across the split (P0)"
+        );
+    }
+
+    /// M2 (poison 400): a cycle whose events are ALL undecodable produces a body
+    /// with no records and `window.start = ""`. It must be SKIPPED (never POSTed
+    /// — the mock has no replies and would panic on any upload), the events
+    /// purged so the queue can't wedge, and the drop surfaced as degraded.
+    #[tokio::test]
+    async fn all_undecodable_batch_is_skipped_not_posted() {
+        let store = Store::open_in_memory(key()).unwrap();
+        store
+            .enqueue_and_checkpoint(
+                "claude_code",
+                &[undecodable_event("e1"), undecodable_event("e2")],
+                "cp",
+            )
+            .unwrap();
+
+        let engine = engine(MockTransport::new(vec![]), 3);
+        let outcome = engine.sync_once(&store, "rva1.tok").await.unwrap();
+
+        assert_eq!(outcome, SyncOutcome::Degraded, "the drop is surfaced");
+        assert_eq!(engine.transport.calls(), 0, "an empty body is never POSTed");
+        assert_eq!(
+            store.pending_count().unwrap(),
+            0,
+            "the undecodable events are purged so the queue can't wedge"
+        );
+    }
+
+    /// M1 (honesty): a quarantine's `degraded` signal must SURVIVE a subsequent
+    /// empty-queue `Idle` cycle — otherwise a permanent data drop's only visible
+    /// state vanishes the moment the queue empties.
+    #[tokio::test]
+    async fn quarantine_degraded_survives_a_later_idle_cycle() {
+        let store = Store::open_in_memory(key()).unwrap();
+        store
+            .enqueue_and_checkpoint("claude_code", &[summary_event("e1", "2026-07-15", 3)], "cp")
+            .unwrap();
+
+        let mut inputs = StateInputs {
+            enrolled: true,
+            ..StateInputs::default()
+        };
+
+        // Cycle 1: the single day is rejected (422) → quarantined → Degraded.
+        let engine = engine(MockTransport::new(vec![status(422)]), 3);
+        let first = engine.sync_once(&store, "rva1.tok").await.unwrap();
+        assert_eq!(first, SyncOutcome::Degraded);
+        first.apply(&mut inputs);
+        assert!(inputs.degraded);
+        assert_eq!(resolve_state(&inputs), AgentState::Degraded);
+
+        // Cycle 2: the queue is now empty → Idle. The degraded flag must PERSIST
+        // (only a real Healthy sync clears it).
+        let engine2 = engine(MockTransport::new(vec![]), 3);
+        let second = engine2.sync_once(&store, "rva1.tok").await.unwrap();
+        assert_eq!(second, SyncOutcome::Idle);
+        second.apply(&mut inputs);
+        assert!(
+            inputs.degraded,
+            "an Idle cycle must not erase a standing quarantine's degraded signal"
+        );
+        assert_eq!(resolve_state(&inputs), AgentState::Degraded);
     }
 
     /// A single event the server keeps rejecting (413/422) is quarantined so it

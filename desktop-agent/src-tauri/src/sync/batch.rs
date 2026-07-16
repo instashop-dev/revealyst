@@ -21,6 +21,32 @@
 //! the T3.3 validator + the queue's structural no-text-column floor). The batch
 //! builder only re-shapes already-validated queued summaries; it never reads
 //! raw content.
+//!
+//! ## Day-window-authoritative invariant (P0 — do not break)
+//!
+//! The server ingest is **destructive per whole day-range**: it runs
+//! `deleteWindowForConnection(window.start ..= window.end)` — deleting EVERY row
+//! whose day falls in that inclusive range — and then upserts the batch ("a push
+//! is authoritative for its window", `src/lib/agent-ingest.ts`). A batch's
+//! `window` is the min/max day of the rows it carries. Two consequences the
+//! split path MUST respect:
+//!
+//! 1. **Splitting is BY DAY, never by event count.** If a single day's rows are
+//!    divided across two sub-batches, the two sub-batches get OVERLAPPING
+//!    windows; uploaded sequentially, the second's window-delete erases the
+//!    first's just-committed rows → silent data loss. [`split_events_by_day`]
+//!    partitions on a day boundary so every sub-batch covers a DISJOINT set of
+//!    whole days and no two windows overlap. A day is never split.
+//! 2. **A batch with no rows is never uploaded.** An empty-`records`/empty-
+//!    `signals` body would delete its window and upsert nothing (data loss), and
+//!    an all-undecodable batch would carry `window.start = ""` (a poison 400).
+//!    The engine skips the POST entirely for such a batch (see `sync/mod.rs`).
+//!
+//! Edge case: a SINGLE day whose rows alone exceed the 250-event / 1 MB caps
+//! cannot be split without overlapping windows, so it is sent WHOLE (logged).
+//! Phase 1 (D-DA-2, Personal orgs only) is one subject per day — a day is ~one
+//! event — so this cannot occur yet, but it is handled explicitly rather than
+//! corrupting the window.
 
 use std::collections::HashSet;
 
@@ -178,12 +204,17 @@ pub struct PreparedBatch {
 /// - Subjects are deduped by `(kind, externalId)` in first-seen order.
 /// - Records and signals are concatenated in event order (stable), so the
 ///   output is deterministic — the contract test depends on this.
-/// - `window` is the min/max of every event's `day` (lexicographic == calendar
-///   for `YYYY-MM-DD`), so it is defined even for a gap-only batch and every
-///   record/signal day lands inside it (the server rejects out-of-window days).
-/// - An event whose `event_type` is not [`USAGE_SUMMARY_EVENT_TYPE`], or whose
-///   payload fails to decode, is skipped and recorded as an `other` gap — the
-///   builder never partial-parses an unknown shape (honesty over guessing).
+/// - `window` is the min/max of every INCLUDED event's `day` (lexicographic ==
+///   calendar for `YYYY-MM-DD`), so every record/signal day lands inside it (the
+///   server rejects out-of-window days).
+/// - An event whose `event_type` is not [`USAGE_SUMMARY_EVENT_TYPE`], whose
+///   payload fails to decode, OR whose `day` is not a valid `YYYY-MM-DD` is
+///   skipped and recorded as an `other` gap — the builder never partial-parses
+///   an unknown shape (honesty over guessing) and never emits a malformed day
+///   that would poison the window (M2). A batch that ends up with zero
+///   records/signals must NOT be uploaded (the engine enforces this) — uploading
+///   an empty body would delete-then-upsert-nothing (data loss) or POST
+///   `start = ""` (a 400).
 pub fn build_request(
     agent_version: &str,
     summarizer_version: i64,
@@ -221,6 +252,16 @@ pub fn build_request(
                 continue;
             }
         };
+
+        if !is_valid_day(&payload.day) {
+            // A malformed day would poison the window (M2). Skip + note, never
+            // emit it; the server day regex would 400 the whole batch.
+            gaps.push(HonestyGap {
+                kind: "other".to_string(),
+                detail: Some("skipped a summary with a malformed day".to_string()),
+            });
+            continue;
+        }
 
         widen_window(&mut min_day, &mut max_day, &payload.day);
 
@@ -325,13 +366,78 @@ pub fn deterministic_batch_id(events: &[PendingEvent]) -> String {
     hex
 }
 
-/// Split an event set into two roughly-equal halves for bisect retry. The
-/// caller guarantees `len >= 2`, so both halves are non-empty.
-pub fn split_events(events: Vec<PendingEvent>) -> (Vec<PendingEvent>, Vec<PendingEvent>) {
-    let mid = events.len() / 2;
-    let mut left = events;
-    let right = left.split_off(mid);
+/// The parseable `YYYY-MM-DD` day of an event, or `None` if it is not a
+/// decodable `usage_summary` with a valid day (an unknown type, an unreadable
+/// payload, or a malformed day). Such events carry nothing persistable — they
+/// contribute no records and no window.
+pub fn event_day(event: &PendingEvent) -> Option<String> {
+    if event.event_type != USAGE_SUMMARY_EVENT_TYPE {
+        return None;
+    }
+    let payload: UsageSummaryPayload = serde_json::from_value(event.payload.clone()).ok()?;
+    if is_valid_day(&payload.day) {
+        Some(payload.day)
+    } else {
+        None
+    }
+}
+
+/// How many DISTINCT valid days the event set spans. Dayless events (see
+/// [`event_day`]) are not counted — they carry no window. The engine uses this
+/// to decide whether a chunk can be day-split (`> 1`) or must be sent whole /
+/// quarantined (`<= 1`).
+pub fn distinct_day_count(events: &[PendingEvent]) -> usize {
+    events
+        .iter()
+        .filter_map(event_day)
+        .collect::<HashSet<_>>()
+        .len()
+}
+
+/// Split an event set on a DAY boundary so the two halves cover DISJOINT sets of
+/// whole days — the load-bearing P0 invariant (see the module docs): a day is
+/// never divided, and the two resulting windows never overlap, so no sub-batch's
+/// destructive window-delete can erase another's committed rows.
+///
+/// The boundary is the median distinct day: `left` gets every event on a day
+/// STRICTLY BEFORE it, `right` gets the rest (including dayless events, which
+/// carry no window and ride along harmlessly). The caller guarantees
+/// `distinct_day_count(&events) >= 2`, so both halves are non-empty and `left`'s
+/// max day is strictly less than `right`'s min day.
+pub fn split_events_by_day(events: Vec<PendingEvent>) -> (Vec<PendingEvent>, Vec<PendingEvent>) {
+    let mut days: Vec<String> = events
+        .iter()
+        .filter_map(event_day)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    days.sort_unstable();
+    // With >= 2 distinct days, the median index is >= 1, so at least one day is
+    // strictly before the boundary (non-empty left) and the boundary day itself
+    // is in the right (non-empty right).
+    let boundary = days[days.len() / 2].clone();
+
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    for event in events {
+        match event_day(&event) {
+            Some(day) if day < boundary => left.push(event),
+            _ => right.push(event),
+        }
+    }
     (left, right)
+}
+
+/// Whether `s` is a `YYYY-MM-DD` calendar day (shape only — the server does the
+/// full validation; this backstops the window against a malformed day, M2).
+pub fn is_valid_day(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && b[0..4].iter().all(u8::is_ascii_digit)
+        && b[5..7].iter().all(u8::is_ascii_digit)
+        && b[8..10].iter().all(u8::is_ascii_digit)
 }
 
 /// Track the min/max `YYYY-MM-DD` day seen (lexicographic == chronological).
@@ -516,16 +622,92 @@ mod tests {
         assert_eq!(id_ab.len(), 64, "sha-256 hex is 64 chars");
     }
 
+    /// A `usage_summary` event on `day` for `subject` with one prompts record.
+    fn day_event(id: i64, subject: &str, day: &str) -> PendingEvent {
+        event(
+            id,
+            &format!("e{id}"),
+            USAGE_SUMMARY_EVENT_TYPE,
+            json!({
+                "subject": { "kind": "person", "externalId": subject },
+                "day": day,
+                "records": [ { "metricKey": "prompts", "value": 1, "attribution": "person" } ]
+            }),
+        )
+    }
+
+    /// P0: splitting is BY DAY, so the two halves' windows are DISJOINT and a
+    /// day is never divided across them — even when the same day's events are
+    /// interleaved in the queue and would straddle a naive count midpoint.
     #[test]
-    fn split_halves_are_nonempty_and_partition_the_set() {
-        let events: Vec<PendingEvent> = (0..5)
-            .map(|i| event(i, &format!("e{i}"), USAGE_SUMMARY_EVENT_TYPE, json!({})))
+    fn split_by_day_produces_disjoint_windows() {
+        // Queue order interleaves subjects on the same day (01-03), so a
+        // count-midpoint split would put 01-03 on BOTH sides (overlapping
+        // windows). Day-splitting must keep 01-03 whole.
+        let events = vec![
+            day_event(1, "P", "2026-01-01"),
+            day_event(2, "Q", "2026-01-03"),
+            day_event(3, "X", "2026-01-03"),
+            day_event(4, "R", "2026-01-05"),
+        ];
+        let (left, right) = split_events_by_day(events);
+        assert!(
+            !left.is_empty() && !right.is_empty(),
+            "both halves non-empty"
+        );
+
+        let left_days: HashSet<String> = left.iter().filter_map(event_day).collect();
+        let right_days: HashSet<String> = right.iter().filter_map(event_day).collect();
+        assert!(
+            left_days.is_disjoint(&right_days),
+            "no day may appear in both halves: {left_days:?} vs {right_days:?}"
+        );
+        // Strict window separation: left's max day < right's min day.
+        let left_max = left_days.iter().max().unwrap();
+        let right_min = right_days.iter().min().unwrap();
+        assert!(
+            left_max < right_min,
+            "windows must not overlap: left max {left_max}, right min {right_min}"
+        );
+        // 01-03 lands wholly on one side (both Q and X together).
+        let day3: Vec<&str> = left
+            .iter()
+            .chain(right.iter())
+            .filter(|e| event_day(e).as_deref() == Some("2026-01-03"))
+            .map(|e| e.event_id.as_str())
             .collect();
-        let (left, right) = split_events(events);
-        assert_eq!(left.len(), 2);
-        assert_eq!(right.len(), 3);
-        assert_eq!(left[0].event_id, "e0");
-        assert_eq!(right[0].event_id, "e2");
+        assert_eq!(day3.len(), 2, "both 01-03 events survive the split");
+    }
+
+    #[test]
+    fn distinct_day_count_ignores_dayless_events() {
+        let events = vec![
+            day_event(1, "P", "2026-01-01"),
+            day_event(2, "Q", "2026-01-01"),
+            event(3, "bad", "unknown_type", json!({})),
+        ];
+        // Two events share a day, one is dayless → exactly one distinct day.
+        assert_eq!(distinct_day_count(&events), 1);
+    }
+
+    #[test]
+    fn malformed_or_missing_day_is_skipped_not_emitted() {
+        let events = vec![
+            day_event(1, "P", "2026-01-01"),
+            event(
+                2,
+                "bad",
+                USAGE_SUMMARY_EVENT_TYPE,
+                json!({ "subject": { "kind": "person", "externalId": "Q" }, "day": "07/15", "records": [ { "metricKey": "prompts", "value": 9, "attribution": "person" } ] }),
+            ),
+        ];
+        let request = build_request("0.1.0", 1, &events);
+        // Only the valid-day record survives; the malformed day never reaches
+        // the window (which would 400 the whole batch).
+        assert_eq!(request.records.len(), 1);
+        assert_eq!(request.window.start, "2026-01-01");
+        assert_eq!(request.window.end, "2026-01-01");
+        assert!(request.gaps.iter().any(|g| g.kind == "other"));
     }
 
     #[test]
