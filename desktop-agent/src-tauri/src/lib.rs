@@ -13,6 +13,7 @@ pub mod commands;
 pub mod deeplink;
 pub mod lifecycle;
 pub mod logging;
+pub mod privacy;
 pub mod secrets;
 pub mod state;
 pub mod store;

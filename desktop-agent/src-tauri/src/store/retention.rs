@@ -100,6 +100,21 @@ impl Store {
             .map_err(|_| StoreError::Query)?;
         Ok(())
     }
+
+    /// Count diagnostics-state rows of a given `kind`. Used by the privacy
+    /// engine (T3.3) to surface the quarantine total without reaching into the
+    /// store's SQL — the count is the only thing a quarantine leaves behind
+    /// (spec §16.3: quarantined events are counted, never uploaded).
+    pub fn diagnostic_count(&self, kind: &str) -> Result<i64, StoreError> {
+        let guard = self.lock()?;
+        guard
+            .query_row(
+                "SELECT count(*) FROM diagnostics_state WHERE kind = ?1",
+                [kind],
+                |row| row.get(0),
+            )
+            .map_err(|_| StoreError::Query)
+    }
 }
 
 #[cfg(test)]
