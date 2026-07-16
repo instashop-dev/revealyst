@@ -89,6 +89,30 @@ or a hand-edit to the JSON — cannot merge. The artifact is pinned to LF via
 `.gitattributes` so `core.autocrlf` checkouts don't break the byte
 comparison.
 
+## Encrypted local store (T3.2)
+
+`src-tauri/src/store/` is the encrypted local queue (spec §13). `Store::open`
+creates `agent.db` (the spec §13.1 tables) and the single write path for
+collected activity is `Store::enqueue_and_checkpoint`, which guarantees the
+**queue-before-checkpoint** invariant (spec §13.2): events are committed to the
+queue *before* the connector checkpoint advances, so a crash yields a duplicate
+(server-deduped) and never a gap. `Store::sweep(now)` applies the §13.3
+retention windows (events/receipts 30 days, diagnostics 7 days; checkpoints
+kept until connector reset).
+
+**Encryption decision (plan risk #3): application-layer field encryption, NOT
+SQLCipher.** `rusqlite` is used with the `bundled` feature (plain SQLite,
+compiled by the C toolchain Tauri already needs — no OpenSSL, matching the
+tree's rustls posture), and the sensitive `pending_events.payload` column is
+encrypted with AES-256-GCM (`aes-gcm`, pure Rust) before it touches disk. The
+32-byte key is generated on first init and stored ONLY in the OS keychain
+(`secrets.rs`, a new `db-encryption-key` account distinct from the device
+token). The full rationale + the **privacy-disclosure delta** the T5.4 privacy
+screen must render (schema/bookkeeping is readable if the file is copied; the
+queued activity contents are not) live in `src-tauri/src/store/mod.rs`. If CI
+ever fails to compile the `bundled` SQLite, that is a runner C-toolchain issue,
+not a pivot back to SQLCipher (this fallback is already the low-risk option).
+
 ## CI
 
 `.github/workflows/desktop-ci.yml` runs on PRs touching `desktop-agent/**`:

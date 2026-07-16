@@ -43,6 +43,14 @@ keyring = { version = "3", features = ["apple-native", "windows-native"] }
 sha2 = "0.10"
 base64 = "0.22"
 getrandom = "0.2"
+# Encrypted local store + queue (store/, spec §13, plan T3.2). SQLCipher is
+# deliberately NOT used (risk #3): `rusqlite` `bundled` compiles the SQLite
+# amalgamation with the C toolchain Tauri already needs — no OpenSSL, matching
+# the tree's rustls posture — and `aes-gcm` (pure-Rust RustCrypto) encrypts the
+# payload columns at the application layer. See src/store/mod.rs for the full
+# decision + the privacy-disclosure delta.
+rusqlite = { version = "0.32", features = ["bundled"] }
+aes-gcm = "0.10"
 uuid = { version = "1", features = ["v4"] }
 url = "2"
 hostname = "0.4"

@@ -26,8 +26,19 @@ const SERVICE: &str = "com.revealyst.desktop";
 /// pairing overwrites it (re-enrollment), never accumulates entries.
 const ACCOUNT: &str = "device-token";
 
+/// Fixed account for the local-store payload-encryption key (plan T3.2). A
+/// SEPARATE keychain entry from the device token so the two secrets are
+/// independent — the store key is generated on first store init and is the
+/// AES-256-GCM key that encrypts the queued analytics payloads. It never
+/// touches the database, config, logs, or the frontend.
+const DB_KEY_ACCOUNT: &str = "db-encryption-key";
+
 fn entry() -> Result<Entry, Error> {
     Entry::new(SERVICE, ACCOUNT)
+}
+
+fn db_key_entry() -> Result<Entry, Error> {
+    Entry::new(SERVICE, DB_KEY_ACCOUNT)
 }
 
 /// Read the token from a specific entry, mapping "no credential" to `Ok(None)`
@@ -74,6 +85,28 @@ pub fn has_token() -> bool {
 /// success.
 pub fn delete_token() -> Result<(), Error> {
     remove_token(&entry()?)
+}
+
+/// Store (or overwrite) the base64-encoded local-store encryption key. Called
+/// once at first store init (plan T3.2); a distinct account from the device
+/// token.
+pub(crate) fn store_db_key(encoded: &str) -> Result<(), Error> {
+    db_key_entry()?.set_password(encoded)
+}
+
+/// Read the base64-encoded local-store encryption key, if one exists.
+/// `Ok(None)` on first run, before the store has been initialised.
+///
+/// `pub(crate)`: the store (`crate::store::crypto`) needs the value Rust-side,
+/// but like the device token it must never cross the Tauri command boundary.
+pub(crate) fn get_db_key() -> Result<Option<String>, Error> {
+    read_token(&db_key_entry()?)
+}
+
+/// Remove the stored local-store encryption key. Absence is success. Wiping it
+/// makes the encrypted payloads unrecoverable by design (disconnect/reset).
+pub fn delete_db_key() -> Result<(), Error> {
+    remove_token(&db_key_entry()?)
 }
 
 #[cfg(test)]
@@ -139,5 +172,31 @@ mod tests {
         assert!(!has_token(), "has_token is false with nothing stored");
         assert_eq!(get_token().unwrap(), None);
         delete_token().expect("delete_token is a no-op when absent");
+    }
+
+    /// The DB-key entry round-trips on a single entry (the mock keystore has no
+    /// cross-`Entry` persistence, exactly like the device-token test) and is a
+    /// DISTINCT account from the device token — storing one never surfaces via
+    /// the other.
+    #[test]
+    fn db_key_round_trips_on_its_own_account() {
+        init_mock();
+        let db = db_key_entry().expect("mock db-key entry builds");
+
+        assert_eq!(read_token(&db).unwrap(), None, "absent → None");
+        db.set_password("YmFzZTY0LWtleQ==").unwrap();
+        assert_eq!(
+            read_token(&db).unwrap().as_deref(),
+            Some("YmFzZTY0LWtleQ==")
+        );
+        remove_token(&db).expect("delete succeeds");
+        assert_eq!(read_token(&db).unwrap(), None);
+    }
+
+    /// The device-token and DB-key accounts are different strings, so the two
+    /// secrets can never collide in the OS store.
+    #[test]
+    fn db_key_and_token_accounts_are_distinct() {
+        assert_ne!(ACCOUNT, DB_KEY_ACCOUNT);
     }
 }
