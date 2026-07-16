@@ -1,8 +1,19 @@
 import type { Db } from "../db/client";
-import { forOrg } from "../db/org-scope";
-import { parseAgentToken, timingSafeEqualStr } from "./agent-token";
 import type { CredentialEnv } from "./credentials";
+import {
+  authenticateDeviceToken,
+  type DeviceTokenAuthSuccess,
+} from "./device-token";
 import { decodeOtelMetrics } from "./otel-ingest";
+
+// Device-token auth moved to src/lib/device-token.ts (T2.1) so agent-ingest,
+// /v1/metrics, and /v1/logs share one verifier. Re-exported here because the
+// /v1/* routes and tests historically import it from this module.
+export {
+  authenticateDeviceToken,
+  type DeviceTokenAuthResult,
+  type DeviceTokenAuthSuccess,
+} from "./device-token";
 
 // W7-8 OTel receiver (ADR 0039). Ingests Claude Code OTLP/HTTP-JSON metric
 // exports and lands proficiency MARKERS in metric_records. Reuses the same
@@ -22,72 +33,6 @@ export type OtelReceiverOutcome = {
   body: Record<string, unknown>;
   markersIngested?: number;
 };
-
-/** A device-token auth failure — shared shape for any /v1/* OTLP route. */
-type DeviceTokenAuthFailure = {
-  ok: false;
-  status: 401 | 403;
-  body: Record<string, unknown>;
-};
-
-/** A successful device-token auth — the org scope + connection to act on. */
-export type DeviceTokenAuthSuccess = {
-  ok: true;
-  orgId: string;
-  connectionId: string;
-  scoped: ReturnType<typeof forOrg>;
-};
-
-export type DeviceTokenAuthResult =
-  | DeviceTokenAuthSuccess
-  | DeviceTokenAuthFailure;
-
-const unauthorized: DeviceTokenAuthFailure = {
-  ok: false,
-  status: 401,
-  body: { error: "invalid device token" },
-};
-
-/**
- * Authenticate a `/v1/*` OTLP request by its bearer device token — identical
- * scheme to agent-ingest: parse the `rva1.<orgId>.<connectionId>.<secret>`
- * token, look up the connection, and timing-safe-compare the stored secret.
- * Shared by BOTH `/v1/metrics` and `/v1/logs` so their 401/403 semantics never
- * drift apart: 401 for a missing/malformed/wrong-kind token or connection,
- * 403 only once authenticated but the connection is paused. Cheap and run
- * BEFORE the request body is parsed.
- */
-export async function authenticateDeviceToken(
-  db: Db,
-  env: CredentialEnv,
-  bearerToken: string,
-): Promise<DeviceTokenAuthResult> {
-  const token = parseAgentToken(bearerToken);
-  if (!token) return unauthorized;
-
-  const scoped = forOrg(db, token.orgId);
-  const connection = await scoped.connections.get(token.connectionId);
-  if (!connection || connection.authKind !== "device_token") return unauthorized;
-  try {
-    await scoped.connections.withCredential(
-      token.connectionId,
-      "device_token",
-      env,
-      async (stored) => {
-        if (!timingSafeEqualStr(stored, token.secret)) {
-          throw new Error("device token mismatch");
-        }
-      },
-    );
-  } catch {
-    return unauthorized;
-  }
-  if (connection.status === "paused") {
-    return { ok: false, status: 403, body: { error: "connection paused" } };
-  }
-
-  return { ok: true, orgId: token.orgId, connectionId: token.connectionId, scoped };
-}
 
 /**
  * Authenticate, decode, and persist an OTLP metrics export. All logic here so it
