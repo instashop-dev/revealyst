@@ -281,6 +281,13 @@
       "when": 1784225826605,
       "tag": "0039_team-settings",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1784231446252,
+      "tag": "0040_team-insights",
+      "breakpoints": true
     }
   ]
 }

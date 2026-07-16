@@ -1,4 +1,13 @@
 import type { forOrg } from "../db/org-scope";
+import type { TeamInsightRow } from "../db/org-scope/team-insights";
+import {
+  buildCapabilityCoverage,
+  type CapabilityCoverageRow,
+} from "./capability-coverage";
+import {
+  applyMinPeopleFloor,
+  type CapabilityHistoryRow,
+} from "./capability-history";
 import {
   computeAgenticAdoption,
   type AgenticAdoption,
@@ -194,16 +203,26 @@ export type DashboardView = {
    * so a per-person leak is structurally impossible — it adds nothing
    * `assertTeamOnlyPseudonymized` must inspect. */
   capabilityCoverage: CapabilityCoverageRow[];
+  /** TCI Phase 2-F (ADR 0050): the OPEN aggregate manager insight feed (≤3),
+   * COUNT-ONLY. Each row carries only a category + count-only params + a
+   * capability subject slug — NO person id/name (the row shape makes a
+   * per-person leak structurally impossible), so like `capabilityCoverage` it
+   * adds nothing `assertTeamOnlyPseudonymized` must inspect. Plain-English copy
+   * is rendered from the glossary on the card, never stored. */
+  teamInsights: TeamInsightRow[];
+  /** TCI Phase 2-F growth-trend card: the per-capability team history rollup
+   * (ADR 0046), MIN_PEOPLE-floored at READ (a below-floor capability is dropped
+   * entirely, never a suppressed-but-implied number). COUNT-ONLY — the rows
+   * carry represented/mastered COUNTS and capability slugs, no person data, so
+   * they too leave the privacy predicate unaffected. Ordered oldest-period
+   * first for a left-to-right trend. */
+  capabilityGrowth: CapabilityHistoryRow[];
 };
 
-export type CapabilityCoverageRow = {
-  slug: string;
-  label: string;
-  /** People at/above the mastery threshold for this capability. */
-  mastered: number;
-  /** People with any state for this capability (≥ MIN_PEOPLE by construction). */
-  total: number;
-};
+// Re-exported from the shared builder so existing importers of
+// `CapabilityCoverageRow` from this module keep working (the type + the build
+// logic now live in src/lib/capability-coverage.ts, shared with the team brief).
+export type { CapabilityCoverageRow };
 
 export async function readDashboardView(
   scope: OrgScope,
@@ -238,6 +257,8 @@ export async function readDashboardView(
     recommendations,
     capabilityLabels,
     capabilityCoverageCounts,
+    teamInsights,
+    capabilityGrowthRows,
   ] = await Promise.all([
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
@@ -309,6 +330,13 @@ export async function readDashboardView(
     // capability, COUNT-ONLY — no person id) for the team rollup. One batched
     // read; MIN_PEOPLE floor + label join happen in memory below.
     scope.mastery.coverageCounts(CAPABILITY_STATE_CONSTANTS.MASTERED_THRESHOLD),
+    // TCI Phase 2-F (ADR 0050): the OPEN manager insight feed (≤3) + the
+    // per-capability team history rollup for the growth-trend card — TWO reads
+    // folded into this single round-trip (§8.2 perf floor), both count-only and
+    // free of person data, so neither adds a sequential stage nor anything the
+    // privacy predicate must inspect.
+    scope.teamInsights.listOpen(),
+    scope.capabilityHistory.list(),
   ]);
 
   // One pass over the superset: the exact splits trends (team) and segments
@@ -507,19 +535,24 @@ export async function readDashboardView(
     // person data. A capability with fewer than the floor of people-with-state
     // is dropped entirely (never a suppressed-but-implied number). Ordered by
     // mastery share descending, then label.
-    capabilityCoverage: [...capabilityCoverageCounts.entries()]
-      .filter(([, c]) => c.withState >= SEGMENT_MIN_PEOPLE_TO_NAME)
-      .map(([slug, c]) => ({
-        slug,
-        label: capabilityLabels.get(slug) ?? slug,
-        mastered: c.mastered,
-        total: c.withState,
-      }))
-      .sort(
-        (a, b) =>
-          b.mastered / b.total - a.mastered / a.total ||
-          a.label.localeCompare(b.label),
-      ),
+    // W7-6: aggregate capability coverage — count-only, MIN_PEOPLE-floored, no
+    // person data. Built by the SHARED `buildCapabilityCoverage` helper (also
+    // used by the weekly team brief) so the two surfaces can never disagree.
+    capabilityCoverage: buildCapabilityCoverage(
+      capabilityCoverageCounts,
+      capabilityLabels,
+    ),
+    // TCI Phase 2-F: the open manager insight feed, straight from the read
+    // (already severity-ordered, ≤3, count-only). Rendered to prose on the card.
+    teamInsights,
+    // TCI Phase 2-F growth card: org-wide history rows, MIN_PEOPLE-floored at
+    // READ (org-wide series only — team_id null; a multi-team split is a later
+    // no-schema-change follow-up), oldest period first for a left-to-right
+    // trend. The floor drops a below-floor capability entirely (never a
+    // suppressed-but-implied number).
+    capabilityGrowth: applyMinPeopleFloor(
+      capabilityGrowthRows.filter((r) => r.teamId === null),
+    ),
   };
 
   // T2.1: enforce the §7 privacy default at runtime, not just in tests. Gated

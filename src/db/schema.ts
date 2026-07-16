@@ -33,6 +33,11 @@ export * from "./schema/recommendations";
 export * from "./schema/roles";
 export * from "./schema/capability-graph";
 export * from "./schema/missions";
+// TCI Phase 2-F (ADR 0050): the aggregate manager insight feed. References
+// `teams` (core, evaluated first) via a composite tenant FK; no other
+// cross-module dependency, so its position here is unconstrained beyond
+// "after core".
+export * from "./schema/team-insights";
 
 // Auth tables last: auth-schema imports orgs from this module, so the
 // re-export must come after orgs is initialized (circular-import order).

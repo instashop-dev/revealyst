@@ -99,6 +99,7 @@ function minimalDigest(): DigestContent {
     personalBest: null,
     recommendations: [],
     milestones: [],
+    teamBrief: null,
   };
 }
 
