@@ -73,8 +73,8 @@ it is the interface between agents.
 > rather than guessing at a multi-wave backfill. A full resync (per this file's own mirror
 > contract) is a separate follow-up.
 
-> **UI/UX execution plan (`docs/Revealyst_UIUX_Execution_Plan.md`) — U0–U3 shipped, U4 open for
-> review — 2026-07-16** (PRs #244–#247 merged, #248 open): config-driven **nav IA**
+> **UI/UX execution plan (`docs/Revealyst_UIUX_Execution_Plan.md`) — U0–U5 shipped —
+> 2026-07-16** (PRs #244–#248 + #251): config-driven **nav IA**
 > (`src/lib/nav-items.ts` `navFor` — personal orgs get Today/Growth/Connections/Settings, team
 > orgs get Team/AI maturity/Connections/Settings, admin group Match accounts/Spend/Compliance)
 > + theme toggle + shared primitives (`ConfidencePill`/`Banner`/`EmptyState` inline variant/
@@ -89,8 +89,8 @@ it is the interface between agents.
 > (members previously read `/people`/`/teams` as an unretired W5-H leftover). `/playbook` retitled
 > "Shared-account migration guide" (R2 — no Playbooks nav item; Notification center R3 and command
 > palette R4 stay deferred to the §8 ledger, not built). Latest mig still **0035**, latest ADR now
-> **0043**. **U4** (team narrative hero + workspace-setup stepper) is built on `ui-u4-main`, PR
-> #248 open for review — not yet merged. **U5** (responsive/a11y hardening) has not started.
+> **0043**. **U4** shipped the team narrative hero + workspace-setup stepper.
+> **U5** hardened touch targets, axe coverage, focus-on-route-change, dark-mode contrast, CLS.
 > **Founder-default decisions applied** (`docs/product-signoffs.md`, all unratified): D-U1/D-U2/
 > D-U3/D-U5 proceed (Today+Growth split, "Today" label, Settings consolidation, benchmark-consent
 > toggle to Settings→Privacy); D-U4 (mobile bottom nav) and D-U6 (persistent Help entry) **not

@@ -7,8 +7,8 @@ contract, or fixture change. (If any task drifts into a frozen path, it stops an
 per rule 1.)
 
 **Status (2026-07-16, docs-sync pass):** U0–U3 shipped and merged (PRs #244–#247); U4 (team
-narrative hero + workspace-setup stepper) is built on `ui-u4-main` with PR #248 open for
-review, not yet merged; U5 (responsive/a11y hardening) has not started. One exception to the
+narrative hero + workspace-setup stepper) merged as PR #248; U5 (responsive/a11y
+hardening) merged as PR #251 — all build phases U0–U5 are shipped. One exception to the
 "no ADR expected" line above: U0.3's RecommendationCard undo needed **ADR 0043** (a `cleared`
 API action on the closed-enum `rec_interaction_state` seam) — no schema/migration change, so
 the frozen-contracts guard still fired correctly. §8 deferred/gated ledger is unchanged.
