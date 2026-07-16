@@ -229,6 +229,50 @@ export function connectionsNamespace(db: Db, orgId: string) {
     },
 
     /**
+     * Records a desktop-agent heartbeat (Desktop Agent plan T2.4, ADR 0048).
+     * A heartbeat is a lightweight liveness ping — NOT a data sync — so it is
+     * deliberately kept OFF the poll timestamps (`last_polled_at` /
+     * `last_success_at`, owned by markPolled/markSynced): conflating the two
+     * would make "last heartbeat" and "last successful sync" indistinguishable
+     * in the UI. Instead it merges three COUNT-ONLY fields into the existing
+     * `config` jsonb — `lastHeartbeatAt` (ISO), the refreshed `agentVersion`
+     * (the agent may have self-updated since pairing), and `queueDepth` (a
+     * diagnostic count, never content). The jsonb `||` shallow-merge preserves
+     * the pairing-time keys (platform, installationId, pairedByUserId). No
+     * schema change (no migration/new column) — the config column already
+     * exists. Org-guarded and never touches a paused connection (a revoked
+     * device's heartbeat is already rejected 403/401 at the verifier; this
+     * `ne(paused)` guard is belt-and-braces, matching markPolled/markSynced).
+     * Returns undefined for a foreign org, unknown id, or paused connection.
+     */
+    async recordDeviceHeartbeat(
+      id: string,
+      input: { agentVersion: string; queueDepth: number; now?: Date },
+    ) {
+      // Only the three heartbeat fields are patched. A JSON string parameter
+      // cast to jsonb — no bare JS Date crosses the sql boundary (that 500s on
+      // postgres.js/Hyperdrive); the timestamp rides as an ISO string INSIDE
+      // the JSON, so it stays a plain text→jsonb cast.
+      const patch = JSON.stringify({
+        agentVersion: input.agentVersion,
+        queueDepth: input.queueDepth,
+        lastHeartbeatAt: (input.now ?? new Date()).toISOString(),
+      });
+      const [row] = await db
+        .update(connections)
+        .set({ config: sql`${connections.config} || ${patch}::jsonb` })
+        .where(
+          and(
+            eq(connections.orgId, orgId),
+            eq(connections.id, id),
+            ne(connections.status, "paused"),
+          ),
+        )
+        .returning();
+      return row;
+    },
+
+    /**
      * Encrypts and stores a credential (upsert per connection+kind).
      * Write-only from the caller's perspective: plaintext goes in, only
      * envelope fields are persisted, nothing is returned.
@@ -280,6 +324,31 @@ export function connectionsNamespace(db: Db, orgId: string) {
           // Belt-and-braces on top of the ownership check above.
           setWhere: eq(connectionCredentials.orgId, orgId),
         });
+    },
+
+    /**
+     * Deletes a stored credential (Desktop Agent plan T2.4, ADR 0048) — the
+     * device-revoke path. Revoking a desktop device pauses its connection AND
+     * destroys its `device_token` credential so the token can never
+     * re-authenticate (a clean-slate revocation: re-enrolling requires a fresh
+     * pairing, not an un-pause). Org-guarded on the credential's own `org_id`
+     * so one org's scope can never delete another's row. Idempotent — deleting
+     * an already-gone credential is a no-op (matches nothing). Nothing is
+     * returned (write-only, like storeCredential).
+     */
+    async deleteCredential(
+      connectionId: string,
+      kind: (typeof connectionCredentials.kind.enumValues)[number],
+    ) {
+      await db
+        .delete(connectionCredentials)
+        .where(
+          and(
+            eq(connectionCredentials.orgId, orgId),
+            eq(connectionCredentials.connectionId, connectionId),
+            eq(connectionCredentials.kind, kind),
+          ),
+        );
     },
 
     /**
