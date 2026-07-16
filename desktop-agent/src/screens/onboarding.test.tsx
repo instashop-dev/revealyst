@@ -37,14 +37,32 @@ describe("OnboardingScreen", () => {
     expect((full as HTMLInputElement).disabled).toBe(true);
   });
 
-  it("shows the finish step with the spec copy and disabled buttons", () => {
+  it("shows an honest source-detection placeholder — no unbacked 'sources found' claim", () => {
+    render(<OnboardingScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "Sources" }));
+    expect(
+      screen.getByText(
+        /After you sign in, Revealyst checks this computer for supported sources\./,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Source detection is not available yet.")).toBeTruthy();
+    // Invariant (b): the spec's target copy must NOT render until real
+    // detection backs it (M5).
+    expect(screen.queryByText(/Supported sources found/)).toBeNull();
+    expect(screen.queryByText(/Ready to connect/)).toBeNull();
+  });
+
+  it("shows an honest finish placeholder with disabled buttons — no 'connected' claim", () => {
     render(<OnboardingScreen />);
     fireEvent.click(screen.getByRole("button", { name: "Finish" }));
     expect(
       screen.getByText(
-        /This computer is connected\. Revealyst will run quietly in the background\. Prompt text is not uploaded in Analytics Only mode\./,
+        /Sign-in isn't available yet\. When it is, this step will confirm your connection\./,
       ),
     ).toBeTruthy();
+    // Invariant (b): "this computer is connected" must NOT render until real
+    // enrollment backs it (M2).
+    expect(screen.queryByText(/This computer is connected/)).toBeNull();
     for (const name of ["Open Revealyst", "Done"]) {
       const button = screen.getByRole("button", { name });
       expect((button as HTMLButtonElement).disabled).toBe(true);

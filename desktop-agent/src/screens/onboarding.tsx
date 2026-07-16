@@ -1,9 +1,27 @@
-// Onboarding stepper (spec §19.2) — Wave M1: static copy only. The copy is
-// the spec's, verbatim. Sign-in does not exist until M2, so the "Open
-// browser" button is disabled ("Available soon") and no step performs any
-// action. Steps are clickable so the flow can be previewed.
+// Onboarding stepper (spec §19.2). Wave M1: sign-in does not exist until M2,
+// so the "Open browser" button is disabled ("Available soon") and no step
+// performs any action. Steps are clickable so the flow can be previewed.
+//
+// Honesty rule (invariant b / W3-N: rendered UI copy is a claim surface):
+// steps 3 and 5 render honest placeholders instead of the spec's target copy,
+// because "sources found" and "this computer is connected" are claims nothing
+// backs yet. The spec copy is kept below as ONBOARDING_TARGET_COPY so later
+// waves light it up from real state.
 
 import { useState } from "react";
+
+// target copy — rendered only when backed by real detection/enrollment (M2/M5)
+export const ONBOARDING_TARGET_COPY = {
+  sourceDetection: {
+    intro: "Supported sources found:",
+    claudeCode: "Claude Code — Ready to connect.",
+    claudeDesktop:
+      "Claude Desktop — Installed; detailed conversation sync is not available in Phase 1.",
+  },
+  finish:
+    "This computer is connected. Revealyst will run quietly in the background. " +
+    "Prompt text is not uploaded in Analytics Only mode.",
+} as const;
 
 const STEPS = ["Welcome", "Sign in", "Sources", "Privacy mode", "Finish"] as const;
 
@@ -61,14 +79,11 @@ export default function OnboardingScreen() {
       {step === 2 && (
         <section>
           <h2>Source detection</h2>
-          <p>Supported sources found:</p>
-          <ul>
-            <li>Claude Code — Ready to connect.</li>
-            <li>
-              Claude Desktop — Installed; detailed conversation sync is not
-              available in Phase 1.
-            </li>
-          </ul>
+          <p>
+            After you sign in, Revealyst checks this computer for supported
+            sources.
+          </p>
+          <p className="muted">Source detection is not available yet.</p>
           <div className="button-row">
             <button type="button" className="primary" onClick={next}>
               Continue
@@ -115,8 +130,8 @@ export default function OnboardingScreen() {
         <section>
           <h2>Finish</h2>
           <p>
-            This computer is connected. Revealyst will run quietly in the
-            background. Prompt text is not uploaded in Analytics Only mode.
+            Sign-in isn&apos;t available yet. When it is, this step will
+            confirm your connection.
           </p>
           <div className="button-row">
             <button type="button" className="primary" disabled>
