@@ -1,0 +1,208 @@
+/* Minimal, distraction-free shell styling (CLAUDE.md UX principles).
+   Bundled by Vite, so it serves as 'self' under the pinned CSP. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #4f46e5;
+  --sidebar-bg: #f9fafb;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111214;
+    --fg: #e7e7ea;
+    --muted: #9ca3af;
+    --border: #2a2c31;
+    --accent: #818cf8;
+    --sidebar-bg: #17181b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+.app {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 180px;
+  flex-shrink: 0;
+  padding: 16px 8px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.brand {
+  font-weight: 600;
+  font-size: 15px;
+  padding: 6px 12px 14px;
+}
+
+.nav-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.nav-item[aria-current="page"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.content {
+  flex: 1;
+  padding: 28px 32px;
+  max-width: 640px;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0 0 4px;
+}
+
+h2 {
+  font-size: 15px;
+  margin: 24px 0 8px;
+}
+
+p {
+  margin: 8px 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.rows {
+  margin: 16px 0;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 24px;
+}
+
+.rows dt {
+  color: var(--muted);
+}
+
+.rows dd {
+  margin: 0;
+}
+
+button.primary,
+button.secondary {
+  font: inherit;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 16px;
+}
+
+.steps {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.step[aria-current="step"] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin: 8px 0;
+}
+
+.choice input {
+  margin-top: 3px;
+}
+
+.toggle-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 8px 0;
+}
+
+code {
+  font-size: 12px;
+  word-break: break-all;
+}
+
+section + section {
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+}

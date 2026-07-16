@@ -1,11 +1,86 @@
-// Placeholder shell for Wave M0/M1. The agent is a background tray utility;
-// this window only reassures the user. No data collection exists yet
-// (D-DA-1 gates all collection behavior).
+// App shell: sidebar navigation over the four screens (spec §19.2–§19.4).
+// State arrives via ONE narrow Tauri command (get_agent_snapshot); tray menu
+// items switch screens via the Rust-emitted `navigate` event.
+
+import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+
+import { getAgentSnapshot, type AgentSnapshot } from "./lib/agent";
+import DiagnosticsScreen from "./screens/diagnostics";
+import OnboardingScreen from "./screens/onboarding";
+import PrivacyScreen from "./screens/privacy";
+import StatusScreen from "./screens/status";
+
+export type Screen = "onboarding" | "status" | "privacy" | "diagnostics";
+
+const NAV: { id: Screen; label: string }[] = [
+  { id: "onboarding", label: "Set up" },
+  { id: "status", label: "Status" },
+  { id: "privacy", label: "Privacy" },
+  { id: "diagnostics", label: "About" },
+];
+
 export default function App() {
+  const [screen, setScreen] = useState<Screen>("onboarding");
+  const [snapshot, setSnapshot] = useState<AgentSnapshot | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAgentSnapshot()
+      .then((snap) => {
+        if (!cancelled) setSnapshot(snap);
+      })
+      .catch(() => {
+        // Outside Tauri (tests, plain browser dev): keep honest placeholders.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<string>("navigate", (event) => {
+      if (event.payload === "status" || event.payload === "privacy") {
+        setScreen(event.payload);
+      }
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {
+        // Outside Tauri there is no event bridge — nav still works in-app.
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   return (
-    <main>
-      <h1>Revealyst</h1>
-      <p>Revealyst runs quietly in the background. Nothing is collected yet.</p>
-    </main>
+    <div className="app">
+      <nav className="sidebar" aria-label="Main">
+        <div className="brand">Revealyst</div>
+        {NAV.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className="nav-item"
+            aria-current={item.id === screen ? "page" : undefined}
+            onClick={() => setScreen(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+      <main className="content">
+        {screen === "onboarding" && <OnboardingScreen />}
+        {screen === "status" && <StatusScreen snapshot={snapshot} />}
+        {screen === "privacy" && <PrivacyScreen snapshot={snapshot} />}
+        {screen === "diagnostics" && <DiagnosticsScreen snapshot={snapshot} />}
+      </main>
+    </div>
   );
 }
