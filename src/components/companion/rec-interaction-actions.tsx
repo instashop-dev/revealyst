@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BellOff, Check, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import type { RecInteractionStateValue } from "@/lib/rec-interactions";
+import type { RecInteractionAction } from "@/lib/rec-interactions";
 
 // Snooze / dismiss / mark-tried affordances for ONE coaching recommendation
 // (W5-D, ADR 0028). Rendered only on the personal self-view (the CoachingCard
@@ -15,6 +15,15 @@ import type { RecInteractionStateValue } from "@/lib/rec-interactions";
 // server state changed (a dismiss/snooze hides the rec, a tried marks it), so
 // we refresh the route to re-render from the new server truth rather than
 // mutating local state.
+//
+// U0.3 undo: snooze/dismiss hide the rec once the route refreshes, so a
+// 10-second toast (sonner `action`) offers one-click revert — implemented as
+// a SECOND POST to this same endpoint, never a client-only rollback (the
+// server state must actually change back, or a page reload would re-hide the
+// rec). The revert restores the rec's ACTUAL prior state (ADR 0043): `tried`
+// when it was already marked tried, otherwise `cleared` — which deletes the
+// row so the person's state is literal absence again, never a fabricated
+// "tried" they didn't give.
 export function RecInteractionActions({
   personId,
   recId,
@@ -27,10 +36,30 @@ export function RecInteractionActions({
   tried?: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<RecInteractionStateValue | null>(null);
+  const [busy, setBusy] = useState<RecInteractionAction | null>(null);
+  // The component's own record of what the server row holds NOW, updated on
+  // every successful POST — the undo's prior-state source. Seeding it from
+  // the `tried` prop alone would race: props only refresh after the
+  // fire-and-forget router.refresh() lands, so a fast second action (e.g.
+  // mark-tried, then dismiss before the repaint) would capture a stale prior
+  // and undo would delete real feedback. `"none"` = no stored row.
+  const knownStateRef = useRef<RecInteractionAction | "none">(
+    tried ? "tried" : "none",
+  );
+  // When the server repaint DOES land, the prop is fresher than anything a
+  // stale mount knew — resync.
+  useEffect(() => {
+    knownStateRef.current = tried ? "tried" : "none";
+  }, [tried]);
 
-  async function act(state: RecInteractionStateValue, successMsg: string) {
+  async function act(
+    state: RecInteractionAction,
+    successMsg: string,
+    options?: { offerUndo?: boolean },
+  ) {
     setBusy(state);
+    // Captured BEFORE the write: the state this action is replacing.
+    const prior = knownStateRef.current;
     try {
       const res = await fetch("/api/recommendations/interaction", {
         method: "POST",
@@ -41,7 +70,24 @@ export function RecInteractionActions({
         toast.error("Couldn't update — please try again.");
         return;
       }
-      toast.success(successMsg);
+      knownStateRef.current = state === "cleared" ? "none" : state;
+      if (options?.offerUndo) {
+        toast.success(successMsg, {
+          duration: 10_000,
+          action: {
+            label: "Undo",
+            onClick: () => {
+              // Restore the ACTUAL prior state (ADR 0043): the state this
+              // action overwrote — or clear the row entirely when there was
+              // none. (A restored snooze re-derives its expiry server-side
+              // from the default window.)
+              void act(prior === "none" ? "cleared" : prior, "Restored");
+            },
+          },
+        });
+      } else {
+        toast.success(successMsg);
+      }
       router.refresh();
     } catch {
       toast.error("Network error — please try again");
@@ -78,7 +124,11 @@ export function RecInteractionActions({
         variant="ghost"
         size="sm"
         disabled={busy !== null}
-        onClick={() => act("snoozed", "Snoozed — we'll bring it back later")}
+        onClick={() =>
+          act("snoozed", "Snoozed — we'll bring it back later", {
+            offerUndo: true,
+          })
+        }
       >
         {busy === "snoozed" ? (
           <Spinner data-icon="inline-start" />
@@ -92,7 +142,11 @@ export function RecInteractionActions({
         variant="ghost"
         size="sm"
         disabled={busy !== null}
-        onClick={() => act("dismissed", "Dismissed — you won't see this again")}
+        onClick={() =>
+          act("dismissed", "Dismissed — you won't see this again", {
+            offerUndo: true,
+          })
+        }
       >
         {busy === "dismissed" ? (
           <Spinner data-icon="inline-start" />

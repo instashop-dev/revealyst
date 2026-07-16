@@ -1,5 +1,6 @@
 import { Compass } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/empty-state";
 import {
   Card,
   CardContent,
@@ -62,14 +63,11 @@ export function CapabilityProfileCard({
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-4">
-            <p className="text-sm font-medium">
-              {CAPABILITY_PROFILE_COPY.forming.headline}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {CAPABILITY_PROFILE_COPY.forming.body}
-            </p>
-          </div>
+          <EmptyState
+            variant="inline"
+            title={CAPABILITY_PROFILE_COPY.forming.headline}
+            description={CAPABILITY_PROFILE_COPY.forming.body}
+          />
         ) : (
           <>
             <ul className="flex flex-col gap-2">

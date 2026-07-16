@@ -1,7 +1,15 @@
 // @vitest-environment jsdom
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// U0.7: the drawer picks its Sheet `side` from `useIsMobile` — mock it (jsdom
+// has no `matchMedia`, which the real hook needs to mount at all) and default
+// to desktop so the existing assertions below are unaffected.
+const isMobile = vi.fn(() => false);
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: () => isMobile(),
+}));
 
 import {
   DataConfidenceCard,
@@ -132,6 +140,25 @@ describe("Data quality drawer", () => {
       ).toHaveLength(1);
     });
     expect(screen.getByText(/246 entries skipped/)).toBeTruthy();
+  });
+
+  it("U0.7: becomes a bottom sheet below the mobile breakpoint (explicit close, no gesture-only dismissal)", async () => {
+    isMobile.mockReturnValue(true);
+    const user = userEvent.setup();
+    render(
+      <DataConfidenceProvider model={modelWith([ESTIMATED_PRICING])}>
+        <DataConfidenceCard />
+      </DataConfidenceProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: /Review data quality/i }));
+    await waitFor(() => {
+      expect(screen.getByText("Some costs are estimated")).toBeTruthy();
+    });
+    const popup = document.querySelector('[data-slot="sheet-content"]');
+    expect(popup?.getAttribute("data-side")).toBe("bottom");
+    expect(popup?.className).toMatch(/max-h-\[85vh\]/);
+    // The explicit close button remains (never gesture-only dismissal).
+    expect(screen.getByRole("button", { name: /close/i })).toBeTruthy();
   });
 });
 

@@ -11,6 +11,13 @@ vi.mock("next/navigation", () => ({
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
+// CapabilityProfileCard's curriculum trigger (U0.7) mounts a Sheet-based
+// drawer that reads `useIsMobile` — jsdom has no `matchMedia`, which the real
+// hook needs to mount at all, so stub it (defaulting to desktop keeps every
+// assertion below unaffected).
+vi.mock("@/hooks/use-mobile", () => ({
+  useIsMobile: () => false,
+}));
 
 import { CapabilityProfileCard } from "./capability-profile-card";
 import { CoachingCard } from "./coaching-card";

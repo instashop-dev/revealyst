@@ -2,20 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  Cable,
-  CreditCard,
-  Gauge,
-  LayoutDashboard,
-  LogOut,
-  ScanFace,
-  Settings,
-  ShieldCheck,
-  UserRoundCog,
-  UserRoundPlus,
-  Wallet,
-  Wrench,
-} from "lucide-react";
+import { LogOut } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Sidebar,
@@ -30,46 +17,9 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { authClient } from "@/lib/auth-client";
-
-// W5-H dashboard-itis fold: the roster pages (/teams, /people) are RETIRED from
-// nav — their data folds into Team Intelligence cards + Settings' people & teams
-// management card (routes still resolve, reached in ≤2 clicks from Settings).
-// "How scores work" (/methodology) is likewise hidden from nav — the route
-// still resolves; score cards + onboarding link to it directly.
-const NAV_ITEMS = [
-  { title: "Overview", href: "/dashboard", icon: LayoutDashboard },
-  { title: "AI maturity", href: "/maturity", icon: Gauge },
-  { title: "Connections", href: "/connections", icon: Cable },
-  { title: "Account", href: "/account", icon: UserRoundCog },
-];
-
-// Admin-only surfaces (ADR 0004): Members/Reconcile are also role-gated
-// server-side (they read org data). Compliance is grouped here because rollout
-// is an admin concern, but it is *static guidance with no data reads* (§7), so
-// it needs no server-side gate — unlike its data-reading siblings.
-const ADMIN_NAV_ITEMS = [
-  { title: "Members", href: "/members", icon: UserRoundPlus },
-  // Custom Index Builder (W4-U) is DEMOTED out of nav prominence (W5-H
-  // deliverable 3 / errata §2 deprecate-keep-shipping): the feature and its
-  // route (/indexes) stay intact and server-gated, but it no longer occupies a
-  // top-level admin nav slot. Reach it from Settings.
-  { title: "Match accounts", href: "/reconcile", icon: ScanFace },
-  { title: "Spend", href: "/spend", icon: Wallet },
-  { title: "Billing", href: "/billing", icon: CreditCard },
-  { title: "Compliance", href: "/compliance", icon: ShieldCheck },
-  // Settings hosts the org rename + visibility-mode control (ADR 0018).
-  // Admin-only, server-gated (the page redirects non-admins).
-  { title: "Settings", href: "/settings", icon: Settings },
-];
-
-// Platform-staff-only discovery link (ADR 0016) — a different axis from
-// ADMIN_NAV_ITEMS above (per-org membership role): this is the founder/staff
-// concept gated on isPlatformAdmin, never on org role. The /admin route
-// itself re-checks via requireAdminContext; this entry is discovery only.
-const PLATFORM_NAV_ITEMS = [
-  { title: "Platform admin", href: "/admin", icon: Wrench },
-];
+import { navFor } from "@/lib/nav-items";
 
 export function AppSidebar({
   org,
@@ -84,6 +34,11 @@ export function AppSidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+
+  // Item list / labels / gating live in the pure `navFor` config (U0.1) so
+  // later phases edit config, not this JSX. This file still owns the rendering
+  // (icons, aria-current, tooltips) unchanged.
+  const navGroups = navFor({ orgKind: org.kind, role, isPlatformAdmin });
 
   async function signOut() {
     await authClient.signOut();
@@ -108,40 +63,15 @@ export function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         {/* WCAG 2.1 AA nav landmark (T2.6 item 2): one labeled <nav> wrapping
-            all three menu groups, so assistive tech can jump straight to
-            primary navigation. */}
+            all menu groups, so assistive tech can jump straight to primary
+            navigation. Groups come from the pure `navFor` config. */}
         <nav aria-label="Primary">
-          <SidebarGroup>
-            <SidebarGroupLabel>
-              {org.kind === "personal" ? "Personal workspace" : "Workspace"}
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {NAV_ITEMS.map((item) => {
-                  const isActive = pathname.startsWith(item.href);
-                  return (
-                    <SidebarMenuItem key={item.href}>
-                      <SidebarMenuButton
-                        isActive={isActive}
-                        aria-current={isActive ? "page" : undefined}
-                        tooltip={item.title}
-                        render={<Link href={item.href} />}
-                      >
-                        <item.icon />
-                        <span>{item.title}</span>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-          {role === "admin" ? (
-            <SidebarGroup>
-              <SidebarGroupLabel>Administration</SidebarGroupLabel>
+          {navGroups.map((group) => (
+            <SidebarGroup key={group.id}>
+              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {ADMIN_NAV_ITEMS.map((item) => {
+                  {group.items.map((item) => {
                     const isActive = pathname.startsWith(item.href);
                     return (
                       <SidebarMenuItem key={item.href}>
@@ -160,32 +90,7 @@ export function AppSidebar({
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
-          ) : null}
-          {isPlatformAdmin ? (
-            <SidebarGroup>
-              <SidebarGroupLabel>Platform</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {PLATFORM_NAV_ITEMS.map((item) => {
-                    const isActive = pathname.startsWith(item.href);
-                    return (
-                      <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton
-                          isActive={isActive}
-                          aria-current={isActive ? "page" : undefined}
-                          tooltip={item.title}
-                          render={<Link href={item.href} />}
-                        >
-                          <item.icon />
-                          <span>{item.title}</span>
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          ) : null}
+          ))}
         </nav>
       </SidebarContent>
       <SidebarFooter>
@@ -200,6 +105,10 @@ export function AppSidebar({
           <Badge variant="outline" className="shrink-0 capitalize">
             {role}
           </Badge>
+        </div>
+        {/* U0.8 theme switcher — system / light / dark, above sign-out. */}
+        <div className="px-2 pb-1">
+          <ThemeToggle />
         </div>
         <SidebarMenu>
           <SidebarMenuItem>

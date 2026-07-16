@@ -120,5 +120,27 @@ export function recInteractionsNamespace(db: Db, orgId: string) {
         .returning();
       return row;
     },
+
+    /**
+     * Delete this person's state row for one recommendation (ADR 0043) — the
+     * `cleared` API action behind the coaching card's undo toast. After it the
+     * person's state is literal ABSENCE (as if never interacted), which is the
+     * only honest restore for a snooze/dismiss taken on a never-touched rec —
+     * re-writing `tried` would fabricate feedback the person never gave and
+     * bias the fatigue ranking. Idempotent: deleting an absent row is a no-op.
+     * Org-scoped like every sibling; the route proves self-view ownership
+     * before calling, exactly as it does for `set`.
+     */
+    async clear(input: { personId: string; recId: string }) {
+      await db
+        .delete(recInteractionState)
+        .where(
+          and(
+            eq(recInteractionState.orgId, orgId),
+            eq(recInteractionState.personId, input.personId),
+            eq(recInteractionState.recId, input.recId),
+          ),
+        );
+    },
   };
 }

@@ -27,9 +27,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { ResponsiveSheetContent } from "@/components/responsive-sheet-content";
 import {
   Sheet,
-  SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
@@ -284,13 +284,15 @@ function DataConfidenceDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-md">
+      {/* U0.7: right-side drawer on desktop, bottom sheet on mobile — the
+          side switch lives in ResponsiveSheetContent, never per drawer. */}
+      <ResponsiveSheetContent className="w-full gap-0 sm:max-w-md">
         <SheetHeader>
           <SheetTitle>{COPY.drawerTitle}</SheetTitle>
           <SheetDescription>{COPY.drawerDescription}</SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-6 overflow-y-auto p-4 pt-0">
+        <div className="flex min-h-0 flex-col gap-6 overflow-y-auto p-4 pt-0">
           {CATEGORY_RENDER_ORDER.filter((c) => byCategory.has(c)).map(
             (category) => (
               <section
@@ -313,7 +315,7 @@ function DataConfidenceDrawer({
             ),
           )}
         </div>
-      </SheetContent>
+      </ResponsiveSheetContent>
     </Sheet>
   );
 }

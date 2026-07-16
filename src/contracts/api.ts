@@ -475,13 +475,17 @@ export const apiRoutes = {
   // the absolute `snooze_until`, never the client. WRITE-ONLY by shape: only
   // `ok` comes back — there is no interaction-state read route anywhere in this
   // contract (the state is folded into the self-view page server-side).
+  // `cleared` (ADR 0043) DELETES the person's row for that rec — the honest
+  // undo for a snooze/dismiss on a never-interacted rec: afterwards their state
+  // is literal absence, never a fabricated "tried". It is an action, not a
+  // stored value — the row's state enum stays three-valued.
   recInteractionSet: {
     method: "POST",
     path: "/api/recommendations/interaction",
     request: z.object({
       personId: uuid,
       recId: z.string().min(1),
-      state: z.enum(["snoozed", "dismissed", "tried"]),
+      state: z.enum(["snoozed", "dismissed", "tried", "cleared"]),
       snoozeDays: z.number().int().min(1).max(90).optional(),
     }),
     response: ok,

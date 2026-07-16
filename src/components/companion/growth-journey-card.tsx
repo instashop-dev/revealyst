@@ -3,6 +3,7 @@ import { Sparkles } from "lucide-react";
 import { InfoTip } from "@/components/info-tip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   companionLevelCopy,
@@ -104,14 +105,11 @@ function NextStep({
 
   if (item === null) {
     return (
-      <div className="rounded-lg border border-dashed p-4">
-        <p className="text-sm font-medium">
-          {GROWTH_JOURNEY_COPY.noNextStep.headline}
-        </p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {GROWTH_JOURNEY_COPY.noNextStep.body}
-        </p>
-      </div>
+      <EmptyState
+        variant="inline"
+        title={GROWTH_JOURNEY_COPY.noNextStep.headline}
+        description={GROWTH_JOURNEY_COPY.noNextStep.body}
+      />
     );
   }
 

@@ -10,9 +10,9 @@
 import * as React from "react";
 import { ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ResponsiveSheetContent } from "@/components/responsive-sheet-content";
 import {
   Sheet,
-  SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
@@ -100,7 +100,9 @@ function CapabilityCurriculumDrawer({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full gap-0 sm:max-w-md">
+      {/* U0.7: right-side drawer on desktop, bottom sheet on mobile — the
+          side switch lives in ResponsiveSheetContent, never per drawer. */}
+      <ResponsiveSheetContent className="w-full gap-0 sm:max-w-md">
         <SheetHeader>
           <SheetTitle>
             {COPY.titleLead} {label}
@@ -108,7 +110,7 @@ function CapabilityCurriculumDrawer({
           <SheetDescription>{entry.summary}</SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-6 overflow-y-auto p-4 pt-0">
+        <div className="flex min-h-0 flex-col gap-6 overflow-y-auto p-4 pt-0">
           <section className="flex flex-col gap-2">
             <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {COPY.howToLabel}
@@ -186,7 +188,7 @@ function CapabilityCurriculumDrawer({
             </section>
           ) : null}
         </div>
-      </SheetContent>
+      </ResponsiveSheetContent>
     </Sheet>
   );
 }
