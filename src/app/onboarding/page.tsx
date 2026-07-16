@@ -1,5 +1,5 @@
 import { OnboardingFlow } from "@/components/onboarding-flow";
-import { invitesForOrg } from "@/db/invites";
+import { invitesForOrg, orgMembersList } from "@/db/invites";
 import { requireAppContext } from "@/lib/api-context";
 import {
   type CopilotAppEnv,
@@ -8,6 +8,7 @@ import {
 import { isUsableConnection } from "@/lib/onboarding-guide";
 import {
   deriveInitialStepIndex,
+  derivePrivacyResolved,
   type OrgKindFlavor,
 } from "@/lib/onboarding-stepper";
 
@@ -26,16 +27,27 @@ export default async function OnboardingPage() {
     isUsableConnection({ vendor: c.vendor, status: c.status }),
   );
 
-  // Privacy/people step is "resolved" (skippable at resume) when the admin has
-  // already invited someone OR moved visibility off the default private. A
+  // Privacy/people step is "resolved" (skippable at resume) when the org has
+  // another member (an accepted invite becomes an org_members row) OR a pending
+  // invite is outstanding OR visibility was moved off the default private. A
   // member has nothing to set here, so it is resolved for them. Personal orgs
-  // never have the step. The pending-invites read is admin+team only (one query
+  // never have the step. These reads are admin+team only (two batched queries
   // on a cold onboarding path, not a hot page) — never for personal/members.
+  //
+  // Fix 2: `listPending()` alone dropped ACCEPTED invites, bouncing a
+  // successful admin back to the privacy step — the member count captures the
+  // accepted case that listPending() cannot see.
   let privacyResolved = true;
   if (orgKind === "team" && isAdmin) {
-    const pending = await invitesForOrg(ctx.db, ctx.org.id).listPending();
-    privacyResolved =
-      pending.length > 0 || ctx.org.visibilityMode !== "private";
+    const [members, pending] = await Promise.all([
+      orgMembersList(ctx.db, ctx.org.id),
+      invitesForOrg(ctx.db, ctx.org.id).listPending(),
+    ]);
+    privacyResolved = derivePrivacyResolved({
+      otherMemberCount: members.filter((m) => m.userId !== ctx.user.id).length,
+      pendingInviteCount: pending.length,
+      visibilityChanged: ctx.org.visibilityMode !== "private",
+    });
   }
 
   const initialStepIndex = deriveInitialStepIndex({

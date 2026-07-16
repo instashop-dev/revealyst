@@ -67,9 +67,22 @@ export function OnboardingFlow({
   const stepKey = steps[index]?.key ?? "review";
   const goNext = () => setIndex((i) => Math.min(i + 1, steps.length - 1));
 
-  const hasUsableConnection = initialConnections.some(
-    (c) => c.status !== "error" && c.status !== "paused",
-  );
+  // Same-session connect state, owned HERE (not in the wizard) so it survives
+  // the wizard's remount when the user steps back to the connect step, and so
+  // the review step below can honestly reflect a connect made this session.
+  // `initialConnections` is only the SSR snapshot taken at page load.
+  const [sessionConnectedVendors, setSessionConnectedVendors] = useState<
+    Set<string>
+  >(new Set());
+  const markConnected = (vendor: string) =>
+    setSessionConnectedVendors((prev) =>
+      prev.has(vendor) ? prev : new Set(prev).add(vendor),
+    );
+
+  const hasUsableConnection =
+    initialConnections.some(
+      (c) => c.status !== "error" && c.status !== "paused",
+    ) || sessionConnectedVendors.size > 0;
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
@@ -94,6 +107,8 @@ export function OnboardingFlow({
         <OnboardingWizard
           initialConnections={initialConnections}
           copilotAvailable={copilotAvailable}
+          sessionConnectedVendors={sessionConnectedVendors}
+          onConnected={markConnected}
           continueTo={{
             // Team → Privacy & people; personal → What you'll see.
             label:

@@ -9,7 +9,10 @@ import {
   agentNeverReadsPrompts,
 } from "./onboarding-scope-explainer";
 import { scopeClaimsFor } from "@/connectors/scope-claims";
-import { AGENT_NEVER_COLLECTED } from "@/lib/agent-collection-schema";
+import {
+  AGENT_NEVER_COLLECTED,
+  AGENT_SENT_FIELDS,
+} from "@/lib/agent-collection-schema";
 
 // U4.2 — the scope explainer is a CLAIM SURFACE: every string it renders must
 // come from a fact-checked module (scope-claims for vendors, the agent
@@ -58,9 +61,13 @@ describe("OnboardingScopeExplainer — agent claims sourced from the collection 
     expect(screen.getByText(AGENT_NEVER_COLLECTED[0])).toBeTruthy();
   });
 
-  it("the standing line names counts/timing and prompts — matching the schema", () => {
+  it("the standing line names counts/timing/model names and prompts — matching the schema", () => {
     // The claim the schema licenses.
     expect(STANDING_PRIVACY_LINE.toLowerCase()).toMatch(/prompt/);
+    // Completeness: model ids DO leave the device (AGENT_SENT_FIELDS), so the
+    // line must own that alongside counts/timing — not imply prompts-only.
+    expect(STANDING_PRIVACY_LINE.toLowerCase()).toMatch(/model/);
+    expect(AGENT_SENT_FIELDS.some((f) => /model/i.test(f.field))).toBe(true);
     // And the schema really does list prompt text as never-collected.
     expect(AGENT_NEVER_COLLECTED.some((s) => /prompt/i.test(s))).toBe(true);
   });

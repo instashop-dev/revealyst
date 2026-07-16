@@ -9,6 +9,14 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
+// A connect succeeds without a backend — the flow only needs the ok:true
+// signal to mark the vendor connected for the session (Fix 1).
+vi.mock("@/lib/connect-vendor", () => ({
+  connectApiKeyVendor: vi.fn(async () => ({
+    ok: true,
+    connectionId: "new-conn-1",
+  })),
+}));
 
 import { OnboardingFlow } from "./onboarding-flow";
 import { stepsForOrgKind } from "@/lib/onboarding-stepper";
@@ -90,6 +98,57 @@ describe("OnboardingFlow (U4.2)", () => {
     await userEvent.click(connectBtn);
     // The connect wizard heading appears.
     expect(screen.getByText(/Connect your AI tools/i)).toBeTruthy();
+  });
+});
+
+// Fix 1 — same-session connect state must survive the wizard's remount and
+// feed the review step, since `initialConnections` is only the SSR snapshot.
+describe("OnboardingFlow — same-session connect (Fix 1)", () => {
+  async function connectAnthropic(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByPlaceholderText("sk-ant-…"), "sk-ant-test-key");
+    await user.click(screen.getByRole("button", { name: /Connect Anthropic/i }));
+    // The card flips to a Connected badge once the mocked connect resolves.
+    await screen.findByText("Connected");
+  }
+
+  it("reaching review after a same-session connect shows no 'haven't connected' copy", async () => {
+    const user = userEvent.setup();
+    render(
+      flow({ orgKind: "personal", initialConnections: [], initialStepIndex: 1 }),
+    );
+    await connectAnthropic(user);
+    // Advance to the review step.
+    await user.click(
+      screen.getByRole("button", { name: /Next: what you'll see/i }),
+    );
+    // We're on review (its CTA is present) and it does NOT falsely claim the
+    // user hasn't connected anything.
+    expect(screen.getByRole("button", { name: /Go to Today/i })).toBeTruthy();
+    expect(screen.queryByText(/haven't connected a source/i)).toBeNull();
+  });
+
+  it("stepping back to connect after a same-session connect still shows it connected", async () => {
+    const user = userEvent.setup();
+    render(
+      flow({ orgKind: "personal", initialConnections: [], initialStepIndex: 1 }),
+    );
+    await connectAnthropic(user);
+    // Forward to review, then back to connect via the stepper nav — this
+    // REMOUNTS the wizard from the (empty) SSR snapshot.
+    await user.click(
+      screen.getByRole("button", { name: /Next: what you'll see/i }),
+    );
+    const nav = screen.getByRole("navigation", { name: /setup progress/i });
+    await user.click(
+      within(nav).getByRole("button", { name: /connect a source/i }),
+    );
+    // The session connect survived the remount: Anthropic still reads
+    // Connected, and the end CTA is the advance button — never the disabled
+    // "connect a source to continue".
+    expect(await screen.findByText("Connected")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Connect a source to continue/i }),
+    ).toBeNull();
   });
 });
 

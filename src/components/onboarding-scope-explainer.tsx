@@ -20,7 +20,7 @@ const AGENT_VENDOR = "claude_code_local";
 /** The standing, cross-connector privacy claim. Rendered ONLY where the schema
  * PROVES it — see `agentNeverReadsPrompts` below. Not a per-vendor claim. */
 export const STANDING_PRIVACY_LINE =
-  "We read counts and timing, never your prompts.";
+  "We read counts, timing, and model names — never your prompts.";
 
 /** True when the on-device schema proves the agent never reads prompt content —
  * the precondition for showing the standing line. Derived, not asserted: if a

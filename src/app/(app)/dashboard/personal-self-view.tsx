@@ -56,7 +56,7 @@ import {
   SCORE_SLUGS,
   type ScoreSlug,
 } from "@/lib/metrics-glossary";
-import { syncedToolCount } from "@/lib/onboarding-guide";
+import { isUsableConnection, syncedToolCount } from "@/lib/onboarding-guide";
 import { timeStage } from "@/lib/request-timing";
 import {
   connectionAttentionInputs,
@@ -229,7 +229,17 @@ export async function PersonalSelfView({
   // bad first key can't strand the user on an empty dashboard; /onboarding
   // itself never redirects here, so there is no loop. `redirect()` throws, so
   // the batch's other (empty, on a fresh org) results are simply discarded.
-  const hasUsableConnection = connections.some((c) => c.status !== "error");
+  //
+  // Fix 4: use the ONE shared `isUsableConnection` predicate (excludes both
+  // "error" AND "paused") that the onboarding stepper uses — previously this
+  // gate only excluded "error", so a user whose only connection was PAUSED saw
+  // a bare empty dashboard instead of onboarding. This deliberately changes
+  // behavior: a paused-only user now goes to /onboarding (resuming at the
+  // connect step), matching what the interim/onboarding surfaces already treat
+  // as "not ingesting".
+  const hasUsableConnection = connections.some((c) =>
+    isUsableConnection({ vendor: c.vendor, status: c.status }),
+  );
   if (!hasUsableConnection) {
     redirect("/onboarding");
   }

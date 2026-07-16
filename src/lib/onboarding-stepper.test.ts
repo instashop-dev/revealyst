@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveInitialStepIndex,
+  derivePrivacyResolved,
   PITCH_STEP_COPY,
   PRIVACY_STEP_COPY,
   REVIEW_STEP_COPY,
@@ -79,6 +80,51 @@ describe("deriveInitialStepIndex — resume", () => {
       privacyResolved: true,
     });
     expect(steps[idx].key).toBe("review");
+  });
+});
+
+describe("derivePrivacyResolved — Fix 2 (accepted invites count)", () => {
+  it("a fresh admin-only org with default visibility is UNRESOLVED", () => {
+    expect(
+      derivePrivacyResolved({
+        otherMemberCount: 0,
+        pendingInviteCount: 0,
+        visibilityChanged: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("an ACCEPTED invite (another member) + default visibility resolves it", () => {
+    // The regression: an accepted invite disappears from listPending, but it
+    // becomes an org_members row — so the member count resolves the step even
+    // with no pending invites and the default private visibility.
+    expect(
+      derivePrivacyResolved({
+        otherMemberCount: 1,
+        pendingInviteCount: 0,
+        visibilityChanged: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("an outstanding pending invite resolves it", () => {
+    expect(
+      derivePrivacyResolved({
+        otherMemberCount: 0,
+        pendingInviteCount: 1,
+        visibilityChanged: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("moving visibility off the default resolves it", () => {
+    expect(
+      derivePrivacyResolved({
+        otherMemberCount: 0,
+        pendingInviteCount: 0,
+        visibilityChanged: true,
+      }),
+    ).toBe(true);
   });
 });
 

@@ -73,6 +73,36 @@ export function deriveInitialStepIndex(state: ResumeState): number {
   return indexOf("review");
 }
 
+/**
+ * Whether the team privacy/people step counts as already handled — used by the
+ * server page to derive `privacyResolved` for the resume logic above. Pure so
+ * it can be unit-tested without a DB.
+ *
+ * Fix 2: the earlier derivation keyed only on PENDING invites, so an ACCEPTED
+ * invite (the success case) vanished from the signal and bounced the admin back
+ * to the privacy step. Resolve when ANY of:
+ *  • the org has another member (an accepted invite becomes an org_members row);
+ *  • a pending invite is still outstanding (invite sent, not yet accepted);
+ *  • visibility was moved off the default `private`.
+ * Together these mean "any invite ever sent OR any other member", plus the
+ * visibility opt-out — none of which un-resolves once true.
+ */
+export function derivePrivacyResolved(input: {
+  /** Members of the org OTHER than the current admin (an accepted invite adds
+   * one). */
+  otherMemberCount: number;
+  /** Outstanding (not-yet-accepted) invites. */
+  pendingInviteCount: number;
+  /** Visibility has been changed off the default `private`. */
+  visibilityChanged: boolean;
+}): boolean {
+  return (
+    input.otherMemberCount > 0 ||
+    input.pendingInviteCount > 0 ||
+    input.visibilityChanged
+  );
+}
+
 /** "What you'll see" (review) step copy — an orientation for the Today view,
  * NOT a duplicate of the connect step's honest score-timing message. */
 export const REVIEW_STEP_COPY = {
