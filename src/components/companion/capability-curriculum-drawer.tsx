@@ -120,10 +120,13 @@ export function CapabilityGrowTrigger({
 
   return (
     <>
+      {/* U5: this is a standalone per-row action (not inline in a sentence, so
+          no WCAG inline-text exception applies) — give it the ≥44px touch
+          floor via an invisible min-h-11 hit area, keeping the text compact. */}
       <button
         type="button"
         onClick={openDrawer}
-        className="text-left text-xs font-medium text-primary underline-offset-2 hover:underline"
+        className="inline-flex min-h-11 items-center text-left text-xs font-medium text-primary underline-offset-2 hover:underline"
       >
         {COPY.triggerLabel}
       </button>

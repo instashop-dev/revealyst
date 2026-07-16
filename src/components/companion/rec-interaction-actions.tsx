@@ -108,6 +108,10 @@ export function RecInteractionActions({
           type="button"
           variant="outline"
           size="sm"
+          // U5: reach the ≥44px touch-target floor without ballooning chrome —
+          // min-h-11 grows only the invisible hit area (house idiom, matching
+          // ThemeToggle / connector-card primary action).
+          className="min-h-11"
           disabled={busy !== null}
           onClick={() => act("tried", "Nice — marked as tried")}
         >
@@ -123,6 +127,7 @@ export function RecInteractionActions({
         type="button"
         variant="ghost"
         size="sm"
+        className="min-h-11"
         disabled={busy !== null}
         onClick={() =>
           act("snoozed", "Snoozed — we'll bring it back later", {
@@ -141,6 +146,7 @@ export function RecInteractionActions({
         type="button"
         variant="ghost"
         size="sm"
+        className="min-h-11"
         disabled={busy !== null}
         onClick={() =>
           act("dismissed", "Dismissed — you won't see this again", {

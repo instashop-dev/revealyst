@@ -141,7 +141,13 @@ export function IdentityMatchRow({
       <TableCell className="text-right">
         <div className="flex items-center justify-end gap-1">
           {proposedMatch ? (
-            <Button size="sm" onClick={acceptMatch} disabled={busy}>
+            // U5: ≥44px touch-target floor on the reconcile action.
+            <Button
+              size="sm"
+              className="min-h-11"
+              onClick={acceptMatch}
+              disabled={busy}
+            >
               {busy ? (
                 <Spinner data-icon="inline-start" />
               ) : (
@@ -166,6 +172,8 @@ export function IdentityMatchRow({
                 <Button
                   variant="ghost"
                   size="icon"
+                  // U5: 44×44 icon touch target (twMerge overrides size-8).
+                  className="size-11"
                   aria-label={`More options for ${subject.label}`}
                 />
               }

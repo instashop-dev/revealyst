@@ -179,7 +179,7 @@ export function VisibilityModeControl({ current }: { current: VisibilityMode }) 
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <TriangleAlert className="size-5 text-amber-600" />
+              <TriangleAlert className="size-5 text-amber-600 dark:text-amber-400" />
               Before you reveal real names
             </DialogTitle>
             <DialogDescription>

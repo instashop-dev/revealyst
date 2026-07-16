@@ -64,7 +64,9 @@ export function SetupStepper({
                 <button
                   type="button"
                   onClick={() => onSelect(index)}
-                  className="flex items-center gap-2 rounded-md px-1 py-0.5 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  // U5: completed steps are clickable back-nav — give them the
+                  // ≥44px touch floor (min-h-11 invisible hit area).
+                  className="flex min-h-11 items-center gap-2 rounded-md px-1 py-0.5 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {marker}
                   {label}

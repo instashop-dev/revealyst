@@ -121,7 +121,8 @@ export function ReconcileSubjectDialog({
         if (next) reset();
       }}
     >
-      <DialogTrigger render={<Button size="sm" variant="outline" />}>
+      {/* U5: ≥44px touch-target floor on the reconcile match trigger. */}
+      <DialogTrigger render={<Button size="sm" variant="outline" className="min-h-11" />}>
         <Link2 data-icon="inline-start" />
         {triggerLabel}
       </DialogTrigger>

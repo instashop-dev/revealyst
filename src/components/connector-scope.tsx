@@ -59,7 +59,13 @@ export function ConnectorScope({
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetTrigger
           render={
-            <Button variant="link" size="sm" className="h-auto self-start p-0" />
+            // U5: standalone disclosure link — invisible min-h-11 hit area
+            // reaches the ≥44px touch floor without adding visible chrome.
+            <Button
+              variant="link"
+              size="sm"
+              className="min-h-11 self-start p-0"
+            />
           }
         >
           What {vendorName} can and can&apos;t measure
@@ -116,7 +122,7 @@ export function ConnectorScope({
             <Button
               variant="outline"
               size="sm"
-              className="self-start"
+              className="min-h-11 self-start"
               nativeButton={false}
               render={<a href="/legal/what-we-collect" />}
             >

@@ -105,7 +105,16 @@ export function ConnectorCard({
                   {primaryAction}
                 </div>
               ) : null}
-              {secondaryAction}
+              {secondaryAction ? (
+                // U5: the secondary control gets the same ≥44px touch floor as
+                // the primary above — both are real connector actions.
+                <div
+                  data-slot="connector-card-secondary-action"
+                  className="flex min-h-11 items-center"
+                >
+                  {secondaryAction}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </CardFooter>
