@@ -33,7 +33,19 @@ export function RouteFocusManager() {
     // owns focus during a navigation it triggered) — only move it when focus is
     // on the body/a stale link, the stranded-focus case this fixes.
     const active = document.activeElement;
-    if (active && active.closest("[role='dialog']")) return;
+    // Any open overlay that legitimately owns focus — Base UI renders
+    // role="dialog" on Dialog/Sheet/Popover popups, "alertdialog" on
+    // AlertDialog, "menu"/"listbox" on Menu/Select. Keep this list in sync
+    // with the overlay roles actually in the tree (U5 review finding: a
+    // dialog-only selector under-delivered the comment's claim).
+    if (
+      active &&
+      active.closest(
+        "[role='dialog'],[role='alertdialog'],[role='menu'],[role='listbox']",
+      )
+    ) {
+      return;
+    }
     main?.focus();
   }, [pathname]);
 

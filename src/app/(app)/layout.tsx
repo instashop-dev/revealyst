@@ -95,8 +95,17 @@ export default async function AppLayout({
           isPlatformAdmin={ctx.isPlatformAdmin}
         />
         {/* tabIndex={-1} lets both the skip link and RouteFocusManager move
-            focus here; outline-none keeps programmatic focus invisible. */}
-        <SidebarInset id="main-content" tabIndex={-1} className="outline-none">
+            focus here. `outline-none` + `focus-visible:ring` differentiates
+            the two arrival paths precisely: RouteFocusManager's programmatic
+            .focus() never sets :focus-visible (silent, no ring), while the
+            skip link's keyboard-initiated jump does — so the sighted keyboard
+            user SEES that the jump landed (WCAG 2.4.7; a blanket outline-none
+            here was a U5 review finding). */}
+        <SidebarInset
+          id="main-content"
+          tabIndex={-1}
+          className="outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           {impersonating && (
             <ImpersonationBanner
               name={impersonating.name}
