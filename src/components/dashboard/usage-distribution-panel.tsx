@@ -1,4 +1,4 @@
-import { ConfidenceBadge } from "@/components/analytics/confidence-badge";
+import { ConfidencePill } from "@/components/confidence-pill";
 import { InfoTip } from "@/components/info-tip";
 import {
   Card,
@@ -7,7 +7,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { USAGE_DISTRIBUTION_COPY } from "@/lib/analytics-glossary";
+import {
+  CONFIDENCE_LABELS,
+  USAGE_DISTRIBUTION_COPY,
+} from "@/lib/analytics-glossary";
 import {
   MIN_PEOPLE_FOR_DISTRIBUTION,
   type UsageDistribution,
@@ -32,7 +35,7 @@ export function UsageDistributionPanel({
         <CardTitle className="flex items-center gap-1.5 text-base">
           {C.title}
           <InfoTip label={C.title} short={C.info} />
-          <ConfidenceBadge tier={C.confidence} />
+          <ConfidencePill tier={C.confidence} label={CONFIDENCE_LABELS[C.confidence]} />
         </CardTitle>
         <CardDescription>{C.description(distribution.periodDays)}</CardDescription>
       </CardHeader>

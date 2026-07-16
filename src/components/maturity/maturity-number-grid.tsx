@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ConfidenceBadge } from "@/components/maturity/confidence-badge";
+import { ConfidencePill } from "@/components/confidence-pill";
 import { InfoTip } from "@/components/info-tip";
 import {
   Card,
@@ -15,6 +15,7 @@ import {
   MATURITY_NUMBER_COPY,
 } from "@/lib/maturity-glossary";
 import type { ConfidenceTier } from "@/lib/maturity";
+import { CONFIDENCE_TIER_LABEL } from "@/lib/exec-report-copy";
 
 // The board artifact: the eight CTO numbers, each with its confidence tier and
 // an honest empty/insufficient state. EVERY card carries a paired counterweight
@@ -104,7 +105,7 @@ function Headline({
         <span className="font-heading text-3xl font-semibold tabular-nums">
           {value}
         </span>
-        <ConfidenceBadge tier={tier} />
+        <ConfidencePill tier={tier} label={CONFIDENCE_TIER_LABEL[tier]} />
       </div>
       {sub ? <span className="text-xs text-muted-foreground">{sub}</span> : null}
     </div>
@@ -134,7 +135,10 @@ function NumberBody({
           />
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             Dark-seat waste
-            <ConfidenceBadge tier={n.darkSeat.confidence} />
+            <ConfidencePill
+              tier={n.darkSeat.confidence}
+              label={CONFIDENCE_TIER_LABEL[n.darkSeat.confidence]}
+            />
             <InfoTip label="Dark-seat waste" short={n.darkSeat.reason} />
           </p>
         </div>
