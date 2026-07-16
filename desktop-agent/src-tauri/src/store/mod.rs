@@ -62,6 +62,7 @@
 pub mod checkpoints;
 pub mod crypto;
 pub mod queue;
+pub mod remote_config;
 pub mod retention;
 
 use std::path::Path;

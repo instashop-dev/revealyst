@@ -10,6 +10,7 @@
 pub mod allowlist;
 pub mod auth;
 pub mod commands;
+pub mod config;
 pub mod deeplink;
 pub mod extract;
 pub mod lifecycle;
