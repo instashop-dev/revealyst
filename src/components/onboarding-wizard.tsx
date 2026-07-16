@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { GithubAppConnectCard } from "@/components/github-app-connect-card";
 import { SyncAgentCard } from "@/components/sync-agent-card";
+import { OnboardingScopeExplainer } from "@/components/onboarding-scope-explainer";
 import { connectApiKeyVendor } from "@/lib/connect-vendor";
 import {
   connectedToolsLabel,
@@ -56,12 +57,18 @@ function usableConnection(
 export function OnboardingWizard({
   initialConnections,
   copilotAvailable = false,
+  continueTo,
 }: {
   initialConnections: InitialConnection[];
   /** Server-checked render-time env gate (ADR 0022): whether the GitHub App
    * secrets are configured, so the Copilot card offers a working install
    * instead of a dead-end. Defaults closed (honest) if a caller forgets. */
   copilotAvailable?: boolean;
+  /** U4.2 stepper integration. When provided, the end-state CTA advances the
+   * setup stepper (there are more steps ahead) instead of linking straight to
+   * the dashboard. When omitted (standalone use), the CTA keeps its shipped
+   * "View my dashboard" link. */
+  continueTo?: { label: string; onContinue: () => void };
 }) {
   const [connected, setConnected] = useState<Set<string>>(
     () =>
@@ -123,6 +130,7 @@ export function OnboardingWizard({
               existingConnectionId={existing?.id ?? null}
               initiallyDone={Boolean(usableConnection(initialConnections, v.vendor))}
               onConnected={() => markConnected(v.vendor)}
+              scope={<OnboardingScopeExplainer vendor={v.vendor} />}
             />
           );
         })}
@@ -136,6 +144,7 @@ export function OnboardingWizard({
             usableConnection(initialConnections, "claude_code_local"),
           )}
           onConnected={() => markConnected("claude_code_local")}
+          scope={<OnboardingScopeExplainer vendor="claude_code_local" />}
         />
 
         {GITHUB_APP_VENDORS.map((v) => (
@@ -144,6 +153,7 @@ export function OnboardingWizard({
             vendor={v}
             connected={Boolean(usableConnection(initialConnections, v.vendor))}
             available={copilotAvailable}
+            scope={<OnboardingScopeExplainer vendor={v.vendor} />}
           />
         ))}
 
@@ -165,13 +175,22 @@ export function OnboardingWizard({
 
       <div className="flex flex-col items-center gap-2">
         {anyConnected ? (
-          // Real link only when enabled — a disabled <a> would still
-          // navigate (anchors ignore `disabled`). The dashboard is a
-          // force-dynamic server component, so the click re-fetches.
-          <Button size="lg" nativeButton={false} render={<Link href="/dashboard" />}>
-            View my dashboard
-            <ArrowRight data-icon="inline-end" />
-          </Button>
+          continueTo ? (
+            // In the stepper: advance to the next setup step rather than
+            // jumping to the dashboard (more steps lie ahead).
+            <Button size="lg" onClick={continueTo.onContinue}>
+              {continueTo.label}
+              <ArrowRight data-icon="inline-end" />
+            </Button>
+          ) : (
+            // Standalone: real link only when enabled — a disabled <a> would
+            // still navigate (anchors ignore `disabled`). The dashboard is a
+            // force-dynamic server component, so the click re-fetches.
+            <Button size="lg" nativeButton={false} render={<Link href="/dashboard" />}>
+              View my dashboard
+              <ArrowRight data-icon="inline-end" />
+            </Button>
+          )
         ) : (
           <Button size="lg" disabled>
             Connect a source to continue
@@ -201,11 +220,14 @@ function ApiKeyConnectCard({
   existingConnectionId,
   initiallyDone,
   onConnected,
+  scope,
 }: {
   vendor: KeyVendor;
   existingConnectionId: string | null;
   initiallyDone: boolean;
   onConnected: () => void;
+  /** Compact scope note (U4.2) rendered as a card footer, in every state. */
+  scope?: React.ReactNode;
 }) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -293,6 +315,13 @@ function ApiKeyConnectCard({
           </form>
         </CardContent>
       )}
+      {scope ? (
+        <CardContent className={done ? undefined : "pt-0"}>
+          <div className="rounded-lg border border-dashed bg-muted/30 p-3">
+            {scope}
+          </div>
+        </CardContent>
+      ) : null}
     </Card>
   );
 }

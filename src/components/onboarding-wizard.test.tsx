@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import { axe } from "vitest-axe";
 
 import { OnboardingWizard } from "./onboarding-wizard";
@@ -68,6 +69,36 @@ describe("OnboardingWizard end-state timing copy", () => {
       screen.queryByText(SCORE_TIMING_COPY.awaiting_agent.headline),
     ).not.toBeInTheDocument();
     expect(screen.getByText("Connect a source to continue")).toBeInTheDocument();
+  });
+});
+
+// U4.2 — inside the setup stepper, the end CTA advances to the next step
+// instead of linking to the dashboard.
+describe("OnboardingWizard — stepper continueTo", () => {
+  it("advances (no dashboard link) once connected, when continueTo is given", async () => {
+    const onContinue = vi.fn();
+    render(
+      <OnboardingWizard
+        initialConnections={[
+          { id: "c1", vendor: "anthropic_console", status: "active" },
+        ]}
+        continueTo={{ label: "Next: privacy & people", onContinue }}
+      />,
+    );
+    // The step CTA replaces "View my dashboard".
+    expect(screen.queryByText("View my dashboard")).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Next: privacy & people/i }),
+    );
+    expect(onContinue).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the per-connector scope explainer lines (sourced claim surface)", () => {
+    render(<OnboardingWizard initialConnections={[]} />);
+    // The agent's schema-verified standing privacy line appears beside its card.
+    expect(
+      screen.getByText(/never your prompts/i),
+    ).toBeInTheDocument();
   });
 });
 

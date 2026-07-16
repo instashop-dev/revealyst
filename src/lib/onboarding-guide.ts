@@ -256,7 +256,8 @@ export const FIRST_WEEK_CHECKLIST: readonly ChecklistStep[] = [
     key: "setBudget",
     title: "Set a monthly budget",
     body: "Add a spend limit and Revealyst will flag when your AI spend crosses a threshold.",
-    href: "/settings",
+    // The budget editor lives on the Spend page, not Settings (U3 finding).
+    href: "/spend",
     cta: "Set a budget",
     adminOnly: true,
   },

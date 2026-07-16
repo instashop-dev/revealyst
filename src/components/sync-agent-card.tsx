@@ -27,6 +27,7 @@ export function SyncAgentCard({
   paired = false,
   lastSuccessAt = null,
   onConnected,
+  scope,
 }: {
   /** An already-created `claude_code_local` connection to rotate, or null to
    * create-or-reuse on first pairing. */
@@ -37,6 +38,8 @@ export function SyncAgentCard({
   /** Last successful push, for the Connections-page last-synced line. */
   lastSuccessAt?: Date | string | null;
   onConnected?: () => void;
+  /** Optional scope note (U4.2 onboarding) — passed straight to ConnectorCard. */
+  scope?: React.ReactNode;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +132,7 @@ export function SyncAgentCard({
   return (
     <ConnectorCard
       vendorName="Revealyst Agent (Claude Code)"
+      scope={scope}
       statusBadge={
         isPaired ? (
           <Badge variant="secondary">

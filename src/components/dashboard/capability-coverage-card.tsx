@@ -28,8 +28,13 @@ export type CapabilityCoverageCardRow = {
 
 export function CapabilityCoverageCard({
   rows,
+  floorNote,
 }: {
   rows: readonly CapabilityCoverageCardRow[];
+  /** Optional small-group suppression note (U4.1). Below-floor capabilities are
+   * dropped from `rows` entirely by the caller, so a standing footer states the
+   * rule — otherwise the omission is silent. Count-free by construction. */
+  floorNote?: string;
 }) {
   return (
     <Card>
@@ -40,7 +45,7 @@ export function CapabilityCoverageCard({
         </CardTitle>
         <CardDescription>{CAPABILITY_COVERAGE_COPY.subtitle}</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-3">
         {rows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             {CAPABILITY_COVERAGE_COPY.empty}
@@ -60,6 +65,9 @@ export function CapabilityCoverageCard({
             ))}
           </ul>
         )}
+        {floorNote ? (
+          <p className="text-xs text-muted-foreground">{floorNote}</p>
+        ) : null}
       </CardContent>
     </Card>
   );

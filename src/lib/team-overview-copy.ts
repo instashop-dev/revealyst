@@ -11,6 +11,17 @@ export const TEAM_OVERVIEW_COPY = {
     description:
       "Who's using AI, how deeply, and what it costs — across your tools, aggregate by default. Tap the info icon next to any number for a plain-English explanation.",
   },
+  /** Narrative hero (U4.1): the period story leads the page, and one CTA points
+   * to the single safe enablement action (the training section below). */
+  hero: {
+    ctaLabel: "See where to focus",
+  },
+  /** ONE shared suppression note (U4.1). Rendered wherever a small-group floor
+   * would otherwise drop a row or panel with no explanation. `minPeople` is the
+   * live floor constant (SEGMENT_MIN_PEOPLE_TO_NAME) — never hard-coded — and
+   * the wording is count-free: it states the rule, never how many were hidden. */
+  floorNote: (minPeople: number) =>
+    `Shown only for groups of ${minPeople} or more people, to protect individuals.`,
   /** (a) Team AI Health — the three scores, recent movement, the period story,
    * and consolidated spend. */
   health: {
@@ -29,6 +40,10 @@ export const TEAM_OVERVIEW_COPY = {
    * whether momentum has stalled. */
   training: {
     title: "Training opportunities",
+    /** Section-level intro under the heading (distinct from the per-card
+     * description below): frames the whole section for a manager. */
+    sectionLead:
+      "Where to help your team next — who's leading, where to coach, and whether momentum has stalled. Aggregate only, never a read on any one person.",
     lead: "Where enablement would move the needle — segments, concentration, and whether growth has flattened.",
     /** Named only above the de-anonymization floor (championSegment). */
     champions: (count: number, label: string) =>
