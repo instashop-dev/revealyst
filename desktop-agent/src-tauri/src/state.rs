@@ -138,10 +138,13 @@ mod tests {
         }
     }
 
+    /// One precedence row: (name, input-mutator, expected state).
+    type PrecedenceRow = (&'static str, fn(&mut StateInputs), AgentState);
+
     /// The full precedence order as (condition-setter, expected-state) rows,
     /// highest precedence first. Row 1 (`enrolled = false`) is the
     /// onboarding placement documented on `resolve_state`.
-    fn precedence_table() -> Vec<(&'static str, fn(&mut StateInputs), AgentState)> {
+    fn precedence_table() -> Vec<PrecedenceRow> {
         vec![
             (
                 "update_required",
