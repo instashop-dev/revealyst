@@ -181,8 +181,9 @@ sub-case-C ADR** (§9.4): self-view-only enforcement, dual-source dedup, surface
   recommendations, staleness honesty, RFC-8058 one-click unsubscribe) is the delivery channel.
   Daily value = a single fresh nudge card drawn from the last sync — never a data-freshness
   requirement.
-- **Weekly progress:** digest + in-app Growth Journey card reuse the same content assembly
-  (`src/lib/digest-content.ts`).
+- **Weekly progress:** digest + in-app Growth Journey card reuse the same content assembly —
+  both call the shared `deriveAttention` engine (`src/lib/score-insights.ts`), not a
+  digest-specific formatter.
 
 ### 5.3 Manager onboarding a team
 
@@ -211,9 +212,10 @@ export/email — the weekly digest cadence can't serve execs honestly.
 - **Sub-daily:** `subject_day_signals` — 24-slot UTC-hour histogram (`hours smallint[]`,
   cardinality-checked) + `peak_concurrency`; NULL when the vendor has no intra-day grain —
   absence is never fabricated.
-- **Canonical metrics:** 26 frozen keys across 10 families (`src/contracts/metrics.ts`),
+- **Canonical metrics:** 29 frozen keys across 11 families (`src/contracts/metrics.ts`),
   mirrored by the seeded `metric_catalog` table — including the V1.5 agentic family
-  (`agent_sessions`, `agent_requests`, `agent_active`) and native Copilot `ai_credits`.
+  (`agent_sessions`, `agent_requests`, `agent_active`), native Copilot `ai_credits`, and the
+  W7-8 OTel `markers` family (`otel_active_time`, `otel_edit_accepted`, `otel_edit_rejected`).
 - **Attribution ladder (frozen):** `person > key_project > account`; any derived value inherits
   the **lowest** attribution of its inputs (`lowestAttribution`), never redistributed upward.
 - **Honesty gaps (frozen, 7 kinds):** `oauth_actors_missing`, `telemetry_only_users_in_totals`,
@@ -234,9 +236,10 @@ export/email — the weekly digest cadence can't serve execs honestly.
 2. **Claude Code local logs / Manual Sync** (shipped: `packages/revealyst-agent` +
    `src/lib/agent-ingest.ts`) — the only source for Individual/Pro/Max users who are structurally
    invisible to every admin API.
-3. **Claude Code OTel receiver** (**unbuilt** — verified: zero application references) — the only
-   honest source for true accept/reject, real active time, and retries; gates all *measured*
-   (vs directional) proficiency claims. V1, and its spike starts immediately (§15.3).
+3. **Claude Code OTel receiver** (**shipped, W7-8** — `POST /v1/metrics` + `POST /v1/logs`,
+   OTLP-HTTP-JSON, device-token auth reusing the agent scheme; mig 0034, ADR 0039) — the only
+   honest source for true accept/reject, real active time, and retries; a capability renders
+   **`measured`** (not just `directional`) once it has evidence for ≥2 of its bound OTel markers.
 
 ### 6.3 Signal coverage plan (VNext's 9 behavioral categories → tiers)
 
@@ -245,7 +248,7 @@ export/email — the weekly digest cadence can't serve execs honestly.
 | Sessions, models, features, agent usage, active usage | Captured | Wire remaining polled-but-unused fields **[MVP]** — zero new privacy surface |
 | Acceptance patterns | Real for Cursor/Copilot (`suggestions_*`, `edit_actions_*`); proxy-only for Claude Code | Keep native fields **[MVP]**; true accept/reject via OTel **[V1]**. Never label a local-log proxy as "accept rate" |
 | Workflow diversity | Derivable from `feature_used` dim breadth; not first-class | Promote to a first-class signal **[MVP]** |
-| Context usage | Vendor exposes `context_window` (with `service_tier`, `inference_geo`, `speed` — connector-facts §3); **confirmed never requested**: the Anthropic client's `group_by` (`src/connectors/anthropic/client.ts`) omits these dimensions entirely | **[V1, OTel-gated]**, directional; ≥2-signal rule before it drives a rec |
+| Context usage (TEL-012) | Vendor exposes `context_window` (with `service_tier`, `inference_geo`, `speed` — connector-facts §3); **confirmed never requested**: the Anthropic client's `group_by` (`src/connectors/anthropic/client.ts`) omits these dimensions entirely | **Moved to Future (2026-07-16, D11):** OTel-gated; needs a ≥2-source corroboration path; no canonical metric key exists yet (`CANONICAL_METRICS` has no `context_window`/context-usage entry) |
 | Planning behaviour | No honest signal today | **[Future, OTel-gated]** |
 | Conversation structure | Session-shape stats only; scope ambiguous | **[Future]** — needs the §16 design answer first |
 
@@ -433,7 +436,8 @@ findings (`src/lib/spend-governance.ts` — shipped). Assembly and labeling, not
 
 **Capability catalog + utility ranker [V1, Wave 7].** Catalog rows gain a `target_capabilities`
 link into a small **relational** capability graph (`domains → capabilities → capability_signals →
-capability_dependencies`, ~30–40 nodes — not a graph database). The evaluator upgrades from the fixed
+capability_dependencies`, **9 shipped capabilities**, the v0 Engineering set, deliberately
+conservative — not a graph database). The evaluator upgrades from the fixed
 `impact: 1` to a **deterministic utility score** that finally reads the metadata the catalog already
 stores (`benefit` / `difficulty` / `confidence` / `applicableRoles` / `applicableTools`): `utility =
 0.35·capabilityGap + 0.20·benefit + 0.15·confidence + 0.10·roleToolFit + 0.10·novelty −
@@ -604,7 +608,6 @@ narrative, correlations) · marketing site + share cards.
 | Proficiency band + marker breakdown + learning paths (self-view) | M–L | Directional until OTel lands; then measured |
 | Monthly Executive narrative export/email | M | Reuses `narrative.ts` + SES |
 | Renewal reminders (manually-entered contract dates — no vendor reports them) | M | New field, honest labeling |
-| Context-usage signal (directional) | M | OTel-gated; ≥2-signal rule |
 | Capability graph (`domains`/`capabilities`/`capability_signals`/`capability_dependencies`) + `target_capabilities` link | L | ADR; relational, not a graph DB; ties recs to named capabilities |
 | Per-person capability state (`user_capability_state`) + utility ranker | L | ADR; capped *directional* until OTel; parallel reducer, never mutates the score contract |
 
@@ -612,7 +615,9 @@ narrative, correlations) · marketing site + share cards.
 
 Outcomes entity (demand-gated; only after a real outcome signal exists) · role expansion beyond
 Engineering (**evidence-gated:** requires an honest telemetry source — the M365 Copilot / Google
-Workspace admin-API research question in §16 must be answered first) · planning-behaviour +
+Workspace admin-API research question in §16 must be answered first) · **context-usage signal
+(TEL-012, moved to Future 2026-07-16, D11):** OTel-gated; needs a ≥2-source corroboration path;
+no canonical metric key exists yet · planning-behaviour +
 conversation-structure signals (OTel-gated + §16 design answer) · real cross-org k-anonymous
 benchmarks (consent-volume-gated) · read-only MCP server over org analytics (sequenced behind
 personal-value proof) · perceived-vs-measured pulse panel · resident desktop agent (cadence-
@@ -770,7 +775,7 @@ seat metering correctness (compare-and-set before Paddle PATCH — never double-
 
 One Cloudflare Worker (Next.js via OpenNext; custom entry `src/worker.ts`) · two custom domains
 (`app.revealyst.com` = app + auth; `revealyst.com` = marketing + share cards; host split enforced
-from `src/lib/domains.ts`) · Neon Postgres via Hyperdrive, Drizzle migrations (latest: 0023) ·
+from `src/lib/domains.ts`) · Neon Postgres via Hyperdrive, Drizzle migrations (latest: 0034) ·
 Cron Triggers → Queues (batched fan-out; poll queue + DLQ; consumers self-heal) · Better Auth
 (cookie cache off; admin plugin allowlisted) · Paddle MoR · SES for email · single database,
 `org_id` on every row; **Personal mode = an org of one** (identical machinery to Team; the
@@ -792,8 +797,19 @@ migration numbers, and a 0014 duplicate already exists as a cautionary tale), **
 `tests/tenant-isolation.test.ts` `SCOPED_READS` entry with a non-vacuous B-org seed row, **(3)** a
 `src/db/account-deletion.ts` registration (`PURGE_TABLES` or `PURGE_EXEMPT_TABLES`). All access
 via `forOrg` (`src/db/org-scope.ts`); cross-org reads only in `src/db/system.ts` from
-cron/queue paths. New API routes are typed in `src/contracts/api.ts` (frozen, ADR-gated) and
-served through `handleApi`/`appContext` — the 402 free-band gate applies by default.
+cron/queue paths. **Two-tier route-typing convention (recorded decision):** cross-workstream,
+frozen-contract routes are typed in `src/contracts/api.ts` (ADR-gated — 18 routes today, incl.
+`connections`, `scores`, `settings`, `missions/start`); newer, single-workstream routes type their
+request/response shapes with a colocated Zod schema in the route file instead (~6 routes today —
+`audit`, `benchmark-consent`, `invites/accept`, `org/invites`, `share`, `share/[id]`) without
+promoting them into the frozen contract. Both tiers are served through `handleApi`/`appContext`
+identically, so the 402 free-band gate applies by default regardless of which tier a route uses.
+Exactly six routes opt out via `allowOverFreeBand: true` (`src/lib/api-route.ts`) because the
+underlying action is privacy/account management, never a paywalled feature: `billing/checkout`,
+`billing/portal`, `connections/[id]`, `settings`, `settings/digest`, `settings/exec-report` — an
+org over the free band must still be able to pay, manage its own connections/notification
+preferences, and delete a connection. (`api/exec-report` deliberately does NOT opt out — the export
+itself is a paywalled feature, unlike managing the *setting* that controls it.)
 
 ### 15.3 Sequence-these-first (load-bearing infra, before the feature waves)
 
@@ -853,8 +869,12 @@ the CI guard even when additive. Everything else in MVP composes existing surfac
    remains.
 8. **Third-ladder line (AI Capability Layer).** Confirm the capability profile card is a
    *decomposition of the one proficiency band*, not a competing third scale (§8.4). Default if
-   unconfirmed: block the Wave-7 capability-profile UI. Also confirm the ~30–40 capability seed list +
-   prerequisite DAG (product-owned content, not agent-invented) and persona-as-aggregate-lens-only.
+   unconfirmed: block the Wave-7 capability-profile UI. **Implemented, confirmation pending:**
+   shipped as the 9-capability v0 Engineering seed + prerequisite DAG (authored autonomously as an
+   engineering assumption per the program directive — see ADR 0035's own sign-off note — bound only
+   to already-ingested signals; §6.4) and persona-as-aggregate-lens-only; the capability profile
+   renders as a decomposition of the one band (ADR 0036). Founder third-ladder confirmation is
+   still pending (D3, `docs/product-signoffs.md`).
 9. **Exposure-logging reversal.** Confirm an ADR reversing today's deliberate "don't log
    rec-shown-to-X" stance (`src/app/api/recommendations/interaction/route.ts:16-19`) before any
    recommendation-exposure / experimentation work (Wave 8). Default if unconfirmed: exposure logging
