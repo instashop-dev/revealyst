@@ -18,6 +18,7 @@ import {
 } from "../src/lib/team-insights";
 import {
   MANAGER_INSIGHTS_COPY,
+  TEAM_INSIGHT_SEVERITY_LABEL,
   renderTeamInsight,
 } from "../src/lib/team-insights-glossary";
 import { recomputeTeamInsights } from "../src/scoring/recompute-team-insights";
@@ -188,10 +189,20 @@ describe("insight params — structural no-person-id guarantee", () => {
           peopleWithState: 3,
           staleConnectionCount: 1,
           connectedCount: 3,
+          // Review hardening: a prior map so the movement variants
+          // (plateau / positive_growth params {masteredNow, masteredBefore})
+          // are actually emitted and swept against the allowlist too.
+          prior: new Map([
+            [CAP_B, { capabilitySlug: CAP_B, masteredBefore: 4, representedBefore: 8 }],
+          ]),
         },
       ),
     );
     expect(ranked.length).toBeGreaterThan(0);
+    expect(
+      ranked.some((c) => c.category === "plateau" || c.category === "positive_growth"),
+      "structural sweep must cover the movement params variants",
+    ).toBe(true);
     const uuidRe =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     for (const c of ranked) {
@@ -229,6 +240,25 @@ describe("team-insights glossary copy", () => {
     }
   });
 
+  it("plateau copy is honest about direction: a decline never renders as 'held steady'", () => {
+    const labelFor = (slug: string) => LABELS.get(slug) ?? slug;
+    // Review finding: the plateau category covers stalled AND slipped. The
+    // rendered claim must match the stored counts (invariant b on prose).
+    const slipped = renderTeamInsight(
+      { category: "plateau", params: { capabilitySlug: CAP_A, masteredNow: 3, masteredBefore: 5 } },
+      labelFor,
+    );
+    expect((slipped.title + slipped.body).toLowerCase()).not.toContain("held steady");
+    expect((slipped.title + slipped.body).toLowerCase()).not.toContain("hasn't moved");
+    expect(slipped.body).toContain("5");
+    expect(slipped.body).toContain("3");
+    const steady = renderTeamInsight(
+      { category: "plateau", params: { capabilitySlug: CAP_A, masteredNow: 5, masteredBefore: 5 } },
+      labelFor,
+    );
+    expect(steady.title.toLowerCase()).toContain("held steady");
+  });
+
   it("contains no leaderboard/ranking/gamification/benchmark language (banned sweep)", () => {
     const labelFor = (slug: string) => LABELS.get(slug) ?? slug;
     const all = [
@@ -236,11 +266,14 @@ describe("team-insights glossary copy", () => {
       MANAGER_INSIGHTS_COPY.subtitle,
       MANAGER_INSIGHTS_COPY.empty,
       MANAGER_INSIGHTS_COPY.dismiss,
+      MANAGER_INSIGHTS_COPY.dismissed,
+      ...Object.values(TEAM_INSIGHT_SEVERITY_LABEL),
       ...(
         [
           { category: "capability_gap" as const, params: { capabilitySlug: CAP_A, mastered: 0, total: 6 } },
           { category: "concentration" as const, params: { capabilitySlug: CAP_A, mastered: 2, total: 8 } },
           { category: "plateau" as const, params: { capabilitySlug: CAP_A, masteredNow: 2, masteredBefore: 2 } },
+          { category: "plateau" as const, params: { capabilitySlug: CAP_A, masteredNow: 2, masteredBefore: 5 } },
           { category: "positive_growth" as const, params: { capabilitySlug: CAP_A, masteredNow: 4, masteredBefore: 2 } },
           { category: "low_adoption" as const, params: { active: 3, total: 12 } },
           { category: "data_incomplete" as const, params: { stale: 1, connected: 3 } },

@@ -58,6 +58,15 @@ export function renderTeamInsight(
     case "plateau": {
       const cp = p as Extract<TeamInsightParams, { masteredNow: number; capabilitySlug: string }>;
       const label = labelFor(cp.capabilitySlug);
+      // Honesty split (review finding): the plateau category covers BOTH
+      // "stalled" (now === before) and "slipped" (now < before). A real decline
+      // must never render as "held steady" — say what the stored counts say.
+      if (cp.masteredNow < cp.masteredBefore) {
+        return {
+          title: `Fewer people are showing ${label} than last period`,
+          body: `${cp.masteredBefore} ${peopleWord(cp.masteredBefore)} showed a strong level in ${label} last period; this period it's ${cp.masteredNow}. Recent activity may not reflect it yet — worth a look together.`,
+        };
+      }
       return {
         title: `${label} has held steady`,
         body: `Progress in ${label} hasn't moved recently. It could be a good moment to revisit it together.`,
