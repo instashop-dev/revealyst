@@ -2,6 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { axe } from "vitest-axe";
 import { ReconcileExplainer } from "./reconcile-explainer";
 
 const DISMISS_KEY = "revealyst.reconcile.explainer.dismissed";
@@ -70,5 +71,11 @@ describe("ReconcileExplainer", () => {
       throw new Error("no storage");
     });
     expect(() => render(<ReconcileExplainer />)).not.toThrow();
+  });
+
+  it("has no detectable a11y violations while expanded (axe smoke, U5)", async () => {
+    const { container } = render(<ReconcileExplainer />);
+    expect(screen.getByText(HEADING)).toBeInTheDocument();
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

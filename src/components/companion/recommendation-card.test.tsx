@@ -2,6 +2,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { axe } from "vitest-axe";
 
 const routerRefresh = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -187,5 +188,26 @@ describe("RecommendationCard — U0.3 extraction", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
     expect(toastSuccess.mock.calls[0][1]).toBeUndefined();
+  });
+
+  it("has no detectable a11y violations with interaction affordances (axe smoke, U5)", async () => {
+    // The card's root is an <li> (it's a list row) — render it inside a <ul> so
+    // the listitem passes axe's structural check, matching real usage.
+    const { container } = render(
+      <ul>
+        <RecommendationCard
+          item={{
+            ...REC,
+            href: "/methodology",
+            suggestedActionType: "in-product-setting",
+            whyLine: "This is where the score has the most room to grow.",
+            confidenceNote: "Based on 3 connected sources.",
+            capabilityLabel: "Make AI part of daily work",
+          }}
+          personId="p-1"
+        />
+      </ul>,
+    );
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

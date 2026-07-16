@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { axe } from "vitest-axe";
 
 import { ConnectorCard } from "./connector-card";
 
@@ -103,5 +104,34 @@ describe("ConnectorCard — U0.6 shell", () => {
       <ConnectorCard vendorName="Example Vendor" summary="Just a summary." />,
     );
     expect(container.querySelector('[data-slot="card-footer"]')).toBeNull();
+  });
+
+  it("gives the secondary action slot the same >=44px touch target (U5)", () => {
+    render(
+      <ConnectorCard
+        vendorName="Example Vendor"
+        primaryAction={<button type="button">Confirm</button>}
+        secondaryAction={<button type="button">Cancel</button>}
+      />,
+    );
+    const wrapper = screen
+      .getByRole("button", { name: "Cancel" })
+      .closest('[data-slot="connector-card-secondary-action"]');
+    expect(wrapper).toBeTruthy();
+    expect(wrapper?.className).toMatch(/min-h-11/);
+  });
+
+  it("has no detectable a11y violations (axe smoke, U5)", async () => {
+    const { container } = render(
+      <ConnectorCard
+        vendorName="Example Vendor"
+        statusBadge={<span>Connected</span>}
+        summary="Does the example thing."
+        meta="Last synced 2 hours ago."
+        primaryAction={<button type="button">Connect</button>}
+        secondaryAction={<button type="button">Manage</button>}
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

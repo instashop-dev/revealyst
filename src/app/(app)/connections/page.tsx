@@ -268,7 +268,7 @@ export default async function ConnectionsPage({
           <Card className="border-amber-500/40">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <TriangleAlert className="size-4 text-amber-500" />
+                <TriangleAlert className="size-4 text-amber-500 dark:text-amber-400" />
                 Needs attention
               </CardTitle>
             </CardHeader>

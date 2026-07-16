@@ -2,6 +2,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { axe } from "vitest-axe";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn() }),
@@ -88,5 +89,15 @@ describe("VisibilityModeControl radiogroup keyboard semantics", () => {
         "true",
       ),
     );
+  });
+});
+
+// U5: axe smoke on a representative Settings tab form component (the Privacy
+// tab's main control), extending the rail-only coverage in
+// settings-tab-rail.test.tsx to an actual tab render.
+describe("VisibilityModeControl — axe smoke (U5)", () => {
+  it("has no detectable a11y violations", async () => {
+    const { container } = render(<VisibilityModeControl current="private" />);
+    expect(await axe(container)).toHaveNoViolations();
   });
 });

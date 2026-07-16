@@ -39,7 +39,14 @@ export function MissionStartButton({ missionSlug }: { missionSlug: string }) {
   }
 
   return (
-    <Button size="sm" variant="outline" className="mt-3" onClick={start} disabled={busy}>
+    <Button
+      size="sm"
+      variant="outline"
+      // U5: ≥44px touch-target floor (invisible hit area, house min-h-11 idiom).
+      className="mt-3 min-h-11"
+      onClick={start}
+      disabled={busy}
+    >
       {busy ? <Spinner className="size-4" /> : null}
       {MISSION_COPY.startAction}
     </Button>

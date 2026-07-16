@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ImpersonationBanner } from "@/components/admin/impersonation-banner";
+import { RouteFocusManager } from "@/components/route-focus";
 import { SiteHeader } from "@/components/site-header";
 import { UpgradePaywall } from "@/components/upgrade-paywall";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
@@ -83,6 +84,9 @@ export default async function AppLayout({
       >
         Skip to main content
       </a>
+      {/* U5: announce client-side route changes to assistive tech by moving
+          focus to <main> — the sidebar-link click otherwise strands focus. */}
+      <RouteFocusManager />
       <SidebarProvider>
         <AppSidebar
           org={{ name: ctx.org.name, kind: ctx.org.kind }}
@@ -90,7 +94,18 @@ export default async function AppLayout({
           user={{ name: ctx.user.name ?? null, email: ctx.user.email }}
           isPlatformAdmin={ctx.isPlatformAdmin}
         />
-        <SidebarInset id="main-content">
+        {/* tabIndex={-1} lets both the skip link and RouteFocusManager move
+            focus here. `outline-none` + `focus-visible:ring` differentiates
+            the two arrival paths precisely: RouteFocusManager's programmatic
+            .focus() never sets :focus-visible (silent, no ring), while the
+            skip link's keyboard-initiated jump does — so the sighted keyboard
+            user SEES that the jump landed (WCAG 2.4.7; a blanket outline-none
+            here was a U5 review finding). */}
+        <SidebarInset
+          id="main-content"
+          tabIndex={-1}
+          className="outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           {impersonating && (
             <ImpersonationBanner
               name={impersonating.name}

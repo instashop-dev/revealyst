@@ -60,7 +60,8 @@ export function RecommendationCard({
           <Button
             size="sm"
             variant="outline"
-            className="mt-3"
+            // U5: ≥44px touch-target floor (min-h-11 invisible hit area).
+            className="mt-3 min-h-11"
             nativeButton={false}
             render={
               <a href={item.href} target="_blank" rel="noreferrer noopener" />
@@ -76,7 +77,7 @@ export function RecommendationCard({
           <Button
             size="sm"
             variant="outline"
-            className="mt-3"
+            className="mt-3 min-h-11"
             nativeButton={false}
             render={<Link href={item.href} />}
           >
