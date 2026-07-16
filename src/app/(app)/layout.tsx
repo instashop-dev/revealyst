@@ -7,20 +7,12 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { computeAccess } from "@/lib/access";
 import { requireAppContext } from "@/lib/api-context";
 import { resolvePaddleClientConfig, type PaddleEnv } from "@/lib/paddle";
+import { isPaywallExempt } from "@/lib/paywall-exempt";
 import { timeStage } from "@/lib/request-timing";
 
 // Authenticated pages can't prerender: session + Cloudflare env exist only
 // at request time.
 export const dynamic = "force-dynamic";
-
-// Paths that must stay reachable even when the org is paywall-blocked — the
-// page-shell analog of handleApi's `allowOverFreeBand` (src/lib/api-route.ts).
-// /account is the one route an over-band, un-entitled user needs to reach to
-// stop being blocked at all: deleting their account. Without this exemption
-// they'd see only the paywall and could never delete (ADR 0015, review finding).
-// /settings is exempt so an admin over the band can always TIGHTEN privacy
-// (switch back to team-only) — a privacy guardrail is never-cut (ADR 0018).
-const PAYWALL_EXEMPT_PREFIXES = ["/account", "/settings"];
 
 export default async function AppLayout({
   children,
@@ -30,9 +22,10 @@ export default async function AppLayout({
   // concurrent no-arg calls in pages produce the same redirect as this one.
   const ctx = await requireAppContext();
   const pathname = (await headers()).get("x-pathname") ?? "";
-  const paywallExempt = PAYWALL_EXEMPT_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
+  // Paywall exemption (ADR 0015/0018) lives in a pure module so it can be
+  // unit-tested — see src/lib/paywall-exempt.ts. Consolidating billing +
+  // account under /settings/* keeps them reachable over the band automatically.
+  const paywallExempt = isPaywallExempt(pathname);
 
   // Platform-admin impersonation (ADR 0016, PR5/Feature 6): a persistent
   // banner must stay visible for the whole authenticated shell, including

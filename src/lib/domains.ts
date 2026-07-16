@@ -39,6 +39,9 @@ export type Surface = "app" | "marketing" | "neutral";
 export const APP_PATH_PREFIXES = [
   "/admin",
   "/dashboard",
+  // /teams, /people, /members, /billing, /account are consolidated under
+  // /settings (U3) and now 308 to their new homes — kept here so those redirect
+  // pages still resolve on the app host.
   "/teams",
   "/people",
   "/connections",
@@ -48,6 +51,7 @@ export const APP_PATH_PREFIXES = [
   "/compliance",
   "/playbook",
   "/account",
+  "/settings",
   "/sign-in",
   "/reset-password",
   "/onboarding",

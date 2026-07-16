@@ -51,7 +51,9 @@ export function IndexTeaser({
             <li>Up to 10 active indexes, with archive and unarchive.</li>
           </ul>
           <div>
-            <Button render={<Link href="/billing" />}>Upgrade to Team</Button>
+            <Button render={<Link href="/settings/billing" />}>
+              Upgrade to Team
+            </Button>
           </div>
         </CardContent>
       </Card>

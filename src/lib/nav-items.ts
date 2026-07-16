@@ -1,14 +1,11 @@
 import {
   Cable,
-  CreditCard,
   Gauge,
   LayoutDashboard,
   ScanFace,
   Settings,
   ShieldCheck,
   Sprout,
-  UserRoundCog,
-  UserRoundPlus,
   Wallet,
   Wrench,
   type LucideIcon,
@@ -59,36 +56,36 @@ export type OrgRole = "admin" | "member";
 // milestones cluster moved off the daily Today surface (plan §5.2). It appears
 // for personal orgs only today; the same route activates for team-org members
 // once T5.1 / W6-A clears its dogfood gate (R7) — no build ahead of that gate.
+// "Settings" replaces the old "Account" item (U3): Settings is for EVERYONE —
+// members reach their profile + notification preferences there.
 const PERSONAL_NAV_ITEMS: NavItem[] = [
   { title: "Today", href: "/dashboard", icon: LayoutDashboard },
   { title: "Growth", href: "/growth", icon: Sprout },
   { title: "Connections", href: "/connections", icon: Cable },
-  { title: "Account", href: "/account", icon: UserRoundCog },
+  { title: "Settings", href: "/settings", icon: Settings },
 ];
 
 // Primary group — team (and internal `system`) orgs. "Team" replaces "Overview";
-// route stays `/dashboard`. AI maturity stays visible for team orgs.
+// route stays `/dashboard`. AI maturity stays visible for team orgs. "Settings"
+// (everyone) replaces "Account" — U3 folded account management into /settings.
 const TEAM_NAV_ITEMS: NavItem[] = [
   { title: "Team", href: "/dashboard", icon: LayoutDashboard },
   { title: "AI maturity", href: "/maturity", icon: Gauge },
   { title: "Connections", href: "/connections", icon: Cable },
-  { title: "Account", href: "/account", icon: UserRoundCog },
+  { title: "Settings", href: "/settings", icon: Settings },
 ];
 
-// Admin-only surfaces (ADR 0004): Members/Match accounts/Spend/Billing are also
-// role-gated server-side (they read org data). Compliance is grouped here
-// because rollout is an admin concern, but it is *static guidance with no data
-// reads* (§7), so it needs no server-side gate — unlike its data-reading
-// siblings. Settings hosts the org rename + visibility-mode control (ADR 0018),
-// admin-only, server-gated. Custom Index Builder (/indexes) stays DEMOTED out
-// of nav (W5-H) — reachable from Settings. Unchanged by U0.1.
+// Admin-only surfaces (ADR 0004): Match accounts/Spend are role-gated
+// server-side (they read org data). Compliance is grouped here because rollout
+// is an admin concern, but it is *static guidance with no data reads* (§7), so
+// it needs no server-side gate — unlike its data-reading siblings. U3 DROPPED
+// Members, Billing, and Settings from this group — they now live inside the
+// consolidated /settings/* surface (People, Billing tabs) reachable from the
+// primary "Settings" item above.
 const ADMIN_NAV_ITEMS: NavItem[] = [
-  { title: "Members", href: "/members", icon: UserRoundPlus },
   { title: "Match accounts", href: "/reconcile", icon: ScanFace },
   { title: "Spend", href: "/spend", icon: Wallet },
-  { title: "Billing", href: "/billing", icon: CreditCard },
   { title: "Compliance", href: "/compliance", icon: ShieldCheck },
-  { title: "Settings", href: "/settings", icon: Settings },
 ];
 
 // Platform-staff-only discovery link (ADR 0016) — a different axis from the

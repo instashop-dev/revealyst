@@ -6,16 +6,18 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const TITLES: Record<string, string> = {
   "/dashboard": "Overview",
-  "/teams": "Teams",
-  "/people": "People",
   "/connections": "Connections",
-  "/members": "Members",
-  "/account": "Account",
+  // /account, /billing, /members, /teams, /people consolidated under /settings
+  // (U3); the prefix match makes every /settings/* tab read "Settings".
+  "/settings": "Settings",
 };
 
 function titleFor(pathname: string): string {
-  const match = Object.keys(TITLES).find((prefix) =>
-    pathname.startsWith(prefix),
+  // Boundary match (same rule as paywall-exempt.ts / domains.ts): a prefix
+  // only matches at a path-segment boundary, so e.g. /settingsology never
+  // reads as "Settings".
+  const match = Object.keys(TITLES).find(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
   return match ? TITLES[match] : "Revealyst";
 }

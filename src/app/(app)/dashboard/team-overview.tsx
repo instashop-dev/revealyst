@@ -495,37 +495,32 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
               </div>
             </CardContent>
           </Card>
-          {/* People & teams roster — RELOCATED here from the top nav (W5-H
-           * deliverable 2). The pages still resolve; team create/manage dialogs
-           * also live on Settings for admins. Reachable in ≤2 clicks. */}
-          <Card>
-            <CardHeader>
-              <CardTitle>{TEAM_OVERVIEW_COPY.setup.peopleTeams}</CardTitle>
-              <CardDescription>
-                {TEAM_OVERVIEW_COPY.setup.peopleTeamsDescription}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-2 text-sm">
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link href="/people" />}
-              >
-                <UsersRound data-icon="inline-start" />
-                People
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link href="/teams" />}
-              >
-                <UsersRound data-icon="inline-start" />
-                Teams
-              </Button>
-            </CardContent>
-          </Card>
+          {/* People & teams — consolidated into the admin-only /settings/people
+           * tab (U3). The card is ADMIN-GATED like its "Workspace settings"
+           * sibling: pre-U3 the un-gated /people and /teams roster pages were an
+           * unretired W5-H leftover, and a member-visible button here would now
+           * dead-end on the tab's admins-only notice (U3 review finding). */}
+          {ctx.role === "admin" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>{TEAM_OVERVIEW_COPY.setup.peopleTeams}</CardTitle>
+                <CardDescription>
+                  {TEAM_OVERVIEW_COPY.setup.peopleTeamsDescription}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2 text-sm">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  nativeButton={false}
+                  render={<Link href="/settings/people" />}
+                >
+                  <UsersRound data-icon="inline-start" />
+                  People &amp; teams
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </section>
     </>
