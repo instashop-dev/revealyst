@@ -6,7 +6,7 @@ import { BellOff, Check, ThumbsUp, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import type { RecInteractionStateValue } from "@/lib/rec-interactions";
+import type { RecInteractionAction } from "@/lib/rec-interactions";
 
 // Snooze / dismiss / mark-tried affordances for ONE coaching recommendation
 // (W5-D, ADR 0028). Rendered only on the personal self-view (the CoachingCard
@@ -20,15 +20,10 @@ import type { RecInteractionStateValue } from "@/lib/rec-interactions";
 // 10-second toast (sonner `action`) offers one-click revert — implemented as
 // a SECOND POST to this same endpoint, never a client-only rollback (the
 // server state must actually change back, or a page reload would re-hide the
-// rec). `rec_interaction_state.state` is a closed 3-value enum with no
-// "cleared"/"never interacted" value and no delete route (§8.3 — the state
-// api is write/overwrite-only), so there is no way to restore a never-touched
-// rec to a literal blank slate. "tried" is the only value that both (a) is
-// accepted by the endpoint and (b) never suppresses the rec — so undo always
-// resolves to it, which is exact when the rec really was already tried, and
-// best-effort (rec comes back, shown with the "tried" indicator rather than
-// the buttons) otherwise. The toast copy stays neutral ("Restored") rather
-// than claiming "marked as tried" so it never overstates what happened.
+// rec). The revert restores the rec's ACTUAL prior state (ADR 0043): `tried`
+// when it was already marked tried, otherwise `cleared` — which deletes the
+// row so the person's state is literal absence again, never a fabricated
+// "tried" they didn't give.
 export function RecInteractionActions({
   personId,
   recId,
@@ -41,10 +36,10 @@ export function RecInteractionActions({
   tried?: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<RecInteractionStateValue | null>(null);
+  const [busy, setBusy] = useState<RecInteractionAction | null>(null);
 
   async function act(
-    state: RecInteractionStateValue,
+    state: RecInteractionAction,
     successMsg: string,
     options?: { offerUndo?: boolean },
   ) {
@@ -65,7 +60,10 @@ export function RecInteractionActions({
           action: {
             label: "Undo",
             onClick: () => {
-              void act("tried", "Restored");
+              // Restore the ACTUAL prior state: "tried" if the person had
+              // marked it tried before this snooze/dismiss, else clear the
+              // row entirely (ADR 0043).
+              void act(tried ? "tried" : "cleared", "Restored");
             },
           },
         });

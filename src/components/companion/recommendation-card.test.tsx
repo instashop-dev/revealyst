@@ -65,7 +65,7 @@ describe("RecommendationCard — U0.3 extraction", () => {
     expect(screen.getByRole("button", { name: /Dismiss/i })).toBeTruthy();
   });
 
-  it("Dismiss POSTs the dismiss state, offers a 10s Undo toast, and Undo re-POSTs tried", async () => {
+  it("Dismiss POSTs the dismiss state, offers a 10s Undo toast, and Undo POSTs cleared", async () => {
     const user = userEvent.setup();
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
@@ -95,13 +95,35 @@ describe("RecommendationCard — U0.3 extraction", () => {
     // Never the only path: the row's own buttons are still present.
     expect(screen.getByRole("button", { name: /Dismiss/i })).toBeTruthy();
 
-    // Firing the toast's Undo action re-POSTs the recommendation back to
-    // "tried" — the only interaction-state value that un-suppresses a rec
-    // (the enum has no "cleared"/"none" state and no delete route).
+    // Firing the toast's Undo action restores the ACTUAL prior state: this
+    // rec was never interacted with, so undo POSTs "cleared" (ADR 0043) —
+    // the row is deleted, never a fabricated "tried".
     toastOptions.action.onClick();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const [undoUrl, undoInit] = fetchMock.mock.calls[1];
     expect(undoUrl).toBe("/api/recommendations/interaction");
+    expect(JSON.parse((undoInit as { body: string }).body)).toEqual({
+      personId: "p-1",
+      recId: "adoption-active-days",
+      state: "cleared",
+    });
+  });
+
+  it("Undo on an already-tried rec restores 'tried' (the true prior state)", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RecommendationCard item={REC} personId="p-1" tried />);
+    await user.click(screen.getByRole("button", { name: /Dismiss/i }));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
+    const [, toastOptions] = toastSuccess.mock.calls[0] as [
+      string,
+      { duration: number; action: { label: string; onClick: () => void } },
+    ];
+    toastOptions.action.onClick();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const [, undoInit] = fetchMock.mock.calls[1];
     expect(JSON.parse((undoInit as { body: string }).body)).toEqual({
       personId: "p-1",
       recId: "adoption-active-days",

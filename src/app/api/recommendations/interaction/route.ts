@@ -43,6 +43,18 @@ export async function POST(req: Request) {
       throw new ApiError(403, "you can only act on your own recommendations");
     }
 
+    // `cleared` (ADR 0043) deletes the row — the honest undo target: the
+    // person's state for this rec becomes literal absence, exactly as if they
+    // had never touched it (never a fabricated "tried"). Idempotent: clearing
+    // an absent row is a no-op success.
+    if (body.state === "cleared") {
+      await ctx.scope.recInteractions.clear({
+        personId: body.personId,
+        recId: body.recId,
+      });
+      return { ok: true as const };
+    }
+
     const snoozeUntil =
       body.state === "snoozed"
         ? snoozeUntilFrom(new Date(), body.snoozeDays ?? DEFAULT_SNOOZE_DAYS)

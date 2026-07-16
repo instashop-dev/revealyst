@@ -62,3 +62,4 @@ is linked and the affected workstreams are re-synced.
 | 0040 | `org-scope-unique-violation-cause-chain` | Fix: `isUniqueViolation` walks the error cause chain (renumbered from 0037 — T0.1) | Accepted |
 | 0041 | `schema-split` | schema: public-API-preserving split into per-domain modules | Accepted |
 | 0042 | `context-tokens-signal` | TEL-012 context-window usage signal (`context_tokens`); vocabulary + binding, emitter fixture-gated | Accepted |
+| 0043 | `rec-interaction-clear-action` | Rec-interaction `cleared` API action (honest undo — deletes the row, never fabricates "tried") | Accepted |

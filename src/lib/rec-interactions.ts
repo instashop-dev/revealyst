@@ -8,6 +8,19 @@
 export const REC_INTERACTION_STATES = ["snoozed", "dismissed", "tried"] as const;
 export type RecInteractionStateValue = (typeof REC_INTERACTION_STATES)[number];
 
+/**
+ * The actions the interaction API accepts (ADR 0043): the three stored states
+ * plus `cleared`, which DELETES the row — the honest undo target for a person
+ * who snoozed/dismissed a rec they had never interacted with before. `cleared`
+ * is an API action, never a stored value: after it, the person's state for
+ * that rec is literal absence, exactly as if they had never touched it.
+ */
+export const REC_INTERACTION_ACTIONS = [
+  ...REC_INTERACTION_STATES,
+  "cleared",
+] as const;
+export type RecInteractionAction = (typeof REC_INTERACTION_ACTIONS)[number];
+
 /** Default snooze length when the caller doesn't specify one. */
 export const DEFAULT_SNOOZE_DAYS = 7;
 
@@ -32,7 +45,8 @@ function toTime(value: Date | string | null): number | null {
 
 /**
  * Is this interaction currently HIDING the recommendation from the person?
- *  - `dismissed` → always hidden (until they clear it — there is no clear in v1).
+ *  - `dismissed` → always hidden (until they clear it via the `cleared`
+ *    action, ADR 0043, which deletes the row so no view is derived at all).
  *  - `snoozed` → hidden only while `snoozeUntil` is in the future; once it
  *    passes, the rec resurfaces (snooze expiry). A snoozed row with no
  *    `snoozeUntil` (shouldn't happen — `set` always stamps one) is treated as
