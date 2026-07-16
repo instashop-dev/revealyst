@@ -159,6 +159,35 @@ it is the interface between agents.
 > P0 (governance docs) and P4 (learning paths, TEL-012) were NOT in this slice. Latest mig
 > still **0034**, latest ADR still **0039**.
 
+> **V4 Wave 9 — Closure phases P0 + P4 + P5.2 shipped — 2026-07-16** (PRs #235–#239; W9 is
+> now COMPLETE except externally gated W10 items; no migration): **P0 governance** — duplicate
+> ADR 0037 (cause-chain) renamed → **0040** + `scripts/check-adr-numbers.mjs` duplicate-prefix
+> CI guard (bannered 0014 pair allowlisted, self-tested) + full index table in
+> `docs/decisions/README.md`; last live "KMS" overclaims → "versioned Worker-secret KEK
+> envelope"; requirements.csv OQ-008 no longer claims an unmade founder sign-off (status
+> `Open`; TEL-003 26/10→29/11 and WF-006 `deriveAttention` citation fixed in passing);
+> **`docs/product-signoffs.md` created** — the durable founder-decision ledger (OQ-001/002/008
+> pending + D4–D12 + T2.5 default-applied rows); gap-analysis doc bannered superseded (gated
+> items honestly excluded); Spec V4 refreshed to match code (29 keys/11 families, mig 0034,
+> two-tier route-typing blessed, six `allowOverFreeBand` routes, `deriveAttention` citation,
+> 9-capability seed, OTel receiver shipped) — adversarial fact-check caught + fixed a
+> re-fabricated "product-owned, not agent-invented" seed-provenance claim (W3-N pattern,
+> again); landing $1-promo derives from `src/lib/pricing.ts` dated constants (manual Paddle
+> mirror, honestly commented). **P4** — GJ-007 learning paths: pure `src/lib/
+> capability-curriculum.ts` (glossary pattern, all 9 slugs, seed-sort order) + opt-in "See how
+> to grow this" Sheet from `CapabilityProfileCard`'s next-focus line (client leaf, card stays
+> server; LMS-vocabulary banned-phrasing sweep added; inert learning_path columns stay inert);
+> **TEL-012 formally moved to Future (D11 default)** — no metric key, no migration. **P5.2** —
+> `schema.ts` split (ADR **0041**): 1,749-line frozen monolith → barrel over 13
+> `src/db/schema/*` domain modules; barrel order = topological sort of the 15 composite tenant
+> FKs; auth-schema re-export stays last (circular-import constraint); contract-guardian
+> verified 45 tables + 5 enums via `getTableConfig` **0 diffs**, export surface 50→50;
+> `drizzle-kit generate` zero-diff; full suite 174 files/1,752 tests green. Latest mig still
+> **0034**, latest ADR **0041**. **Remaining (Wave 10, externally gated — do not force):**
+> T5.1 companion-in-team-orgs (W6-A dogfood outcome, clock since 2026-07-14; T2.1+T3.4
+> preconditions already merged), T5.3 role expansion (OQ-003/OQ-004). Founder ratification
+> queue lives in `docs/product-signoffs.md`.
+
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and
 settings page must satisfy them, and any new feature must **preserve or improve**
