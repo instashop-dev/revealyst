@@ -77,6 +77,11 @@ describe("readDashboard", () => {
     expect(data.spendCentsEstimated).toBe(130);
     // Resolved people with an active_day: alice, bob, carol, dave (eve idle).
     expect(data.activePeople).toBe(4);
+    // Distribution completeness (P2c): the complement over tracked people — eve
+    // has no active_day this window. active + notYetActive === tracked people.
+    expect(data.notYetActive).toBe(1);
+    const trackedPeople = (await scope.people.list()).length;
+    expect(data.activePeople + data.notYetActive).toBe(trackedPeople);
     // svc-key is the only subject with no identity link.
     expect(data.unresolvedSubjects).toBe(1);
   });

@@ -102,6 +102,13 @@ export type DashboardData = {
   /** Identity-resolved people with an active_day among their linked subjects
    * in the window — a count, never a per-user number. */
   activePeople: number;
+  /** Tracked people with NO active_day among their linked subjects in the
+   * window — the honest complement of `activePeople` over the org's tracked
+   * people (`activePeople + notYetActive === tracked people`). A COUNT only,
+   * never a per-person list, so the distribution can disclose how much of the
+   * team it does not yet cover ("N not yet active") instead of implying the
+   * segmented people are the whole team. */
+  notYetActive: number;
   /** Key/account subjects with no identity link — surfaced, not billed. */
   unresolvedSubjects: number;
 };
@@ -192,6 +199,10 @@ export async function readDashboard(
       activeSubjectIds.has(link.subjectId),
     ),
   ).length;
+  // The complement over the org's tracked people — those with no active_day in
+  // the window. `activePeople` is a filter of `peopleRows`, so it is always
+  // ≤ the total and this can never go negative. Count only; no person leaves.
+  const notYetActive = peopleRows.length - activePeople;
   const unresolvedSubjects = subjects.filter(
     (s) => !subjectsWithLinks.has(s.id),
   ).length;
@@ -201,6 +212,7 @@ export async function readDashboard(
     spendCents,
     spendCentsEstimated,
     activePeople,
+    notYetActive,
     unresolvedSubjects,
   };
 }

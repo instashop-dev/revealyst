@@ -7,6 +7,7 @@ import { TeamNarrativeHero } from "./team-narrative-hero";
 import { CapabilityCoverageCard } from "./capability-coverage-card";
 import { TrainingOpportunitiesCard } from "./training-opportunities-card";
 import { SegmentBreakdown } from "./segment-breakdown";
+import { TeamFreshnessLine } from "./team-freshness-line";
 import { UsageDistributionPanel } from "./usage-distribution-panel";
 import { UsageConcentrationPanel } from "./usage-concentration-panel";
 import { DataTrustCard } from "./data-trust-card";
@@ -89,6 +90,80 @@ describe("Floor-explanation copy (U4.1)", () => {
   });
 });
 
+describe("Distribution completeness — not-yet-active (P2c)", () => {
+  it("SegmentBreakdown surfaces the count-only not-yet-active line", () => {
+    render(
+      <SegmentBreakdown
+        distribution={segments({ power_user: 4 })}
+        notYetActive={3}
+      />,
+    );
+    // Positive-first framing, the live count, and the "will appear" promise.
+    expect(screen.getByText(TEAM_OVERVIEW_COPY.notYetActive(3))).toBeTruthy();
+    expect(screen.getByText(/not yet active/i)).toBeTruthy();
+  });
+
+  it("uses singular/plural correctly and omits the line at zero/undefined", () => {
+    const one = TEAM_OVERVIEW_COPY.notYetActive(1);
+    expect(one).toMatch(/1 person not yet active/);
+    expect(one).not.toMatch(/1 people/);
+
+    const { rerender } = render(
+      <SegmentBreakdown distribution={segments({ power_user: 4 })} notYetActive={0} />,
+    );
+    expect(screen.queryByText(/not yet active/i)).toBeNull();
+    // Undefined (a caller that never computes it) also renders nothing extra.
+    rerender(<SegmentBreakdown distribution={segments({ power_user: 4 })} />);
+    expect(screen.queryByText(/not yet active/i)).toBeNull();
+  });
+
+  it("not-yet-active copy uses no deficiency language (positive-first guard)", () => {
+    const copy = [
+      TEAM_OVERVIEW_COPY.notYetActive(1),
+      TEAM_OVERVIEW_COPY.notYetActive(4),
+    ]
+      .join(" ")
+      .toLowerCase();
+    for (const banned of [
+      "inactive",
+      "laggard",
+      "idle",
+      "deficien",
+      "underperform",
+      "behind",
+      "failing",
+      "leaderboard",
+    ]) {
+      expect(copy.includes(banned), `banned word "${banned}"`).toBe(false);
+    }
+    // The sanctioned framing is present.
+    expect(copy).toContain("not yet active");
+  });
+});
+
+describe("Data-freshness indicator (P2c)", () => {
+  it("renders a 'Data as of …' line from a real dataAsOf and nothing when null", () => {
+    const { rerender, container } = render(
+      <TeamFreshnessLine dataAsOf="2026-07-15T00:00:00.000Z" stale={false} />,
+    );
+    expect(screen.getByText(/Data as of/)).toBeTruthy();
+    // Absolute date, not relative — matches the maturity banner's format.
+    expect(screen.getByText(/2026/)).toBeTruthy();
+    // No stale suffix when fresh.
+    expect(screen.queryByText(/older than the current period/)).toBeNull();
+
+    rerender(<TeamFreshnessLine dataAsOf={null} stale={false} />);
+    expect(container.textContent).toBe("");
+  });
+
+  it("appends the terse stale note when the sync predates the period", () => {
+    render(<TeamFreshnessLine dataAsOf="2026-01-01T00:00:00.000Z" stale />);
+    expect(
+      screen.getByText(new RegExp(TEAM_OVERVIEW_COPY.freshness.staleSuffix)),
+    ).toBeTruthy();
+  });
+});
+
 describe("Team overview cards — axe smoke (U4.1)", () => {
   it("TeamNarrativeHero has no detectable a11y violations", async () => {
     const { container } = render(
@@ -120,6 +195,23 @@ describe("Team overview cards — axe smoke (U4.1)", () => {
   it("SegmentBreakdown has no detectable a11y violations", async () => {
     const { container } = render(
       <SegmentBreakdown distribution={segments({ power_user: 4, casual: 2 })} />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("SegmentBreakdown (with not-yet-active line) has no detectable a11y violations", async () => {
+    const { container } = render(
+      <SegmentBreakdown
+        distribution={segments({ power_user: 4, casual: 2 })}
+        notYetActive={3}
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("TeamFreshnessLine has no detectable a11y violations", async () => {
+    const { container } = render(
+      <TeamFreshnessLine dataAsOf="2026-07-15T00:00:00.000Z" stale={false} />,
     );
     expect(await axe(container)).toHaveNoViolations();
   });
