@@ -234,6 +234,10 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     const period = periodFor("month", anchor);
     const prevPeriod = periodFor("month", previousDay(period.periodStart));
     const definitionsPromise = scope.scores.definitions();
+    // Multi-person guard: ONE people query shared between the page's caller-
+    // person resolution and dashboardSummary's hydration (prefetched.people),
+    // mirroring personal-self-view.tsx.
+    const peoplePromise = scope.people.list();
     let placed = false;
     const result = await measure(counter, "Today (personal)", async () => {
       const [maturity] = await Promise.all([
@@ -243,7 +247,7 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
           scope,
           "private",
           { from: period.periodStart, to: period.periodEnd },
-          { definitions: definitionsPromise },
+          { definitions: definitionsPromise, people: peoplePromise },
         ),
         listBenchmarks(db, { status: "verified", segment: "overall" }),
         definitionsPromise,
@@ -265,6 +269,9 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
         scope.missions.progressForUser(userId),
         // COACH-004: the signed-in person's OWN exposures, for novelty rotation.
         scope.exposures.forUser(userId),
+        // Multi-person guard: the SAME in-flight people promise shared with
+        // dashboardSummary above (one query, like definitions).
+        peoplePromise,
       ]);
       expect(maturity.numbers).toBeDefined();
       placed = maturity.currentWindow.to.length > 0;
@@ -272,7 +279,9 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     results.push(result);
     expect(placed).toBe(true);
 
-    // Measured Today budget (this fixture): total 39, depth 1. Generous ceiling
+    // Measured Today budget (this fixture): total 39, depth 1 (the
+    // multi-person guard's people read is the same one dashboardSummary
+    // already ran, now shared via prefetched.people — net zero). Generous ceiling
     // (~1.5x) catches a real regression (an accidental N+1 or a new sequential
     // stage) without being brittle to a one-query change. Depth is pinned EXACT
     // — U1 must not add a round-trip stage (the growth cluster's reads stay in

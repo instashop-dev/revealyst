@@ -17,10 +17,7 @@ import { InfoTip } from "@/components/info-tip";
 import { OnboardingInterim } from "@/components/onboarding-interim";
 import { PageHeader } from "@/components/page-header";
 import { ScoreCard, type ScoreCardData } from "@/components/scores/score-card";
-import {
-  fromPersonalScore,
-  type PersonalScore,
-} from "@/components/scores/score-card-model";
+import { fromPersonalScore } from "@/components/scores/score-card-model";
 import { ShareScoreButton } from "@/components/share-score-button";
 import { BudgetAlertBanner } from "@/components/spend/budget-alert-banner";
 import { SyncStalenessBanner } from "@/components/sync-staleness-banner";
@@ -64,6 +61,7 @@ import {
   deriveAttention,
   personDeltaResult,
   personScoreDropAttribution,
+  resolveSelfPersonId,
   type DeltaResult,
 } from "@/lib/score-insights";
 import { deriveRecInteractionView } from "@/lib/rec-interactions";
@@ -98,6 +96,11 @@ export async function PersonalSelfView({
   // while staying at round-trip depth 1 (dashboardSummary awaits the same
   // in-flight promise rather than starting a second query).
   const definitionsPromise = ctx.scope.scores.definitions();
+  // Shared the same way as definitions (one people query per page load, not
+  // two): `dashboardSummary` → hydrateScoreResults needs the people list for
+  // person refs, and this page needs it to resolve the caller's own person
+  // (the multi-person guard below).
+  const peoplePromise = ctx.scope.people.list();
   // A wider window than the current-month summary, purely so the agentic
   // adoption card has ~12 weeks to draw a real trend line (the lib slices to
   // its own AGENTIC_WINDOW_DAYS window ending today — this fetch matches it).
@@ -125,6 +128,7 @@ export async function PersonalSelfView({
     missionCatalog,
     missionProgress,
     exposures,
+    people,
   ] = await timeStage("pageData", () =>
       Promise.all([
         // Onboarding-gate read, folded in here so it overlaps the rest of the
@@ -134,7 +138,7 @@ export async function PersonalSelfView({
           ctx.scope,
           ctx.org.visibilityMode,
           { from: period.periodStart, to: period.periodEnd },
-          { definitions: definitionsPromise },
+          { definitions: definitionsPromise, people: peoplePromise },
         ),
         // Personal self-view compares against the "overall" segment — an
         // enterprise/smb norm is not this solo user's peer group.
@@ -143,7 +147,9 @@ export async function PersonalSelfView({
         // Person-level only — this read exists purely to compute a
         // same-definition-version personal delta, so team/org-level rows
         // (which `personDeltaResult` would filter out in JS anyway) are
-        // never fetched from Postgres in the first place.
+        // never fetched from Postgres in the first place. It still returns
+        // EVERY person's rows (no personId filter on `scores.results`) —
+        // the delta calls below pin to one person in JS.
         ctx.scope.scores.results({
           from: prevPeriod.periodStart,
           to: prevPeriod.periodEnd,
@@ -220,6 +226,10 @@ export async function PersonalSelfView({
         // recs score novelty 0 so guidance rotates. Empty when no person is
         // linked yet → every rec is fresh (byte-identical to pre-P7).
         ctx.scope.exposures.forUser(ctx.user.id),
+        // The people list for the multi-person guard below — the SAME
+        // in-flight promise `dashboardSummary` hydrates person refs from
+        // (one query, shared like definitions).
+        peoplePromise,
       ]),
     );
   // Onboarding gate (evaluated here, after the overlapped read above, rather
@@ -240,9 +250,25 @@ export async function PersonalSelfView({
     identityLinks: personalIdentities,
     windowTo: today,
   });
-  const scores = new Map<string, PersonalScore>(
+  // Multi-person guard (invariant b): a personal-kind org CAN hold an invited
+  // second member (see the budget-alert comment above), and neither
+  // `dashboardSummary` nor the prev-period read filters by person — so this
+  // self-view renders EXACTLY ONE person's rows, resolved by
+  // `resolveSelfPersonId` (linked person, else the org's sole person, else
+  // null → honest-empty like /growth). The delta/attribution calls below
+  // additionally pin the previous-period row to the SAME person as the
+  // current row (shared selector in score-insights.ts), so a delta can never
+  // diff two different people's rows.
+  const selfPersonId = resolveSelfPersonId(people, ctx.user.id);
+  const scores = new Map(
     summary.scores
-      .filter((s) => s.subjectLevel === "person" && s.periodGrain === "month")
+      .filter(
+        (s) =>
+          s.subjectLevel === "person" &&
+          s.periodGrain === "month" &&
+          selfPersonId !== null &&
+          s.person?.id === selfPersonId,
+      )
       .map((s) => [s.definitionSlug, s]),
   );
   const prevMonthLabel = new Date(
@@ -262,6 +288,9 @@ export async function PersonalSelfView({
           slug,
           grain: "month",
           previousPeriodLabel: prevMonthLabel,
+          // Pin the previous row to the SAME person as the current row —
+          // never another member's row (multi-person guard above).
+          personId: score?.person?.id,
         }),
       ];
     }),
@@ -270,8 +299,11 @@ export async function PersonalSelfView({
   // Share the headline (fluency) score, and only once it's actually computed —
   // a share link to a "still computing" card isn't worth minting.
   const fluencyComputed = scores.has("fluency");
-  const personId =
-    summary.scores.find((s) => s.person)?.person?.id ?? null;
+  // The share/interaction target is the SAME person whose rows render above —
+  // never a first-row-found fallback that could name another member (the
+  // routes verify ownership server-side regardless; this avoids OFFERING an
+  // action on someone else's person id).
+  const personId = selfPersonId;
 
   // W7-1/W7-3: derive the capability label map + prerequisite edges from the
   // graph fetched above (zero new queries), and the person's eligibility context
@@ -354,6 +386,9 @@ export async function PersonalSelfView({
               definitions,
               slug: x.slug,
               grain: "month",
+              // The identical pin the delta above used (shared selector) —
+              // driver and delta must resolve the same previous row.
+              personId: score.person?.id,
             })
           : undefined,
       };
