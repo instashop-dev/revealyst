@@ -33,6 +33,11 @@ describe("ManagerSpendSection (P3-B, ADR 0045)", () => {
     expect(screen.getByText("$60.00")).toBeTruthy(); // reported MTD
     expect(screen.getByText("$40.00")).toBeTruthy(); // reported prior
     expect(screen.getByText("$55.00")).toBeTruthy(); // estimated MTD
+    // Hardening #2: no BLENDED total may ever render. Reported MTD ($60.00) +
+    // estimated MTD ($55.00) would blend to $115.00 — its absence is the
+    // invariant-(b) render guard the structural key check can't provide.
+    expect(document.body.textContent).not.toContain("$115.00");
+    expect(document.body.textContent).not.toContain("$100.00"); // reported mtd+prior blend
   });
 
   it("renders the cost≠capability note and the coverage disclosure", () => {

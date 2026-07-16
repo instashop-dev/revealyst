@@ -191,6 +191,28 @@ describe("loadManagerSpendDrillIn — authorization matrix (ADR 0045 spend half)
     expect(r.status).toBe("ok");
   });
 
+  it("TRAP: someone else's toggle-ON grant is invisible — caller's own toggle-OFF team → cost-hidden", async () => {
+    // Highest-value review trap (hardening #1): Tia is on team E (toggle ON,
+    // managed by MANAGER_B) AND team D (toggle OFF, managed by the caller,
+    // MANAGER_A). The caller's access derives ONLY through their own grants,
+    // so MANAGER_B's toggle-ON team must not leak spend to MANAGER_A.
+    const scope = forOrg(db, orgId);
+    const teamE = await scope.teams.create("Team E");
+    await scope.teamManagers.assign(teamE.id, MANAGER_B);
+    await scope.teamSettings.set(teamE.id, { managersSeeIndividualCost: true });
+    const tia = await scope.people.create({
+      displayName: "Tia",
+      email: "tia@f.example",
+    });
+    await scope.teams.addMember(teamE.id, tia.id);
+    await scope.teams.addMember(teamDId, tia.id);
+    const r = await load(orgId, MANAGER_A, tia.id);
+    expect(r.status).toBe("cost-hidden");
+    // And MANAGER_B, whose team E toggle IS on, does get the read.
+    const rb = await load(orgId, MANAGER_B, tia.id);
+    expect(rb.status).toBe("ok");
+  });
+
   it("a manager of a DIFFERENT team cannot read this person → forbidden", async () => {
     const r = await load(orgId, MANAGER_B, personAId);
     expect(r.status).toBe("forbidden");
