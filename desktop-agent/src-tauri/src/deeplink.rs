@@ -329,7 +329,9 @@ mod tests {
 
     #[test]
     fn state_mismatch_is_rejected_and_keeps_the_pending_slot() {
-        let (store, mut rx) = pending("the-real-state");
+        // Armed with the state OK_URL carries, so the genuine second callback
+        // below matches; the spoof deliberately carries a different state.
+        let (store, mut rx) = pending("the-state");
         let spoof = "revealyst://desktop-auth/callback?code=evil&state=wrong-state&pairing=pair-1";
         assert_eq!(
             store.handle(spoof),
