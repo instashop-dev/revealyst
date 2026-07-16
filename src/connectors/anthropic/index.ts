@@ -6,6 +6,7 @@ import type {
   SubjectDescriptor,
 } from "../../contracts/connector";
 import type { RegisteredConnector } from "../registry";
+import { SCOPE_CLAIMS } from "../scope-claims";
 import {
   callSpacing,
   CALL_SPACING_MS,
@@ -113,6 +114,7 @@ function nextDayLocal(day: string): string {
 
 export const anthropicConsoleEntry: RegisteredConnector = {
   connector: anthropicConsoleConnector as Connector,
+  scopeClaims: SCOPE_CLAIMS.anthropic_console,
   sourceConnector: "anthropic-console@1",
   // Per covered day: 1 claude_code call + amortized usage (1h buckets,
   // 168/request) + cost (31/request) + pagination headroom ≈ 3.

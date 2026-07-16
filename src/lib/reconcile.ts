@@ -3,11 +3,13 @@
 // identities) and layers the shared-account flags on top. Kept out of the
 // page component so it can be unit-tested against fixtures.
 
+import type { SubjectKind } from "../contracts/attribution";
 import type { forOrg } from "../db/org-scope";
 import { groupBy } from "./utils";
 import { vendorLabel } from "./vendor-labels";
 import { computeSharedAccountFlags } from "./shared-account/query";
 import type { SharedAccountFlag } from "./shared-account/heuristics";
+import { proposeEmailMatches, type EmailMatch } from "./identity/resolve";
 
 type Scoped = ReturnType<typeof forOrg>;
 
@@ -45,7 +47,34 @@ export type ReconcileView = {
   people: PersonRef[];
   teams: { id: string; name: string }[];
   flaggedCount: number;
+  /**
+   * Auto-proposable subject→person links from email equality only (the one
+   * evidence kind we trust; src/lib/identity/resolve.ts). Computed here over
+   * data already fetched — no new query. Drives the one-click "accept
+   * suggestion" and the row evidence line; everything not proposed is left
+   * unresolved rather than guessed.
+   */
+  proposedMatches: EmailMatch[];
 };
+
+/** Counts-only impact of finishing reconciliation — no fabricated percentages
+ * (invariant b). `accountsWithData` = unresolved subjects that actually carry
+ * activity (empty stubs don't count). We deliberately do NOT report a
+ * "people already tracked" denominator: matching an account LINKS its usage to
+ * an existing person rather than adding a new one, and `people.length` is not
+ * the frozen tracked_user count (≥1 metric_record in period), so pairing the
+ * two numbers in one sentence would be misleading. */
+export type ReconcileImpact = {
+  accountsWithData: number;
+};
+
+export function deriveReconcileImpact(
+  view: Pick<ReconcileView, "unresolved">,
+): ReconcileImpact {
+  return {
+    accountsWithData: view.unresolved.filter((s) => s.hasActivity).length,
+  };
+}
 
 export async function buildReconcileView(
   scoped: Scoped,
@@ -118,11 +147,26 @@ export async function buildReconcileView(
   // below more recognizably-named siblings from the same connector.
   unresolved.sort((a, b) => Number(b.hasActivity) - Number(a.hasActivity));
 
+  // Email-equality proposals over the SAME rows we already fetched (no query).
+  // Person-kind subjects whose email uniquely matches one person's email get a
+  // one-click suggestion; ambiguous/ineligible ones are left for a human.
+  const resolvedSubjectIds = new Set(resolved.map((s) => s.subjectId));
+  const { matches: proposedMatches } = proposeEmailMatches({
+    subjects: subjectRows.map((s) => ({
+      subjectId: s.id,
+      kind: s.kind as SubjectKind,
+      email: s.email,
+    })),
+    people: peopleRows.map((p) => ({ personId: p.id, email: p.email })),
+    alreadyResolvedSubjectIds: resolvedSubjectIds,
+  });
+
   return {
     unresolved,
     resolved,
     people,
     teams: teamRows.map((t) => ({ id: t.id, name: t.name })),
     flaggedCount: flags.length,
+    proposedMatches,
   };
 }

@@ -1,5 +1,6 @@
 import type { Connector } from "../contracts/connector";
 import type { VendorId } from "../contracts/attribution";
+import type { ScopeClaims } from "./scope-claims";
 
 // W1-D connector registry: maps a connection's vendor id to its connector
 // module + the framework-level polling facts the dispatcher needs (facts
@@ -28,6 +29,14 @@ export type RegisteredConnector = {
    * sustained use — hourly is far inside that).
    */
   pollIntervalMinutes: number;
+  /**
+   * Plain-English "what this connector can and can't measure" claims — a
+   * CLAIM SURFACE fact-checked against docs/connector-facts.md (see
+   * src/connectors/scope-claims.ts). Lives on the registry entry (not the
+   * frozen Connector interface), so adding it is not a contract change. The
+   * connections page renders these; pages never hard-code vendor prose.
+   */
+  scopeClaims: ScopeClaims;
 };
 
 const registry = new Map<string, RegisteredConnector>();

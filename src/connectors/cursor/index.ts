@@ -6,6 +6,7 @@ import type {
   SubjectDescriptor,
 } from "../../contracts/connector";
 import type { RegisteredConnector } from "../registry";
+import { SCOPE_CLAIMS } from "../scope-claims";
 import {
   callSpacing,
   CALL_SPACING_MS,
@@ -95,6 +96,7 @@ export const cursorConnector: Connector<CursorRaw> = {
 
 export const cursorEntry: RegisteredConnector = {
   connector: cursorConnector as Connector,
+  scopeClaims: SCOPE_CLAIMS.cursor,
   sourceConnector: "cursor@1",
   // Per covered day, worst case: daily-usage member pages (~1 for a normal
   // team) + event pages (several on a busy day) + headroom ≈ 6.

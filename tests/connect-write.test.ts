@@ -75,6 +75,7 @@ beforeAll(async () => {
   clearRegistryForTests();
   registerConnector({
     connector: fakeConnector,
+    scopeClaims: { measures: ["fake"], cannotMeasure: ["fake"] },
     sourceConnector: "fake@1",
     maxCallsPerDay: FAKE_MAX_CALLS_PER_DAY,
     pollIntervalMinutes: 60,

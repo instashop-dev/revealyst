@@ -15,7 +15,7 @@ import {
 // "zero new software" tripwire). Auth + shell come from the (app) layout.
 
 export const metadata = {
-  title: "Visibility-readiness playbook · Revealyst",
+  title: "Shared-account migration guide · Revealyst",
 };
 
 const BENEFITS = [
@@ -66,7 +66,7 @@ export default function PlaybookPage() {
   return (
     <>
       <PageHeader
-        title="Visibility-readiness playbook"
+        title="Shared-account migration guide"
         description="When an account is flagged as likely shared, adoption is undercounted — several people collapse into one seat. Moving to per-user access fixes your data quality, compliance, and security at once."
       >
         <Button variant="outline" nativeButton={false} render={<Link href="/reconcile" />}>
