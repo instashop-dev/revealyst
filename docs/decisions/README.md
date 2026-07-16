@@ -61,3 +61,4 @@ is linked and the affected workstreams are re-synced.
 | 0039 | `otel-measured-tier` | OTel proficiency markers + the measured capability tier | Accepted |
 | 0040 | `org-scope-unique-violation-cause-chain` | Fix: `isUniqueViolation` walks the error cause chain (renumbered from 0037 — T0.1) | Accepted |
 | 0041 | `schema-split` | schema: public-API-preserving split into per-domain modules | Accepted |
+| 0042 | `context-tokens-signal` | TEL-012 context-window usage signal (`context_tokens`); vocabulary + binding, emitter fixture-gated | Accepted |

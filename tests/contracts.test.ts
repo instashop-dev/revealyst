@@ -13,6 +13,7 @@ import {
   countTrackedUsers,
   lowestAttribution,
   METRIC_KEYS,
+  OTEL_MARKER_METRIC_KEYS,
   personRefSchema,
 } from "../src/contracts";
 
@@ -47,6 +48,22 @@ describe("CANONICAL_METRICS ≡ metric_catalog seed", () => {
       expect({ key: row.key, family: row.family, unit: row.unit, dimKind: row.dimKind })
         .toEqual({ key: row.key, family: entry.family, unit: entry.unit, dimKind: entry.dimKind });
     }
+  });
+});
+
+describe("context_tokens (TEL-012, ADR 0042)", () => {
+  it("is a directional tokens signal, NOT an OTel measured-tier marker", () => {
+    // Pins ADR 0042's honesty deviation: no captured fixture carries a context
+    // marker, so context_tokens must never enter the ≥2-marker measured upgrade.
+    expect(METRIC_KEYS).toContain("context_tokens");
+    expect(CANONICAL_METRICS.context_tokens).toEqual({
+      family: "tokens",
+      unit: "tokens",
+      dimKind: null,
+    });
+    expect(OTEL_MARKER_METRIC_KEYS as readonly string[]).not.toContain(
+      "context_tokens",
+    );
   });
 });
 

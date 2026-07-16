@@ -46,7 +46,7 @@ describe("capability graph seed (drizzle/0030)", () => {
   it("seeds the exact v0 Engineering row counts", async () => {
     expect(await db.select().from(schema.domains)).toHaveLength(1);
     expect(await db.select().from(schema.capabilities)).toHaveLength(9);
-    expect(await db.select().from(schema.capabilitySignals)).toHaveLength(29); // 23 (0030) + 6 OTel marker bindings (0034)
+    expect(await db.select().from(schema.capabilitySignals)).toHaveLength(30); // 23 (0030) + 6 OTel marker bindings (0034) + 1 context_tokens binding (0035)
     expect(await db.select().from(schema.capabilityDependencies)).toHaveLength(8);
   });
 
@@ -74,7 +74,7 @@ describe("capability graph seed (drizzle/0030)", () => {
   it("the idempotent seed is a no-op on replay (ON CONFLICT DO NOTHING)", async () => {
     await migrate(db as never, { migrationsFolder: "./drizzle" });
     expect(await db.select().from(schema.capabilities)).toHaveLength(9);
-    expect(await db.select().from(schema.capabilitySignals)).toHaveLength(29); // 23 (0030) + 6 OTel marker bindings (0034)
+    expect(await db.select().from(schema.capabilitySignals)).toHaveLength(30); // 23 (0030) + 6 OTel marker bindings (0034) + 1 context_tokens binding (0035)
     expect(await db.select().from(schema.capabilityDependencies)).toHaveLength(8);
   });
 
@@ -163,7 +163,7 @@ describe("capability graph seed (drizzle/0030)", () => {
     const graph = await scoped.capabilities.graph();
     expect(graph.capabilities).toHaveLength(9);
     expect(graph.dependencies).toHaveLength(8);
-    expect(graph.signals).toHaveLength(29); // +6 OTel markers (0034)
+    expect(graph.signals).toHaveLength(30); // +6 OTel markers (0034) +1 context_tokens (0035)
     const labels = await scoped.capabilities.labels();
     expect(labels.get("ai-coding-foundations")).toBe("Make AI part of daily work");
   });
