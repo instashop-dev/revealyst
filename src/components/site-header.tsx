@@ -13,8 +13,11 @@ const TITLES: Record<string, string> = {
 };
 
 function titleFor(pathname: string): string {
-  const match = Object.keys(TITLES).find((prefix) =>
-    pathname.startsWith(prefix),
+  // Boundary match (same rule as paywall-exempt.ts / domains.ts): a prefix
+  // only matches at a path-segment boundary, so e.g. /settingsology never
+  // reads as "Settings".
+  const match = Object.keys(TITLES).find(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
   return match ? TITLES[match] : "Revealyst";
 }

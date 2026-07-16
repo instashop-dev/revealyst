@@ -46,8 +46,16 @@ describe("settingsTabsFor — role gating", () => {
 });
 
 describe("isPaywallExempt — over-band reachability of /settings/*", () => {
-  it("keeps the exact prefixes ADR 0015/0018 froze", () => {
-    expect(PAYWALL_EXEMPT_PREFIXES).toEqual(["/account", "/settings"]);
+  it("keeps the ADR 0015/0018 prefixes plus the /billing 308 stub", () => {
+    // /account + /settings are the ADR-frozen exemptions; /billing is exempt
+    // ONLY as a redirect stub — the layout renders the paywall instead of
+    // children for a blocked org, so the stub must be reachable for its 308
+    // to /settings/billing (itself exempt) to execute.
+    expect(PAYWALL_EXEMPT_PREFIXES).toEqual([
+      "/account",
+      "/settings",
+      "/billing",
+    ]);
   });
 
   it("exempts every consolidated settings tab an over-band user needs", () => {
@@ -63,7 +71,10 @@ describe("isPaywallExempt — over-band reachability of /settings/*", () => {
 
   it("does not exempt unrelated routes or prefix look-alikes", () => {
     expect(isPaywallExempt("/dashboard")).toBe(false);
-    expect(isPaywallExempt("/billing")).toBe(false); // the 308 stub, not exempt
+    // The /billing 308 stub IS exempt — the layout renders the paywall instead
+    // of children for a blocked org, so the stub must be reachable for its
+    // redirect to /settings/billing (itself exempt) to execute at all.
+    expect(isPaywallExempt("/billing")).toBe(true);
     expect(isPaywallExempt("/settingsology")).toBe(false);
   });
 });

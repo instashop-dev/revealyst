@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight } from "lucide-react";
-import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
 import { CoachingCard } from "@/components/companion/coaching-card";
 import {
   DataConfidenceCard,
@@ -673,11 +672,9 @@ export async function PersonalSelfView({
            * keeps the panel; its own copy discloses the modeled-estimate
            * provenance (see CONCEPT_GLOSSARY.benchmarks).
            *
-           * U3 NOTE (integration): the Growth/Settings split moves the
-           * benchmark opt-in (`BenchmarkConsentToggle`) to Settings; the
-           * orchestrator REMOVES this in-expander copy of the toggle at U3
-           * integration. It stays here (inside the fold) until then so the
-           * opt-in remains reachable. */}
+           * The benchmark opt-in (`BenchmarkConsentToggle`) lives on
+           * Settings → Privacy (U3 / D-U5) — this card links there instead of
+           * rendering a second copy of the toggle (one control, one home). */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-1.5 text-base">
@@ -718,9 +715,16 @@ export async function PersonalSelfView({
                   ))}
                 </ul>
               )}
-              <div className="border-t pt-4">
-                <BenchmarkConsentToggle />
-              </div>
+              <p className="border-t pt-4 text-sm text-muted-foreground">
+                Want to help improve benchmarks anonymously? Manage that in{" "}
+                <Link
+                  href="/settings/privacy"
+                  className="font-medium text-primary underline-offset-2 hover:underline"
+                >
+                  Settings → Privacy
+                </Link>
+                .
+              </p>
             </CardContent>
           </Card>
         </div>

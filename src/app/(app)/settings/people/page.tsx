@@ -28,9 +28,13 @@ export const dynamic = "force-dynamic";
 
 // People & roles tab (U3) — admin-only. Absorbs the retired /members page
 // (dashboard-account roster + invites) alongside the team + role cards that
-// already lived on the old settings page. Nothing from /teams or /people is
-// lost: TeamManagementCard carries the create/manage-team dialogs, and the
-// pseudonymized person list is folded into role management.
+// already lived on the old settings page. For ADMINS nothing from /teams or
+// /people is lost: TeamManagementCard carries the create/manage-team dialogs,
+// and the pseudonymized person list is folded into role management. For
+// MEMBERS this is a deliberate access change (recorded in the U3 PR): the old
+// /people and /teams pages were member-readable only as an unretired W5-H
+// leftover — people management is an admin surface, and members get the
+// in-place admins-only explanation instead.
 export default async function SettingsPeoplePage() {
   const ctx = await requireAppContext("/settings/people");
   if (ctx.role !== "admin") {
