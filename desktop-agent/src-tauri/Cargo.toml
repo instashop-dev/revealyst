@@ -1,0 +1,20 @@
+[package]
+name = "revealyst-desktop-agent"
+version = "0.1.0"
+description = "Revealyst Desktop Agent — background tray utility"
+edition = "2021"
+
+# Tauri 2 convention: the app logic lives in a library crate so mobile targets
+# and integration tests can link it; the binary is a thin wrapper.
+[lib]
+name = "revealyst_desktop_agent_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
