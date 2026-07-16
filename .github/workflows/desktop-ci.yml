@@ -10,6 +10,9 @@ on:
     paths:
       - "desktop-agent/**"
       - ".github/workflows/desktop-ci.yml"
+      # The audit must re-run when someone edits the audit itself — otherwise
+      # a PR that only weakens the script gets no desktop checks at all.
+      - "scripts/desktop-capability-audit.mjs"
 
 concurrency:
   group: desktop-ci-${{ github.ref }}
@@ -51,12 +54,11 @@ jobs:
       - name: Rust tests
         working-directory: desktop-agent/src-tauri
         run: cargo test
-      # cargo-audit over the resolved dependency tree. Cargo.lock is not yet
-      # committed (no local Rust toolchain on the dev machine — see
-      # desktop-agent/README.md); clippy/test above already generated it in
-      # this job's workspace, so audit sees the real resolution.
+      # cargo-audit over the committed Cargo.lock (pinned resolution — a green
+      # PR audits the same tree every run). Prebuilt binary via install-action;
+      # `cargo install` would recompile cargo-audit from source every run.
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        uses: taiki-e/install-action@cargo-audit
       - name: Dependency audit
         working-directory: desktop-agent/src-tauri
         run: cargo audit

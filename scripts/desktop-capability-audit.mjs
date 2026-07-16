@@ -12,35 +12,53 @@
 //  3. tauri.conf.json's CSP deviates from the pinned spec §22.3 policy
 //     (exact string match — in particular connect-src must stay 'self');
 //  4. tauri.conf.json enables `withGlobalTauri` (spec §22.2: no blanket
-//     frontend access to the Tauri API surface).
+//     frontend access to the Tauri API surface);
+//  5. tauri.conf.json declares inline capabilities (`app.security.capabilities`)
+//     — those would bypass check 1 entirely, so their presence is banned;
+//     capabilities live ONLY in the audited capabilities/ directory;
+//  6. tauri.conf.json enables the asset protocol (`app.security.assetProtocol`)
+//     — unrestricted `asset://` filesystem read with no capability-file change;
+//  7. any non-JSON file sits in capabilities/ — fail closed on anything the
+//     JSON checks can't see (e.g. TOML capability files).
 //
 // Exact-match based on purpose: loosening any of these is a deliberate,
 // reviewed edit to this script in the same PR, never an accident.
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "..");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const TAURI_DIR = path.join(ROOT, "desktop-agent", "src-tauri");
 const CAPABILITIES_DIR = path.join(TAURI_DIR, "capabilities");
 const CONF_PATH = path.join(TAURI_DIR, "tauri.conf.json");
 
-// Spec §22.3, verbatim (single line, no trailing semicolon) — must equal
-// app.security.csp in tauri.conf.json byte-for-byte.
+// Spec §22.3, verbatim (single line, trailing semicolon included) — must
+// equal app.security.csp in tauri.conf.json byte-for-byte.
 const PINNED_CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'";
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none';";
 
 const BANNED_PERMISSION_PREFIXES = ["fs:", "shell:", "http:"];
 
 const errors = [];
 
-// --- 1+2: capability files ---
-let capabilityFiles;
+// --- 1+2+7: capability files ---
+let capabilityFiles = [];
 try {
-  capabilityFiles = readdirSync(CAPABILITIES_DIR).filter((f) => f.endsWith(".json"));
+  const allEntries = readdirSync(CAPABILITIES_DIR);
+  // Fail closed on anything that is not a plain .json capability file — a
+  // .toml (or any other) capability file would be invisible to the JSON
+  // checks below.
+  for (const entry of allEntries) {
+    if (!entry.endsWith(".json")) {
+      errors.push(
+        `desktop-agent/src-tauri/capabilities/${entry}: only .json capability files are auditable — remove it or extend this script deliberately`,
+      );
+    }
+  }
+  capabilityFiles = allEntries.filter((f) => f.endsWith(".json"));
 } catch {
   errors.push(`capabilities directory missing: ${CAPABILITIES_DIR}`);
-  capabilityFiles = [];
 }
 if (capabilityFiles.length === 0 && errors.length === 0) {
   errors.push("no capability files found — the audit would pass vacuously");
@@ -81,6 +99,20 @@ if (csp !== PINNED_CSP) {
 
 if (conf.app?.withGlobalTauri === true || /"withGlobalTauri"\s*:\s*true/.test(confRaw)) {
   errors.push("desktop-agent/src-tauri/tauri.conf.json: withGlobalTauri must not be enabled");
+}
+
+// --- 5: inline capabilities bypass the capabilities/ directory audit ---
+if (conf.app?.security?.capabilities !== undefined) {
+  errors.push(
+    "desktop-agent/src-tauri/tauri.conf.json: app.security.capabilities (inline capabilities) is banned — capabilities live only in the audited capabilities/ directory",
+  );
+}
+
+// --- 6: asset protocol = unrestricted asset:// filesystem read ---
+if (conf.app?.security?.assetProtocol !== undefined) {
+  errors.push(
+    "desktop-agent/src-tauri/tauri.conf.json: app.security.assetProtocol is banned (spec 29: no unrestricted filesystem access; asset:// bypasses capability files)",
+  );
 }
 
 if (errors.length > 0) {

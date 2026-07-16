@@ -67,7 +67,6 @@ secrets (spec §25.2); signing lands in M6 behind the protected
 - **Icons** (`src-tauri/icons/`) are generated solid-color placeholders
   (PNG/ICO/ICNS, structurally valid). Replace with real brand icons via
   `npx tauri icon` before any release.
-- **`src-tauri/Cargo.lock` is not committed yet** — the dev machine has no
-  Rust toolchain, so it could not be generated locally. CI resolves it on the
-  fly; commit the lockfile from the first machine that runs `cargo build` so
-  builds and `cargo audit` are reproducible.
+- **`src-tauri/Cargo.lock` is committed** — builds and `cargo audit` run
+  against a pinned dependency resolution. Update it deliberately with
+  `cargo update` (its diff is reviewed like any other).
