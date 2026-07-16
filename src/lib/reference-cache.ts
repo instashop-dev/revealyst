@@ -32,6 +32,16 @@ type OrgScope = ReturnType<typeof forOrg>;
 // through to the loader, so `npm run dev` never serves 5-minute-stale seed
 // data and PGlite-per-test suites can't bleed rows across tests through
 // `globalThis`.
+//
+// Staleness bound, stated honestly: these tables change only via
+// migration/seed at DEPLOY time, and a deploy replaces the Worker's isolates
+// (fresh, empty caches) — so the real stale window is the minutes between
+// the deploy workflow's migration step and the new version taking traffic,
+// bounded by the TTL. Within that window a warm isolate's dashboard can
+// briefly disagree with a live-reading surface (the digest cron, the
+// rec-interaction route's catalog check). Accepted deliberately; if catalog
+// rows ever gain a runtime write surface (the deferred frozen-catalog-column
+// ADR), the writer must bust or bypass this cache.
 
 export const REFERENCE_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -96,13 +106,14 @@ export function cachedMissionCatalog(
 /** The recommendation catalog. NOT purely global — `catalog.list()` returns
  * global presets (org_id NULL) ∪ THIS ORG'S OWN rows (ADR 0033), so the cache
  * key MUST carry the orgId: a shared key would serve one org's custom rows to
- * another (invariant a). Rows are seed/migration-authored today (no runtime
- * write surface), so the TTL only bounds post-deploy staleness. */
+ * another (invariant a). The key derives from `scope.orgId` — the exact org
+ * the query runs as — never from separate caller input that could disagree
+ * with the scope. Rows are seed/migration-authored today (no runtime write
+ * surface), so the TTL only bounds post-deploy staleness. */
 export function cachedRecommendationCatalog(
   scope: OrgScope,
-  orgId: string,
 ): ReturnType<OrgScope["catalog"]["list"]> {
-  return cachedReference(`recommendation-catalog:${orgId}`, () =>
+  return cachedReference(`recommendation-catalog:${scope.orgId}`, () =>
     scope.catalog.list(),
   );
 }

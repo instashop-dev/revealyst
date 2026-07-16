@@ -954,6 +954,78 @@ type MetricRecordRows = Awaited<ReturnType<OrgScope["metrics"]["records"]>>;
 type ScoreResultRows = Awaited<ReturnType<OrgScope["scores"]["results"]>>;
 
 /**
+ * JS replica of `scores.results()`'s SQL period predicate — the ONE place it
+ * lives (the shared-read pass slices one wide score read per page into what
+ * each consumer's narrow read would have returned; hand-copying the
+ * comparison per call site is how the slices drift). periodStart ≥ from AND
+ * periodEnd ≤ to, optional subjectLevel equality — keep in lockstep with
+ * src/db/org-scope/scores.ts `results()`.
+ */
+export function sliceScoreRows<
+  T extends { subjectLevel: string; periodStart: string; periodEnd: string },
+>(
+  rows: readonly T[],
+  filter: { from: string; to: string; subjectLevel?: string },
+): T[] {
+  return rows.filter(
+    (r) =>
+      (filter.subjectLevel === undefined ||
+        r.subjectLevel === filter.subjectLevel) &&
+      r.periodStart >= filter.from &&
+      r.periodEnd <= filter.to,
+  );
+}
+
+/**
+ * The union read windows the companion pages (/dashboard Today, /growth)
+ * share with readMaturityView — ONE definition so the pages and the perf
+ * harness that pins their query budget can never drift apart:
+ *  - metricFrom/metricTo: active_day + agent_active span (maturity fullSpan
+ *    ∪ the agentic window ending today).
+ *  - spendFrom/spendTo: spend_cents span — the upper bound is the CURRENT
+ *    MONTH'S END, not today, because dashboardSummary's replaced direct read
+ *    ran to period.periodEnd and future-dated rows (e.g. a clock-skewed
+ *    agent ingest) must keep counting toward "Spend this month".
+ *  - scoreFrom/scoreTo: score-row span covering the delta months AND
+ *    maturity's team-score window.
+ * All comparisons are lexicographic on YYYY-MM-DD (safe by construction).
+ */
+export function sharedCompanionReadSpans(input: {
+  today: string;
+  agenticFrom: string;
+  period: { periodStart: string; periodEnd: string };
+  prevPeriod: { periodStart: string; periodEnd: string };
+}): {
+  metricFrom: string;
+  metricTo: string;
+  spendFrom: string;
+  spendTo: string;
+  scoreFrom: string;
+  scoreTo: string;
+} {
+  const windows = maturityWindows(input.today);
+  const metricFrom =
+    windows.fullSpan.from < input.agenticFrom
+      ? windows.fullSpan.from
+      : input.agenticFrom;
+  return {
+    metricFrom,
+    metricTo: input.today,
+    spendFrom: metricFrom,
+    spendTo:
+      input.period.periodEnd > input.today ? input.period.periodEnd : input.today,
+    scoreFrom:
+      windows.fullSpan.from < input.prevPeriod.periodStart
+        ? windows.fullSpan.from
+        : input.prevPeriod.periodStart,
+    scoreTo:
+      input.period.periodEnd > windows.current.to
+        ? input.period.periodEnd
+        : windows.current.to,
+  };
+}
+
+/**
  * Optional pre-fetched inputs (the `dashboardSummary` prefetched pattern):
  * the /dashboard and /growth pages already fetch several of the SAME tables
  * this reader needs in their own depth-1 batch, so they hand the in-flight
@@ -1060,12 +1132,11 @@ export async function readMaturityView(
     // prefetched slice replicates the direct read's exact predicate:
     // subjectLevel=team, periodStart ≥ fullSpan.from, periodEnd ≤ current.to.
     prefetched?.scoreRows?.then((rows) =>
-      rows.filter(
-        (r) =>
-          r.subjectLevel === "team" &&
-          r.periodStart >= fullSpan.from &&
-          r.periodEnd <= current.to,
-      ),
+      sliceScoreRows(rows, {
+        from: fullSpan.from,
+        to: current.to,
+        subjectLevel: "team",
+      }),
     ) ??
       scope.scores.results({
         subjectLevel: "team",

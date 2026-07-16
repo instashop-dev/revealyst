@@ -107,12 +107,12 @@ describe("reference cache", () => {
     });
     const scopeA = forOrg(db, orgId);
     const scopeB = forOrg(db, orgB.id);
-    const a = await cachedRecommendationCatalog(scopeA, orgId);
-    const b = await cachedRecommendationCatalog(scopeB, orgB.id);
+    const a = await cachedRecommendationCatalog(scopeA);
+    const b = await cachedRecommendationCatalog(scopeB);
     expect(b.some((r) => r.title === ORG_B_TITLE)).toBe(true);
     expect(a.some((r) => r.title === ORG_B_TITLE)).toBe(false);
     // Warm re-reads keep the separation (each org hits its own key).
-    const a2 = await cachedRecommendationCatalog(scopeA, orgId);
+    const a2 = await cachedRecommendationCatalog(scopeA);
     expect(a2.some((r) => r.title === ORG_B_TITLE)).toBe(false);
   });
 });

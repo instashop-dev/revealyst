@@ -14,7 +14,11 @@ import {
   computeAgenticAdoption,
 } from "@/lib/agentic-adoption";
 import { GROWTH_PAGE_COPY } from "@/lib/capability-glossary";
-import { maturityWindows, readMaturityView } from "@/lib/maturity";
+import {
+  readMaturityView,
+  sharedCompanionReadSpans,
+  sliceScoreRows,
+} from "@/lib/maturity";
 import { deriveCompanionMilestones } from "@/lib/milestones";
 import {
   cachedCapabilityGraph,
@@ -67,34 +71,26 @@ export default async function GrowthPage() {
   // readMaturityView as `prefetched` — every consumer window-slices in JS
   // (computeAgenticAdoption and the maturity math both already did), so
   // output is unchanged while the page drops ~11 Neon round trips.
-  const windows = maturityWindows(today);
-  const metricFrom =
-    windows.fullSpan.from < agenticFrom ? windows.fullSpan.from : agenticFrom;
-  const scoreFrom =
-    windows.fullSpan.from < prevPeriod.periodStart
-      ? windows.fullSpan.from
-      : prevPeriod.periodStart;
-  const scoreTo =
-    period.periodEnd > windows.current.to ? period.periodEnd : windows.current.to;
+  const spans = sharedCompanionReadSpans({ today, agenticFrom, period, prevPeriod });
   const peoplePromise = ctx.scope.people.list();
   const identitiesPromise = ctx.scope.identities.all();
   const connectionsPromise = ctx.scope.connections.list();
   const activeDayPromise = ctx.scope.metrics.records({
     metricKey: "active_day",
-    from: metricFrom,
-    to: today,
+    from: spans.metricFrom,
+    to: spans.metricTo,
   });
   const agentActivePromise = ctx.scope.metrics.records({
     metricKey: "agent_active",
-    from: metricFrom,
-    to: today,
+    from: spans.metricFrom,
+    to: spans.metricTo,
   });
   // One score read (all subject levels) spanning the milestone months AND
-  // maturity's team-score window — sliced per consumer below with the exact
-  // `results()` predicate (periodStart ≥ from AND periodEnd ≤ to).
+  // maturity's team-score window — sliced per consumer via sliceScoreRows
+  // (the one JS replica of `results()`'s SQL predicate).
   const scoreRowsPromise = ctx.scope.scores.results({
-    from: scoreFrom,
-    to: scoreTo,
+    from: spans.scoreFrom,
+    to: spans.scoreTo,
   });
 
   // ONE flat Promise.all — round-trip depth 1 (G10), the same discipline as the
@@ -155,18 +151,16 @@ export default async function GrowthPage() {
   // invited member these include OTHER people's rows too, so they are filtered
   // to the caller's OWN person below (invariant b — never celebrate someone
   // else's breadth).
-  const currentScores = scoreSpanRows.filter(
-    (r) =>
-      r.subjectLevel === "person" &&
-      r.periodStart >= period.periodStart &&
-      r.periodEnd <= period.periodEnd,
-  );
-  const prevScores = scoreSpanRows.filter(
-    (r) =>
-      r.subjectLevel === "person" &&
-      r.periodStart >= prevPeriod.periodStart &&
-      r.periodEnd <= prevPeriod.periodEnd,
-  );
+  const currentScores = sliceScoreRows(scoreSpanRows, {
+    from: period.periodStart,
+    to: period.periodEnd,
+    subjectLevel: "person",
+  });
+  const prevScores = sliceScoreRows(scoreSpanRows, {
+    from: prevPeriod.periodStart,
+    to: prevPeriod.periodEnd,
+    subjectLevel: "person",
+  });
 
   const capabilityLabels = new Map(
     capabilityGraph.capabilities.map((c) => [c.slug, c.label]),

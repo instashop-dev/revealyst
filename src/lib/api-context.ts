@@ -60,9 +60,18 @@ export const appContext = cache(async () => {
   // round-trip on every warm request.
   let orgContext = await timeStage("orgContext", async () => {
     // Common case: the speculative read (already resolved by now — it ran
-    // alongside getSession) matches the verified user → zero extra round
-    // trips in this stage.
-    const speculative = await speculativeOrgContext;
+    // alongside getSession, which just completed a full round trip) matches
+    // the verified user → zero extra round trips in this stage. The wait is
+    // BOUNDED: a speculative query that stalls without settling (its result
+    // might be discarded anyway) must never hang the request, so past the
+    // grace window we abandon it and run the sequential path.
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    const speculative = await Promise.race([
+      speculativeOrgContext,
+      new Promise<undefined>((resolve) => {
+        graceTimer = setTimeout(() => resolve(undefined), 1_000);
+      }),
+    ]).finally(() => clearTimeout(graceTimer));
     if (speculative !== undefined && speculative.userId === session.user.id) {
       return { org: speculative.org, role: speculative.role };
     }

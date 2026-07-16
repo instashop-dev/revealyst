@@ -44,7 +44,11 @@ import {
   overallCapabilityBand,
 } from "@/lib/capability-glossary";
 import { buildDataConfidence } from "@/lib/data-confidence";
-import { maturityWindows, readMaturityView } from "@/lib/maturity";
+import {
+  readMaturityView,
+  sharedCompanionReadSpans,
+  sliceScoreRows,
+} from "@/lib/maturity";
 import {
   cachedCapabilityGraph,
   cachedMissionCatalog,
@@ -118,37 +122,32 @@ export async function PersonalSelfView({
   // (computeAgenticAdoption, detectDailySpike's 28-day baseline, and the
   // maturity math), so output is unchanged while the page drops ~9 Neon
   // round trips.
-  const windows = maturityWindows(today);
-  const metricFrom =
-    windows.fullSpan.from < agenticFrom ? windows.fullSpan.from : agenticFrom;
+  const spans = sharedCompanionReadSpans({ today, agenticFrom, period, prevPeriod });
   const identitiesPromise = ctx.scope.identities.all();
   const activeDayPromise = ctx.scope.metrics.records({
     metricKey: "active_day",
-    from: metricFrom,
-    to: today,
+    from: spans.metricFrom,
+    to: spans.metricTo,
   });
   const agentActivePromise = ctx.scope.metrics.records({
     metricKey: "agent_active",
-    from: metricFrom,
-    to: today,
+    from: spans.metricFrom,
+    to: spans.metricTo,
   });
+  // spend runs to spans.spendTo (month end, not today): dashboardSummary's
+  // replaced direct read included future-dated in-month rows and must keep
+  // doing so — see sharedCompanionReadSpans' doc comment.
   const spendPromise = ctx.scope.metrics.records({
     metricKey: "spend_cents",
-    from: metricFrom,
-    to: today,
+    from: spans.spendFrom,
+    to: spans.spendTo,
   });
   // One score read (all subject levels) spanning the delta months AND
-  // maturity's team-score window — sliced per consumer with the exact
-  // `results()` predicate (periodStart ≥ from AND periodEnd ≤ to).
-  const scoreFrom =
-    windows.fullSpan.from < prevPeriod.periodStart
-      ? windows.fullSpan.from
-      : prevPeriod.periodStart;
-  const scoreTo =
-    period.periodEnd > windows.current.to ? period.periodEnd : windows.current.to;
+  // maturity's team-score window — sliced per consumer via sliceScoreRows
+  // (the one JS replica of `results()`'s SQL predicate).
   const scoreRowsPromise = ctx.scope.scores.results({
-    from: scoreFrom,
-    to: scoreTo,
+    from: spans.scoreFrom,
+    to: spans.scoreTo,
   });
   const [
     connections,
@@ -187,11 +186,10 @@ export async function PersonalSelfView({
             // stays the current month, feeding "Spend this month"; only the
             // FETCH is shared, never the window.
             results: scoreRowsPromise.then((rows) =>
-              rows.filter(
-                (r) =>
-                  r.periodStart >= period.periodStart &&
-                  r.periodEnd <= period.periodEnd,
-              ),
+              sliceScoreRows(rows, {
+                from: period.periodStart,
+                to: period.periodEnd,
+              }),
             ),
             spendRows: spendPromise.then((rows) =>
               rows.filter(
@@ -211,12 +209,11 @@ export async function PersonalSelfView({
         // It still returns EVERY person's rows — the delta calls below pin to
         // one person in JS.
         scoreRowsPromise.then((rows) =>
-          rows.filter(
-            (r) =>
-              r.subjectLevel === "person" &&
-              r.periodStart >= prevPeriod.periodStart &&
-              r.periodEnd <= prevPeriod.periodEnd,
-          ),
+          sliceScoreRows(rows, {
+            from: prevPeriod.periodStart,
+            to: prevPeriod.periodEnd,
+            subjectLevel: "person",
+          }),
         ),
         // The month-to-date budget alert (W4-V), role-gated like TeamOverview's:
         // a personal-kind org CAN have an invited member (org-of-one machinery is
@@ -269,7 +266,7 @@ export async function PersonalSelfView({
         // (§8.2 perf floor). Cached per-ORG in the isolate reference cache —
         // the org key is what keeps one tenant's custom rows out of another's
         // view (invariant a).
-        cachedRecommendationCatalog(ctx.scope, ctx.org.id),
+        cachedRecommendationCatalog(ctx.scope),
         // W7-1: the capability graph (labels + prerequisite edges) — a GLOBAL
         // seeded reference table, served from the isolate reference cache.
         cachedCapabilityGraph(ctx.scope),

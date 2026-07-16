@@ -1,7 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Db } from "../../src/db/client";
 import { createFixtureOrg, loadFixture } from "../../src/db/fixtures";
 import { orgContextForUser } from "../../src/db/org-context";
@@ -19,7 +19,11 @@ import {
 } from "../../src/lib/reference-cache";
 import { readBudgetAlertForRole } from "../../src/lib/spend-governance";
 import { readDashboardView } from "../../src/lib/dashboard-view";
-import { maturityWindows, readMaturityView } from "../../src/lib/maturity";
+import {
+  readMaturityView,
+  sharedCompanionReadSpans,
+  sliceScoreRows,
+} from "../../src/lib/maturity";
 import { periodFor, previousDay, recomputeOrg } from "../../src/scoring";
 import { buildTeamFixtureGraph } from "./fixture-graph";
 import { formatTable, instrumentPglite, measure, type ScenarioResult } from "./query-counter";
@@ -238,31 +242,31 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     const peoplePromise = scope.people.list();
     const connectionsPromise = scope.connections.list();
     const identitiesPromise = scope.identities.all();
-    const windows = maturityWindows(anchor);
-    const metricFrom =
-      windows.fullSpan.from < WINDOW.from ? windows.fullSpan.from : WINDOW.from;
+    const spans = sharedCompanionReadSpans({
+      today: anchor,
+      agenticFrom: WINDOW.from,
+      period,
+      prevPeriod,
+    });
     const activeDayPromise = scope.metrics.records({
       metricKey: "active_day",
-      from: metricFrom,
-      to: anchor,
+      from: spans.metricFrom,
+      to: spans.metricTo,
     });
     const agentActivePromise = scope.metrics.records({
       metricKey: "agent_active",
-      from: metricFrom,
-      to: anchor,
+      from: spans.metricFrom,
+      to: spans.metricTo,
     });
     const spendPromise = scope.metrics.records({
       metricKey: "spend_cents",
-      from: metricFrom,
-      to: anchor,
+      from: spans.spendFrom,
+      to: spans.spendTo,
     });
-    const scoreFrom =
-      windows.fullSpan.from < prevPeriod.periodStart
-        ? windows.fullSpan.from
-        : prevPeriod.periodStart;
-    const scoreTo =
-      period.periodEnd > windows.current.to ? period.periodEnd : windows.current.to;
-    const scoreRowsPromise = scope.scores.results({ from: scoreFrom, to: scoreTo });
+    const scoreRowsPromise = scope.scores.results({
+      from: spans.scoreFrom,
+      to: spans.scoreTo,
+    });
     const [maturity] = await Promise.all([
       readMaturityView(scope, anchor, {
         people: peoplePromise,
@@ -283,11 +287,10 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
           definitions: definitionsPromise,
           people: peoplePromise,
           results: scoreRowsPromise.then((rows) =>
-            rows.filter(
-              (r) =>
-                r.periodStart >= period.periodStart &&
-                r.periodEnd <= period.periodEnd,
-            ),
+            sliceScoreRows(rows, {
+              from: period.periodStart,
+              to: period.periodEnd,
+            }),
           ),
           spendRows: spendPromise.then((rows) =>
             rows.filter(
@@ -299,12 +302,11 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
       cachedVerifiedOverallBenchmarks(db),
       definitionsPromise,
       scoreRowsPromise.then((rows) =>
-        rows.filter(
-          (r) =>
-            r.subjectLevel === "person" &&
-            r.periodStart >= prevPeriod.periodStart &&
-            r.periodEnd <= prevPeriod.periodEnd,
-        ),
+        sliceScoreRows(rows, {
+          from: prevPeriod.periodStart,
+          to: prevPeriod.periodEnd,
+          subjectLevel: "person",
+        }),
       ),
       readBudgetAlertForRole(scope, "admin", anchor),
       activeDayPromise,
@@ -312,7 +314,7 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
       identitiesPromise,
       spendPromise,
       scope.recInteractions.statesForUser(userId),
-      cachedRecommendationCatalog(scope, orgId),
+      cachedRecommendationCatalog(scope),
       cachedCapabilityGraph(scope),
       scope.mastery.forUser(userId),
       cachedMissionCatalog(scope),
@@ -381,29 +383,29 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
   async function runGrowthBatch(anchor: string) {
     const period = periodFor("month", anchor);
     const prevPeriod = periodFor("month", previousDay(period.periodStart));
-    const windows = maturityWindows(anchor);
-    const metricFrom =
-      windows.fullSpan.from < WINDOW.from ? windows.fullSpan.from : WINDOW.from;
-    const scoreFrom =
-      windows.fullSpan.from < prevPeriod.periodStart
-        ? windows.fullSpan.from
-        : prevPeriod.periodStart;
-    const scoreTo =
-      period.periodEnd > windows.current.to ? period.periodEnd : windows.current.to;
+    const spans = sharedCompanionReadSpans({
+      today: anchor,
+      agenticFrom: WINDOW.from,
+      period,
+      prevPeriod,
+    });
     const peoplePromise = scope.people.list();
     const identitiesPromise = scope.identities.all();
     const connectionsPromise = scope.connections.list();
     const activeDayPromise = scope.metrics.records({
       metricKey: "active_day",
-      from: metricFrom,
-      to: anchor,
+      from: spans.metricFrom,
+      to: spans.metricTo,
     });
     const agentActivePromise = scope.metrics.records({
       metricKey: "agent_active",
-      from: metricFrom,
-      to: anchor,
+      from: spans.metricFrom,
+      to: spans.metricTo,
     });
-    const scoreRowsPromise = scope.scores.results({ from: scoreFrom, to: scoreTo });
+    const scoreRowsPromise = scope.scores.results({
+      from: spans.scoreFrom,
+      to: spans.scoreTo,
+    });
     const [maturity, graph] = await Promise.all([
       readMaturityView(scope, anchor, {
         people: peoplePromise,

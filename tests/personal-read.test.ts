@@ -19,6 +19,7 @@ import {
   metricsSeries,
   trackedUsers,
 } from "../src/lib/api-impl";
+import { sliceScoreRows } from "../src/lib/maturity";
 
 // W2-H personal read surface: the self-view/overview reads real DB-backed
 // score_results + metric_records through forOrg, hydrated into the frozen
@@ -106,6 +107,34 @@ describe("dashboardSummary (frozen contract)", () => {
     expect(summary.activePeople).toBe(1);
     expect(summary.unresolvedSubjects).toBe(0);
     expect(summary.gaps).toEqual([]);
+  });
+
+  it("prefetched results/spendRows produce IDENTICAL output to the direct reads", async () => {
+    // The shared-read pass (perf: dashboard/growth <2s) lets the Today page
+    // hand dashboardSummary pre-sliced score/spend rows from ONE wider fetch.
+    // This is the equivalence pin for that seam (the maturity reader has its
+    // own in tests/maturity-queries.test.ts): a slice that drifts from the
+    // narrow reads' SQL predicates would silently change "Spend this month"
+    // — an invariant-(b) fabrication — so it must fail here, not on a
+    // dashboard. The prefetched inputs are deliberately fetched WIDER than
+    // the period and sliced exactly like personal-self-view.tsx does.
+    const scope = forOrg(db, orgId);
+    const direct = await dashboardSummary(scope, "full", RANGE);
+    const wideScores = scope.scores.results({ from: "2025-01-01", to: "2026-12-31" });
+    const wideSpend = scope.metrics.records({
+      metricKey: "spend_cents",
+      from: "2025-01-01",
+      to: "2026-12-31",
+    });
+    const prefetched = await dashboardSummary(scope, "full", RANGE, {
+      results: wideScores.then((rows) =>
+        sliceScoreRows(rows, { from: RANGE.from, to: RANGE.to }),
+      ),
+      spendRows: wideSpend.then((rows) =>
+        rows.filter((r) => r.day >= RANGE.from && r.day <= RANGE.to),
+      ),
+    });
+    expect(prefetched).toEqual(direct);
   });
 
   it("§7: nulls person displayName in private mode, keeps it otherwise", async () => {

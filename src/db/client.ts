@@ -28,8 +28,11 @@ type DbEnv = {
  * (pooled, region-pinned); falls back to a direct Neon connection string
  * (`DATABASE_URL` secret / `.dev.vars`) until Hyperdrive is provisioned.
  *
- * Workers-specific settings: one connection per invocation, no prepared
- * statements (connections don't outlive the request), short timeouts.
+ * Workers-specific settings: a small per-invocation pool (5 connections —
+ * postgres.js queues rather than pipelines concurrent queries, so a batch of
+ * N queries on one connection serializes at one network round-trip EACH; see
+ * the comment on `max` below), prepared statements only via Hyperdrive,
+ * short timeouts. Connections never outlive the request.
  */
 export function createDb(env: DbEnv): Db {
   const connectionString =
@@ -63,12 +66,17 @@ export function createDb(env: DbEnv): Db {
   //  - prepare: true — Hyperdrive does not cache/pool unnamed (prepare:false)
   //    statements and they cost additional round-trips per query (see
   //    developers.cloudflare.com/hyperdrive → postgres.js driver notes).
+  //    Gated on the HYPERDRIVE binding, not just non-loopback: the direct
+  //    DATABASE_URL fallback and the ops scripts (KEK rotation, calibrate,
+  //    launch-metrics) may point at a POOLED (PgBouncer transaction-mode)
+  //    Neon URL, where protocol-level prepared statements depend on pooler
+  //    version/config — those paths keep the old unprepared behavior.
   const isLoopbackDb = /^[a-z+]+:\/\/([^@/]*@)?(127\.0\.0\.1|localhost|\[::1\])([:/]|$)/i.test(
     connectionString,
   );
   const client = postgres(connectionString, {
     max: isLoopbackDb ? 1 : 5,
-    prepare: !isLoopbackDb,
+    prepare: !isLoopbackDb && env.HYPERDRIVE !== undefined,
     connect_timeout: 10,
     idle_timeout: 20,
     // postgres.js defaults fetch_types:true, which issues a pg_catalog
