@@ -1,9 +1,21 @@
 # Revealyst Desktop Agent
 
-A Tauri 2 background tray utility (macOS 13+ / Windows 10 22H2+). Wave M0
-scaffold: a single placeholder window and single-instance enforcement — **no
-data collection, no pairing, no tray yet** (D-DA-1 gated; see
-`docs/Revealyst_Desktop_Agent_Execution_Plan.md`).
+A Tauri 2 background tray utility (macOS 13+ / Windows 10 22H2+). Wave M1
+app foundation: tray lifecycle (spec §19.1 menu from a pure `menu_model`),
+window shells (onboarding/status/privacy/about), the spec §20 agent state
+machine (`state.rs` + TS mirror `src/lib/state.ts`), structured JSON logging
+with a `Redact<T>` newtype and 7-day rotation, single-instance enforcement,
+and an opt-in start-at-login toggle — **no data collection, no pairing, no
+network calls** (D-DA-1 gated; see
+`docs/Revealyst_Desktop_Agent_Execution_Plan.md`). The only outbound action
+is opening the Revealyst website in the default browser from the tray,
+validated against the two Revealyst origins in `src-tauri/src/lifecycle.rs`.
+
+Window behavior: closing the window hides it (the app keeps running in the
+tray; Quit lives in the tray menu). On startup the window is shown only on
+the first run (a `first-run-complete` marker in the app data dir) or when
+`--show` is passed; otherwise the app starts hidden in the tray. A second
+launch shows + focuses the existing instance.
 
 This tree has its **own toolchain**. The repo-root web toolchain excludes it:
 root `tsconfig.json` excludes `desktop-agent`, root Vitest include-globs never

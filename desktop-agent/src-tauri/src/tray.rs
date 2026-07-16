@@ -152,22 +152,15 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>, model: &[MenuEntry]) -> tauri::Res
             MenuEntry::Separator => {
                 menu.append(&PredefinedMenuItem::separator(app)?)?;
             }
-            MenuEntry::Info { id, .. } => {
-                // Info lines render as disabled items — visible, not clickable.
+            // Info lines render as disabled items — visible, not clickable.
+            MenuEntry::Info { id, .. } | MenuEntry::Action { id, .. } => {
+                let enabled = matches!(entry, MenuEntry::Action { enabled: true, .. });
+                let text = entry.text();
                 menu.append(&MenuItem::with_id(
                     app,
                     *id,
-                    entry.text(),
-                    false,
-                    None::<&str>,
-                )?)?;
-            }
-            MenuEntry::Action { id, enabled, .. } => {
-                menu.append(&MenuItem::with_id(
-                    app,
-                    *id,
-                    entry.text(),
-                    *enabled,
+                    text.as_str(),
+                    enabled,
                     None::<&str>,
                 )?)?;
             }
