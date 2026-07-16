@@ -69,17 +69,19 @@ export const GROWTH_JOURNEY_COPY = {
   capabilityLead: "Your strongest area is",
 } as const;
 
-/** The level name + tagline for the companion headline, sourced ONLY from
- * maturity-glossary (never invented). `stale`/null map to the honest withheld
- * states, personally framed by the caller. Pure. */
+/** The level name + tagline (+ the fuller `description` the Growth hero expands)
+ * for the companion headline, sourced ONLY from maturity-glossary (never
+ * invented). `stale`/null map to the honest withheld states, personally framed
+ * by the caller. Pure. */
 export function companionLevelCopy(
   level: MaturityLevelValue | null,
   stale: boolean,
-): { name: string; tagline: string; placed: boolean } {
+): { name: string; tagline: string; description: string; placed: boolean } {
   if (stale) {
     return {
       name: MATURITY_LEVEL_STALE_COPY.name,
       tagline: MATURITY_LEVEL_STALE_COPY.tagline,
+      description: MATURITY_LEVEL_STALE_COPY.description,
       placed: false,
     };
   }
@@ -87,12 +89,17 @@ export function companionLevelCopy(
     return {
       name: MATURITY_LEVEL_NONE_COPY.name,
       tagline: MATURITY_LEVEL_NONE_COPY.tagline,
+      description: MATURITY_LEVEL_NONE_COPY.description,
       placed: false,
     };
   }
   return {
     name: MATURITY_LEVEL_COPY[level].name,
     tagline: MATURITY_LEVEL_COPY[level].tagline,
+    // The Growth hero (variant="growth") renders this paragraph to "expand the
+    // level meaning" (plan §5.2 item 1) — a narrative ladder, not a score chart.
+    // Still sourced ONLY from maturity-glossary, never a new ladder.
+    description: MATURITY_LEVEL_COPY[level].description,
     placed: true,
   };
 }
@@ -231,6 +238,11 @@ export const DIAGNOSTIC_COPY = {
   triggerLabel: "See the numbers behind your level",
   description:
     "The raw 0–100 Adoption, Fluency, and Efficiency scores behind your level. Useful for a deep look — but your level and next step above are what to act on.",
+  /** A short plain-English intro rendered at the top of the expanded content
+   * (U1.1) — reassures a beginner that the raw numbers are optional depth, not
+   * something they need to read to use the product. */
+  intro:
+    "These are the raw numbers behind your journey — most people never need them.",
 } as const;
 
 // ─── Onboarding inversion — companion-pitch screen (errata §1.2(2)) ───────────

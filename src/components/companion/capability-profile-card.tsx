@@ -1,5 +1,6 @@
 import { Compass } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ConfidencePill, type ConfidencePillTier } from "@/components/confidence-pill";
 import { EmptyState } from "@/components/empty-state";
 import {
   Card,
@@ -8,7 +9,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { CapabilityCurriculumTrigger } from "@/components/companion/capability-curriculum-drawer";
+import {
+  CapabilityCurriculumTrigger,
+  CapabilityGrowTrigger,
+} from "@/components/companion/capability-curriculum-drawer";
 import {
   CAPABILITY_PROFILE_COPY,
   confidenceTierLabel,
@@ -34,20 +38,89 @@ export type CapabilityProfileRow = {
   mastery: number;
   confidenceTier: string;
   nextCapability: string | null;
+  /** Most-recent measured evidence (ISO date), self-view only. Rendered only in
+   * full-list mode and only when present — never fabricated (invariant b). */
+  lastEvidenceAt?: string | null;
 };
+
+/** Plain-English "last measured" recency, e.g. "Last measured Jul 12". Returns
+ * the honest "not recorded" copy when the row carries no date — never invents
+ * one. Kept tiny + pure so the full-list row stays server-rendered. */
+function recencyLine(iso: string | null | undefined): string {
+  if (!iso) return CAPABILITY_PROFILE_COPY.noEvidenceDate;
+  const when = new Date(iso);
+  if (Number.isNaN(when.getTime())) return CAPABILITY_PROFILE_COPY.noEvidenceDate;
+  return `${CAPABILITY_PROFILE_COPY.lastEvidenceLead} ${when.toLocaleDateString(
+    "en-US",
+    { month: "short", day: "numeric" },
+  )}`;
+}
 
 export function CapabilityProfileCard({
   rows,
   labels,
+  fullList = false,
 }: {
   /** The signed-in person's capability state rows (strongest first). */
   rows: CapabilityProfileRow[];
   /** Capability slug → display label (for the eligible-next line). */
   labels: ReadonlyMap<string, string>;
+  /** U1.3 Growth surface: render EVERY evidenced row (not just the strongest
+   * few), each with a confidence pill, last-evidence recency, and a per-row
+   * "See how to grow this" trigger. Default (`false`) keeps the compact Today
+   * glance behaviour byte-identical. */
+  fullList?: boolean;
 }) {
   const nextSlug = rows.find((r) => r.nextCapability)?.nextCapability ?? null;
   const nextLabel = nextSlug ? labels.get(nextSlug) : undefined;
-  const shown = rows.slice(0, CAPABILITY_PROFILE_COPY.maxRows);
+  const shown = fullList ? rows : rows.slice(0, CAPABILITY_PROFILE_COPY.maxRows);
+
+  if (fullList) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Compass className="size-4 text-primary" aria-hidden="true" />
+            {CAPABILITY_PROFILE_COPY.title}
+          </CardTitle>
+          <CardDescription>{CAPABILITY_PROFILE_COPY.subtitle}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ul className="flex flex-col gap-2">
+            {shown.map((row) => (
+              <li
+                key={row.capabilitySlug}
+                className="flex flex-col gap-2 rounded-lg bg-muted/50 px-3 py-2.5"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{row.label}</span>
+                  <span className="flex items-center gap-2">
+                    <Badge variant="secondary" className="font-normal">
+                      {masteryBand(row.mastery)}
+                    </Badge>
+                    <ConfidencePill
+                      tier={row.confidenceTier as ConfidencePillTier}
+                      label={confidenceTierLabel(row.confidenceTier)}
+                    />
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                  <span className="text-xs text-muted-foreground">
+                    {recencyLine(row.lastEvidenceAt)}
+                  </span>
+                  <CapabilityGrowTrigger
+                    slug={row.capabilitySlug}
+                    label={row.label}
+                    labels={labels}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>

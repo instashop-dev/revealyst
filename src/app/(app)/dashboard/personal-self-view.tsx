@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowRight } from "lucide-react";
 import { BenchmarkConsentToggle } from "@/components/benchmark-consent-toggle";
-import { CapabilityProfileCard } from "@/components/companion/capability-profile-card";
 import { CoachingCard } from "@/components/companion/coaching-card";
 import {
   DataConfidenceCard,
@@ -11,7 +12,6 @@ import { MissionCard } from "@/components/companion/mission-card";
 import { DailyNudgeCard } from "@/components/companion/daily-nudge-card";
 import { DiagnosticDetails } from "@/components/companion/diagnostic-details";
 import { GrowthJourneyCard } from "@/components/companion/growth-journey-card";
-import { MilestoneCard } from "@/components/companion/milestone-card";
 import { AgenticAdoptionCard } from "@/components/dashboard/agentic-adoption-card";
 import { InfoTip } from "@/components/info-tip";
 import { OnboardingInterim } from "@/components/onboarding-interim";
@@ -42,8 +42,12 @@ import { dashboardSummary } from "@/lib/api-impl";
 import {
   buildDailyNudge,
   COMPANION_HEADER,
+  DIAGNOSTIC_COPY,
 } from "@/lib/companion-glossary";
-import { overallCapabilityBand } from "@/lib/capability-glossary";
+import {
+  MISSION_COPY,
+  overallCapabilityBand,
+} from "@/lib/capability-glossary";
 import { buildDataConfidence } from "@/lib/data-confidence";
 import { readMaturityView } from "@/lib/maturity";
 import { readBudgetAlertForRole } from "@/lib/spend-governance";
@@ -58,14 +62,10 @@ import { timeStage } from "@/lib/request-timing";
 import {
   connectionAttentionInputs,
   deriveAttention,
-  featureBreadthFromBreakdown,
-  featureBreadthFromRows,
   personDeltaResult,
   personScoreDropAttribution,
   type DeltaResult,
 } from "@/lib/score-insights";
-import { detectMilestones } from "@/lib/milestones";
-import { compareWorkflowDiversity } from "@/lib/workflow-diversity";
 import { deriveRecInteractionView } from "@/lib/rec-interactions";
 import { recentlyShownRecIds } from "@/lib/recommendation-catalog";
 import { periodFor, previousDay } from "@/scoring";
@@ -487,37 +487,14 @@ export async function PersonalSelfView({
     hasScores: scores.size > 0,
   });
 
-  // W5-F milestones — recompute-on-read, ZERO new queries (perf law G10): every
-  // input is derived from rows already in the flat batch above.
-  //  • feature-breadth: W5-E's comparator over the distinct-workflow count read
-  //    straight off the current score components' `raw` (the `distinct_dims`
-  //    component) vs the previous month's stored breakdown. A real prior
-  //    baseline (not a fixed 0) means the milestone stops firing once matched —
-  //    badge-until-superseded, never re-celebrated (§8.4).
-  //  • first-agent-session: agentic work is measured AND still very early
-  //    (≤ 1 complete week of activity) — the honest, over-claim-safe proxy for
-  //    "agents just showed up" without storage (false negatives over false
-  //    positives, invariant b).
-  //  • weekly-cadence: a sustained rhythm (≥ 3 complete active weeks). Rendered
-  //    as count-free narrative — the no-streak decision (§8.4).
-  const currentBreadth = featureBreadthFromRows(
-    SCORE_SLUGS.flatMap((slug) => cardData.get(slug)!.componentRows),
-  );
-  let previousBreadth: number | null = null;
-  for (const row of prevScores) {
-    const b = featureBreadthFromBreakdown(row.components);
-    if (b !== null) {
-      previousBreadth = previousBreadth === null ? b : Math.max(previousBreadth, b);
-    }
-  }
-  const milestones = detectMilestones({
-    breadth:
-      currentBreadth !== null
-        ? compareWorkflowDiversity(currentBreadth, previousBreadth ?? 0)
-        : null,
-    firstAgentSession: agentic.kind === "measured" && agentic.trend.length <= 1,
-    activeWeeks: agentic.kind === "measured" ? agentic.trend.length : 0,
-  });
+  // U1.1: the growth cluster (capability profile, missions catalog, milestones)
+  // MOVED to the /growth route — the slow-moving improvement surface no longer
+  // dilutes the daily Today surface. The active-mission STRIP stays (below), so
+  // an in-flight mission remains a one-glance nudge here; its catalog + the
+  // milestone timeline live on /growth. Milestone derivation is now the shared
+  // `deriveCompanionMilestones` helper, called only on /growth (its inputs — the
+  // current/previous score rows + agentic — are all in that route's own batch).
+  const activeMissions = missionRows.filter((m) => m.status === "in-progress");
 
   // W7 Data Confidence: aggregate the raw honesty gaps into one trust story
   // (state + summary + grouped disclosures) — read-path only, built from data
@@ -591,17 +568,12 @@ export async function PersonalSelfView({
        * moved to the single Data Confidence card (no stacked banners). */}
       <AttentionSection items={attentionStripItems} />
 
-      {/* W7 Data Confidence: ONE compact card replacing the disclosure banner
-       * stack. Answers "can I trust this dashboard?" and opens a details drawer.
-       * Renders inside DataConfidenceProvider so the drawer is shared with the
-       * inline metric qualifiers below. */}
-      {showDataConfidence ? <DataConfidenceCard /> : null}
-
-      {/* The companion headline: level-forward, positive-first. Leads with the
-       * modeled maturity level + the single next step (the first-sync aha —
-       * "You're at <level>, here's the one thing to try next" — NOT a raw
-       * score). No blended per-person "AI health" number anywhere (errata
-       * §1.2(9)). */}
+      {/* HERO (U1.1): the companion headline is the page's dominant action —
+       * level-forward, positive-first, its next-step CTA the one thing to do.
+       * Leads with the modeled maturity level + the single next step (the
+       * first-sync aha — "You're at <level>, here's the one thing to try next" —
+       * NOT a raw score). No blended per-person "AI health" number anywhere
+       * (errata §1.2(9)). Full-width above the actions/rail split below. */}
       <GrowthJourneyCard
         level={maturity.level}
         stale={maturity.stale}
@@ -612,36 +584,48 @@ export async function PersonalSelfView({
         capabilityBand={overallCapabilityBand(capabilityStates)}
       />
 
-      {/* W5-F: positive-first — celebrate grounded milestones immediately,
-       * right below the level headline. Renders nothing when none crossed. */}
-      <MilestoneCard milestones={milestones} />
+      {/* 12-col split (U1.1): the daily ACTIONS (coaching + the active-mission
+       * strip) lead on the left; the RAIL (one fresh signal + the trust card)
+       * sits alongside on desktop and stacks under the actions on mobile. */}
+      <div className="grid gap-4 lg:grid-cols-12">
+        <div className="flex flex-col gap-4 lg:col-span-7">
+          {/* Next best actions: the two weakest-first coaching recs (display
+           * cap only — selection/order stay deriveAttention's, pinned by the
+           * digest-parity test). This route logs NO exposures (only the digest
+           * does, keyed to what IT shows), so the display cap can't desync any
+           * exposure log. The hero already surfaces rec #1 as the next step. */}
+          <CoachingCard
+            recommendations={coachingRecs.slice(0, 2)}
+            personId={personId}
+            triedRecIds={[...triedRecIds]}
+          />
 
-      <DailyNudgeCard nudge={dailyNudge} />
+          {/* Active-mission STRIP: in-progress missions only — a one-glance
+           * nudge to keep going. The full catalog + completed timeline live on
+           * /growth. Renders the strip only when a mission is in flight; the
+           * "All missions" link is always offered so the catalog is reachable. */}
+          {activeMissions.length > 0 ? (
+            <MissionCard missions={activeMissions} />
+          ) : null}
+          <Link
+            href="/growth"
+            className="inline-flex items-center gap-1 self-start text-sm font-medium text-primary underline-offset-2 hover:underline"
+          >
+            {MISSION_COPY.allLink}
+            <ArrowRight className="size-3.5" aria-hidden="true" />
+          </Link>
+        </div>
 
-      <CoachingCard
-        recommendations={coachingRecs}
-        personId={personId}
-        triedRecIds={[...triedRecIds]}
-      />
+        <div className="flex flex-col gap-4 lg:col-span-5">
+          <DailyNudgeCard nudge={dailyNudge} />
 
-      {/* W7-2: the capability profile — a positive-first decomposition of the
-       * one proficiency band, self-view only (the caller passes ONLY the
-       * signed-in user's own rows via mastery.forUser). Renders the honest
-       * forming state when there is no capability evidence yet. */}
-      <CapabilityProfileCard
-        rows={capabilityStates.map((s) => ({
-          capabilitySlug: s.capabilitySlug,
-          label: capabilityLabels.get(s.capabilitySlug) ?? s.capabilitySlug,
-          mastery: s.mastery,
-          confidenceTier: s.confidenceTier,
-          nextCapability: s.nextCapability,
-        }))}
-        labels={capabilityLabels}
-      />
-
-      {/* W7-5: opt-in, finish-lined missions — completion is a measured
-       * capability crossing (never a click). Renders nothing if no missions. */}
-      <MissionCard missions={missionRows} />
+          {/* W7 Data Confidence: ONE compact card replacing the disclosure
+           * banner stack. Answers "can I trust this?" and opens a details
+           * drawer. Inside DataConfidenceProvider so the drawer is shared with
+           * the inline metric qualifiers in the expander below. */}
+          {showDataConfidence ? <DataConfidenceCard /> : null}
+        </div>
+      </div>
 
       {scores.size === 0 && (
         // Connected, but no person scores computed yet — the F1.6 cliff. The
@@ -663,107 +647,113 @@ export async function PersonalSelfView({
         />
       )}
 
-      {/* The raw 0–100 scores are DEMOTED behind an expander (W5-C deliverable
-       * 4): collapsed by default, so the number is never the headline of the
-       * default render — the level + next step above are. */}
+      {/* The diagnostic layer is DEMOTED behind ONE expander (U1.1), collapsed
+       * by default: the raw 0–100 score grid PLUS the agentic-adoption card, the
+       * spend one-liner, and the benchmarks card — the slow, numbers-heavy depth
+       * a beginner never needs to open. The level + next step above are what to
+       * act on. A plain-English intro sets that expectation. */}
       <DiagnosticDetails>
-        <div className="grid gap-4 md:grid-cols-3">
-          {SCORE_SLUGS.map((slug) => (
-            <ScoreCard key={slug} data={cardData.get(slug)!} />
-          ))}
+        <div className="flex flex-col gap-4">
+          <p className="text-sm text-muted-foreground">{DIAGNOSTIC_COPY.intro}</p>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            {SCORE_SLUGS.map((slug) => (
+              <ScoreCard key={slug} data={cardData.get(slug)!} />
+            ))}
+          </div>
+
+          <AgenticAdoptionCard
+            data={agentic}
+            qualifier={
+              activityCategory ? (
+                <MetricQualifier
+                  qualifier="partial"
+                  category={activityCategory}
+                  metricLabel="Activity totals"
+                />
+              ) : undefined
+            }
+          />
+
+          {/* Spend as a compact one-line summary + drill-through to the full
+           * /spend page (the same pattern Team uses). Renders nothing when there
+           * is no spend yet. The estimated-spend breakdown + its methodology
+           * note live on /spend. */}
+          <SpendGovernanceLine
+            spendCents={summary.spendCents}
+            spendCentsEstimated={summary.spendCentsEstimated}
+            costPerActiveUser={maturity.numbers.costPerActiveUser}
+            estimatedQualifier={
+              costDisclosed && summary.spendCentsEstimated > 0 ? (
+                <MetricQualifier
+                  qualifier="estimated"
+                  category="cost-estimates"
+                  metricLabel="AI spend"
+                />
+              ) : undefined
+            }
+          />
+
+          {/* J1: the modeled-norms comparison panel (BenchmarkPanel) is
+           * deliberately NOT rendered here. A single person vs. an org-modeled
+           * peer curve is an unsupported comparison, and it previously sat right
+           * above the verified-benchmarks card explaining "we don't show
+           * unverified figures" — a direct contradiction. The team dashboard
+           * keeps the panel; its own copy discloses the modeled-estimate
+           * provenance (see CONCEPT_GLOSSARY.benchmarks).
+           *
+           * U3 NOTE (integration): the Growth/Settings split moves the
+           * benchmark opt-in (`BenchmarkConsentToggle`) to Settings; the
+           * orchestrator REMOVES this in-expander copy of the toggle at U3
+           * integration. It stays here (inside the fold) until then so the
+           * opt-in remains reachable. */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5 text-base">
+                Benchmarks
+                <InfoTip
+                  label="Benchmarks"
+                  short={CONCEPT_GLOSSARY.benchmarks.shortWhat}
+                  learnMoreHref={`/methodology#${methodologyAnchor("benchmarks")}`}
+                />
+              </CardTitle>
+              <CardDescription>
+                How your scores compare to published norms.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              {verifiedBenchmarks.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Published benchmarks are being verified against primary sources
+                  and will appear here — we don&apos;t show unverified figures.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3 text-sm">
+                  {verifiedBenchmarks.map((b) => (
+                    <li key={b.id} className="flex items-center justify-between gap-4">
+                      <span className="min-w-0">
+                        <span className="font-medium capitalize">{b.scoreSlug}</span>
+                        <span className="text-muted-foreground"> · {b.metricLabel}</span>
+                      </span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {b.value !== null
+                          ? `${b.value}${b.valueUnit === "percent" ? "%" : ""}`
+                          : b.rangeLow !== null && b.rangeHigh !== null
+                            ? `${b.rangeLow}–${b.rangeHigh}${b.valueUnit === "percent" ? "%" : ""}`
+                            : "—"}
+                        <span className="ml-2 text-xs">({b.sourceName})</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="border-t pt-4">
+                <BenchmarkConsentToggle />
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </DiagnosticDetails>
-
-      <AgenticAdoptionCard
-        data={agentic}
-        qualifier={
-          activityCategory ? (
-            <MetricQualifier
-              qualifier="partial"
-              category={activityCategory}
-              metricLabel="Activity totals"
-            />
-          ) : undefined
-        }
-      />
-
-      {/* Spend as a compact one-line summary + drill-through to the full /spend
-       * page (the same pattern Team uses), instead of a full stacked card on
-       * the personal home. Renders nothing when there is no spend yet. The
-       * estimated-spend breakdown + its methodology note live on /spend. */}
-      <SpendGovernanceLine
-        spendCents={summary.spendCents}
-        spendCentsEstimated={summary.spendCentsEstimated}
-        costPerActiveUser={maturity.numbers.costPerActiveUser}
-        estimatedQualifier={
-          costDisclosed && summary.spendCentsEstimated > 0 ? (
-            <MetricQualifier
-              qualifier="estimated"
-              category="cost-estimates"
-              metricLabel="AI spend"
-            />
-          ) : undefined
-        }
-      />
-
-      {/* J1: the modeled-norms comparison panel (BenchmarkPanel) is
-       * deliberately NOT rendered here. A single person vs. an org-modeled
-       * peer curve is an unsupported comparison, and it previously sat right
-       * above the verified-benchmarks card explaining "we don't show
-       * unverified figures" — a direct contradiction. The team dashboard
-       * keeps the panel; its own copy discloses the modeled-estimate
-       * provenance (see CONCEPT_GLOSSARY.benchmarks). */}
-
-      {/* Benchmarks + the anonymized-benchmark opt-in were two back-to-back
-       * cards on one topic; folded into one. The verified-figures list leads;
-       * the opt-in (self-describing) sits beneath a divider. An InfoTip carries
-       * the "two different benchmark claims" explanation the personal card
-       * previously lacked. */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-1.5 text-base">
-            Benchmarks
-            <InfoTip
-              label="Benchmarks"
-              short={CONCEPT_GLOSSARY.benchmarks.shortWhat}
-              learnMoreHref={`/methodology#${methodologyAnchor("benchmarks")}`}
-            />
-          </CardTitle>
-          <CardDescription>
-            How your scores compare to published norms.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {verifiedBenchmarks.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Published benchmarks are being verified against primary sources
-              and will appear here — we don&apos;t show unverified figures.
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-3 text-sm">
-              {verifiedBenchmarks.map((b) => (
-                <li key={b.id} className="flex items-center justify-between gap-4">
-                  <span className="min-w-0">
-                    <span className="font-medium capitalize">{b.scoreSlug}</span>
-                    <span className="text-muted-foreground"> · {b.metricLabel}</span>
-                  </span>
-                  <span className="shrink-0 text-muted-foreground">
-                    {b.value !== null
-                      ? `${b.value}${b.valueUnit === "percent" ? "%" : ""}`
-                      : b.rangeLow !== null && b.rangeHigh !== null
-                        ? `${b.rangeLow}–${b.rangeHigh}${b.valueUnit === "percent" ? "%" : ""}`
-                        : "—"}
-                    <span className="ml-2 text-xs">({b.sourceName})</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="border-t pt-4">
-            <BenchmarkConsentToggle />
-          </div>
-        </CardContent>
-      </Card>
     </DataConfidenceProvider>
   );
 }

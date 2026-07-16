@@ -1,4 +1,5 @@
-import type { DiversityComparison } from "./workflow-diversity";
+import { featureBreadthFromBreakdown } from "./score-insights";
+import { compareWorkflowDiversity, type DiversityComparison } from "./workflow-diversity";
 
 // W5-F deliverable (1): the milestone/positive insight kind (Spec V4 §7.3, §8.4).
 //
@@ -157,4 +158,56 @@ export function detectMilestones(input: {
   // Stable order: weight desc, then kind for determinism on ties.
   out.sort((a, b) => b.weight - a.weight || a.kind.localeCompare(b.kind));
   return out.slice(0, MAX_MILESTONES);
+}
+
+/** Minimal structural view of the agentic-adoption result the companion
+ * milestone gates read — kept structural so this module stays decoupled from
+ * the agentic-adoption lib. */
+type CompanionAgentic = { kind: string; trend?: readonly unknown[] };
+
+/**
+ * THE companion milestone derivation, extracted (U1.3) so the Today and Growth
+ * surfaces cannot drift onto two different milestone computations. Both feed it
+ * the SAME kinds of already-fetched rows — the current and previous period's
+ * person score rows (each carrying the stored `components` jsonb) plus the
+ * agentic-adoption result — and get the identical milestone list back.
+ *
+ * The feature-breadth crossing reads the `distinct_dims` component's `raw` off
+ * BOTH periods' stored breakdowns (the same value `featureBreadthFromRows` reads
+ * from the live component detail — one source, self-consistent), compared with
+ * W5-E's `compareWorkflowDiversity` against a real prior baseline (never a fixed
+ * 0, so a threshold already reached never re-fires — the badge-until-superseded
+ * rule). The agentic gates mirror the companion wiring exactly: "agents just
+ * showed up" is measured AND ≤ 1 complete week of trend; the weekly rhythm needs
+ * a sustained trend, rendered count-free (the no-streak decision). Pure.
+ */
+export function deriveCompanionMilestones(input: {
+  /** The current period's person score rows (each with a `components` jsonb). */
+  currentScoreRows: readonly { components: unknown }[];
+  /** The previous period's person score rows (the breadth baseline). */
+  prevScoreRows: readonly { components: unknown }[];
+  agentic: CompanionAgentic;
+}): Milestone[] {
+  const maxBreadth = (
+    rows: readonly { components: unknown }[],
+  ): number | null => {
+    let best: number | null = null;
+    for (const row of rows) {
+      const b = featureBreadthFromBreakdown(row.components);
+      if (b !== null) best = best === null ? b : Math.max(best, b);
+    }
+    return best;
+  };
+  const currentBreadth = maxBreadth(input.currentScoreRows);
+  const previousBreadth = maxBreadth(input.prevScoreRows);
+  const measured = input.agentic.kind === "measured";
+  const trendLength = measured ? (input.agentic.trend?.length ?? 0) : 0;
+  return detectMilestones({
+    breadth:
+      currentBreadth !== null
+        ? compareWorkflowDiversity(currentBreadth, previousBreadth ?? 0)
+        : null,
+    firstAgentSession: measured && trendLength <= 1,
+    activeWeeks: trendLength,
+  });
 }

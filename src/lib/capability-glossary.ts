@@ -71,8 +71,51 @@ export const CAPABILITY_PROFILE_COPY = {
     body: "As your connected tools produce more measured signal, this fills in with the AI habits your activity points to. Nothing here is generic — it only reflects your own data.",
   },
   /** How many rows the card shows before it stops (keeps it a glance, not a
-   * dashboard — progressive disclosure). */
+   * dashboard — progressive disclosure). The Growth surface's full-list mode
+   * (U1.3) overrides this to show every evidenced capability. */
   maxRows: 6,
+  /** Full-list mode (Growth): lead for a row's most-recent measured evidence.
+   * Only rendered when a row actually carries a `lastEvidenceAt` date — never
+   * fabricated (invariant b). */
+  lastEvidenceLead: "Last measured",
+  /** Full-list mode: shown when a row has evidence but no recorded date. */
+  noEvidenceDate: "Recency not recorded",
+} as const;
+
+// U1.3 Growth surface copy. The improvement screen: capability decomposition +
+// missions + milestones on their own route. Every string here is plain English
+// (CLAUDE.md writing rule) and a claim surface (invariant b) — swept by the
+// growth-cards banned-phrasing test.
+export const GROWTH_PAGE_COPY = {
+  title: "Your growth",
+  description:
+    "Where your AI habits are strongest, what to build next, and the progress you've already made — all drawn from your own connected tools.",
+  /** Section headings on the route. */
+  capabilitiesHeading: "Your capabilities",
+  missionsHeading: "Missions",
+  milestonesHeading: "Milestones",
+  /** The one-sentence directional-vs-measured explainer (an InfoTip). */
+  confidenceInfo: {
+    label: "Early read vs measured",
+    short:
+      "Early read means one connected channel is pointing this way; measured means at least two independent signals confirm it.",
+  },
+  /** Page-level honest empty state when NO capability has evidence yet. The
+   * body is completed by the caller with the connector(s) that would add
+   * evidence, derived from the person's own connections — never a fabricated
+   * bar or a generic promise. */
+  empty: {
+    headline: "Your capability read is still forming",
+    /** Rendered when the person already has connected tools (sources exist,
+     * signal is still accumulating). */
+    withSources:
+      "Your connected tools haven't produced enough measured activity yet. As more comes through, each capability fills in here — nothing is generic, it only reflects your own data.",
+    /** Rendered when the person has no active connection producing signal —
+     * points them at Connections without inventing a specific reading. */
+    noSources:
+      "Connect a tool to start building an evidence-based read of your AI capabilities. Until then there's nothing measured to show — and we won't guess.",
+    connectLabel: "Go to Connections",
+  },
 } as const;
 
 // W7-5 missions card copy. Anti-gamification (Spec V4 §8.4): grounded and quiet —
@@ -94,6 +137,19 @@ export const MISSION_COPY = {
     `${done} of ${total} step${total === 1 ? "" : "s"} reached`,
   /** Shown for a finished mission — grounded, in the milestone voice. */
   completeLine: "You reached this from your own measured activity. Nice work.",
+  /** U1.3 Growth board group headings (active → available → completed). Plain,
+   * un-gamified section labels — no "quests"/"challenges accepted" flourish. */
+  groups: {
+    active: "In progress",
+    available: "Available to start",
+    completed: "Completed",
+  },
+  /** Lead for a completed mission's date on the Growth timeline. */
+  completedOnLead: "Completed",
+  /** Growth board empty state (no missions in the catalog at all). */
+  empty: "No missions are available right now.",
+  /** Today active-strip → Growth link (the full catalog lives on /growth). */
+  allLink: "All missions",
 } as const;
 
 // W7-6 team capability-coverage card copy. Aggregate, count-only — the copy must

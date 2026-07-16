@@ -28,6 +28,7 @@ export function GrowthJourneyCard({
   stale,
   nextStep,
   capabilityBand = null,
+  variant = "companion",
 }: {
   level: MaturityLevelValue | null;
   stale: boolean;
@@ -39,6 +40,11 @@ export function GrowthJourneyCard({
    * default, and ALL cases today, since mastery is directional until OTel/P8 —
    * keeps the maturity level as the headline. Personal-org only. */
   capabilityBand?: CapabilityBand | null;
+  /** U1.3: `"growth"` expands the level MEANING into a narrative paragraph (the
+   * fuller `description` from maturity-glossary) for the Growth hero — a
+   * decomposition of the one level, never a new ladder. `"companion"` (default)
+   * keeps the compact Today headline byte-identical. */
+  variant?: "companion" | "growth";
 }) {
   const copy = companionLevelCopy(level, stale);
   // When a measured capability band exists, it leads; otherwise the modeled
@@ -83,9 +89,24 @@ export function GrowthJourneyCard({
           <p className="text-sm text-muted-foreground max-w-prose">
             {copy.tagline}
           </p>
+          {/* U1.3 Growth hero: expand the level meaning into a narrative
+              paragraph. Only on the Growth surface — the Today headline stays
+              compact. Sourced from maturity-glossary via companionLevelCopy. */}
+          {variant === "growth" ? (
+            <p className="text-sm text-muted-foreground max-w-prose">
+              {copy.description}
+            </p>
+          ) : null}
         </div>
 
-        <NextStep item={nextStep} placed={placed} />
+        {/* The coaching next-step is the Today hero's dominant CTA. On the
+            Growth hero the "what's next" is the capability decomposition +
+            curriculum below, so the next-step block is omitted here (no
+            duplicate coaching affordance, no contradictory "nothing to fix"
+            copy next to a full list of things to grow). */}
+        {variant === "companion" ? (
+          <NextStep item={nextStep} placed={placed} />
+        ) : null}
       </CardContent>
     </Card>
   );

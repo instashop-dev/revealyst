@@ -80,6 +80,46 @@ export function CapabilityCurriculumTrigger({
   );
 }
 
+/**
+ * U1.3 Growth full-list variant: a lean per-row "See how to grow this" button
+ * (no "next focus" lead line — the row already names the capability). Renders
+ * plain, non-interactive text when the slug has no curriculum entry, so a row
+ * never shows a dead link. Same drawer, same copy source.
+ */
+export function CapabilityGrowTrigger({
+  slug,
+  label,
+  labels,
+}: {
+  slug: string;
+  label: string;
+  labels: ReadonlyMap<string, string>;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const entry = CAPABILITY_CURRICULUM[slug];
+
+  if (!entry) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-left text-xs font-medium text-primary underline-offset-2 hover:underline"
+      >
+        {COPY.triggerLabel}
+      </button>
+      <CapabilityCurriculumDrawer
+        slug={slug}
+        label={label}
+        labels={labels}
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </>
+  );
+}
+
 function CapabilityCurriculumDrawer({
   slug,
   label,
