@@ -27,6 +27,7 @@ import {
   teamCapabilityHistory,
   teamManagers,
   teamMembers,
+  teamSettings,
   teams,
   userCapabilityState,
 } from "./schema";
@@ -96,6 +97,11 @@ export const PURGE_TABLES = [
   // explicit org-scoped delete is required, ordered BEFORE `teams` (matching the
   // sibling pattern and independent of the partial cascade).
   teamCapabilityHistory,
+  // TCI Phase 2-E (ADR 0045): per-team admin settings, org-scoped. Its composite
+  // tenant FK to `teams` is ON DELETE CASCADE, but an explicit org-scoped delete
+  // (ordered BEFORE `teams`) matches every sibling and keeps ordering independent
+  // of cascade. Mirrors team_managers' registration.
+  teamSettings,
   scoreResults,
   connections,
   teams,

@@ -148,6 +148,18 @@ const SCOPED_READS: Array<{
     tables: ["team_managers"],
     run: (s, c) => s.teamManagers.listForTeam(c.B.teams.core),
   },
+  // Per-team admin settings (ADR 0045): one row per team, keyed on (org_id,
+  // team_id). Both orgs seed a row on their own core team below (B's with
+  // managers_see_individual_cost = true). `get` returns only settings VALUES
+  // (a boolean, no uuid), so this generic uuid-leak sweep is a completeness
+  // registration; the real cross-org guard — org A's get on B's team returns
+  // DEFAULTS, not B's stored true — is the dedicated `it` below (mirrors the
+  // connections.withCredential completeness-only entry).
+  {
+    name: "teamSettings.get(B)",
+    tables: ["team_settings"],
+    run: (s, c) => s.teamSettings.get(c.B.teams.core),
+  },
   // Per-person capability state (ADR 0036): org-scoped rows (org_id, person_id,
   // capability). Both orgs seed a row for their own alice below, so keying
   // `forPerson` on B's alice puts a B personId in the leak universe — a dropped
@@ -338,6 +350,12 @@ beforeAll(async () => {
     // the org's own inviter user, so the B-side row carries a B team uuid and
     // the teamManagers.listForTeam sweep is non-vacuous (mirrors the role seed).
     await scoped.teamManagers.assign(loaded.teams.core, inviter.id);
+    // A team-settings row per org (ADR 0045) on this org's core team, with the
+    // toggle ON — so B genuinely stores `true` and the dedicated cross-org test
+    // (org A's get on B's team must return the default `false`) is non-vacuous.
+    await scoped.teamSettings.set(loaded.teams.core, {
+      managersSeeIndividualCost: true,
+    });
     // A capability-state row per org (ADR 0036) keyed on this org's alice, so
     // the B-side row carries a B personId and the mastery.forPerson sweep is
     // non-vacuous (mirrors the rec-interaction/role seeds above).
@@ -565,6 +583,18 @@ describe("registry-driven cross-org read sweep", () => {
         async (p) => p,
       ),
     ).rejects.toThrow(/no api_key credential stored/);
+  });
+
+  it("teamSettings.get returns defaults for org B's team under org A's scope", async () => {
+    // The value-only guard the generic uuid sweep can't express: B stored
+    // managers_see_individual_cost = true on B.teams.core in beforeAll; org A's
+    // get keyed on that team must fall through the org filter to the DEFAULT
+    // (false), never B's stored true.
+    const seen = await forOrg(db, orgA).teamSettings.get(B.teams.core);
+    expect(seen).toEqual({ managersSeeIndividualCost: false });
+    // And B reads its own true — proving the seed is real, not absent.
+    const bOwn = await forOrg(db, orgB).teamSettings.get(B.teams.core);
+    expect(bOwn).toEqual({ managersSeeIndividualCost: true });
   });
 });
 

@@ -1,5 +1,6 @@
 import { isNotNull, sql } from "drizzle-orm";
 import {
+  boolean,
   foreignKey,
   index,
   integer,
@@ -216,6 +217,49 @@ export const teamManagers = pgTable(
     }).onDelete("cascade"),
     // "Which teams does this user manage?" — the access-seam read (managedTeamIds).
     index("team_managers_org_user_idx").on(t.orgId, t.userId),
+  ],
+);
+
+// Per-team admin settings (TCI Phase 2-E, ADR 0045 sketch). ONE row per team,
+// created lazily only when an admin flips a setting — an ABSENT row means all
+// defaults (the org-scope `get` never auto-inserts on read). Today it carries a
+// single toggle: whether a team's managers may see a member's per-person spend
+// by name (D-TCI-2, default OFF; capability reads do NOT need this toggle). The
+// shared org_id feeds the composite tenant FK to teams, so a settings row for a
+// team in another org is unrepresentable at the DB level (D1a), and a team
+// delete tears its settings row down.
+export const teamSettings = pgTable(
+  "team_settings",
+  {
+    orgId: uuid("org_id").notNull(),
+    teamId: uuid("team_id").notNull(),
+    // D-TCI-2: managers of this team may read a managed member's per-person spend
+    // (behind managed/full visibility). Default OFF — capability mastery reads are
+    // NOT gated by this flag; spend reads are.
+    managersSeeIndividualCost: boolean("managers_see_individual_cost")
+      .notNull()
+      .default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    // One settings row per team — this composite PK IS the UNIQUE(org_id, team_id)
+    // the ADR sketches (org_id is fixed by team_id, a team belongs to one org),
+    // and it is the set() upsert conflict target. Mirrors team_members' composite
+    // key; no surrogate id (nothing in the sketch calls for one).
+    primaryKey({ columns: [t.orgId, t.teamId] }),
+    // Composite tenant FK: the team must belong to the SAME org (D1a). A team
+    // delete cascades its settings row.
+    foreignKey({
+      name: "team_settings_org_team_fk",
+      columns: [t.orgId, t.teamId],
+      foreignColumns: [teams.orgId, teams.id],
+    }).onDelete("cascade"),
   ],
 );
 
