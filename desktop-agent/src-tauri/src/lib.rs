@@ -15,6 +15,7 @@ pub mod lifecycle;
 pub mod logging;
 pub mod secrets;
 pub mod state;
+pub mod store;
 pub mod tray;
 
 use tauri::{AppHandle, Manager, Runtime};
