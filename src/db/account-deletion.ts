@@ -130,6 +130,13 @@ export const PURGE_EXEMPT_TABLES = new Set([
   // W6-F (ADR 0031): one send-state/settings row per org, cascade-deleted with
   // the org (org_id → orgs, cascade) — the final `orgs` delete removes it.
   "exec_report_state",
+  // Desktop pairing codes (ADR 0047): cascade-deleted with the org (org_id →
+  // orgs, cascade). Rows whose exchange already minted a device connection go
+  // even earlier — the explicit `connections` delete above cascades them via
+  // the composite tenant FK; unexchanged/expired rows ride the final `orgs`
+  // delete. Nothing here must outlive the org (codes are hashes with ≤10-min
+  // TTLs).
+  "desktop_pairing_codes",
 ]);
 
 /**

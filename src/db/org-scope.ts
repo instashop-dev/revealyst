@@ -9,6 +9,7 @@ import { capabilitiesNamespace } from "./org-scope/capabilities";
 import { catalogNamespace } from "./org-scope/catalog";
 import { connectionsNamespace } from "./org-scope/connections";
 import { connectorRunsNamespace } from "./org-scope/connector-runs";
+import { desktopPairingNamespace } from "./org-scope/desktop-pairing";
 import { digestPreferencesNamespace } from "./org-scope/digest-preferences";
 import { execReportStateNamespace } from "./org-scope/exec-report-state";
 import { exposuresNamespace } from "./org-scope/exposures";
@@ -33,6 +34,7 @@ import { teamsNamespace } from "./org-scope/teams";
 // external `import { ... } from "../db/org-scope"` sites keep resolving
 // unchanged.
 export type { CreateConnectionInput } from "./org-scope/connections";
+export type { CreateDesktopPairingInput } from "./org-scope/desktop-pairing";
 export type {
   MetricRecordUpsert,
   SubjectDaySignalUpsert,
@@ -172,6 +174,7 @@ export function forOrg(db: Db, orgId: string) {
     teamManagers: teamManagersNamespace(db, orgId),
     connections: connectionsNamespace(db, orgId),
     connectorRuns: connectorRunsNamespace(db, orgId),
+    desktopPairing: desktopPairingNamespace(db, orgId),
     subjects: subjectsNamespace(db, orgId),
     identities: identitiesNamespace(db, orgId),
     metrics: metricsNamespace(db, orgId),

@@ -66,3 +66,4 @@ is linked and the affected workstreams are re-synced.
 | 0044 | `manager-role-tier` | Manager role tier (`team_managers`, D-TCI-3); derived from a per-team grant, Better Auth roles untouched, no per-person visibility | Accepted |
 | 0045 | `manager-per-person-capability-and-spend-visibility` | Manager visibility of named per-person capability + spend (D-TCI-1/D-TCI-2); founder-signed privacy reversal, self-view rec/coaching/exposure stays forever, spend behind an admin toggle | Accepted |
 | 0046 | `per-capability-team-history-rollup` | Per-capability team history rollup (D-TCI-6); append-only count-only periodic snapshot, deliberate compute-on-read exception, same-pure-function parity | Accepted |
+| 0047 | `desktop-pkce-pairing` | Desktop-agent PKCE pairing (`desktop_pairing_codes` + `/api/desktop/auth/*`); stateless start, consent-time row, CAS single-use exchange minting the existing device token; Personal orgs only (D-DA-2) | Accepted |
