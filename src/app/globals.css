@@ -17,7 +17,11 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  /* D10 (founder-ratified 2026-07-16): darkened from oklch(0.556) — that sat right at
+     the 4.5:1 AA floor on white; 0.44 lifts muted body text to ~6.6:1 while staying
+     clearly distinct from --foreground (0.145). Light mode only — the dark-mode value
+     (0.708) is unchanged, since darkening it would REDUCE contrast on a dark surface. */
+  --muted-foreground: oklch(0.44 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);

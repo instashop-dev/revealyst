@@ -32,12 +32,12 @@
 // The API token needs the "Account Analytics: Read" permission (Analytics
 // Engine SQL API scope) for CLOUDFLARE_ACCOUNT_ID.
 //
-// IMPORTANT — no threshold is baked in here, and none should be added without
-// a founder sign-off: OQ-001's pass/fail bar for this ratio is an unsigned
-// founder decision (Closure Execution Plan §6, decision D1 — default "6
-// weeks, founder-org dogfood" if unconfirmed).
-// This script reports the ratio only; it is the founder's job to read it
-// against whatever bar they sign off on, not this script's.
+// IMPORTANT — no ratio THRESHOLD is baked in here, and none should be added
+// without a founder sign-off. OQ-001 has two parts: the measurement window (N)
+// and the pass/fail ratio bar. The founder ratified N = 1 week on 2026-07-16
+// (see docs/product-signoffs.md), so DEFAULT_WEEKS is 1 below. The ratio bar
+// itself remains an unsigned founder call — this script reports the ratio only;
+// it is the founder's job to read it against whatever bar they sign off on.
 
 import { isoWeekString } from "../src/lib/digest-content";
 import {

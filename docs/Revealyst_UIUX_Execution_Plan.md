@@ -730,6 +730,17 @@ chart library is introduced.
 | D-U6 | Persistent Help entry in the shell (report wants same-place help everywhere) | Not adopted this wave; InfoTips + contextual pages remain |
 | D-U7 | Playbooks future direction (R2) | Future ledger only |
 
+**Founder ratifications (2026-07-16, recorded in `docs/product-signoffs.md`)** that bear on
+this plan: **D4** — "decide per the deep-research report" → the report's fewer/bigger-cards,
+progressive-disclosure, one-dominant-action direction is adopted, which is exactly what **U1**
+(Today/Growth consolidation) executes. **OQ-008** confirmed — the capability-profile card is a
+**breakdown of the existing band, not a new ladder**, so §5.2's decomposition framing stands
+unchanged. **D9** — the spec makes **no** formal mobile / WCAG 2.1 AA promise, so **R11**
+(web-vitals + a11y are internal budgets, not a contractual claim) holds; a11y work in **U5**
+proceeds as engineering practice, not a published guarantee. **D10** — light-mode text is
+darkened (shipped separately), advancing the **U0.8 / U5** contrast pass. None of these change
+a task above; they ratify the direction this plan already took.
+
 ## 7. Documentation updates riding each phase
 
 Spec V4 §12.1 gains a sentence when U1 ships (Personal Companion = Today + Growth routes);
