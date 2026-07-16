@@ -20,23 +20,30 @@
 //!    spec §12.2 `ProhibitedAnalyticsOnlyFields` list → a loud
 //!    [`QuarantineReason::ProhibitedField`]. (Exact match, not substring:
 //!    `responseWordCount` must NOT be flagged by `response`.)
-//! 3. **On the allowlist?** The positive gate. If `allowlist::is_allowed` is
-//!    `false` the key is unknown → [`QuarantineReason::UnknownField`]. This is
-//!    allowlist-first (law 3): the single source of truth is
-//!    `agent-collection-schema.ts`; a field must be registered there FIRST to
-//!    survive here. A new extractor output field that forgot to register
+//! 3. **Enqueue-able?** The positive gate is `allowlist::is_allowed(k) &&
+//!    allowlist::is_sent(k)`. A non-allowlisted key is unknown →
+//!    [`QuarantineReason::UnknownField`]; an allowlisted-but-`sent:false` key
+//!    (an on-device-only extraction input like `timestamp`/`sessionId`) →
+//!    [`QuarantineReason::NonSendableField`]. Allowlist membership alone is NOT
+//!    enough — only fields the schema marks `sent: true` may leave the device
+//!    (invariant-(b): the schema's "never leaves the device" promise is
+//!    enforced, not just documented). Allowlist-first (law 3): the single source
+//!    of truth is `agent-collection-schema.ts`; a field must be registered
+//!    there (and marked sent) FIRST to survive here. A forgotten field
 //!    under-collects (safe), never leaks.
-//! 4. **Scalar analytics value?** The remaining (allowlisted) keys must carry a
-//!    number, a boolean, or a bounded enum-ish string — the Analytics-Only
-//!    payload is numbers + bounded enums only (spec §12.2). A non-scalar, an
-//!    over-long string, or a string with newlines/control chars is free-text-
-//!    shaped → [`QuarantineReason::FreeTextValue`].
+//! 4. **Safe scalar value?** The remaining (sent) keys must carry a number, a
+//!    boolean, or a bounded, ASCII-printable string — the Analytics-Only payload
+//!    is numbers + bounded enums only (spec §12.2). A non-scalar, an over-long
+//!    string, a string with control chars, OR a non-ASCII string (zero-width,
+//!    bidi overrides, emoji — which `model` could otherwise smuggle from vendor
+//!    JSONL) is free-text-shaped → [`QuarantineReason::FreeTextValue`].
 //!
 //! Any single failing key quarantines the WHOLE event (rather than silently
 //! dropping the offending key) — an unexpected key signals an extractor bug or
 //! tampering, and the safe response is to reject-and-count so it surfaces, never
-//! to ship a partially-scrubbed event. The store's `project` (allowlist drop)
-//! remains the structural backstop beneath this catch-and-count gate.
+//! to ship a partially-scrubbed event. [`project_sendable`] is the structural
+//! backstop applied to the validated payload just before enqueue: even a
+//! validator bug cannot place a non-sendable key on the wire.
 
 use serde_json::{Map, Value};
 
@@ -104,14 +111,40 @@ fn is_prohibited_field(key: &str) -> bool {
 }
 
 /// Whether `value` is a permitted Analytics-Only scalar: a number, a boolean, or
-/// a bounded string with no control characters (newlines, tabs, NUL, …).
-/// Non-scalars (object/array) and JSON `null` are rejected.
+/// a safe bounded string ([`is_safe_sent_string`]). Non-scalars (object/array)
+/// and JSON `null` are rejected.
 pub fn is_scalar_analytics_value(value: &Value) -> bool {
     match value {
         Value::Number(_) | Value::Bool(_) => true,
-        Value::String(s) => s.chars().count() <= MAX_ENUM_LEN && !s.chars().any(|c| c.is_control()),
+        Value::String(s) => is_safe_sent_string(s),
         Value::Null | Value::Array(_) | Value::Object(_) => false,
     }
+}
+
+/// A bounded, ASCII-printable string safe to send as a metric label. Rejects
+/// over-length, ASCII control chars (newlines/tabs/NUL/…), AND all non-ASCII
+/// content. The non-ASCII rejection is deliberate: the one attacker-influenceable
+/// sent string is `model` (read from vendor JSONL), and `is_control` alone would
+/// pass zero-width joiners, bidi overrides, and emoji. Requiring ASCII-printable
+/// keeps model ids (`claude-opus-4-…`, `gpt-4o`) while blocking those categories.
+fn is_safe_sent_string(s: &str) -> bool {
+    s.chars().count() <= MAX_ENUM_LEN && s.is_ascii() && !s.chars().any(|c| c.is_ascii_control())
+}
+
+/// Structural backstop (defense-in-depth): keep ONLY keys that may legitimately
+/// leave the device — the reserved privacy flags (§12.2 contract) and
+/// allowlisted `sent: true` fields. Every other key is dropped. Applied to the
+/// already-validated payload just before enqueue, so even a validator bug (or a
+/// future refactor that weakens a gate) cannot place a forbidden key on the
+/// wire. In the happy path it is the identity (validation already guaranteed
+/// every key is sendable); its job is to hold when validation does not.
+pub fn project_sendable(map: &Map<String, Value>) -> Map<String, Value> {
+    map.iter()
+        .filter(|(key, _)| {
+            is_reserved_flag(key) || (allowlist::is_allowed(key) && allowlist::is_sent(key))
+        })
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
 }
 
 /// Validate a candidate payload against the resolved policy. `Ok` is safe to
@@ -145,6 +178,12 @@ pub fn validate(
         if !allowlist::is_allowed(key) {
             return Err(QuarantineReason::UnknownField);
         }
+        // Membership is not enough: only `sent: true` fields may leave the
+        // device. An allowlisted-but-`sent:false` key is an on-device-only
+        // extraction input that must never be enqueued (spec §29).
+        if !allowlist::is_sent(key) {
+            return Err(QuarantineReason::NonSendableField);
+        }
         if !is_scalar_analytics_value(value) {
             return Err(QuarantineReason::FreeTextValue);
         }
@@ -175,20 +214,79 @@ mod tests {
         PolicyResolution::Allow(ContentMode::AnalyticsOnly)
     }
 
-    /// A payload built only from allowlisted keys with scalar values passes.
-    /// (`model` + token counts are the Phase-1 `sent: true` allowlist fields.)
+    /// A payload built only from `sent: true` fields + the reserved flags
+    /// passes. (`model` + token counts are the Phase-1 `sent: true` fields;
+    /// on-device-only fields like `isSidechain` are deliberately absent.)
     #[test]
     fn valid_analytics_payload_passes() {
         let payload = json!({
             "model": "claude-opus-4",
             "usage.input_tokens": 1482,
             "usage.output_tokens": 233,
-            "isSidechain": false,
             "rawPromptIncluded": false,
             "rawResponseIncluded": false,
         });
         let clean = validate(&payload, &allow()).expect("valid payload passes");
         assert!(clean.as_map().contains_key("model"));
+    }
+
+    /// Invariant-(b): an allowlisted-but-`sent:false` field (an on-device-only
+    /// extraction input the schema says "never leaves the device") is rejected —
+    /// membership on the allowlist is NOT permission to enqueue for upload.
+    #[test]
+    fn sent_false_fields_are_rejected() {
+        for on_device_only in ["timestamp", "sessionId", "uuid", "isSidechain", "type"] {
+            let payload = json!({ on_device_only: 0 });
+            assert_eq!(
+                validate(&payload, &allow()),
+                Err(QuarantineReason::NonSendableField),
+                "`{on_device_only}` is sent:false and must not be enqueue-able"
+            );
+        }
+    }
+
+    /// Fix #3: `model` (the one attacker-influenceable sent string, from vendor
+    /// JSONL) may not smuggle zero-width, bidi-override, or emoji characters —
+    /// `is_control` alone would pass them, so the charset is ASCII-printable.
+    #[test]
+    fn sent_string_rejects_non_ascii_smuggling() {
+        for sneaky in [
+            "claude\u{200b}opus", // zero-width space
+            "claude\u{202e}opus", // right-to-left override (bidi)
+            "claude\u{200d}opus", // zero-width joiner
+            "claude\u{1f600}",    // emoji
+            "cl\u{feff}aude",     // BOM / zero-width no-break space
+        ] {
+            assert_eq!(
+                validate(&json!({ "model": sneaky }), &allow()),
+                Err(QuarantineReason::FreeTextValue),
+                "a non-ASCII model string ({sneaky:?}) must be rejected"
+            );
+        }
+        // A normal ASCII model id still passes.
+        assert!(validate(&json!({ "model": "claude-opus-4-20250514" }), &allow()).is_ok());
+    }
+
+    /// The structural backstop keeps only sendable keys: reserved flags +
+    /// allowlisted `sent:true`. On a (hypothetically leaky) map it drops the
+    /// rest — defense-in-depth independent of `validate`.
+    #[test]
+    fn project_sendable_drops_non_sendable_keys() {
+        let leaky = json!({
+            "model": "m",                 // sent:true → kept
+            "usage.input_tokens": 1,      // sent:true → kept
+            "rawPromptIncluded": false,   // reserved flag → kept
+            "sessionId": "s",             // sent:false → dropped
+            "timestamp": 123,             // sent:false → dropped
+            "cwd": "/secret",             // not allowlisted → dropped
+        });
+        let projected = project_sendable(leaky.as_object().unwrap());
+        let mut kept: Vec<&str> = projected.keys().map(|k| k.as_str()).collect();
+        kept.sort_unstable();
+        assert_eq!(
+            kept,
+            vec!["model", "rawPromptIncluded", "usage.input_tokens"]
+        );
     }
 
     /// Spec §26.1: Analytics Only rejects a raw prompt field. Every §12.2
@@ -360,13 +458,15 @@ mod tests {
         }
     }
 
-    /// Numbers (int + float) and booleans always pass on allowlisted keys.
+    /// Numbers (int + float) pass on `sent:true` keys; the reserved flags carry
+    /// the only booleans in a valid payload (and must be `false`).
     #[test]
-    fn numeric_and_boolean_values_pass() {
+    fn numeric_and_flag_values_pass() {
         let payload = json!({
             "usage.input_tokens": 0,
             "usage.output_tokens": 9_999_999,
-            "isSidechain": true,
+            "usage.cache_read_input_tokens": 12.0,
+            "rawPromptIncluded": false,
         });
         assert!(validate(&payload, &allow()).is_ok());
     }

@@ -26,11 +26,14 @@ pub use policy::{
 pub use quarantine::{QuarantineReason, QUARANTINE_KIND};
 pub use validator::{validate, validate_event, CleanPayload};
 
+use serde_json::Value;
+
 use crate::store::queue::NewEvent;
 use crate::store::{Store, StoreError};
 
 /// The result of a [`validate_and_enqueue`] call: how many events were enqueued
-/// vs quarantined. Counts only — never any content.
+/// vs quarantined, and whether the call halted on a blocked policy. Counts
+/// only — never any content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct EnqueueOutcome {
     /// Events that passed validation and were newly inserted into the queue
@@ -39,18 +42,34 @@ pub struct EnqueueOutcome {
     /// Events quarantined by the validator this call — dropped, never queued,
     /// but counted in `diagnostics_state`.
     pub quarantined: usize,
+    /// `true` iff the policy was blocked and the call HALTED: nothing enqueued,
+    /// nothing quarantined, and the checkpoint deliberately NOT advanced so the
+    /// range is re-evaluated once the policy clears (spec §13.2/§20).
+    pub halted: bool,
 }
 
 /// Validate `candidates` against `policy`, enqueue the clean ones, and advance
 /// `connector_id`'s checkpoint — the privacy-gated form of
 /// [`Store::enqueue_and_checkpoint_at`](crate::store::Store).
 ///
-/// Enforcement happens BEFORE persistence (spec §16.3): a rejected event's
-/// payload is dropped here and never reaches the encrypted queue; only a
-/// content-free quarantine row (reason code) is recorded, keeping the drop
-/// counted rather than silent. The checkpoint still advances over the whole
-/// processed range — a quarantined event is a permanent drop, not something to
-/// retry forever.
+/// Enforcement happens BEFORE persistence (spec §16.3). Two distinct failure
+/// modes are handled differently:
+///
+/// - **Policy blocked** (`resolve()` → [`PolicyResolution::Blocked`], agent
+///   state `policy_blocked`): a *transient* condition (e.g. a broaden attempt in
+///   remote config that may clear). The call HALTS — nothing is enqueued and the
+///   checkpoint is NOT advanced, so the range survives for re-evaluation once
+///   the policy clears. Dropping it for a policy reason would be data loss
+///   (spec §13.2 "data loss is not acceptable" / §20).
+/// - **Per-event bad content** (prohibited/unknown/non-sendable field, free
+///   text, contradicting flags): a permanent defect in that one event. It is
+///   quarantined (content dropped, counted as content-free metadata) and the
+///   checkpoint DOES advance over it — a single malformed event must never
+///   freeze the connector forever.
+///
+/// Clean events are additionally passed through [`validator::project_sendable`]
+/// just before enqueue — a structural backstop that strips any non-sendable key
+/// even if the validator let one through.
 ///
 /// This is the layer T3.4 (extractor) and T4.1 (sync) build on: extractor output
 /// flows through `validate → enqueue`, and the sync engine only ever sees clean,
@@ -63,12 +82,35 @@ pub fn validate_and_enqueue(
     new_checkpoint: &str,
     now_ms: i64,
 ) -> Result<EnqueueOutcome, StoreError> {
+    // Policy-level HALT (spec §13.2/§20): a blocked policy is transient — hold
+    // the checkpoint and enqueue nothing so no range is lost. This is NOT a
+    // per-event quarantine (that would drop + advance); it is a deferral.
+    if let PolicyResolution::Blocked(reason) = policy {
+        tracing::warn!(
+            component = "privacy",
+            result = "policy_blocked",
+            reason = reason.code(),
+            "collection halted; checkpoint held for re-evaluation"
+        );
+        return Ok(EnqueueOutcome {
+            enqueued: 0,
+            quarantined: 0,
+            halted: true,
+        });
+    }
+
     let mut clean: Vec<NewEvent> = Vec::with_capacity(candidates.len());
     let mut quarantined = 0usize;
 
     for candidate in candidates {
         match validator::validate_event(candidate, policy) {
-            Ok(_) => clean.push(candidate.clone()),
+            Ok(clean_payload) => {
+                // Structural backstop: enqueue only sendable keys, even if the
+                // validator (or a future refactor) let a non-sendable key by.
+                let mut event = candidate.clone();
+                event.payload = Value::Object(validator::project_sendable(clean_payload.as_map()));
+                clean.push(event);
+            }
             Err(reason) => {
                 // Content is dropped here — only the fixed reason code is
                 // persisted (metadata, never payload). The `event_id` is a
@@ -90,6 +132,7 @@ pub fn validate_and_enqueue(
     Ok(EnqueueOutcome {
         enqueued,
         quarantined,
+        halted: false,
     })
 }
 
@@ -212,52 +255,121 @@ mod tests {
         assert_eq!(ids, vec!["ok1", "ok2"]);
     }
 
-    /// A blocked policy quarantines every event — nothing is enqueued.
+    /// Data-loss footgun fix (spec §13.2/§20): a BLOCKED policy HALTS — nothing
+    /// is enqueued, nothing is quarantined, and the checkpoint is NOT advanced,
+    /// so the range survives for re-evaluation once the (transient) policy block
+    /// clears. This is the key distinction from per-event quarantine.
     #[test]
-    fn blocked_policy_enqueues_nothing() {
+    fn blocked_policy_halts_without_advancing_checkpoint() {
         let store = store();
+        // A pre-existing checkpoint we can prove did NOT move.
+        store
+            .set_checkpoint_at("claude_code", "cursor-0", 1)
+            .unwrap();
+
         let blocked = PolicyResolution::Blocked(PolicyBlockReason::BroadenAttempt);
+        let outcome = validate_and_enqueue(
+            &store,
+            &blocked,
+            "claude_code",
+            &[good("e1")],
+            "cursor-99",
+            100,
+        )
+        .unwrap();
+
+        assert!(outcome.halted, "a blocked policy must halt");
+        assert_eq!(outcome.enqueued, 0);
+        // NOT quarantined — a policy block is a deferral, not a content drop.
+        assert_eq!(outcome.quarantined, 0);
+        assert_eq!(store.pending_count().unwrap(), 0);
+        assert_eq!(
+            store.diagnostic_count(QUARANTINE_KIND).unwrap(),
+            0,
+            "no quarantine row for a policy block"
+        );
+        // The checkpoint is UNCHANGED — the events are not lost.
+        assert_eq!(
+            store.checkpoint("claude_code").unwrap().as_deref(),
+            Some("cursor-0"),
+            "the checkpoint must be held so the range is re-evaluated"
+        );
+    }
+
+    /// An allowlisted-but-`sent:false` field (an on-device-only extraction input)
+    /// is quarantined by the enqueue gate — it never reaches the queue.
+    #[test]
+    fn sent_false_field_is_quarantined_by_the_gate() {
+        let store = store();
+        let event = NewEvent::analytics_only(
+            "e1",
+            "claude_code",
+            "usage_summary",
+            1,
+            json!({ "model": "m", "sessionId": "on-device-only" }),
+        );
         let outcome =
-            validate_and_enqueue(&store, &blocked, "claude_code", &[good("e1")], "c1", 100)
-                .unwrap();
+            validate_and_enqueue(&store, &allow(), "claude_code", &[event], "c1", 100).unwrap();
         assert_eq!(outcome.enqueued, 0);
         assert_eq!(outcome.quarantined, 1);
         assert_eq!(store.pending_count().unwrap(), 0);
     }
 
-    /// Byte-level scan (spec §26.1 "queue persistence does not store raw text"):
-    /// after a prohibited-field event is quarantined, its sentinel content
-    /// appears NOWHERE in the on-disk database — it was dropped before any write.
+    /// Fix #4 (make the guarantee real): the quarantine METADATA row carries
+    /// ONLY the reason code — no field name, no value, no length, no event_id.
+    /// `diagnostics_state` is an UNENCRYPTED table (counts/enums only, §23.2), so
+    /// we read it back directly and assert the row leaks nothing about the
+    /// rejected content (a meaningful, content-free guarantee per §29).
     #[test]
-    fn quarantined_content_never_reaches_disk() {
+    fn quarantine_metadata_row_is_content_free() {
         let dir =
-            std::env::temp_dir().join(format!("revealyst-privacy-scan-{}", std::process::id()));
+            std::env::temp_dir().join(format!("revealyst-privacy-meta-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join(DB_FILE_NAME);
 
         {
             let store = Store::open_with_key(&path, DbKey::from_bytes([9u8; KEY_LEN])).unwrap();
-            // One clean event alongside the poisoned one, so the DB is non-empty.
-            let batch = [good("ok"), with_prompt("bad")];
-            let outcome =
-                validate_and_enqueue(&store, &allow(), "claude_code", &batch, "c1", 100).unwrap();
-            assert_eq!(outcome.enqueued, 1);
+            let outcome = validate_and_enqueue(
+                &store,
+                &allow(),
+                "claude_code",
+                &[with_prompt("bad-event-id")],
+                "c1",
+                100,
+            )
+            .unwrap();
             assert_eq!(outcome.quarantined, 1);
+            assert_eq!(store.pending_count().unwrap(), 0);
         }
 
-        let sentinel = b"SENTINEL_RAW_PROMPT_TEXT";
-        for suffix in ["", "-wal", "-shm"] {
-            let p = if suffix.is_empty() {
-                path.clone()
-            } else {
-                path.with_file_name(format!("{DB_FILE_NAME}{suffix}"))
-            };
-            if let Ok(bytes) = std::fs::read(&p) {
-                assert!(
-                    !bytes.windows(sentinel.len()).any(|w| w == sentinel),
-                    "quarantined content leaked into {p:?}"
-                );
-            }
+        // Read the diagnostics table directly — it is not encrypted.
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT kind, detail FROM diagnostics_state")
+            .unwrap();
+        let rows: Vec<(String, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        drop(stmt);
+        drop(conn);
+
+        assert_eq!(rows.len(), 1, "exactly one quarantine row");
+        let (kind, detail) = &rows[0];
+        assert_eq!(kind, QUARANTINE_KIND);
+        // The detail is EXACTLY the reason code — nothing about the payload.
+        assert_eq!(detail, "prohibited_field");
+        // Belt: the row leaks no content, field name, value, or event_id.
+        for forbidden in [
+            "SENTINEL_RAW_PROMPT_TEXT", // the value
+            "prompt",                   // the offending field name
+            "bad-event-id",             // the event id
+        ] {
+            assert!(
+                !kind.contains(forbidden) && !detail.contains(forbidden),
+                "metadata row leaked `{forbidden}`"
+            );
         }
 
         let _ = std::fs::remove_dir_all(&dir);

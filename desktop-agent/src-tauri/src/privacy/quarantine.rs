@@ -45,6 +45,12 @@ pub enum QuarantineReason {
     /// is `false`). Allowlist-first: an unregistered key is rejected, not
     /// shipped (law 3).
     UnknownField,
+    /// A payload key is allowlisted but `sent: false` — an on-device-only
+    /// extraction input (e.g. `timestamp`, `sessionId`) that must never be
+    /// enqueued for upload (spec §29; the schema's "never leaves the device"
+    /// promise). Invariant-(b): shipping it would contradict the collection
+    /// contract.
+    NonSendableField,
     /// A payload value is free-text-shaped: a non-scalar (object/array/null), or
     /// a string over the length bound or carrying newlines/control chars. The
     /// Analytics-Only payload is numbers + bounded enums only (spec §12.2).
@@ -63,6 +69,7 @@ impl QuarantineReason {
             QuarantineReason::UnsupportedMode => "unsupported_mode",
             QuarantineReason::ProhibitedField => "prohibited_field",
             QuarantineReason::UnknownField => "unknown_field",
+            QuarantineReason::NonSendableField => "non_sendable_field",
             QuarantineReason::FreeTextValue => "free_text_value",
             QuarantineReason::ContradictingFlags => "contradicting_flags",
         }
@@ -80,6 +87,7 @@ mod tests {
             QuarantineReason::UnsupportedMode,
             QuarantineReason::ProhibitedField,
             QuarantineReason::UnknownField,
+            QuarantineReason::NonSendableField,
             QuarantineReason::FreeTextValue,
             QuarantineReason::ContradictingFlags,
         ];

@@ -79,6 +79,20 @@ pub fn is_allowed(field: &str) -> bool {
     fields().iter().any(|f| f.field == field)
 }
 
+/// Does `field`'s VALUE leave the device? Reads the schema's `sent` flag.
+///
+/// Membership on the allowlist (`is_allowed`) is NOT the same as being
+/// enqueue-able for upload: many allowlisted fields (`timestamp`, `sessionId`,
+/// `uuid`, `requestId`, `type`, `isSidechain`, …) are `sent: false` — read
+/// on-device to compute features, then reduced to counts, and **never**
+/// transmitted (the schema's own "never leaves the device" promise). The
+/// payload validator uses this to keep those extraction INPUTS off the wire:
+/// an enqueue-able key must be `is_allowed(k) && is_sent(k)`. Exact-name match,
+/// same as `is_allowed`.
+pub fn is_sent(field: &str) -> bool {
+    fields().iter().any(|f| f.field == field && f.sent)
+}
+
 /// The plain-English "never collected" list for the trust surface.
 pub fn never_collected() -> &'static [String] {
     &doc().never_collected
@@ -120,6 +134,37 @@ mod tests {
         assert!(is_allowed("sessionId"));
         assert!(is_allowed("model"));
         assert!(is_allowed("usage.input_tokens"));
+    }
+
+    #[test]
+    fn is_sent_reflects_the_schema_sent_flag() {
+        // `sent: true` fields — their VALUE leaves the device.
+        assert!(is_sent("model"));
+        assert!(is_sent("usage.input_tokens"));
+        assert!(is_sent("usage.output_tokens"));
+        // Allowlisted but `sent: false` — read on-device only, never enqueued.
+        for on_device_only in [
+            "timestamp",
+            "sessionId",
+            "uuid",
+            "requestId",
+            "type",
+            "isSidechain",
+            "content_block_type",
+            "toolUseResult",
+        ] {
+            assert!(
+                is_allowed(on_device_only),
+                "{on_device_only} should be allowlisted"
+            );
+            assert!(
+                !is_sent(on_device_only),
+                "{on_device_only} is sent:false — must NOT be enqueue-able"
+            );
+        }
+        // Unknown fields are never sent.
+        assert!(!is_sent("promptText"));
+        assert!(!is_sent(""));
     }
 
     #[test]

@@ -301,6 +301,7 @@ mod tests {
     /// There is no path to activating a broader mode.
     #[test]
     fn allow_implies_analytics_only_for_all_input_combinations() {
+        let mut saw_allow = 0usize;
         for platform in ALL_MODES {
             for org in ALL_MODES {
                 for user in ALL_MODES {
@@ -312,6 +313,7 @@ mod tests {
                             connector_capability: connector,
                         };
                         if let PolicyResolution::Allow(mode) = resolve(&inputs) {
+                            saw_allow += 1;
                             assert_eq!(
                                 mode,
                                 ContentMode::AnalyticsOnly,
@@ -322,6 +324,13 @@ mod tests {
                 }
             }
         }
+        // Anti-vacuity: the property is non-trivial only if `Allow` was actually
+        // reached — a `resolve` that stopped allowing would make the loop above
+        // pass empty. It must fire for the all-AnalyticsOnly floor at minimum.
+        assert!(
+            saw_allow > 0,
+            "no Allow observed — the test would be vacuous"
+        );
     }
 
     #[test]
