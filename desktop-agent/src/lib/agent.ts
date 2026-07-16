@@ -27,3 +27,20 @@ export function getAutostart(): Promise<boolean> {
 export function setAutostart(enabled: boolean): Promise<void> {
   return invoke<void>("set_autostart", { enabled });
 }
+
+/**
+ * Start browser-based sign-in (spec §8). Opens the system browser, waits for
+ * the deep-link callback, and stores the device token in the OS keychain on
+ * the Rust side. Resolves `true` when this computer is signed in. The token is
+ * never returned here — only this boolean — and errors arrive as plain-English
+ * strings.
+ */
+export function beginSignIn(): Promise<boolean> {
+  return invoke<boolean>("begin_sign_in");
+}
+
+/** Whether this computer already has a stored device token (keychain-backed).
+ * The only signed-in signal the frontend can read — never the token itself. */
+export function isSignedIn(): Promise<boolean> {
+  return invoke<boolean>("is_signed_in");
+}

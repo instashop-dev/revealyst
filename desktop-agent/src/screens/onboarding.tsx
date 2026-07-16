@@ -1,14 +1,17 @@
-// Onboarding stepper (spec §19.2). Wave M1: sign-in does not exist until M2,
-// so the "Open browser" button is disabled ("Available soon") and no step
-// performs any action. Steps are clickable so the flow can be previewed.
+// Onboarding stepper (spec §19.2). Wave M2 lights up the Sign in step: it runs
+// the real browser-based PKCE pairing (`beginSignIn`) and reflects the stored
+// keychain token via `isSignedIn`. Source detection (step 3) stays an honest
+// placeholder — it is not built until M5.
 //
 // Honesty rule (invariant b / W3-N: rendered UI copy is a claim surface):
-// steps 3 and 5 render honest placeholders instead of the spec's target copy,
-// because "sources found" and "this computer is connected" are claims nothing
-// backs yet. The spec copy is kept below as ONBOARDING_TARGET_COPY so later
-// waves light it up from real state.
+// "signed in" renders only when the keychain actually holds a device token;
+// "sources found" and any "syncing" claim stay unrendered because nothing
+// backs them yet. The spec copy is kept below as ONBOARDING_TARGET_COPY so
+// later waves light it up from real state.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { beginSignIn, isSignedIn } from "../lib/agent";
 
 // target copy — rendered only when backed by real detection/enrollment (M2/M5)
 export const ONBOARDING_TARGET_COPY = {
@@ -28,6 +31,44 @@ const STEPS = ["Welcome", "Sign in", "Sources", "Privacy mode", "Finish"] as con
 export default function OnboardingScreen() {
   const [step, setStep] = useState(0);
   const next = () => setStep((s) => Math.min(s + 1, STEPS.length - 1));
+
+  const [signedIn, setSignedIn] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
+
+  // Reflect any existing keychain token on mount.
+  useEffect(() => {
+    let active = true;
+    isSignedIn()
+      .then((value) => {
+        if (active) setSignedIn(value);
+      })
+      .catch(() => {
+        // No signal available yet — treat as not signed in.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleSignIn() {
+    setSigningIn(true);
+    setSignInError(null);
+    try {
+      const ok = await beginSignIn();
+      if (ok) {
+        setSignedIn(true);
+      } else {
+        setSignInError("Sign-in didn't finish. Please try again.");
+      }
+    } catch (error) {
+      setSignInError(
+        typeof error === "string" ? error : "Sign-in didn't finish. Please try again.",
+      );
+    } finally {
+      setSigningIn(false);
+    }
+  }
 
   return (
     <div>
@@ -66,13 +107,28 @@ export default function OnboardingScreen() {
       {step === 1 && (
         <section>
           <h2>Sign in</h2>
-          <p>Your browser will open so you can securely connect this computer.</p>
-          <div className="button-row">
-            <button type="button" className="primary" disabled>
-              Open browser
-            </button>
-            <span className="muted">Available soon</span>
-          </div>
+          {signedIn ? (
+            <p>This computer is signed in to Revealyst.</p>
+          ) : (
+            <>
+              <p>Your browser will open so you can securely connect this computer.</p>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={handleSignIn}
+                  disabled={signingIn}
+                >
+                  {signingIn ? "Waiting for your browser…" : "Open browser"}
+                </button>
+              </div>
+              {signInError && (
+                <p className="muted" role="alert">
+                  {signInError}
+                </p>
+              )}
+            </>
+          )}
         </section>
       )}
 
@@ -130,10 +186,14 @@ export default function OnboardingScreen() {
       {step === 4 && (
         <section>
           <h2>Finish</h2>
-          <p>
-            Sign-in isn&apos;t available yet. When it is, this step will
-            confirm your connection.
-          </p>
+          {signedIn ? (
+            <p>
+              This computer is signed in. Finding your AI tools and syncing
+              usage arrive in a later update.
+            </p>
+          ) : (
+            <p>Complete the &ldquo;Sign in&rdquo; step to connect this computer.</p>
+          )}
           <div className="button-row">
             <button type="button" className="primary" disabled>
               Open Revealyst
