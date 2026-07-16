@@ -62,7 +62,7 @@ jobs:
         working-directory: desktop-agent/src-tauri
         env:
           RUSTFLAGS: "-D warnings"
-        run: cargo test privacy::
+        run: "cargo test privacy::"
       # cargo-audit over the committed Cargo.lock (pinned resolution — a green
       # PR audits the same tree every run). Prebuilt binary via install-action;
       # `cargo install` would recompile cargo-audit from source every run.
