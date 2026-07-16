@@ -184,6 +184,64 @@ export function identityManifestGaps(
 }
 
 /**
+ * P3-A / ADR 0045 — the MANAGER-AUTHORIZED identity surfaces registry.
+ *
+ * This is DELIBERATELY SEPARATE from {@link TEAM_VISIBLE_IDENTITY_SURFACES}
+ * above. ADR 0045 is explicit: the manager per-person capability drill-in is a
+ * *separate authorized surface*, NOT the private-mode team view, so it is
+ * **not** gated by {@link assertTeamOnlyPseudonymized} — its authorization is
+ * proven by the manager-vs-member-vs-admin authz test matrix (the drill-in
+ * loader + `mastery.forManagedPerson`), not by the pseudonymization predicate.
+ * Only a field that could fold BACK into `TeamVisibleView` would go in the
+ * registry above; the drill-in has its own view type and never does.
+ *
+ * But an identity-bearing surface still deserves the same completeness-tripwire
+ * discipline (CLAUDE.md: "a new identity-bearing surface must register"), so it
+ * gets its OWN manifest + registry here. The invariant this pins is different:
+ * it does not run at request time to THROW on names (names are the whole point
+ * of a managed/full-mode manager view) — it exists so that adding an identity-
+ * bearing field to the drill-in output without recording it here FAILS a test
+ * ({@link managerIdentityManifestGaps} via tests/manager-capability-view.test.ts),
+ * exactly like the team-visible manifest fails for an unregistered field.
+ *
+ * PROVENANCE of every field here: the surface exists ONLY in managed/full mode
+ * (absent in private — the loader returns `unavailable`), and only to a manager
+ * of the subject's team (an admin without a grant gets `forbidden`).
+ */
+export const MANAGER_AUTHORIZED_IDENTITY_SURFACES: readonly {
+  readonly key: string;
+  readonly fields: readonly string[];
+}[] = [
+  // The drill-in header renders the subject's real name (managed/full only).
+  { key: "drillIn.subject.displayName", fields: ["drillIn.subject.displayName"] },
+  // The roster lists managed-team members by real name (managed/full only).
+  { key: "roster.teams[].members[].displayName", fields: ["roster.teams[].members[].displayName"] },
+];
+
+/** The authoritative manifest of every identity-bearing field the manager-
+ * authorized surface (ADR 0045) renders. Pinned to
+ * {@link MANAGER_AUTHORIZED_IDENTITY_SURFACES} by {@link managerIdentityManifestGaps}
+ * — adding a named field to the drill-in/roster output means adding it here too,
+ * or the completeness test fails (mirrors {@link IDENTITY_BEARING_MANIFEST}). */
+export const MANAGER_AUTHORIZED_IDENTITY_MANIFEST: readonly string[] = [
+  "drillIn.subject.displayName",
+  "roster.teams[].members[].displayName",
+];
+
+/** Completeness check for the manager-authorized registry — reuses the same
+ * pure gap logic as the team-visible manifest. `missing` = a manifest field no
+ * surface covers (an unregistered named field on the drill-in); `extra` = a
+ * registered field absent from the manifest (a stale surface). */
+export function managerIdentityManifestGaps(
+  manifest: readonly string[] = MANAGER_AUTHORIZED_IDENTITY_MANIFEST,
+  surfaces: readonly {
+    fields: readonly string[];
+  }[] = MANAGER_AUTHORIZED_IDENTITY_SURFACES,
+): { missing: string[]; extra: string[] } {
+  return identityManifestGaps(manifest, surfaces);
+}
+
+/**
  * The single audit predicate for the §7 privacy default: a dashboard view is
  * "team-only pseudonymized" iff no registered identity-bearing surface leaks —
  * no surfaced person carries a real name, no individual is listed as a segment

@@ -13,6 +13,17 @@
   sketch's "under its own ADR" line is read as "under this ADR's authority"). The
   admin toggle UI and the manager spend-read consumer ship in a later workstream;
   no inert control renders from this PR.
+- **Implemented (capability half):** P3-A, branch `p3a-manager-drill-in` (PR
+  pending). Ships the manager per-person capability drill-in only: the new
+  manager-scoped read `mastery.forManagedPerson` (org-scope frozen path — this
+  ADR is that PR's required same-PR change), the `/team` roster + `/team/[personId]`
+  drill-in surfaces (managed/full only; `notFound()` in private mode and for any
+  non-manager, incl. admins-without-a-grant), a manager-only entry card on the
+  team dashboard (the count-only 5-card fold is untouched, D-TCI-5), and the
+  manager-authorized identity-surface registry in `src/lib/visibility.ts`. The
+  **spend half** (D-TCI-2, the `team_settings` toggle) and its table stay a
+  separate later workstream — no schema/migration in this build. The self-view-
+  only rec/coaching/exposure/mission surfaces are untouched (V4 NOT-list).
 
 ## Context
 
@@ -199,6 +210,19 @@ Specifying this now, and building the manager **READ** surfaces, is allowed
 member-facing companion. The **member companion-in-team-orgs** experience stays
 gated on the ~6-week dogfood clock (running since 2026-07-14, matures
 ~2026-08-25) and its own §9.4 sub-case-C ADR. This ADR does not touch that gate.
+
+## Admin impersonation (audit consideration)
+
+Better Auth admin impersonation (the same caveat ADR 0038 records) swaps the
+session user: a platform admin impersonating a manager reads that manager's
+team members' named capability data **without a `team_managers` grant recorded
+under the admin's own identity**. This is consistent with impersonation's
+"acting as that user" semantics, but it bypasses the explicit-grant audit trail
+this ADR designs for. Accepted for now because impersonation is itself a
+platform-admin-only, audited affordance (`src/lib/auth.ts` admin plugin); any
+future session-cookie-cache enablement or impersonation change must re-audit
+this path (the same tripwire note as ADR 0038). If per-person surfaces grow
+beyond capability + spend, add impersonation-aware audit rows at read time.
 
 ## Consequences
 

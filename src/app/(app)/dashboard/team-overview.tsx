@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import Link from "next/link";
-import { Cable, Gauge, UsersRound } from "lucide-react";
+import { ArrowRight, Cable, Gauge, UsersRound } from "lucide-react";
 import { ActivityHeatmap } from "@/components/dashboard/activity-heatmap";
 import { AgenticAdoptionCard } from "@/components/dashboard/agentic-adoption-card";
 import { AttributionTrendCard } from "@/components/dashboard/attribution-trend-card";
@@ -55,6 +55,8 @@ import { timeStage } from "@/lib/request-timing";
 import { computeSignalCoverage } from "@/lib/signal-coverage";
 import { isTeamOverviewView, trackLaunchEvent } from "@/lib/launch-events";
 import { TEAM_OVERVIEW_COPY } from "@/lib/team-overview-copy";
+import { MANAGER_ROSTER_COPY } from "@/lib/manager-capability-copy";
+import { managerSurfaceAvailable } from "@/lib/manager-capability-view";
 import {
   connectionAttentionInputs,
   deriveAttention,
@@ -88,13 +90,22 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
   // this way (perf law G10; guarded by tests/perf scenario 4). Both readers do
   // their own internal flat Promise.all kicked off synchronously here, so the
   // batch stays round-trip depth 1.
-  const [view, budgetAlert, maturity] = await timeStage("pageData", () =>
-    Promise.all([
-      readDashboardView(ctx.scope, ctx.org.visibilityMode, dashboardWindow()),
-      readBudgetAlertForRole(ctx.scope, ctx.role, todayUtc()),
-      readMaturityView(ctx.scope, todayUtc()),
-    ]),
+  // P3-A (ADR 0045): the manager entry-point read is folded into the SAME flat
+  // Promise.all (depth 1, perf law G10) — the drill-in link shows only for a
+  // manager (≥1 managed team) in managed/full mode. It's just the id list here;
+  // no per-person data reaches this count-only dashboard (D-TCI-5).
+  const [view, budgetAlert, maturity, managedTeamIds] = await timeStage(
+    "pageData",
+    () =>
+      Promise.all([
+        readDashboardView(ctx.scope, ctx.org.visibilityMode, dashboardWindow()),
+        readBudgetAlertForRole(ctx.scope, ctx.role, todayUtc()),
+        readMaturityView(ctx.scope, todayUtc()),
+        ctx.scope.teamManagers.managedTeamIds(ctx.user.id),
+      ]),
   );
+  const showManagerEntry =
+    managerSurfaceAvailable(ctx.org.visibilityMode) && managedTeamIds.length > 0;
 
   // TCI §15 team_overview_view (P2-B): the manager-engagement signal for a
   // team-dashboard view. Emitted HERE, not at the src/worker.ts seam, because
@@ -261,6 +272,35 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
       <SyncStalenessBanner connections={connections} />
 
       <AttentionSection items={attentionItems} />
+
+      {/* P3-A (ADR 0045): manager-only entry into the per-person capability
+       * drill-in. A SEPARATE surface from the count-only 5-card fold below —
+       * no per-person data here, just a link. Shown only to a manager (≥1
+       * managed team) in managed/full mode; hidden in private (surface absent). */}
+      {showManagerEntry ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <UsersRound className="size-4 text-primary" aria-hidden="true" />
+              {MANAGER_ROSTER_COPY.entryCard.title}
+            </CardTitle>
+            <CardDescription>
+              {MANAGER_ROSTER_COPY.entryCard.description}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<Link href="/team" />}
+            >
+              {MANAGER_ROSTER_COPY.entryCard.action}
+              <ArrowRight data-icon="inline-end" />
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {hasScores ? (
         // W5-H dashboard-itis fold: ~18–20 panels curated into FIVE

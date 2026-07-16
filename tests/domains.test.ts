@@ -18,6 +18,8 @@ describe("classifyPath", () => {
       "/admin/users/user-123",
       "/dashboard",
       "/dashboard/anything",
+      "/team",
+      "/team/some-person-id",
       "/teams",
       "/people",
       "/connections",
