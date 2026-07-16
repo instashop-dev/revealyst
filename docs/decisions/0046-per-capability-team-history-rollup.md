@@ -4,7 +4,7 @@
 - **Date:** 2026-07-16
 - **Deciders:** Team Capability Intelligence roadmap, Phase 2 (founder-signed
   decision **D-TCI-6**, `docs/product-signoffs.md`).
-- **Implemented:** by the `p2d-capability-history` build PR — migration **0037**
+- **Implemented:** by the `p2d-capability-history` build PR — migration **0038** (renumbered from 0037 after a parallel workstream took it)
   (`team_capability_history`), writer `src/scoring/recompute-capability-history.ts`
   (poller `score-recompute` slot), read namespace `forOrg().capabilityHistory`,
   render-time floor `src/lib/capability-history.ts`. No UI in that PR (the growth
