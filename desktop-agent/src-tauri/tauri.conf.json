@@ -14,9 +14,12 @@
       {
         "label": "main",
         "title": "Revealyst",
-        "width": 520,
-        "height": 380,
-        "resizable": true
+        "width": 860,
+        "height": 620,
+        "minWidth": 640,
+        "minHeight": 480,
+        "resizable": true,
+        "visible": false
       }
     ],
     "security": {
