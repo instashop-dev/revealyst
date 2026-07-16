@@ -103,9 +103,14 @@ describe("AppSidebar — nav IA (U0.1)", () => {
 
   it("shows the admin group only for admins", () => {
     renderSidebar("/dashboard", { role: "member" });
+    // Match accounts is an admin-group item (U3 kept it there); a member never
+    // sees it. But a member DOES see the primary "Settings" item now (U3).
     expect(
-      screen.queryByRole("link", { name: /Billing/i }),
+      screen.queryByRole("link", { name: /Match accounts/i }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: /Settings/i }),
+    ).toBeInTheDocument();
   });
 
   it("shows the platform link only for platform admins", () => {

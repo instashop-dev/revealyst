@@ -506,23 +506,16 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2 text-sm">
+              {/* People & teams management consolidated into the
+               * /settings/people tab (U3); both used to be their own routes. */}
               <Button
                 variant="outline"
                 size="sm"
                 nativeButton={false}
-                render={<Link href="/people" />}
+                render={<Link href="/settings/people" />}
               >
                 <UsersRound data-icon="inline-start" />
-                People
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                nativeButton={false}
-                render={<Link href="/teams" />}
-              >
-                <UsersRound data-icon="inline-start" />
-                Teams
+                People &amp; teams
               </Button>
             </CardContent>
           </Card>

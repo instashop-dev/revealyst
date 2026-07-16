@@ -5,7 +5,7 @@ const titles = (groups: ReturnType<typeof navFor>) =>
   groups.flatMap((g) => g.items.map((i) => i.title));
 
 describe("navFor — U0.1 nav IA", () => {
-  it("personal org: Today + Growth + Connections + Account, no AI maturity", () => {
+  it("personal org: Today + Growth + Connections + Settings, no AI maturity", () => {
     const groups = navFor({
       orgKind: "personal",
       role: "member",
@@ -13,14 +13,16 @@ describe("navFor — U0.1 nav IA", () => {
     });
     expect(groups.map((g) => g.id)).toEqual(["primary"]);
     expect(groups[0].label).toBe("Personal workspace");
+    // U1 added Growth (personal-only surface); U3 replaced "Account" with
+    // "Settings" (Settings is for everyone — members reach profile +
+    // notifications there). AI maturity stays demoted for personal orgs.
     expect(titles(groups)).toEqual([
       "Today",
       "Growth",
       "Connections",
-      "Account",
+      "Settings",
     ]);
-    // Growth is a personal-only surface (U1); AI maturity stays demoted for
-    // personal orgs (the raw 0–100 diagnostic lives behind the companion).
+    expect(titles(groups)).not.toContain("Account");
     expect(titles(groups)).not.toContain("AI maturity");
   });
 
@@ -35,7 +37,7 @@ describe("navFor — U0.1 nav IA", () => {
     expect(titles(groups)).not.toContain("Growth");
   });
 
-  it("team org (member): Team + AI maturity + Connections + Account, no admin group", () => {
+  it("team org (member): Team + AI maturity + Connections + Settings, no admin group", () => {
     const groups = navFor({
       orgKind: "team",
       role: "member",
@@ -43,11 +45,13 @@ describe("navFor — U0.1 nav IA", () => {
     });
     expect(groups.map((g) => g.id)).toEqual(["primary"]);
     expect(groups[0].label).toBe("Workspace");
+    // A member gets the Settings item (U3) so they can reach their own profile
+    // and notification preferences — no admin group.
     expect(titles(groups)).toEqual([
       "Team",
       "AI maturity",
       "Connections",
-      "Account",
+      "Settings",
     ]);
   });
 
@@ -65,11 +69,11 @@ describe("navFor — U0.1 nav IA", () => {
       "Team",
       "AI maturity",
       "Connections",
-      "Account",
+      "Settings",
     ]);
   });
 
-  it("team org (admin): appends the Administration group unchanged", () => {
+  it("team org (admin): Administration group drops Members/Billing/Settings (now in /settings/*)", () => {
     const groups = navFor({
       orgKind: "team",
       role: "admin",
@@ -78,14 +82,17 @@ describe("navFor — U0.1 nav IA", () => {
     expect(groups.map((g) => g.id)).toEqual(["primary", "admin"]);
     const admin = groups.find((g) => g.id === "admin");
     expect(admin?.label).toBe("Administration");
+    // U3: Members, Billing, and Settings moved into the consolidated
+    // /settings/* surface, leaving only the data-reading ops links.
     expect(admin?.items.map((i) => i.title)).toEqual([
-      "Members",
       "Match accounts",
       "Spend",
-      "Billing",
       "Compliance",
-      "Settings",
     ]);
+    const adminHrefs = admin?.items.map((i) => i.href) ?? [];
+    expect(adminHrefs).not.toContain("/members");
+    expect(adminHrefs).not.toContain("/billing");
+    expect(adminHrefs).not.toContain("/settings");
   });
 
   it("admin gating is independent of org kind (personal admin still gets the group)", () => {

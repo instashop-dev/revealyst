@@ -6,11 +6,10 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const TITLES: Record<string, string> = {
   "/dashboard": "Overview",
-  "/teams": "Teams",
-  "/people": "People",
   "/connections": "Connections",
-  "/members": "Members",
-  "/account": "Account",
+  // /account, /billing, /members, /teams, /people consolidated under /settings
+  // (U3); the prefix match makes every /settings/* tab read "Settings".
+  "/settings": "Settings",
 };
 
 function titleFor(pathname: string): string {
