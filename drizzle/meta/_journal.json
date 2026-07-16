@@ -274,6 +274,13 @@
       "when": 1784224543232,
       "tag": "0038_capability-history",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1784225826605,
+      "tag": "0039_team-settings",
+      "breakpoints": true
     }
   ]
 }

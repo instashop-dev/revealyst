@@ -5,6 +5,14 @@
 - **Deciders:** Team Capability Intelligence roadmap, Phase 2 (founder-signed
   decisions **D-TCI-1** and **D-TCI-2**, `docs/product-signoffs.md`) — a
   **founder-signed privacy reversal** on the ADR-0038 mold.
+- **Implemented (team_settings): PR `p2e-team-settings`** — the `team_settings`
+  table sketched in "Consent / visibility machinery" below shipped as plumbing
+  only (migration `0039_team-settings`, `src/db/schema/core.ts`, the
+  `forOrg().teamSettings` `get`/`set` namespace, and the three registrations).
+  This ADR is that build's governing document — no new ADR number was minted (the
+  sketch's "under its own ADR" line is read as "under this ADR's authority"). The
+  admin toggle UI and the manager spend-read consumer ship in a later workstream;
+  no inert control renders from this PR.
 
 ## Context
 
