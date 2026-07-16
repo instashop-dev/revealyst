@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { Db } from "../db/client";
 import type { CredentialEnv } from "./credentials";
-import { authenticateDeviceToken } from "./device-token";
+import {
+  authenticateDeviceToken,
+  type DeviceTokenAuthSuccess,
+} from "./device-token";
 import { DEVICE_VENDOR } from "./desktop-devices";
 
 // Core of POST /api/desktop/diagnostics (Desktop Agent plan T4.3, spec §23.2),
@@ -11,14 +14,22 @@ import { DEVICE_VENDOR } from "./desktop-devices";
 // to another org's rows.
 //
 // STRUCTURAL PRIVACY GUARANTEE (invariant b, spec §23.2/§26.1): the diagnostic
-// bundle carries COUNTS, VERSIONS, STATES, and SANITIZED LOG LINES ONLY. There
-// is NO field in `diagnosticBundleSchema` that can hold an activity payload —
-// no `events`, no `payload`, no `prompt`, no `response`, no free-form record.
-// A payload is therefore not *filtered out*, it is *unrepresentable*: `.strict()`
-// rejects any unknown key at every level, so a bundle carrying content fails
-// validation with 400 before anything is read. The server-side re-scrub of
-// `logTail` (see `scrubLogTail`) is belt-and-braces on top of the agent's own
-// scrub — defense-in-depth for the one free-text field, not the primary control.
+// bundle carries COUNTS, VERSIONS, STATES, and SANITIZED LOG LINES ONLY. NO
+// field accepts free-form content:
+//   - `connectorStates[].state` and `platform`/`architecture`/`updateState` are
+//     closed enums;
+//   - `queueCounts` and `configVersion` are bounded integers;
+//   - `connectorStates[].id` is a bounded connector SLUG (`CONNECTOR_ID_RE`),
+//     and `agentVersion`/`policyVersion` are bounded VERSION strings
+//     (`VERSION_RE`) — narrow charsets (no whitespace, no punctuation beyond
+//     `._+-`) that cannot carry prose, an `rva1.` token, or a base64 secret;
+//   - `logTail` is the ONLY multi-line field, and it is BOTH schema-bounded
+//     (count + per-line length) AND re-scrubbed server-side (`scrubLogTail`).
+// So there is no `events`/`payload`/`prompt`/`response` key AND no open-charset
+// string that could smuggle content: `.strict()` rejects any unknown key at
+// every level, and the version/slug regexes reject any value that is not
+// version-or-slug-shaped — both with a 400 before anything is emitted. The
+// `logTail` re-scrub is belt-and-braces on top of the agent's own §23.1 scrub.
 //
 // STORAGE: Workers Logs (a single structured `console.log` JSON line), NOT a
 // database table. Diagnostics are operational/support telemetry — a support
@@ -64,6 +75,24 @@ const updateStateSchema = z.enum([
   "error",
 ]);
 
+// --- Narrow-charset patterns (F1: keep the "no free-form content" guarantee
+// true for the open-string fields, not just the enum/number ones) ------------
+
+/** A connector id is a SLUG: lowercase letters, digits, `_`/`-`, 1–64 chars.
+ * No whitespace, no `.`, no uppercase — so it cannot carry prose, an `rva1.`
+ * token (which contains `.`), or a base64 secret (which contains upper-case /
+ * `+` / `/`). Matches the seed connector ids (`claude_code`, `cursor`, …). */
+const CONNECTOR_ID_RE = /^[a-z0-9_-]{1,64}$/;
+
+/** A version string: alphanumerics plus the version punctuation `.`/`-`/`+`
+ * only (e.g. `1.4.2`, `1.4.2-beta.1+build7`, `policy-2026-07-01`), 1–64 chars.
+ * No whitespace (cannot carry a sentence) and no `_`/`/`/`=` (cannot carry a
+ * PEM block or a base64url secret intact). A full `rva1.` device token is
+ * ~100+ chars — well over this 64-char cap — so the narrow charset plus the
+ * short length together keep this field version-shaped, never a content or
+ * secret channel. */
+const VERSION_RE = /^[A-Za-z0-9.+-]{1,64}$/;
+
 // --- Bounds ------------------------------------------------------------------
 
 /** Max distinct connectors reported. The agent ships a handful of connectors;
@@ -105,14 +134,14 @@ const queueCountsSchema = z
  */
 export const diagnosticBundleSchema = z
   .object({
-    agentVersion: z.string().trim().min(1).max(64),
+    agentVersion: z.string().trim().regex(VERSION_RE),
     platform: z.enum(["macos", "windows"]),
     architecture: z.enum(["arm64", "x64"]),
     connectorStates: z
       .array(
         z
           .object({
-            id: z.string().trim().min(1).max(64),
+            id: z.string().trim().regex(CONNECTOR_ID_RE),
             state: connectorStateSchema,
           })
           .strict(),
@@ -124,7 +153,7 @@ export const diagnosticBundleSchema = z
     // Signed remote-config version (numeric, spec §21) and policy version
     // (string identifier). Both are opaque version markers, never content.
     configVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-    policyVersion: z.string().trim().min(1).max(128),
+    policyVersion: z.string().trim().regex(VERSION_RE),
     updateState: updateStateSchema,
     // Already agent-scrubbed log lines (spec §23.1). Bounded count + per-line
     // length here; re-scrubbed server-side below.
@@ -228,35 +257,31 @@ const defaultEmit: DiagnosticsEmit = (record) => {
 };
 
 /**
- * Authenticate the device token, validate the bundle, re-scrub the log tail,
- * and emit ONE structured diagnostics line to Workers Logs. Returns the outcome
- * the route serializes. A paused/revoked device fails auth (403 paused / 401
- * credential gone) and never reaches validation or emit.
+ * Validate the bundle, re-scrub the log tail, and emit ONE structured
+ * diagnostics line to Workers Logs — for a caller the route has ALREADY
+ * authenticated (the auth-before-body ordering, mirroring `/v1/metrics` +
+ * `/v1/logs`: the device token is verified before the request body is read, so
+ * an unauthenticated caller never makes the Worker buffer/parse a large body
+ * and never gets a body-shape 400-vs-413 oracle). Takes the successful
+ * `DeviceTokenAuthSuccess` rather than the raw token.
  *
  * No DB write: the sink is Workers Logs, so there is no org-scoped table to
- * touch. Auth still goes through the sanctioned `forOrg`-backed device-token
- * verifier (which is the only DB access on this path — a read, for auth).
+ * touch. The only DB access on this path is the auth read, done by the caller.
  */
-export async function recordDesktopDiagnostics(
-  db: Db,
-  env: CredentialEnv,
-  bearerToken: string,
+export function recordDesktopDiagnosticsAuthed(
+  auth: DeviceTokenAuthSuccess,
   rawBody: unknown,
   emit: DiagnosticsEmit = defaultEmit,
-): Promise<DiagnosticsOutcome> {
-  // --- 1. Authenticate (cheap, before touching the body) ---------------
-  const auth = await authenticateDeviceToken(db, env, bearerToken);
-  if (!auth.ok) {
-    return { status: auth.status, body: auth.body };
-  }
+): DiagnosticsOutcome {
   // Diagnostics are for desktop-agent devices only — restrict to the device
   // vendor so a future device_token vendor can't post here. Indistinguishable
-  // 401 (same as heartbeat).
+  // 401 (same as heartbeat). The caller is authenticated, so this leaks
+  // nothing a valid token holder didn't already know.
   if (auth.connection.vendor !== DEVICE_VENDOR) {
     return { status: 401, body: { error: "invalid device token" } };
   }
 
-  // --- 2. Validate (authenticated callers only) -------------------------
+  // --- Validate ---------------------------------------------------------
   const parsed = diagnosticBundleSchema.safeParse(rawBody);
   if (!parsed.success) {
     return {
@@ -265,10 +290,10 @@ export async function recordDesktopDiagnostics(
     };
   }
 
-  // --- 3. Re-scrub the log tail (defense-in-depth) ----------------------
+  // --- Re-scrub the log tail (defense-in-depth) -------------------------
   const { kept, dropped } = scrubLogTail(parsed.data.logTail);
 
-  // --- 4. Emit ONE structured line to Workers Logs (no DB write) --------
+  // --- Emit ONE structured line to Workers Logs (no DB write) -----------
   emit({
     evt: "desktop.diagnostics",
     orgId: auth.orgId,
@@ -287,4 +312,26 @@ export async function recordDesktopDiagnostics(
   });
 
   return { status: 200, body: { ok: true, logLinesDropped: dropped } };
+}
+
+/**
+ * Authenticate the device token, then delegate to
+ * `recordDesktopDiagnosticsAuthed`. The full auth-through-emit path in one call,
+ * kept for unit tests (the route itself splits auth from body per F3 — see the
+ * route handler — so it can authenticate BEFORE parsing the body). A
+ * paused/revoked device fails auth (403 paused / 401 credential gone) and never
+ * reaches validation or emit.
+ */
+export async function recordDesktopDiagnostics(
+  db: Db,
+  env: CredentialEnv,
+  bearerToken: string,
+  rawBody: unknown,
+  emit: DiagnosticsEmit = defaultEmit,
+): Promise<DiagnosticsOutcome> {
+  const auth = await authenticateDeviceToken(db, env, bearerToken);
+  if (!auth.ok) {
+    return { status: auth.status, body: auth.body };
+  }
+  return recordDesktopDiagnosticsAuthed(auth, rawBody, emit);
 }

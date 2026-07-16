@@ -219,6 +219,93 @@ describe("recordDesktopDiagnostics (T4.3 sink)", () => {
     expect(out.status).toBe(400);
   });
 
+  // The open-string fields (connectorStates[].id, agentVersion, policyVersion)
+  // are the ones an adversary could try to use as a free-text/secret channel
+  // that bypasses scrubLogTail (F1). The version/slug charset regexes reject
+  // any prompt-shaped or token-shaped value → 400, so no unredacted content
+  // reaches Workers Logs.
+  it("rejects a prompt-shaped connectorStates[].id (spaces/punctuation) → 400", async () => {
+    const cap = captureEmit();
+    const out = await recordDesktopDiagnostics(
+      db,
+      ENV,
+      deviceToken,
+      validBundle({
+        connectorStates: [
+          { id: "please summarize my last prompt", state: "collecting" },
+        ],
+      }),
+      cap.emit,
+    );
+    expect(out.status).toBe(400);
+    expect(cap.records).toHaveLength(0);
+  });
+
+  it("rejects an rva1.-token-shaped connectorStates[].id → 400", async () => {
+    const cap = captureEmit();
+    const out = await recordDesktopDiagnostics(
+      db,
+      ENV,
+      deviceToken,
+      validBundle({
+        connectorStates: [
+          { id: `rva1.${orgId}.${deviceConnId}.secret`, state: "collecting" },
+        ],
+      }),
+      cap.emit,
+    );
+    expect(out.status).toBe(400);
+    expect(cap.records).toHaveLength(0);
+  });
+
+  it("rejects a prompt-shaped agentVersion (free text) → 400", async () => {
+    const cap = captureEmit();
+    const out = await recordDesktopDiagnostics(
+      db,
+      ENV,
+      deviceToken,
+      validBundle({ agentVersion: "here is the user's private prompt text" }),
+      cap.emit,
+    );
+    expect(out.status).toBe(400);
+    expect(cap.records).toHaveLength(0);
+  });
+
+  it("rejects an rva1.-token-shaped policyVersion (over the charset/length cap) → 400", async () => {
+    const cap = captureEmit();
+    const out = await recordDesktopDiagnostics(
+      db,
+      ENV,
+      deviceToken,
+      validBundle({
+        policyVersion: `rva1.${orgId}.${deviceConnId}.longsecretvalue`,
+      }),
+      cap.emit,
+    );
+    expect(out.status).toBe(400);
+    expect(cap.records).toHaveLength(0);
+  });
+
+  it("still accepts realistic version/slug values", async () => {
+    const cap = captureEmit();
+    const out = await recordDesktopDiagnostics(
+      db,
+      ENV,
+      deviceToken,
+      validBundle({
+        agentVersion: "1.4.2-beta.1+build7",
+        policyVersion: "policy-2026-07-01",
+        connectorStates: [
+          { id: "claude_code", state: "collecting" },
+          { id: "cursor-nightly", state: "degraded" },
+        ],
+      }),
+      cap.emit,
+    );
+    expect(out.status).toBe(200);
+    expect(cap.records).toHaveLength(1);
+  });
+
   // --- Oversized bundle --------------------------------------------------
 
   it("rejects too many log lines (over MAX_LOG_LINES) → 400", async () => {
