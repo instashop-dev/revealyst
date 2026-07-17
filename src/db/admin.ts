@@ -24,13 +24,16 @@ import { trailing30dPeriod } from "../lib/entitlements";
 import type { Db } from "./client";
 import { forOrg } from "./org-scope";
 import {
+  provisionTeamWorkspace,
+  type ProvisionTeamWorkspaceResult,
+} from "./org-provisioning";
+import {
   auditLog,
   connections,
   connectorRuns,
   orgMembers,
   orgs,
   subscriptions,
-  teams,
   user,
 } from "./schema";
 import { subscriptionsForOrg } from "./subscriptions";
@@ -661,69 +664,24 @@ export async function platformAuditList(
 
 // ── Team-workspace provisioning (platform-admin unblock) ──────────────────
 
-export type CreateTeamWorkspaceResult = {
-  orgId: string;
-  /** The default team seeded in the new workspace (named after it) so the
-   * Settings → People manager-assignment card has a team to grant against
-   * immediately. */
-  teamId: string;
-};
+export type CreateTeamWorkspaceResult = ProvisionTeamWorkspaceResult;
 
 /**
  * Create a NEW team workspace and enroll the requesting platform admin as its
- * org admin. This is the ONLY code path that sets `orgs.kind = 'team'` — the
- * signup bootstrap (`ensureOrgOfOne`) only ever creates `kind = 'personal'`, so
- * without this the entire team surface (team dashboard, People/Privacy admin
- * cards, the TCI manager layer) was unreachable for real users.
- *
- * Deliberately admin-only and separate from the user-facing "create a team"
- * onboarding flow, which remains a pending product decision. It does NOT
- * convert the admin's existing personal org — a distinct org row is created, so
- * the §14 dogfood personal org is untouched.
- *
- * `bootstrapUserId` is left NULL: that column is a UNIQUE per-user "signup org"
- * marker owned by the admin's personal org (the constraint that closes the
- * `ensureOrgOfOne` race), so a team workspace must not claim it. A team org has
- * no bootstrap user.
- *
- * Transactional: the org, the admin membership, the default team, AND the
- * `org.create` audit row all commit together — no half-provisioned workspace,
- * and no post-commit audit write whose failure would 500 a request that
- * already created the org (a retry would then mint a duplicate orphan org).
- * The audit insert is a direct table write inside the tx (this module's
- * sanctioned raw-schema zone) mirroring `auditLogNamespace.record`'s exact row
- * shape — `forOrg().auditLog` closes over the outer `db`, not the tx, so it
- * cannot be reused here. Cross-org readable via platformAuditList, so the
- * genesis event shows in the /admin audit viewer. The admin membership row's
- * fresh `createdAt` also makes this the admin's most-recently-activated
- * membership (ADR 0004/0051), so resolution lands them in the new workspace on
- * their next load — reachable without any switch.
+ * org admin — the platform-admin seam over the shared provisioning transaction
+ * (src/db/org-provisioning.ts). Kept as the admin surface's entry point (the
+ * /admin dashboard button + the user-facing POST /api/workspaces route both
+ * bottom out in `provisionTeamWorkspace`, so they can never diverge on org
+ * shape). Callers gate via handleAdminApi; this does no authorization itself.
+ * Since D-ONB-1 the user-facing flow exists too — this stays as internal
+ * tooling (a platform admin can provision a workspace for someone else).
  */
 export async function createTeamWorkspace(
   db: Db,
   input: { name: string; adminUserId: string },
 ): Promise<CreateTeamWorkspaceResult> {
-  const name = input.name.trim();
-  return db.transaction(async (tx) => {
-    const [org] = await tx
-      .insert(orgs)
-      .values({ name, kind: "team" })
-      .returning({ id: orgs.id });
-    await tx
-      .insert(orgMembers)
-      .values({ orgId: org.id, userId: input.adminUserId, role: "admin" });
-    const [team] = await tx
-      .insert(teams)
-      .values({ orgId: org.id, name })
-      .returning({ id: teams.id });
-    await tx.insert(auditLog).values({
-      orgId: org.id,
-      actorUserId: input.adminUserId,
-      action: "org.create",
-      targetKind: "org",
-      targetId: org.id,
-      metadata: { name, kind: "team", defaultTeamId: team.id },
-    });
-    return { orgId: org.id, teamId: team.id };
+  return provisionTeamWorkspace(db, {
+    name: input.name,
+    creatorUserId: input.adminUserId,
   });
 }
