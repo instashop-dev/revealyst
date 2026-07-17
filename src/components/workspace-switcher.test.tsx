@@ -117,6 +117,54 @@ describe("WorkspaceSwitcher", () => {
     expect(document.body.textContent ?? "").not.toMatch(BANNED_PHRASING);
     expect(await axe(document.body)).toHaveNoViolations();
   });
+
+  it("offers 'Leave workspace' only for a team org, and POSTs on confirm", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        // GET workspace list (menu open)
+        .mockResolvedValueOnce({ ok: true, json: async () => WORKSPACES })
+        // POST /api/org/leave (confirm)
+        .mockResolvedValueOnce({ ok: true }),
+    );
+    render(
+      <WorkspaceSwitcher currentOrg={{ name: "Acme Team", kind: "team" }} />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /switch workspace/i }),
+    );
+    const leaveItem = await screen.findByText(/leave workspace/i);
+    await userEvent.click(leaveItem);
+    // Confirm dialog opens with plain copy; confirm fires the leave POST.
+    expect(await screen.findByText(/Leave Acme Team\?/)).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: /leave workspace/i }),
+    );
+    await waitFor(() =>
+      expect((globalThis.fetch as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(
+        "/api/org/leave",
+        expect.objectContaining({ method: "POST" }),
+      ),
+    );
+    expect(push).toHaveBeenCalledWith("/dashboard");
+    expect(document.body.textContent ?? "").not.toMatch(BANNED_PHRASING);
+  });
+
+  it("hides 'Leave workspace' for a personal org", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => WORKSPACES }),
+    );
+    render(
+      <WorkspaceSwitcher currentOrg={{ name: "My space", kind: "personal" }} />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /switch workspace/i }),
+    );
+    await screen.findByText(/create team workspace/i);
+    expect(screen.queryByText(/leave workspace/i)).not.toBeInTheDocument();
+  });
 });
 
 describe("CreateTeamWorkspaceDialog (admin)", () => {
