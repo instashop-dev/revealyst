@@ -67,6 +67,15 @@ tokio = { version = "1", features = ["sync", "time"] }
 # and sent with Content-Encoding: gzip. flate2 defaults to the pure-Rust
 # miniz_oxide backend — no system/zlib dep, matching the tree's rustls posture.
 flate2 = "1"
+# Claude data-export importer (connectors/claude_export.rs, spec §11.3.2 / T5.3).
+# `default-features = false` drops the aes-crypto / bzip2 / lzma / zstd / xz /
+# deflate64 surface a Claude export never uses (smaller build + audit surface,
+# no C system deps); `deflate` is the only compression a Claude.ai export ZIP
+# uses and it wires the pure-Rust flate2 rust_backend already in this tree (plus
+# zopfli, pure-Rust, write-path only) — matching the no-OpenSSL/no-zlib posture.
+# The importer NEVER extracts to disk (in-memory streaming), so no `walkdir`/fs
+# extraction surface is pulled in.
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 # The sync-engine unit tests drive the async upload orchestration against a
