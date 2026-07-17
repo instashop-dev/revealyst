@@ -259,7 +259,7 @@ describe("determinism + registration", () => {
     expect(normalizeCursor(eventsEnvelope)).toEqual(normalizeCursor(eventsEnvelope));
   });
 
-  // ADR 0054: connectors are no longer auto-registered (empty registry); the
+  // ADR 0056: connectors are no longer auto-registered (empty registry); the
   // module survives as an inert fixture, so its entry keeps its stamp.
   it("the cursor connector entry carries its sourceConnector stamp", () => {
     expect(cursorEntry.sourceConnector).toBe("cursor@1");

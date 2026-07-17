@@ -1,4 +1,4 @@
-# 0054 — Remove the polled connectors; go agent-first (usage-source model)
+# 0056 — Remove the polled connectors; go agent-first (usage-source model)
 
 - **Status:** Accepted
 - **Date:** 2026-07-17

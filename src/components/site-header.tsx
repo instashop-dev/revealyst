@@ -8,7 +8,7 @@ const TITLES: Record<string, string> = {
   "/dashboard": "Overview",
   // /account, /billing, /members, /teams, /people consolidated under /settings
   // (U3); the prefix match makes every /settings/* tab read "Settings". Device
-  // pairing + local sync live under /settings/devices (ADR 0054, replacing the
+  // pairing + local sync live under /settings/devices (ADR 0056, replacing the
   // retired /connections page).
   "/settings": "Settings",
 };

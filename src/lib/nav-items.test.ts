@@ -16,7 +16,7 @@ describe("navFor — U0.1 nav IA", () => {
     // U1 added Growth (personal-only surface); U3 replaced "Account" with
     // "Settings" (Settings is for everyone — members reach profile +
     // notifications there). AI maturity stays demoted for personal orgs.
-    // ADR 0054 removed the "Connections" nav item with the pivot to the
+    // ADR 0056 removed the "Connections" nav item with the pivot to the
     // desktop-agent model — device pairing lives under Settings → Devices.
     expect(titles(groups)).toEqual(["Today", "Growth", "Settings"]);
     expect(titles(groups)).not.toContain("Account");
@@ -45,7 +45,7 @@ describe("navFor — U0.1 nav IA", () => {
     expect(groups[0].label).toBe("Workspace");
     // A member gets the Settings item (U3) so they can reach their own profile
     // and notification preferences — no admin group. Connections removed (ADR
-    // 0054); device pairing lives under Settings → Devices.
+    // 0056); device pairing lives under Settings → Devices.
     expect(titles(groups)).toEqual(["Team", "AI maturity", "Settings"]);
     expect(titles(groups)).not.toContain("Connections");
   });

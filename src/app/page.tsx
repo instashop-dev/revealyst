@@ -68,7 +68,7 @@ export const metadata: Metadata = {
 };
 
 // The "Connects" strip reflects what the Revealyst desktop agent reads today.
-// ADR 0054 removed the polled admin-API connectors — usage now comes from the
+// ADR 0056 removed the polled admin-API connectors — usage now comes from the
 // agent's on-device capture (the user runs it on their machine; it reads local
 // Claude Code sessions and pushes only aggregates, never prompt content), not
 // from vendor APIs. Kept static (the marketing page stays statically

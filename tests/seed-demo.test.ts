@@ -54,7 +54,7 @@ import {
   readSpendGovernance,
   todayUtc,
 } from "../src/lib/spend-governance";
-// ADR 0054: connectors are no longer auto-registered (empty registry). The
+// ADR 0056: connectors are no longer auto-registered (empty registry). The
 // modules survive as inert fixtures, so the drift test below resolves each
 // canonical sourceConnector from the entry module directly rather than the
 // global registry.
@@ -766,7 +766,7 @@ describe("drift tripwires (generator vs. sources of truth)", () => {
 
   it("SOURCE_CONNECTOR values equal the connector entries' sourceConnector strings", () => {
     // Canonical sourceConnector lives on the entry modules (the fixtures), not
-    // the global registry (empty since ADR 0054).
+    // the global registry (empty since ADR 0056).
     const entryByVendor = new Map(
       [anthropicConsoleEntry, openAiEntry, cursorEntry, copilotEntry].map(
         (e) => [e.connector.vendor as string, e],

@@ -265,7 +265,7 @@ export default {
     }
     // Heartbeat + raw-payload purge on the */5 tick. Connector polling was
     // REMOVED with the pivot to the desktop-agent usage-source model (ADR
-    // 0054): the registry ships empty and usage now arrives via the device
+    // 0056): the registry ships empty and usage now arrives via the device
     // push path (/api/agent/ingest, /v1/metrics), so there is no per-connection
     // poll to dispatch. Existing connector rows are frozen in place — they
     // simply receive no new data.

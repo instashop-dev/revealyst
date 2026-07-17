@@ -194,7 +194,7 @@ describe("determinism + registration", () => {
     expect(normalizeOpenAi(usageEnvelope)).toEqual(normalizeOpenAi(usageEnvelope));
   });
 
-  // ADR 0054: connectors are no longer auto-registered (empty registry); the
+  // ADR 0056: connectors are no longer auto-registered (empty registry); the
   // module survives as an inert fixture, so its entry keeps its stamp. The
   // anthropic_console stamp is covered by connector-anthropic + the seed-demo
   // drift test, which checks all four entries.

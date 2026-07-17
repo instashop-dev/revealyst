@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
 // devices this user paired (config.pairedByUserId), so a member never sees
 // another member's devices here.
 //
-// ADR 0054: this is now the single home for usage sources. The
+// ADR 0056: this is now the single home for usage sources. The
 // command-line "Revealyst Agent" pairing + transparency panel moved here from
 // the retired /connections page — the desktop agent is the usage-source model,
 // so device pairing and local sync live together under Settings → Devices.
@@ -117,7 +117,7 @@ export default async function SettingsDevicesPage() {
       </Card>
 
       {/* Command-line sync — the Revealyst Agent CLI you run yourself. Moved
-          here from the retired /connections page (ADR 0054). It summarizes your
+          here from the retired /connections page (ADR 0056). It summarizes your
           local Claude Code sessions on your machine and pushes only aggregates
           — never prompt content. */}
       <div>

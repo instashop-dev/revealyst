@@ -4,7 +4,7 @@
 // badge, not a prompt). Pure and db-free.
 //
 // The polled-connector + renewal-date copy that used to live here was removed
-// with the pivot to the desktop-agent usage-source model (ADR 0054): there is
+// with the pivot to the desktop-agent usage-source model (ADR 0056): there is
 // no /connections page and no connector connect flow anymore.
 
 /** Copy for the "what this sync sent" transparency panel. */

@@ -12,7 +12,7 @@ import {
   scoreTimingChannel,
 } from "@/lib/onboarding-guide";
 
-// Onboarding (ADR 0054): sign up → install the Revealyst Agent for Claude Code
+// Onboarding (ADR 0056): sign up → install the Revealyst Agent for Claude Code
 // → the agent pushes usage aggregates (never prompt content) → the dashboard
 // shows the first insight. The polled admin-API connectors (Anthropic/OpenAI/
 // Cursor/Copilot key paste) were removed with the pivot to the desktop-agent

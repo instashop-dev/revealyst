@@ -497,7 +497,7 @@ describe("capabilities + registration", () => {
     expect(caps.maxBackfillDays).toBe(365);
   });
 
-  // ADR 0054: connectors are no longer auto-registered (the registry ships
+  // ADR 0056: connectors are no longer auto-registered (the registry ships
   // empty). The module still exists as an inert fixture, so its entry keeps its
   // canonical sourceConnector stamp — that's what the seed + ingest paths rely on.
   it("the github_copilot connector entry carries its sourceConnector stamp", () => {

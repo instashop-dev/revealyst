@@ -1,5 +1,6 @@
 import { ingestAgentBatch } from "@/lib/agent-ingest";
 import { getApiContext } from "@/lib/api-context";
+import { readIngestJson } from "@/lib/ingest-body";
 
 // POST /api/agent/ingest (ADR 0002) — Bearer-authenticated by the device
 // token itself; no session. All logic lives in ingestAgentBatch (unit-tested
@@ -19,12 +20,16 @@ export async function POST(req: Request) {
     return Response.json({ error: "body too large" }, { status: 413 });
   }
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return Response.json({ error: "body must be JSON" }, { status: 400 });
+  // Reads plain JSON (the CLI) AND a `Content-Encoding: gzip` body (the desktop
+  // agent — Cloudflare does not auto-decompress inbound request bodies, so a
+  // bare `req.json()` returned 400 on every agent sync). `MAX_BODY_BYTES` here
+  // caps the DECOMPRESSED size (the Content-Length check above caps the
+  // compressed wire size), so a gzip bomb can't slip past.
+  const read = await readIngestJson(req, MAX_BODY_BYTES);
+  if (!read.ok) {
+    return Response.json({ error: read.error }, { status: read.status });
   }
+  const body = read.body;
 
   const { db, env } = getApiContext();
   const outcome = await ingestAgentBatch(db, env, bearer, body, {
