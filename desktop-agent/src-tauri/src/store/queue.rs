@@ -232,6 +232,17 @@ impl Store {
         Ok(events)
     }
 
+    /// Delete EVERY event still in the queue — the "Delete pending local data"
+    /// privacy control (spec §19.4). Returns how many were removed. Only the
+    /// local outbox is touched; already-uploaded data is the server's, not
+    /// ours to reach. A no-op returning 0 on an empty queue.
+    pub fn purge_all_pending(&self) -> Result<usize, StoreError> {
+        let guard = self.lock()?;
+        guard
+            .execute("DELETE FROM pending_events", [])
+            .map_err(|_| StoreError::Query)
+    }
+
     /// Delete events by row id (after a batch is confirmed uploaded).
     pub fn purge_events(&self, ids: &[i64]) -> Result<usize, StoreError> {
         if ids.is_empty() {
@@ -468,6 +479,22 @@ mod tests {
         assert_eq!(store.pending_count().unwrap(), 1);
         let remaining = store.dequeue_batch(10).unwrap();
         assert_eq!(remaining[0].event_id, "c");
+    }
+
+    #[test]
+    fn purge_all_pending_empties_the_queue() {
+        let store = Store::open_in_memory(key()).unwrap();
+        store
+            .enqueue_and_checkpoint("claude_code", &[sample("a"), sample("b")], "c1")
+            .unwrap();
+        assert_eq!(store.pending_count().unwrap(), 2);
+
+        let removed = store.purge_all_pending().unwrap();
+        assert_eq!(removed, 2);
+        assert_eq!(store.pending_count().unwrap(), 0);
+
+        // Second call on an empty queue is a no-op returning 0.
+        assert_eq!(store.purge_all_pending().unwrap(), 0);
     }
 
     #[test]

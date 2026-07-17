@@ -100,6 +100,10 @@ pub fn run() {
             commands::is_signed_in,
             commands::sync_now,
             commands::set_collection_paused,
+            commands::get_collection_paused,
+            commands::get_pending_count,
+            commands::delete_pending_data,
+            commands::disconnect_device,
         ])
         .setup(|app| {
             if let Ok(log_dir) = app.path().app_log_dir() {

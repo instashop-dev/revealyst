@@ -60,6 +60,20 @@ describe("scope-claims completeness", () => {
     expect(local.measures.length).toBeGreaterThan(0);
     expect(local.cannotMeasure.length).toBeGreaterThan(0);
   });
+
+  it("the desktop source discloses the Phase-1 Claude Desktop limitation honestly", () => {
+    // The desktop agent reads Claude Code's local logs — NOT the separate
+    // Claude Desktop chat app. That hole must be surfaced, not implied away
+    // (invariant b); the desktop status screen renders the same limitation.
+    const local = SCOPE_CLAIMS.claude_code_local;
+    const claudeDesktopGap = local.cannotMeasure.find(
+      (line) => /claude desktop/i.test(line) && /phase 1/i.test(line),
+    );
+    expect(
+      claudeDesktopGap,
+      "claude_code_local must list the Claude Desktop Phase-1 sync limitation",
+    ).toBeDefined();
+  });
 });
 
 describe("no hard-coded vendor capability prose in (app) pages", () => {

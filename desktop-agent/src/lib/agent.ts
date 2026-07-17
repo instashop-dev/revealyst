@@ -44,3 +44,35 @@ export function beginSignIn(): Promise<boolean> {
 export function isSignedIn(): Promise<boolean> {
   return invoke<boolean>("is_signed_in");
 }
+
+/** Pause or resume background collection (privacy screen "Pause collection").
+ * While paused, neither the periodic loop nor "Sync now" collects. */
+export function setCollectionPaused(paused: boolean): Promise<void> {
+  return invoke<void>("set_collection_paused", { paused });
+}
+
+/** Whether background collection is currently paused. `false` when collection
+ * isn't wired up yet (nothing to pause). */
+export function getCollectionPaused(): Promise<boolean> {
+  return invoke<boolean>("get_collection_paused");
+}
+
+/** How many analytics events are waiting locally to be sent. A count only;
+ * `0` when nothing is collected yet — never a fabricated number. */
+export function getPendingCount(): Promise<number> {
+  return invoke<number>("get_pending_count");
+}
+
+/** Delete every analytics event still waiting in the local queue (privacy
+ * screen "Delete pending local data"). Resolves with the number removed. Only
+ * the local outbox is touched — never already-uploaded data. */
+export function deletePendingData(): Promise<number> {
+  return invoke<number>("delete_pending_data");
+}
+
+/** Disconnect this computer: wipe the device token AND the local-store
+ * encryption key from the OS keychain (privacy screen "Disconnect this
+ * device"). Wiping the store key makes any queued analytics unreadable. */
+export function disconnectDevice(): Promise<void> {
+  return invoke<void>("disconnect_device");
+}
