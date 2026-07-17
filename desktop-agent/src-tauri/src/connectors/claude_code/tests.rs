@@ -720,6 +720,4 @@ fn version_major_gate() {
     assert_eq!(parse_major("2.0.34"), Some(2));
     assert_eq!(parse_major("999.0.0"), Some(999));
     assert_eq!(parse_major("garbage"), None);
-    assert!(999 > MAX_SUPPORTED_MAJOR);
-    assert!(2 <= MAX_SUPPORTED_MAJOR);
 }

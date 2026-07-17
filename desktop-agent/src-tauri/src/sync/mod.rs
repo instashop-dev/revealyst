@@ -703,6 +703,7 @@ mod tests {
             }
         }
 
+        #[allow(dead_code)] // SimTransport mirror of MockTransport::calls; kept for symmetry
         fn calls(&self) -> usize {
             *self.calls.lock().unwrap()
         }
