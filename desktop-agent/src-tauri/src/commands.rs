@@ -15,6 +15,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_autostart::ManagerExt;
 
+use crate::connectors::claude_code::ClaudeCodeConnector;
+use crate::connectors::{ConnectorContext, ConnectorState, SourceConnector};
 use crate::runtime::{self, CollectionControl};
 use crate::state::{resolve_state, AgentState, StateInputs};
 use crate::store::Store;
@@ -136,6 +138,49 @@ pub async fn begin_sign_in<R: Runtime>(app: AppHandle<R>) -> Result<bool, String
 #[tauri::command]
 pub fn is_signed_in() -> bool {
     crate::secrets::has_token()
+}
+
+/// A supported source found on THIS computer — presence only. The onboarding
+/// "Sources" step renders the plain-English `name`. Detection is a LOCAL
+/// filesystem presence check: it transmits nothing, reads no prompt or response
+/// content, and adds no collection field.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedSource {
+    /// Plain-English display name (e.g. "Claude Code").
+    pub name: String,
+}
+
+/// The pure core of [`detect_sources`], split out so it is testable without the
+/// env/now plumbing. Runs the connector's local `detect` (a filesystem scan for
+/// its config/log locations) and returns ONLY the names of what is present.
+/// Nothing is uploaded, no content is read, and a read error is reported as an
+/// honest empty list rather than a fabricated "found".
+async fn detect_sources_in(ctx: &ConnectorContext) -> Vec<DetectedSource> {
+    let connector = ClaudeCodeConnector::new();
+    let descriptor = connector.descriptor();
+    let present = matches!(
+        connector.detect(ctx).await,
+        Ok(result) if result.state != ConnectorState::NotDetected
+    );
+    if present {
+        vec![DetectedSource {
+            name: descriptor.display_name.to_string(),
+        }]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Check THIS computer for supported sources (the onboarding "Sources" step).
+/// A local presence check only — it reads no prompt/response content, uploads
+/// nothing, and touches no collection field. Returns the plain-English names of
+/// the sources found; an empty list means "none found yet".
+#[tauri::command]
+pub async fn detect_sources() -> Vec<DetectedSource> {
+    let cfg = runtime::CollectConfig::from_env();
+    let ctx = runtime::build_context(crate::store::queue::now_ms(), &cfg);
+    detect_sources_in(&ctx).await
 }
 
 /// Trigger one collect→sync cycle immediately ("Sync now"). Respects the same
@@ -386,9 +431,31 @@ pub fn set_autostart<R: Runtime>(app: AppHandle<R>, enabled: bool) -> Result<(),
     result.map_err(|e| e.to_string())
 }
 
+/// Open the Revealyst web app in the user's browser ("Open Revealyst" on the
+/// onboarding Finish step). Runs the SAME allowlisted opener path the tray uses
+/// ([`crate::lifecycle::open_revealyst`], restricted to the two Revealyst
+/// origins) — the frontend has no opener capability, so only this validated
+/// Rust command can open anything.
+#[tauri::command]
+pub fn open_revealyst<R: Runtime>(app: AppHandle<R>) {
+    crate::lifecycle::open_revealyst(&app);
+}
+
+/// Finish first-run setup ("Done"/"Open Revealyst" on the onboarding Finish
+/// step). Records that the first run is complete (so the window won't open on
+/// its own next launch) and hides the window to the tray, exactly as closing
+/// the window does (spec §2.1 — the agent keeps running in the background).
+/// Idempotent and safe to call more than once.
+#[tauri::command]
+pub fn finish_onboarding<R: Runtime>(app: AppHandle<R>) {
+    crate::lifecycle::mark_first_run_complete(&app);
+    crate::lifecycle::hide_main_window(&app);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::privacy::{ContentMode, PolicyResolution};
 
     #[test]
     fn wave_m1_state_is_onboarding() {
@@ -437,5 +504,54 @@ mod tests {
         };
         let json = serde_json::to_value(&snapshot).unwrap();
         assert!(json["lastSyncAt"].is_null(), "never-synced → null, not 0");
+    }
+
+    /// A minimal Analytics-Only context over a fixture home — detection only
+    /// reads `home_dir`/`config_dir_override`, so the rest is inert here.
+    fn detect_ctx(home: std::path::PathBuf) -> ConnectorContext {
+        ConnectorContext {
+            policy: PolicyResolution::Allow(ContentMode::AnalyticsOnly),
+            now_ms: 1_767_400_000_000,
+            window_days: 30,
+            consent_identity: false,
+            shared_device: false,
+            home_dir: home,
+            config_dir_override: None,
+            device_seed: "test-seed".to_string(),
+        }
+    }
+
+    fn unique_home(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "revealyst-cmd-{}-{}-{:?}",
+            name,
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[tokio::test]
+    async fn detect_sources_reports_claude_code_only_when_present() {
+        // Absent: an empty home → no sources found (an honest empty list, never
+        // a fabricated "found" — invariant b).
+        let empty = unique_home("detect-empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        assert!(detect_sources_in(&detect_ctx(empty.clone()))
+            .await
+            .is_empty());
+        let _ = std::fs::remove_dir_all(&empty);
+
+        // Present: a Claude Code projects tree with a session file → found by
+        // name (presence only; the file content is irrelevant to detection).
+        let home = unique_home("detect-present");
+        let proj = home.join(".claude").join("projects").join("proj-a");
+        std::fs::create_dir_all(&proj).unwrap();
+        std::fs::write(proj.join("main.jsonl"), b"{}\n").unwrap();
+        let found = detect_sources_in(&detect_ctx(home.clone())).await;
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "Claude Code");
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
