@@ -1,30 +1,27 @@
-// Onboarding stepper (spec §19.2). Wave M2 lights up the Sign in step: it runs
-// the real browser-based PKCE pairing (`beginSignIn`) and reflects the stored
-// keychain token via `isSignedIn`. Source detection (step 3) stays an honest
-// placeholder — it is not built until M5.
+// Onboarding stepper (spec §19.2). Wave M2 lit up the Sign in step (real
+// browser-based PKCE pairing via `beginSignIn`, reflected by `isSignedIn`).
+// This change makes the last two steps real too: Sources runs a LOCAL presence
+// check on this computer (`detectSources`), and Finish completes setup —
+// hiding the window to the tray and marking the first run done
+// (`finishOnboarding`), optionally opening the web app (`openRevealyst`).
 //
 // Honesty rule (invariant b / W3-N: rendered UI copy is a claim surface):
 // "signed in" renders only when the keychain actually holds a device token;
-// "sources found" and any "syncing" claim stay unrendered because nothing
-// backs them yet. The spec copy is kept below as ONBOARDING_TARGET_COPY so
-// later waves light it up from real state.
+// "we found <source>" renders only for a source the local check actually
+// found; an empty result shows a reassuring empty state, never a fabricated
+// "found". Source detection is presence-only — it uploads nothing and reads no
+// prompt text.
 
 import { useEffect, useState } from "react";
 
-import { beginSignIn, isSignedIn } from "../lib/agent";
-
-// target copy — rendered only when backed by real detection/enrollment (M2/M5)
-export const ONBOARDING_TARGET_COPY = {
-  sourceDetection: {
-    intro: "Supported sources found:",
-    claudeCode: "Claude Code — Ready to connect.",
-    claudeDesktop:
-      "Claude Desktop — Installed; detailed conversation sync is not available in Phase 1.",
-  },
-  finish:
-    "This computer is connected. Revealyst will run quietly in the background. " +
-    "Prompt text is not uploaded in Analytics Only mode.",
-} as const;
+import {
+  beginSignIn,
+  detectSources,
+  finishOnboarding,
+  isSignedIn,
+  openRevealyst,
+  type DetectedSource,
+} from "../lib/agent";
 
 const STEPS = ["Welcome", "Sign in", "Sources", "Privacy mode", "Finish"] as const;
 
@@ -35,6 +32,15 @@ export default function OnboardingScreen() {
   const [signedIn, setSignedIn] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
+
+  // Sources step: the result of the local presence check. `null` = not checked
+  // yet (or still checking).
+  const [sources, setSources] = useState<DetectedSource[] | null>(null);
+  const [checkingSources, setCheckingSources] = useState(false);
+
+  // Finish step: an in-flight completion (open/hide) so the buttons can't be
+  // double-clicked.
+  const [finishing, setFinishing] = useState(false);
 
   // Reflect any existing keychain token on mount.
   useEffect(() => {
@@ -50,6 +56,47 @@ export default function OnboardingScreen() {
       active = false;
     };
   }, []);
+
+  // Run the local source check whenever the user is on the Sources step. Cheap:
+  // one in-process command, no network. Re-runs on each visit so a source that
+  // appears mid-setup is picked up.
+  useEffect(() => {
+    if (step !== 2) return;
+    let active = true;
+    setCheckingSources(true);
+    detectSources()
+      .then((found) => {
+        if (active) setSources(found);
+      })
+      .catch(() => {
+        // Outside Tauri (tests/dev) or a read error — treat as none found
+        // (honest empty state, never a fabricated "found").
+        if (active) setSources([]);
+      })
+      .finally(() => {
+        if (active) setCheckingSources(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [step]);
+
+  async function handleFinish(openApp: boolean) {
+    setFinishing(true);
+    try {
+      if (openApp) {
+        // Best-effort: a failure to open the browser must NOT block finishing
+        // setup, so swallow its error independently of the hide below.
+        await openRevealyst().catch(() => {});
+      }
+      await finishOnboarding();
+    } catch {
+      // Even if hiding fails, the agent keeps running in the tray — there is
+      // nothing to surface to the user here.
+    } finally {
+      setFinishing(false);
+    }
+  }
 
   async function handleSignIn() {
     setSigningIn(true);
@@ -134,12 +181,26 @@ export default function OnboardingScreen() {
 
       {step === 2 && (
         <section>
-          <h2>Source detection</h2>
+          <h2>Sources</h2>
           <p>
-            After you sign in, Revealyst checks this computer for supported
-            sources.
+            Revealyst checks this computer for supported AI tools. This check
+            runs on your computer — nothing is uploaded.
           </p>
-          <p className="muted">Source detection is not available yet.</p>
+          {sources === null && checkingSources ? (
+            <p className="muted">Checking this computer…</p>
+          ) : sources && sources.length > 0 ? (
+            <ul className="sources">
+              {sources.map((source) => (
+                <li key={source.name}>We found {source.name} on this computer.</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">
+              No supported AI tools found on this computer yet — that&rsquo;s
+              okay. You can finish setup now, and Revealyst will pick one up
+              automatically once it appears.
+            </p>
+          )}
           <div className="button-row">
             <button type="button" className="primary" onClick={next}>
               Continue
@@ -187,22 +248,46 @@ export default function OnboardingScreen() {
         <section>
           <h2>Finish</h2>
           {signedIn ? (
-            <p>
-              This computer is signed in. Finding your AI tools and syncing
-              usage arrive in a later update.
-            </p>
+            <>
+              <p>
+                This computer is connected. Revealyst will keep running quietly
+                in the background — you can close this window any time.
+              </p>
+              <p className="muted">
+                In Analytics Only mode, your prompt text is never uploaded.
+              </p>
+              <div className="button-row">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => handleFinish(true)}
+                  disabled={finishing}
+                >
+                  Open Revealyst
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => handleFinish(false)}
+                  disabled={finishing}
+                >
+                  Done
+                </button>
+              </div>
+            </>
           ) : (
-            <p>Complete the &ldquo;Sign in&rdquo; step to connect this computer.</p>
+            <>
+              <p>Complete the &ldquo;Sign in&rdquo; step to connect this computer.</p>
+              <div className="button-row">
+                <button type="button" className="primary" disabled>
+                  Open Revealyst
+                </button>
+                <button type="button" className="secondary" disabled>
+                  Done
+                </button>
+              </div>
+            </>
           )}
-          <div className="button-row">
-            <button type="button" className="primary" disabled>
-              Open Revealyst
-            </button>
-            <button type="button" className="secondary" disabled>
-              Done
-            </button>
-            <span className="muted">Available soon</span>
-          </div>
         </section>
       )}
     </div>

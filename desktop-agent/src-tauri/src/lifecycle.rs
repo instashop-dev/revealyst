@@ -59,6 +59,15 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+/// Hide the main window to the tray. The agent keeps running in the background
+/// (spec §2.1) — this mirrors what the window's close button does. Used by the
+/// onboarding Finish step so completing setup leaves the app running quietly.
+pub fn hide_main_window<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+}
+
 /// Show the main window and ask the frontend to switch to a screen
 /// ("status" / "privacy"). The frontend listens for the `navigate` event.
 pub fn show_screen<R: Runtime>(app: &AppHandle<R>, screen: &str) {
@@ -89,6 +98,28 @@ fn first_run_marker<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
         .map(|dir| dir.join("first-run-complete"))
 }
 
+/// Record that the first run is complete by writing the marker file — its mere
+/// existence means "not the first run" (read by [`apply_startup_visibility`],
+/// so the window won't open on its own next launch). Idempotent: writing it
+/// again is harmless. Called at startup on the first run AND when the user
+/// finishes onboarding (`finish_onboarding`).
+pub fn mark_first_run_complete<R: Runtime>(app: &AppHandle<R>) {
+    let Some(marker) = first_run_marker(app) else {
+        return;
+    };
+    if let Some(parent) = marker.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(error) = std::fs::write(&marker, b"") {
+        tracing::warn!(
+            component = "lifecycle",
+            error_code = "first_run_marker_write_failed",
+            error = %error,
+            "could not record the first run"
+        );
+    }
+}
+
 /// Apply the startup visibility rule and record that the first run happened.
 /// The main window is configured `visible: false` in tauri.conf.json, so
 /// doing nothing here leaves the app hidden in the tray.
@@ -102,19 +133,7 @@ pub fn apply_startup_visibility<R: Runtime>(app: &AppHandle<R>) {
     }
 
     if first_run {
-        if let Some(marker) = marker {
-            if let Some(parent) = marker.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if let Err(error) = std::fs::write(&marker, b"") {
-                tracing::warn!(
-                    component = "lifecycle",
-                    error_code = "first_run_marker_write_failed",
-                    error = %error,
-                    "could not record the first run"
-                );
-            }
-        }
+        mark_first_run_complete(app);
     }
 }
 

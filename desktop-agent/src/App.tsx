@@ -2,7 +2,7 @@
 // State arrives via ONE narrow Tauri command (get_agent_snapshot); tray menu
 // items switch screens via the Rust-emitted `navigate` event.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import { getAgentSnapshot, type AgentSnapshot } from "./lib/agent";
@@ -25,12 +25,27 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<AgentSnapshot | null>(null);
   const [updateNotice, setUpdateNotice] = useState<string | null>(null);
 
+  // Pick the opening screen ONCE, from the first snapshot. A device that is
+  // already set up (state is no longer "onboarding") opens on Status rather
+  // than the setup stepper. We consume the snapshot's resolved state directly
+  // (never re-derive it) and set the screen only once, so signing in partway
+  // through first-run setup can't yank the user off the stepper mid-flow.
+  const openingScreenSet = useRef(false);
+
   // One refresh function, reused by the initial load, the background poll, and
   // the status screen's "Sync now" button — so the UI reflects a completed
   // sync (last-sync time, pending count, overall status) without a restart.
   const refreshSnapshot = useCallback(() => {
     return getAgentSnapshot()
-      .then((snap) => setSnapshot(snap))
+      .then((snap) => {
+        setSnapshot(snap);
+        if (!openingScreenSet.current) {
+          openingScreenSet.current = true;
+          if (snap.state !== "onboarding") {
+            setScreen("status");
+          }
+        }
+      })
       .catch(() => {
         // Outside Tauri (tests, plain browser dev): keep honest placeholders.
       });

@@ -83,6 +83,37 @@ export function isSignedIn(): Promise<boolean> {
   return invoke<boolean>("is_signed_in");
 }
 
+/** A supported source found on this computer — presence only (its name). */
+export type DetectedSource = { name: string };
+
+/**
+ * Check THIS computer for supported sources (onboarding "Sources" step). Runs a
+ * local presence check on the Rust side: it reads no prompt text, uploads
+ * nothing, and returns only the plain-English names of the sources found.
+ * Resolves to an empty list when none are present yet.
+ */
+export function detectSources(): Promise<DetectedSource[]> {
+  return invoke<DetectedSource[]>("detect_sources");
+}
+
+/**
+ * Open the Revealyst web app in the browser ("Open Revealyst" on the Finish
+ * step). Opens only the allowlisted Revealyst origin, entirely on the Rust
+ * side — the frontend has no opener capability.
+ */
+export function openRevealyst(): Promise<void> {
+  return invoke<void>("open_revealyst");
+}
+
+/**
+ * Finish first-run setup ("Done"/"Open Revealyst" on the Finish step). Records
+ * that setup is complete and hides the window to the tray — the agent keeps
+ * running quietly in the background.
+ */
+export function finishOnboarding(): Promise<void> {
+  return invoke<void>("finish_onboarding");
+}
+
 /** Pause or resume background collection (privacy screen "Pause collection").
  * While paused, neither the periodic loop nor "Sync now" collects. */
 export function setCollectionPaused(paused: boolean): Promise<void> {

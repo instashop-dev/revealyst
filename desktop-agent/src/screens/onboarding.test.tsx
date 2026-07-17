@@ -89,33 +89,85 @@ describe("OnboardingScreen", () => {
     expect((full as HTMLInputElement).disabled).toBe(true);
   });
 
-  it("shows an honest source-detection placeholder — no unbacked 'sources found' claim", () => {
+  it("shows the detected source in plain words on the Sources step", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "is_signed_in") return Promise.resolve(true);
+      if (command === "detect_sources")
+        return Promise.resolve([{ name: "Claude Code" }]);
+      return new Promise(() => {});
+    });
     render(<OnboardingScreen />);
     fireEvent.click(screen.getByRole("button", { name: "Sources" }));
     expect(
-      screen.getByText(
-        /After you sign in, Revealyst checks this computer for supported sources\./,
-      ),
+      await screen.findByText("We found Claude Code on this computer."),
     ).toBeTruthy();
-    expect(screen.getByText("Source detection is not available yet.")).toBeTruthy();
-    // Invariant (b): the spec's target copy must NOT render until real
-    // detection backs it (M5).
-    expect(screen.queryByText(/Supported sources found/)).toBeNull();
-    expect(screen.queryByText(/Ready to connect/)).toBeNull();
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("detect_sources", undefined),
+    );
   });
 
-  it("shows an honest finish placeholder — no 'connected'/'syncing' claim before sign-in", () => {
+  it("shows an honest empty state on the Sources step when nothing is found", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "is_signed_in") return Promise.resolve(false);
+      if (command === "detect_sources") return Promise.resolve([]);
+      return new Promise(() => {});
+    });
+    render(<OnboardingScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "Sources" }));
+    expect(
+      await screen.findByText(/No supported AI tools found on this computer yet/),
+    ).toBeTruthy();
+    // Invariant (b): no fabricated "found" claim when the list is empty.
+    expect(screen.queryByText(/We found/)).toBeNull();
+  });
+
+  it("shows an honest finish placeholder — no 'connected' claim, buttons off before sign-in", () => {
     render(<OnboardingScreen />);
     fireEvent.click(screen.getByRole("button", { name: "Finish" }));
     expect(
       screen.getByText(/Complete the .Sign in. step to connect this computer\./),
     ).toBeTruthy();
-    // Invariant (b): "connected" / "syncing" must NOT render until real
-    // enrollment + collection back them.
+    // Invariant (b): "connected" must NOT render until real enrollment backs it.
     expect(screen.queryByText(/This computer is connected/)).toBeNull();
     for (const name of ["Open Revealyst", "Done"]) {
       const button = screen.getByRole("button", { name });
       expect((button as HTMLButtonElement).disabled).toBe(true);
     }
+  });
+
+  it("completes onboarding from the Finish step when signed in ('Done')", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "is_signed_in") return Promise.resolve(true);
+      return Promise.resolve();
+    });
+    render(<OnboardingScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    // Once the signed-in state settles, the buttons become real.
+    await waitFor(() => {
+      const done = screen.getByRole("button", { name: "Done" });
+      expect((done as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("finish_onboarding", undefined),
+    );
+  });
+
+  it("opens the web app and completes onboarding ('Open Revealyst')", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "is_signed_in") return Promise.resolve(true);
+      return Promise.resolve();
+    });
+    render(<OnboardingScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "Finish" }));
+    await waitFor(() => {
+      const open = screen.getByRole("button", { name: "Open Revealyst" });
+      expect((open as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open Revealyst" }));
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("open_revealyst", undefined);
+      expect(invokeMock).toHaveBeenCalledWith("finish_onboarding", undefined);
+    });
   });
 });
