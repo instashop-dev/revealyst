@@ -164,8 +164,8 @@ mod tests {
 
     #[test]
     fn identity_answer_and_degraded_survive_a_reopen() {
-        let dir = std::env::temp_dir()
-            .join(format!("revealyst-settings-restore-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("revealyst-settings-restore-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join(crate::store::DB_FILE_NAME);
         let key = DbKey::from_bytes([9u8; KEY_LEN]);
@@ -196,7 +196,10 @@ mod tests {
 
         let settings = store.read_local_settings().unwrap();
         assert!(settings.paused, "pause preserved across sibling writes");
-        assert!(settings.degraded, "degraded preserved across sibling writes");
+        assert!(
+            settings.degraded,
+            "degraded preserved across sibling writes"
+        );
         assert_eq!(settings.identity_only_you, Some(false));
 
         // Updating one column leaves the others intact.
@@ -219,9 +222,15 @@ mod tests {
     fn identity_answer_roundtrips_all_three_states() {
         let store = store();
         store.set_identity_only_you(Some(true), 1).unwrap();
-        assert_eq!(store.read_local_settings().unwrap().identity_only_you, Some(true));
+        assert_eq!(
+            store.read_local_settings().unwrap().identity_only_you,
+            Some(true)
+        );
         store.set_identity_only_you(Some(false), 2).unwrap();
-        assert_eq!(store.read_local_settings().unwrap().identity_only_you, Some(false));
+        assert_eq!(
+            store.read_local_settings().unwrap().identity_only_you,
+            Some(false)
+        );
         // Clearing back to unanswered restores the privacy-safe default.
         store.set_identity_only_you(None, 3).unwrap();
         assert_eq!(store.read_local_settings().unwrap().identity_only_you, None);

@@ -530,8 +530,14 @@ mod tests {
         std::env::remove_var("REVEALYST_IDENTITY_CONSENT");
         let store = settings_store();
         let cfg = CollectConfig::resolve(&store);
-        assert!(!cfg.consent_identity, "no person attribution before an answer");
-        assert!(!cfg.shared_device, "no shared-device claim before an answer");
+        assert!(
+            !cfg.consent_identity,
+            "no person attribution before an answer"
+        );
+        assert!(
+            !cfg.shared_device,
+            "no shared-device claim before an answer"
+        );
 
         // A saved answer is authoritative: a stray dev env flag must not silently
         // flip a person-attributed device to shared.
