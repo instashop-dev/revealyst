@@ -14,7 +14,8 @@
 import { createDb } from "../src/db/client";
 import { buildDemoSeedPlan } from "./seed/activity";
 import { loadSeedPlan } from "./seed/load";
-import { applyProdSafety } from "./seed/prod-safety";
+import { attachManager } from "./seed/manager-hookup";
+import { applyProdSafety, DEMO_ORG_PREFIX } from "./seed/prod-safety";
 
 const DEV_DB_URL =
   process.env.DATABASE_URL ??
@@ -52,6 +53,34 @@ async function main() {
     );
   }
   console.log(`anchor day: ${anchorDay} (${result.orgs.length} orgs)`);
+
+  // Optional: attach a real, existing dashboard account to the seeded team
+  // demo org as its manager (admin + team manager, active workspace), so that
+  // account can sign in and see the manager view against the demo data. Gated
+  // behind SEED_MANAGER_EMAIL so the default seed / tests are unaffected.
+  const managerEmail = process.env.SEED_MANAGER_EMAIL?.trim();
+  if (managerEmail) {
+    // The team demo org is "Acme Robotics" (prod-safe prefixes it).
+    const orgName = `${prodSafe ? DEMO_ORG_PREFIX : ""}Acme Robotics`;
+    const hookup = await attachManager(db, { email: managerEmail, orgName });
+    if (hookup.status === "attached") {
+      console.log(
+        `manager hookup: "${hookup.email}" is now admin + manager of ` +
+          `"${hookup.orgName}" (${hookup.orgId}) across ${hookup.teamsManaged} ` +
+          `team(s); that workspace is pinned active.`,
+      );
+    } else if (hookup.status === "user-absent") {
+      console.warn(
+        `manager hookup SKIPPED: no dashboard account exists for ` +
+          `"${hookup.email}". That person must sign up first, then re-run seed.`,
+      );
+    } else {
+      console.warn(
+        `manager hookup SKIPPED: org "${hookup.orgName}" was not found ` +
+          `(nothing seeded, or it already existed and was skipped).`,
+      );
+    }
+  }
 }
 
 main()

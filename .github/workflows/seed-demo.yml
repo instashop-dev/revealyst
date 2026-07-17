@@ -21,6 +21,15 @@ on:
         description: 'Type "production" to confirm the target database'
         required: true
         type: string
+      manager_email:
+        description: >-
+          Optional: an existing dashboard account to attach to the seeded
+          [Demo] Acme Robotics team org as its manager (admin + team manager,
+          active workspace) so it can see the manager view. Warns and skips if
+          the account doesn't exist. Leave blank for a plain demo seed.
+        required: false
+        type: string
+        default: ""
 
 jobs:
   seed-demo:
@@ -42,6 +51,10 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           SEED_PROD_SAFE: "1"
+          # Optional post-seed manager hookup (blank = no-op). See the
+          # manager_email input above and scripts/seed/manager-hookup.ts.
+          # Ignored by teardown.
+          SEED_MANAGER_EMAIL: ${{ inputs.manager_email }}
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "DATABASE_URL repo secret not set — nothing to run against."
