@@ -29,6 +29,7 @@ import { addDays } from "../poller/backfill";
 import type { PollMessage } from "../poller/messages";
 import type { DefinitionRow } from "./dashboard-read";
 import { collectGaps } from "./honesty-gaps";
+import { managerSurfaceAvailable } from "./manager-capability-view";
 import { budgetAlertFor, readMonthToDateSpend } from "./spend-governance";
 
 type OrgScope = ReturnType<typeof forOrg>;
@@ -532,6 +533,91 @@ export async function setTeamSettings(
     metadata: { managersSeeIndividualCost },
   });
   return { managersSeeIndividualCost: settings.managersSeeIndividualCost };
+}
+
+/**
+ * Write a manager coaching note about a managed-team member (D-TCI-7, ADR 0053).
+ * AUTHORIZATION mirrors the manager drill-in surface: the surface is UNAVAILABLE
+ * in `private` visibility mode, and the caller must be a MANAGER (≥1 team_managers
+ * grant) of a team the person belongs to — the org-scope `managerNotes.create`
+ * membership-JOIN is the person-∈-managed-team gate, and it stamps the caller as
+ * author. Every non-authorized outcome collapses to 404 "not found" (never
+ * confirms the person exists). NO audit row: a note is coaching content, not org
+ * config — it is not a security-relevant configuration change (contrast
+ * setTeamManager/setTeamSettings, which DO audit); the note itself, with its
+ * author byline + timestamp, is the record. The route blocks impersonated writes
+ * (403) before reaching here.
+ */
+export async function createManagerNote(
+  args: { scope: OrgScope },
+  input: {
+    callerUserId: string;
+    personId: string;
+    visibilityMode: VisibilityMode;
+    body: string;
+    followUpOn: string | null;
+  },
+) {
+  const { scope } = args;
+  if (!managerSurfaceAvailable(input.visibilityMode)) {
+    throw new ApiError(404, "not found");
+  }
+  const managedTeamIds = await scope.teamManagers.managedTeamIds(
+    input.callerUserId,
+  );
+  if (managedTeamIds.length === 0) {
+    throw new ApiError(404, "not found");
+  }
+  const note = await scope.managerNotes.create(
+    input.personId,
+    managedTeamIds,
+    input.callerUserId,
+    input.body,
+    input.followUpOn,
+  );
+  if (note === null) {
+    throw new ApiError(404, "not found");
+  }
+  return note;
+}
+
+/**
+ * Delete a manager coaching note — AUTHOR-ONLY (D-TCI-7, ADR 0053). Co-managers of
+ * the person's team can READ every note (author-attributed), but only the note's
+ * AUTHOR may delete it: `managerNotes.deleteByAuthor` scopes the delete by
+ * (org, id, authorUserId), so another manager's delete matches no row → 404. The
+ * same surface gates as the write (private mode unavailable; caller must manage a
+ * team) apply first, so a non-manager never reaches the delete. A missing row —
+ * wrong author, wrong org, or already gone — is 404 "not found". No audit row
+ * (append-only coaching content; see createManagerNote). The route blocks
+ * impersonated writes (403) before reaching here.
+ */
+export async function deleteManagerNote(
+  args: { scope: OrgScope },
+  input: {
+    callerUserId: string;
+    visibilityMode: VisibilityMode;
+    noteId: string;
+  },
+) {
+  const { scope } = args;
+  if (!managerSurfaceAvailable(input.visibilityMode)) {
+    throw new ApiError(404, "not found");
+  }
+  const managedTeamIds = await scope.teamManagers.managedTeamIds(
+    input.callerUserId,
+  );
+  if (managedTeamIds.length === 0) {
+    throw new ApiError(404, "not found");
+  }
+  const deleted = await scope.managerNotes.deleteByAuthor(
+    input.noteId,
+    input.callerUserId,
+  );
+  if (!deleted) {
+    throw new ApiError(404, "not found");
+  }
+  return { ok: true };
 }
 
 /**

@@ -2,15 +2,21 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { ManagerCapabilityProfile } from "@/components/manager/manager-capability-profile";
+import {
+  ManagerNotesSection,
+  type ManagerNoteVM,
+} from "@/components/manager/manager-notes-section";
 import { ManagerSpendSection } from "@/components/manager/manager-spend-section";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
+import { orgMembersList } from "@/db/invites";
 import { requireAppContext } from "@/lib/api-context";
 import {
   MANAGER_DRILL_IN_COPY,
   MANAGER_ROSTER_COPY,
 } from "@/lib/manager-capability-copy";
 import { loadManagerCapabilityDrillIn } from "@/lib/manager-capability-view";
+import { loadManagerNotes } from "@/lib/manager-notes-view";
 import { loadManagerSpendDrillIn } from "@/lib/manager-spend-view";
 import { todayUtc } from "@/lib/spend-governance";
 import { timeStage } from "@/lib/request-timing";
@@ -40,20 +46,30 @@ export default async function ManagerCapabilityDrillInPage({
   // the per-team admin toggle authorizes it (status "ok"); every other status
   // (private mode, not managed, or toggle off) simply omits the section — never
   // a teaser.
-  const [result, spendResult] = await timeStage("pageData", () =>
-    Promise.all([
-      loadManagerCapabilityDrillIn(ctx.scope, {
-        callerUserId: ctx.user.id,
-        personId,
-        visibilityMode: ctx.org.visibilityMode,
-      }),
-      loadManagerSpendDrillIn(ctx.scope, {
-        callerUserId: ctx.user.id,
-        personId,
-        visibilityMode: ctx.org.visibilityMode,
-        today: todayUtc(),
-      }),
-    ]),
+  const [result, spendResult, notesResult, members] = await timeStage(
+    "pageData",
+    () =>
+      Promise.all([
+        loadManagerCapabilityDrillIn(ctx.scope, {
+          callerUserId: ctx.user.id,
+          personId,
+          visibilityMode: ctx.org.visibilityMode,
+        }),
+        loadManagerSpendDrillIn(ctx.scope, {
+          callerUserId: ctx.user.id,
+          personId,
+          visibilityMode: ctx.org.visibilityMode,
+          today: todayUtc(),
+        }),
+        loadManagerNotes(ctx.scope, {
+          callerUserId: ctx.user.id,
+          personId,
+          visibilityMode: ctx.org.visibilityMode,
+        }),
+        // Resolves note-author bylines (auth users, org members) — never a
+        // tracked-person identity.
+        orgMembersList(ctx.db, ctx.org.id),
+      ]),
   );
   if (result.status !== "ok") {
     notFound();
@@ -61,6 +77,18 @@ export default async function ManagerCapabilityDrillInPage({
 
   const { subject } = result;
   const name = subject.displayName ?? subject.pseudonym;
+  const memberNames = new Map(members.map((m) => [m.userId, m.name]));
+  const notes: ManagerNoteVM[] =
+    notesResult.status === "ok"
+      ? notesResult.notes.map((n) => ({
+          id: n.id,
+          authorUserId: n.authorUserId,
+          authorName: memberNames.get(n.authorUserId) ?? "A former manager",
+          body: n.body,
+          followUpOn: n.followUpOn,
+          createdAt: n.createdAt.toISOString(),
+        }))
+      : [];
 
   return (
     <div className="flex flex-col gap-6">
@@ -81,6 +109,13 @@ export default async function ManagerCapabilityDrillInPage({
       <ManagerCapabilityProfile rows={subject.capabilities} />
       {spendResult.status === "ok" ? (
         <ManagerSpendSection spend={spendResult.spend} />
+      ) : null}
+      {notesResult.status === "ok" ? (
+        <ManagerNotesSection
+          personId={personId}
+          currentUserId={ctx.user.id}
+          notes={notes}
+        />
       ) : null}
     </div>
   );
