@@ -538,7 +538,9 @@ mod tests {
         // a fabricated "found" — invariant b).
         let empty = unique_home("detect-empty");
         std::fs::create_dir_all(&empty).unwrap();
-        assert!(detect_sources_in(&detect_ctx(empty.clone())).await.is_empty());
+        assert!(detect_sources_in(&detect_ctx(empty.clone()))
+            .await
+            .is_empty());
         let _ = std::fs::remove_dir_all(&empty);
 
         // Present: a Claude Code projects tree with a session file → found by
