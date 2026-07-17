@@ -267,6 +267,13 @@ the simplest solution that fully meets the requirements. Continuously refactor a
 simplify existing UI and copy where appropriate instead of adding complexity —
 reducing options and clarifying words is real work, not a nice-to-have.
 
+**Plain language everywhere (mandatory).** This extends beyond in-app copy to
+ALL communication in a session and all project text — agent responses, PR
+descriptions, commit messages, docs, ADRs, code comments, and any other written
+output. Use beginner-friendly, plain, easy-to-understand language. Avoid jargon
+and unexplained abbreviations; if a technical term is necessary, explain it
+simply. Keep sentences short, direct, and clear.
+
 ## Stack facts
 - Next.js / TypeScript monolith, deployed to **Cloudflare Workers** via OpenNext.
 - **Neon Postgres** via Hyperdrive; **Drizzle** migrations from day one.
