@@ -24,7 +24,7 @@ Purely **additive** — no existing oracle row changes:
    `efficiency` (v1). Each carries the full component breakdown (raw /
    normalized / weight / contribution), the final `value`, the resolved
    `attribution`, and a `_derivation` string that hand-computes every figure
-   from the frozen `metric-records/team-30d.json` inputs — arithmetic verified
+   from the frozen `fixtures/metric-records/team-30d.json` inputs — arithmetic verified
    **outside** the engine so the fixture is a true oracle, not an engine echo.
 2. The existing `adoption` oracle row is untouched; team semantics are unchanged.
 

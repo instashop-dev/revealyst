@@ -1,6 +1,6 @@
 # Product Marketing Context
 
-*Last updated: 2026-07-07 (W3-P kickoff). Derived from `docs/Revealyst_Product_Spec_V2.md` v2.4 and `docs/score-definitions.md`. All downstream marketing skills consume this file. Honesty rule: nothing here may be cited in customer-facing copy unless it traces to the spec, the methodology doc, or founder-verified data — no fabricated metrics, logos, or testimonials (we are pre-launch; we have none yet).*
+*Last updated: 2026-07-07 (W3-P kickoff). Derived from `docs/legacy/Revealyst_Product_Spec_V2.md` v2.4 and `docs/score-definitions.md`. All downstream marketing skills consume this file. Honesty rule: nothing here may be cited in customer-facing copy unless it traces to the spec, the methodology doc, or founder-verified data — no fabricated metrics, logos, or testimonials (we are pre-launch; we have none yet).*
 
 ## Product Overview
 **One-liner:** See who's actually adopting AI — and how well — across all your AI tools.

@@ -1,6 +1,11 @@
 # Revealyst — Spec V4 Implementation Roadmap
 
-**Date:** 2026-07-15 · Companion to the [gap analysis](revealyst-gap-analysis.md) ([requirements](requirements.csv) · [traceability](traceability.csv)).
+> **Superseded (archived 2026-07-17).** This roadmap was executed by the Wave 9 closure
+> (see [Revealyst_Closure_Execution_Plan.md](../../Revealyst_Closure_Execution_Plan.md));
+> only externally gated Wave 10 items remain, tracked in CLAUDE.md and
+> `docs/product-signoffs.md`. Historical record only.
+
+**Date:** 2026-07-15 · Companion to the [gap analysis](revealyst-gap-analysis.md) ([requirements](../../product/requirements.csv) · [traceability](traceability.csv)).
 **Baseline:** `main` at `82c2cd1` — 142/160 requirements Implemented. This roadmap covers only the remaining 18 (10 Partial, 6 Blocked, 2 Missing) plus the evidence-backed hardening/hygiene items from the specialist fan-out. Effort grades reuse the spec's scale (S = lib/UI PR · M = new surface · L = table+ADR+registrations · XL = multi-surface).
 
 **Sequencing law (from §15.3, reaffirmed by findings):** P0–P3 are independently shippable and heavily parallel; P4 items are independent of each other; P5 is gate-controlled and must not be forced. Nothing here requires a rewrite, downtime, or a non-additive migration.
@@ -18,7 +23,7 @@ Deliverables:
 2. Fix `docs/Revealyst_Execution_Plan.md:66` "KMS wiring" → "versioned Worker-secret KEK envelope".
 3. Correct OQ-008 wording everywhere it claims "founder sign-off received" for the third-ladder line → "decided autonomously per directive (ADR 0036), awaiting founder confirmation", or obtain the real confirmation.
 4. Spec V4 refresh PR: 29 keys/11 families; migration ledger 0034; OTel receiver shipped; bless (or reject) the two-tier API-contract convention in §15.2; widen the documented `allowOverFreeBand` set; correct the §5.2 shared-assembly citation to `deriveAttention`; note the 9-capability seed decision in §16.8.
-5. Record founder sign-offs (or standing defaults) for OQ-001 (N=6 weeks + threshold) and OQ-002; banner/move `docs/ai-capability-implementation-gap-analysis.md` to legacy.
+5. Record founder sign-offs (or standing defaults) for OQ-001 (N=6 weeks + threshold) and OQ-002; banner/move `docs/legacy/ai-capability-implementation-gap-analysis.md` to legacy.
 6. Verify the landing-page $1-promo against the configured Paddle price; drive the copy from a dated constant.
 
 **Acceptance / completion gate:** ADR prefixes unique in CI; zero "KMS" matches outside `credentials.ts` comments; Spec V4 contains no implementation-status claim contradicted by code at the refresh commit; sign-off ledger entries exist (or explicitly deferred) for OQ-001/002/008. *Human gate: founder reviews the sign-off recordings (rule 4).*

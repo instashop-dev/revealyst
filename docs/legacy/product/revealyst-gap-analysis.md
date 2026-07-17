@@ -1,11 +1,17 @@
 # Revealyst — Product Specification V4 Gap Analysis
 
-**Date:** 2026-07-15 · **Spec analyzed:** [Product Spec V4](../Revealyst_Product_Spec_V4.md) (v4.1, ground truth per CLAUDE.md)
+> **Superseded (archived 2026-07-17).** Point-in-time audit at `main` = `82c2cd1`; its
+> findings were executed by the Wave 9 closure (see
+> [Revealyst_Closure_Execution_Plan.md](../../Revealyst_Closure_Execution_Plan.md) and the
+> CLAUDE.md wave banners for code-verified current status). Do not treat any "gap" here
+> as open.
+
+**Date:** 2026-07-15 · **Spec analyzed:** [Product Spec V4](../../Revealyst_Product_Spec_V4.md) (v4.1, ground truth per CLAUDE.md)
 **Repo baseline:** `main` at `82c2cd1` (post-Wave-7; migrations 0000–0034, ADRs 0000–0039)
 **Method:** an 18-domain parallel specialist fan-out (read-only agents: product architecture, UX/UI, frontend/screens, backend, database, auth, AI/recommendation, sync/integrations, billing, admin, notifications, mobile, accessibility, security, infrastructure, testing/CI, documentation, team intelligence/reporting) traced all 160 registry requirements to repository evidence; the orchestrator reconciled conflicts and validated ledgers independently. Every status below cites code, not documentation prose.
 
 **Companion artifacts:**
-- [requirements.csv](requirements.csv) — the normalized Requirements Registry (160 atomic requirements, stable IDs)
+- [requirements.csv](../../product/requirements.csv) — the normalized Requirements Registry (160 atomic requirements, stable IDs)
 - [traceability.csv](traceability.csv) — per-requirement status + repository evidence (the traceability matrix)
 - [implementation-roadmap.md](implementation-roadmap.md) — the phased execution roadmap
 
@@ -31,7 +37,7 @@ The real gaps cluster into five groups:
 
 ## 2. Scope, Assumptions & Flagged Ambiguities
 
-- **No specification document was attached to the analysis request.** The task text says "the attached Revealyst Product Specification"; the analysis uses the repo's canonical [docs/Revealyst_Product_Spec_V4.md](../Revealyst_Product_Spec_V4.md), which CLAUDE.md declares product ground truth. If a different/newer spec was intended, the Requirements Registry must be re-derived.
+- **No specification document was attached to the analysis request.** The task text says "the attached Revealyst Product Specification"; the analysis uses the repo's canonical [docs/Revealyst_Product_Spec_V4.md](../../Revealyst_Product_Spec_V4.md), which CLAUDE.md declares product ground truth. If a different/newer spec was intended, the Requirements Registry must be re-derived.
 - **The spec is stale relative to the repo by design of its own grounding** (`4c11be5`, pre-W6/W7). Where spec prose says a thing is unbuilt but code proves it shipped, the requirement is scored against the *normative intent*, with the prose drift recorded (§13, §16).
 - **Spec silence is treated as a finding, not an invented requirement:** Spec V4 says nothing about mobile/responsive targets, accessibility standards, or search. Those subsystems are analyzed descriptively (§11, §12) and their spec-silence flagged for a product decision.
 - Requirement statuses use exactly one of: Implemented / Partially Implemented / Incorrect Implementation / UX Mismatch / Missing / Blocked / Conflicting / Obsolete / Cannot Verify. "Blocked" is reserved for items the spec itself gates (named gate cited in evidence).
@@ -40,7 +46,7 @@ The real gaps cluster into five groups:
 
 ## 3. Requirements Registry
 
-160 atomic requirements in [requirements.csv](requirements.csv), with stable IDs by family:
+160 atomic requirements in [requirements.csv](../../product/requirements.csv), with stable IDs by family:
 
 | Family | Count | Covers | Spec sections |
 |---|---|---|---|
@@ -189,7 +195,7 @@ Defense-in-depth findings (none currently exploitable):
 - **Spec drift (update the spec, not the code):** 26→29 canonical keys / 10→11 families; "latest migration 0023"→0034; "OTel receiver unbuilt"→shipped (`/v1/*`, ADR 0039); §15.2 "routes typed in api.ts"→the evolved two-tier convention (~20 non-frozen routes with colocated Zod schemas, all still behind `handleApi`/forOrg/402); §15.2 `allowOverFreeBand` "upgrade/portal only"→the ADR-backed wider set; §5.2's shared-assembly citation (`digest-content.ts`)→the true shared module is `deriveAttention`; §16.8's "~30–40 capability seed"→9 shipped deliberately (ADR 0035 rejected the larger seed as fabrication risk).
 - **Claim-surface violations (PRIN-008):** `docs/Revealyst_Execution_Plan.md:66` still says "KMS wiring" (there is no KMS — the exact overclaim W3-N caught in copy, surviving in an active internal doc); **OQ-008's "founder sign-off received" is contradicted by ADR 0036's own "engineering assumption… executed autonomously" note** (the genuine W7 sign-off was missions/ADR 0037 — different item); the landing-page $1-promo copy is unverifiable against the enforced Paddle price.
 - **ADR ledger:** collisions 0014×2 (bannered) and 0037×2 (un-bannered); README is a how-to, not an index; recommend renumbering the non-schema 0037 (cause-chain note) to 0040, adding an index table, and a duplicate-prefix CI check.
-- **Cleanup candidates:** `docs/ai-capability-implementation-gap-analysis.md` (point-in-time audit, now fully shipped, no supersession banner) — banner or move to legacy; dead `FIRST_SYNC_AHA_COPY` constant.
+- **Cleanup candidates:** `docs/legacy/ai-capability-implementation-gap-analysis.md` (point-in-time audit, now fully shipped, no supersession banner) — banner or move to legacy; dead `FIRST_SYNC_AHA_COPY` constant.
 
 ## 14. Architecture Review — Reuse / Refactor / Rewrite / Remove
 
@@ -201,7 +207,7 @@ Consolidated verdicts from all 18 specialists (unanimous where overlapping):
 
 **Rewrite (net-new build, nothing to extend):** GJ-007 learning-path content model (pure band-keyed static curriculum — the only greenfield item) · jest-axe regression guard.
 
-**Remove:** `FIRST_SYNC_AHA_COPY` dead constant · `SignalCoverageBadge` (or wire it — either, not limbo) · `docs/ai-capability-implementation-gap-analysis.md` to legacy/banner · `/playbook` once GJ-007 lands (or relink it until then).
+**Remove:** `FIRST_SYNC_AHA_COPY` dead constant · `SignalCoverageBadge` (or wire it — either, not limbo) · `docs/legacy/ai-capability-implementation-gap-analysis.md` to legacy/banner · `/playbook` once GJ-007 lands (or relink it until then).
 
 **No rewrites of any shipped subsystem are warranted.** Legacy architecture is not being preserved out of inertia; every "keep" verdict above is evidence-based (guards, equivalence tests, honesty rules verified live).
 

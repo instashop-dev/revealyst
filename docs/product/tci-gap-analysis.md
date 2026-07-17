@@ -1,5 +1,17 @@
 # Revealyst — Team Capability Intelligence Gap Analysis
 
+> **Status update (2026-07-17):** this analysis and its companion CSVs are pinned to
+> `main` = `72005e4` (migrations 0000–0035, ADRs 0000–0043). A first TCI build slice has
+> since shipped and is NOT reflected in the per-requirement statuses below: manager role
+> tier ([ADR 0044](../decisions/0044-manager-role-tier.md), mig 0036), manager per-person
+> capability + spend visibility ([ADR 0045](../decisions/0045-manager-per-person-capability-and-spend-visibility.md)),
+> per-capability team history rollup ([ADR 0046](../decisions/0046-per-capability-team-history-rollup.md),
+> mig 0038), team settings (mig 0039), team insight feed
+> ([ADR 0050](../decisions/0050-team-insight-feed.md), mig 0040), and team workspaces +
+> workspace switcher ([ADR 0051](../decisions/0051-org-members-last-active-at.md), mig 0041,
+> PR #285). Treat the ADRs and CLAUDE.md wave banners as current truth for those areas;
+> the analysis below remains the requirement registry and decision frame.
+
 **Date:** 2026-07-16 · **Proposal analyzed:** "Revealyst Team Capability Intelligence — Functionality and Feature Specification", v1.0 (attached document; every line is tagged `[INFERRED]` and it is **not founder-signed** — see §2)
 **Repo baseline:** `main` at `72005e4` (post-W9-closure + U0–U3; migrations 0000–0035, ADRs 0000–0043)
 **Method:** an 11-domain parallel specialist fan-out (read-only agents: product, privacy, architecture, data model, telemetry, metrics/cost, backend, frontend, UX, QA, docs/governance) derived 175 atomic requirements from the proposal and traced each one to repository evidence; the orchestrator reconciled disagreements and an adversarial reviewer fact-checked the result. Every status cites code, not documentation prose.

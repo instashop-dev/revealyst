@@ -1,5 +1,13 @@
 # Desktop Agent — gap analysis against the technical specification
 
+> **Status update (2026-07-17):** this analysis predates the build. M0–M6 have since
+> shipped (through PR #284); the "new backend endpoints" it anticipates landed as
+> [ADR 0047](../decisions/0047-desktop-pkce-pairing.md) (PKCE pairing, mig 0037),
+> [ADR 0048](../decisions/0048-desktop-device-management.md) (device management), and
+> [ADR 0049](../decisions/0049-desktop-signed-remote-config.md) (signed remote config) —
+> not the "next ADR 0044" it predicted (0044 became the manager role tier). D-DA-1 was
+> signed 2026-07-16 (`docs/product-signoffs.md`); D-DA-2…7 remain as recorded there.
+
 > Source spec: [desktop-agent-spec.md](desktop-agent-spec.md) (transcribed from
 > the founder-provided docx, 2026-07-16). Companion registry:
 > [desktop-agent-requirements.csv](desktop-agent-requirements.csv). Build plan:

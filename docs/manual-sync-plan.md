@@ -1,6 +1,8 @@
 # Manual Sync — Implementation Plan
 
-**Date:** 2026-07-11 · **Status:** Implementation plan (approved research → build) ·
+**Date:** 2026-07-11 · **Status:** **Phases 1+2 SHIPPED 2026-07-11** (PRs #170–#177 +
+`@revealyst/agent` publish; ADR 0025). The Phase-3 resident-agent re-decision is now owned by the
+[Desktop Agent Execution Plan](Revealyst_Desktop_Agent_Execution_Plan.md) (build in progress). ·
 **Source of truth:** [Manual Sync vs. Desktop Connector evaluation](research/2026-07-11-manual-sync-vs-desktop-connector.md)
 (supersedes the resident-collector build direction of [2026-07-09-desktop-collector.md](research/2026-07-09-desktop-collector.md) §5.5(C)/§5.6 until the Phase-3 re-decision) ·
 **Method:** synthesized from seven parallel single-ownership evidence streams (architecture, backend, desktop/CLI,

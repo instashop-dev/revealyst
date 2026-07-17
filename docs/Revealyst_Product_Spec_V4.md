@@ -36,7 +36,7 @@ it means merged to `main` as of `4c11be5`.
   privacy-safe team capability rollups. Evolves the shipped substrate; does **not** add a graph DB,
   an ML service, fixed persona labels, XP/streaks/leagues, or an LMS. Plan:
   [AI Capability Execution Plan](Revealyst_AI_Capability_Execution_Plan.md); source:
-  [gap analysis](ai-capability-implementation-gap-analysis.md).
+  [gap analysis](legacy/ai-capability-implementation-gap-analysis.md).
 
 ---
 
@@ -381,7 +381,9 @@ segment survives only as an *aggregate cohort lens* for managers (already how
 
 ### 8.1 What's shipped (the seed of the engine)
 
-`COACHING_RECOMMENDATIONS` (`src/lib/coaching-recommendations.ts`): 7 static entries keyed
+The original 7-entry static map (retired `src/lib/coaching-recommendations.ts`, seeded verbatim
+into the `recommendation_catalog` table per ADR 0033 and read via
+`src/lib/recommendation-catalog.ts`): entries keyed
 `slug::componentKey`, deduped by `signalGroup`, gated centrally in `deriveAttention` on a
 *measured, weak* (normalized < 40), *sufficiently weighted* (≥ 0.2) component, capped at 2,
 weakest-first, with the guidance disclaimer appended centrally so it can't be forgotten. The same
@@ -658,7 +660,7 @@ rec-shown-to-X" stance + founder sign-off, §16 — a *distinct* gate from Outco
   **relational** graph (not a graph database), a **deterministic** utility ranker (no ML / bandits /
   BKT until real feedback volume + its own gate), **no fixed per-person persona labels** (personas
   survive only as an aggregate cohort lens), **no XP / streaks / leagues**, and **no LMS / course /
-  certification layer**. See [gap analysis](ai-capability-implementation-gap-analysis.md) §3/§13 for
+  certification layer**. See [gap analysis](legacy/ai-capability-implementation-gap-analysis.md) §3/§13 for
   the decided-not-built list.
 
 **Pricing: unchanged from V3** ($0 Personal forever · $2/tracked-user/mo Team · free band ≤5 ·

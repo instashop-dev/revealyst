@@ -5,6 +5,12 @@ research agents — 4 repo-grounded product streams, 6 external web-research str
 sources) · **Status:** Research → for founder prioritization. Nothing in this document changes
 code, contracts, or roadmap by itself.
 
+> **Implemented (2026-07-17 note):** the directions this report proposed were built across
+> V4 Waves 7–8 (capability graph, coaching loop, missions, exposure log, OTel measured tier
+> — ADRs 0035–0039) via the
+> [AI Capability Execution Plan](../Revealyst_AI_Capability_Execution_Plan.md). Kept as the
+> point-in-time research record.
+
 **Mission:** design the complete intelligence loop —
 **Data → Metrics → Insights → Recommendations → Coaching → Behavior Change → Measurable Improvement**
 — that takes Revealyst from an honest reporting dashboard to the definitive AI productivity and

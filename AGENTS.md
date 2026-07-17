@@ -1,12 +1,14 @@
 # Revealyst — fleet shared brain
 
-> **Mirror:** the Codex-facing mirror of [CLAUDE.md](CLAUDE.md), fully resynced 2026-07-13
-> (it had drifted badly since W3 — wrong ground-truth spec, missing the custom-domains split).
+> **Mirror:** the Codex-facing mirror of [CLAUDE.md](CLAUDE.md), fully resynced 2026-07-17
+> (previous full resync 2026-07-13; this resync backfilled the W7–W9, UI/UX U0–U5, and
+> desktop-agent M0–M6 banners it was missing).
 > No automation keeps the two in sync: any PR that edits CLAUDE.md must resync this file
 > in the same PR.
 > **Harness note:** the text below is CLAUDE.md's, verbatim. Where it names Claude-Code
 > apparatus — `.claude/settings.json` hooks, skills like `/revise-claude-md` — the Codex
 > equivalents live under `.codex/` (`hooks.json`, `agents/`); everything else applies as-is.
+
 
 The AI Growth Platform: a bottom-up Personal AI Companion whose individual signal
 compounds into the team and executive intelligence CTOs pay for. Built by parallel
@@ -66,14 +68,137 @@ it is the interface between agents.
 > on the §14 ~6-week dogfood outcome; W6-D (OTel receiver) on founder OTel fixture capture; W6-E
 > (measured proficiency) on W6-C + W6-D.
 
-> **Mirror gap (flagged 2026-07-16 by the UI/UX docs-sync pass):** this file has not been
-> resynced from CLAUDE.md since 2026-07-13 — it is missing the Wave 7 (AI Capability Layer),
-> Wave 8, and Wave 9 (Closure) banners entirely, plus the "Product principles — UX & writing"
-> section CLAUDE.md carries above its Stack facts. None of the *nav/screen* facts this file
-> states are factually wrong (it predates the sidebar/nav-items.ts work rather than
-> misdescribing it), so this docs-sync pass only appends the current UI/UX wave banner below
-> rather than guessing at a multi-wave backfill. A full resync (per this file's own mirror
-> contract) is a separate follow-up.
+> **V4 Wave 7 (AI Capability Layer) — in progress** (see
+> [AI Capability Execution Plan](docs/Revealyst_AI_Capability_Execution_Plan.md), phases P0–P6):
+> **P0** dual-source per-person double-count **fixed** (`rowsForSubjects` collapses same-(day,dim)
+> rows within one person's exclusive-subject set to MAX, not SUM — PR #210; `segmentTeams` was
+> already gone, predicate registry already extensible). **P1** the relational **capability graph**
+> shipped (mig 0030, ADR 0035): global reference tables `domains`/`capabilities`/`capability_signals`/
+> `capability_dependencies` seeded with the v0 **9-capability** Engineering set (bound only to
+> already-ingested signals; shallow acyclic DAG; NOT a graph DB), `recommendation_catalog` gains
+> additive `target_capabilities` linking all 7 recs, `forOrg().capabilities` namespace, and a
+> display-only capability label on the coaching card (`deriveAttention` output byte-identical except
+> the label — pinned by the migration-equivalence guard). **P2** per-person `user_capability_state`
+> shipped (mig 0031, ADR 0036): an org-scoped, self-view-only mastery table + a pure engine
+> (`src/scoring/capability-state.ts`) + a parallel reducer in the poller `score-recompute` step
+> (`recompute-capability-state.ts`, all reads batched once — query count independent of person count,
+> proven by `tests/perf/capability-state-queries`), **capped `directional`** (L7), honesty reused
+> verbatim (zero evidence → no row), three registrations green, backfill-safe-empty. Rendered as a
+> positive-first **capability-profile card** (decomposition of the one band, not a third ladder).
+> Latest mig **0031**, latest ADR **0036**. **P3** utility ranker shipped (no migration/ADR): the
+> fixed `impact:1` in `deriveAttention` is replaced by a deterministic `computeUtility`
+> (`src/lib/recommendation-catalog.ts`, named/exported weights, no ML) that consumes the previously-
+> inert benefit/difficulty/confidence + capabilityGap; a permanent output-equivalence guard proves
+> uniform metadata reduces to weakest-first; a stage-1 eligibility filter (role/tool/prereq
+> fails-closed) is implemented + tested but wired live in P4 (to keep dashboard+digest in sync). The
+> ranking itself is live on both paths (internal to `deriveAttention`). **P4** coaching loop (no
+> migration): a computed **"why this" line** from the dominant utility term (`dominantUtilityTerm`,
+> can't drift from the ranking) + an honest **confidence disclosure** ("Based on N connected sources")
+> on each coaching rec; a **digest/dashboard shared-source test** pins identical rec selection+order.
+> Deferred (documented, reliability-first): eligibility-gate LIVE activation (tested-dormant — a
+> fails-closed prereq gate over directional mastery could over-suppress), and the Growth-Journey
+> level→capability-band swap (until measured/OTel). **P6** team rollups (no migration): an aggregate,
+> **count-only, `MIN_PEOPLE`-floored** capability-coverage card in the team "(c) Training
+> opportunities" section (reuses `mastery.coverageCounts` from P2 + `SEGMENT_MIN_PEOPLE_TO_NAME`); a
+> capability below the floor is dropped entirely (never a suppressed-but-implied number), and the row
+> prop type carries NO person id/name (per-person leak structurally impossible). One extra batched
+> read in `readDashboardView`. Deferred (documented follow-up): the one exec-memo coverage line (needs
+> wiring the same `coverageCounts` into the separate `composeExecReport` data path).
+> **Three W7 follow-ups then shipped** (no migration/ADR): (1) the exec-memo capability-coverage line
+> (`readExecReport` → `composeExecReport`, same MIN_PEOPLE floor as the dashboard); (2) the P3
+> eligibility gates **activated live on dashboard + digest together** — role/tool always, the
+> fails-closed prereq gate ONLY once the person has established ≥1 capability (forming-user safeguard,
+> since directional mastery could over-suppress); a gated shared-source test pins parity; (3) the
+> Growth-Journey **band headline** (`overallCapabilityBand`) wired but gated on `measured` — null today
+> (all mastery is directional), so the modeled maturity level stays the headline until OTel/P8.
+> **P5 missions shipped** (mig 0032, ADR 0037; founder anti-gamification sign-off received):
+> `missions`/`mission_steps` (global, seeded 3 starters) + `mission_progress` (org-scoped self-view, 3
+> registrations); completion is a MEASURED capability crossing detected in the capability-state reducer
+> (`isMissionComplete`, stamped once), never a click — the only write is the opt-in `POST
+> /api/missions/start`; **no XP/streak/league/points column or copy** (enforced by a schema-shape test +
+> a banned-phrasing test). Opt-in `MissionCard` on the companion. Latest mig **0032**, latest ADR
+> **0037**. **Wave 8 gates were then cleared by the founder** (2026-07-14): OTel fixture capture done +
+> privacy-reversal ADR approved (+ real founder-captured OTel fixtures landed via #220). **P7 exposure
+> log shipped** (mig 0033, ADR 0038): `recommendation_exposure` (org-scoped, **self-view-only** — no
+> manager/admin read route; never on the team view; purge-registered; idempotent per day) REVERSES the
+> "don't log rec-shown" stance under a founder-signed ADR; deterministic holdout/variant assignment
+> (`src/lib/experiments.ts`, empty registry at launch); the digest logs exposures off the hot path; the
+> Outcomes entity + offline harness stay gated on real volume (never hollow). Latest mig **0033**,
+> latest ADR **0038**. **P8 OTel measured tier shipped** (mig 0034, ADR 0039): additive marker metrics
+> (`otel_active_time`/`otel_edit_accepted`/`otel_edit_rejected`, `markers` family) + capability_signals
+> bindings; a `POST /v1/metrics`+`/v1/logs` OTLP receiver reusing the agent device-token scheme, with a
+> PURE decoder (`src/lib/otel-ingest.ts`) tested against the REAL captured fixtures (`fixtures/otel/
+> *.captured.json`, rule 2); the capability engine renders **`measured`** (not just `directional`) when
+> a capability has evidence for **≥2** of its bound markers (markers are distinct keys → no
+> cross-channel double-count) — which also activates the W7-4 Growth-Journey band headline. **Non-eng
+> role expansion stays DEFERRED** — a separate gate needing an honest M365/Workspace role-telemetry
+> source (doesn't exist). Latest mig **0034**, latest ADR **0039**. **Wave 7 (P0–P6) + all
+> follow-ups + the founder-unblocked P5/P7/P8 are now complete; only non-eng role expansion remains
+> gated.**
+
+> **V4 Wave 9 — Closure phases P1–P3 shipped — 2026-07-16** (PRs #227–#231, #233; plan:
+> `docs/Revealyst_Closure_Execution_Plan.md`; no migration, no new ADR): **P1 measurement**
+> — lane-aware digest body CTA to `/dashboard` (one click now fires BOTH `digest_return` +
+> `companion_revisit`; the §14 exit-gate pair finally measures companion returns, not
+> footer-settings clicks); `deriveSyncCadence`/`deriveAgentOptInRate` pure derivations in
+> `launch-funnel.ts` + wired into `scripts/launch-metrics.ts`; cross-org counts-only
+> `recEngagementRollup` in `system.ts` + `scripts/rec-engagement-metrics.ts` (no person id in
+> the shape, test-enforced — never wire to a route, ADR 0038); `scripts/digest-return-rate.ts`
+> (Analytics Engine SQL API, `--weeks` default 6, NO baked threshold — OQ-001 is unsigned;
+> weeks via `toStartOfWeek(timestamp, 1)` since `companion_revisit` carries no wk dim);
+> "N connected sources" line on the Data Confidence card (orphaned `SignalCoverageBadge` +
+> `FIRST_SYNC_AHA_COPY` deleted); server-side sync reward in `SyncTransparencyPanel`
+> (`src/lib/sync-reward.ts` mirrors ONLY the CLI reward's consistency tier — breadth/busiest-day
+> data doesn't survive to `connector_runs`; null over guessing). **P2 hardening** —
+> `assertTeamOnlyPseudonymized` runs at runtime at the end of `readDashboardView` (gated
+> `visibilityMode === "private"`; managed/full deliberately reveal names); `DashboardView.subjects`
+> now a `{id, connectionId}` PROJECTION (full rows carry email/name — the old ids-only doc claim
+> was false); `/v1/logs` was completely unauthenticated → device-token auth via
+> `authenticateDeviceToken`, and `/v1/metrics` reordered auth-BEFORE-body (sibling-drift catch);
+> purge-ORDER FK tripwire (≥21-edge anti-vacuity floor) in `tests/account-deletion.test.ts`;
+> a11y package (skip link, nav landmark + aria-current, reduced-motion, DialogContent overflow,
+> `p-4 md:p-6`, vitest-axe smokes — muted-foreground darken skipped per D10). **P3 ranker/companion**
+> — `dashboard/page.tsx` split into `personal-self-view.tsx`/`team-overview.tsx`/`shared.tsx`
+> (pure move, Promise.all batches byte-identical, 29-line route entry — T5.1 precondition met
+> with T2.1); fatigue/novelty ACTIVATED on dashboard + digest (`recentlyShownRecIds` window is
+> DAY-granular, previous 1–7 days EXCLUDING today — a clock-time cutoff made digest self-rotation
+> structurally impossible; same-day email↔dashboard parity, day-after drift is the novelty
+> feature); `suggestedActionType` branched in `CoachingCard` but TESTED-DORMANT (no per-rec URL
+> source exists — needs the deferred frozen-catalog-column ADR, same gap as `vendor-deep-link`).
+> **Founder-default resolutions (plan §6, recorded, not built):** T2.4 audit rows (D5), T2.6
+> contrast token (D10), T3.3 card consolidation (D4), T3.5a/b opt-out + invite copy (D8/D7);
+> T2.5 → option A (guard comment in `ci.yml`; option-B registration checker is the follow-up).
+> P0 (governance docs) and P4 (learning paths, TEL-012) were NOT in this slice. Latest mig
+> still **0034**, latest ADR still **0039**.
+
+> **V4 Wave 9 — Closure phases P0 + P4 + P5.2 shipped — 2026-07-16** (PRs #235–#239; W9 is
+> now COMPLETE except externally gated W10 items; no migration): **P0 governance** — duplicate
+> ADR 0037 (cause-chain) renamed → **0040** + `scripts/check-adr-numbers.mjs` duplicate-prefix
+> CI guard (bannered 0014 pair allowlisted, self-tested) + full index table in
+> `docs/decisions/README.md`; last live "KMS" overclaims → "versioned Worker-secret KEK
+> envelope"; requirements.csv OQ-008 no longer claims an unmade founder sign-off (status
+> `Open`; TEL-003 26/10→29/11 and WF-006 `deriveAttention` citation fixed in passing);
+> **`docs/product-signoffs.md` created** — the durable founder-decision ledger (OQ-001/002/008
+> pending + D4–D12 + T2.5 default-applied rows); gap-analysis doc bannered superseded (gated
+> items honestly excluded); Spec V4 refreshed to match code (29 keys/11 families, mig 0034,
+> two-tier route-typing blessed, six `allowOverFreeBand` routes, `deriveAttention` citation,
+> 9-capability seed, OTel receiver shipped) — adversarial fact-check caught + fixed a
+> re-fabricated "product-owned, not agent-invented" seed-provenance claim (W3-N pattern,
+> again); landing $1-promo derives from `src/lib/pricing.ts` dated constants (manual Paddle
+> mirror, honestly commented). **P4** — GJ-007 learning paths: pure `src/lib/
+> capability-curriculum.ts` (glossary pattern, all 9 slugs, seed-sort order) + opt-in "See how
+> to grow this" Sheet from `CapabilityProfileCard`'s next-focus line (client leaf, card stays
+> server; LMS-vocabulary banned-phrasing sweep added; inert learning_path columns stay inert);
+> **TEL-012 formally moved to Future (D11 default)** — no metric key, no migration. **P5.2** —
+> `schema.ts` split (ADR **0041**): 1,749-line frozen monolith → barrel over 13
+> `src/db/schema/*` domain modules; barrel order = topological sort of the 15 composite tenant
+> FKs; auth-schema re-export stays last (circular-import constraint); contract-guardian
+> verified 45 tables + 5 enums via `getTableConfig` **0 diffs**, export surface 50→50;
+> `drizzle-kit generate` zero-diff; full suite 174 files/1,752 tests green. Latest mig still
+> **0034**, latest ADR **0041**. **Remaining (Wave 10, externally gated — do not force):**
+> T5.1 companion-in-team-orgs (W6-A dogfood outcome, clock since 2026-07-14; T2.1+T3.4
+> preconditions already merged), T5.3 role expansion (OQ-003/OQ-004). Founder ratification
+> queue lives in `docs/product-signoffs.md`.
 
 > **UI/UX execution plan (`docs/Revealyst_UIUX_Execution_Plan.md`) — U0–U5 shipped —
 > 2026-07-16** (PRs #244–#248 + #251): config-driven **nav IA**
@@ -91,14 +216,18 @@ it is the interface between agents.
 > (members previously read `/people`/`/teams` as an unretired W5-H leftover). `/playbook` retitled
 > "Shared-account migration guide" (R2 — no Playbooks nav item; Notification center R3 and command
 > palette R4 stay deferred to the §8 ledger, not built). Latest mig still **0035**, latest ADR now
-> **0043**. **U4** shipped the team narrative hero + workspace-setup stepper.
-> **U5** hardened touch targets, axe coverage, focus-on-route-change, dark-mode contrast, CLS.
+> **0043**. **U4** shipped the team narrative hero (floor-note copy from the live
+> MIN_PEOPLE constant) + the workspace-setup stepper (scope explainer sourced from
+> scope-claims/agent-collection-schema; server-derived resume). **U5** hardened touch targets
+> (44px), axe coverage on every recomposed route, focus-on-route-change (skip link now visibly
+> confirms — a blanket outline-none was caught as a WCAG 2.4.7 regression in review), dark-mode
+> contrast, and CLS skeletons.
 > **Founder-default decisions applied** (`docs/product-signoffs.md`, all unratified): D-U1/D-U2/
 > D-U3/D-U5 proceed (Today+Growth split, "Today" label, Settings consolidation, benchmark-consent
 > toggle to Settings→Privacy); D-U4 (mobile bottom nav) and D-U6 (persistent Help entry) **not
 > adopted**; D-U7 (Playbooks direction) sits on the Future ledger.
 
-> **Desktop Agent — planning phase merged, build NOT started — 2026-07-16**
+> **Desktop Agent — build in progress, M0–M6 shipped — 2026-07-17**
 > (`docs/Revealyst_Desktop_Agent_Execution_Plan.md`, phases M0–M7; spec transcript
 > `docs/product/desktop-agent-spec.md`; gap analysis + registry
 > `docs/product/desktop-agent-{gap-analysis.md,requirements.csv}`). The agent is the
@@ -106,16 +235,40 @@ it is the interface between agents.
 > macOS 13+/Win 10 22H2+, **Analytics Only default, never raw prompt/response upload**;
 > reuses the `rva1.` device-token scheme, `AgentIngestRequest` day-aggregates, and the
 > `AGENT_COLLECTION_FIELDS` allowlist (bridged to Rust via generated JSON). Desktop code
-> will live in top-level `desktop-agent/` (excluded from root tsconfig — the only root
-> build-config change, plus a `.gitignore` addition for Rust artifacts), with its own
-> path-filtered `desktop-ci.yml` and a
-> `release-desktop.yml` under a protected GitHub Environment (signing secrets NEVER in
-> PR workflows). **Gates (do not force): D-DA-1** (resident-collector go/no-go —
-> SYNC-007/TEL-017 demotion must be founder-cleared before any product-behavior PR) and
-> **D-DA-2** (Spec V4 §9.4 sub-case-C ADR before any Team-org enrollment; Personal orgs
-> first). Prompt-feature extraction ships shape+counts only until **D-DA-5**. Ledger rows
-> D-DA-1…7 pending in `docs/product-signoffs.md`. Next ADR 0044 / migration 0036 (verify
-> both at PR time).
+> lives in top-level `desktop-agent/` (excluded from root tsconfig) with its own
+> path-filtered `desktop-ci.yml`. Shipped through PR #284: PKCE pairing (ADR 0047, mig
+> 0037), device management (ADR 0048), signed remote config (ADR 0049), Claude Code
+> connector, hardened export importer, coverage UI, diagnostics bundle, signed Tauri
+> updater. **M7 remains** (incl. token-rotation hardening T7.2 per D-DA-4). Gates:
+> **D-DA-1 signed 2026-07-16** (resident-collector go); **D-DA-2** (Spec V4 §9.4
+> sub-case-C ADR before any Team-org enrollment; Personal orgs first) still pending —
+> do not force. Prompt-feature extraction ships shape+counts only until **D-DA-5**.
+> Ledger rows D-DA-2…7 pending in `docs/product-signoffs.md`.
+
+## Product principles — UX & writing (highest priority)
+These outrank feature scope: every screen, dialog, workflow, onboarding step, and
+settings page must satisfy them, and any new feature must **preserve or improve**
+the app's overall simplicity and consistency.
+
+**UX — minimal by default.** The product must always feel minimal, clean, modern,
+and distraction-free. Simplicity is the default: cut unnecessary UI elements,
+options, dialogs, clicks, and visual noise, and optimize every screen and
+component for the lowest possible cognitive load. Prefer **progressive
+disclosure** — hide advanced functionality behind an opt-in rather than exposing
+it by default.
+
+**Writing — plain English for beginners.** Assume every user is a beginner and
+write in plain, everyday English throughout the app. Avoid jargon, technical
+terms, acronyms, and implementation details. Keep labels, buttons, descriptions,
+onboarding, helper text, confirmations, and error messages concise, clear, and
+action-oriented — tell the user what to *do*, not how the system works internally.
+(This is the user-facing complement to invariant-(b)/W3-N: rendered UI copy is a
+claim surface, so it must be both honest *and* plain.)
+
+**AI development rule.** For every design or implementation decision, default to
+the simplest solution that fully meets the requirements. Continuously refactor and
+simplify existing UI and copy where appropriate instead of adding complexity —
+reducing options and clarifying words is real work, not a nice-to-have.
 
 ## Stack facts
 - Next.js / TypeScript monolith, deployed to **Cloudflare Workers** via OpenNext.
@@ -209,6 +362,20 @@ it is the interface between agents.
   slow, everything else fast" means DB-layer cost, not app code. Reduce
   sequential query STAGES first (see `readDashboardView`'s single flat
   `Promise.all` + prefetched-params pattern), then per-op cost.
+- **Depth-1 ≠ parallel (24s dashboard incident, PR #265):** postgres.js does
+  NOT pipeline concurrent queries on one connection — it queues them — so with
+  the old `max: 1` a "depth-1" batch of N queries serialized at ~600ms EACH
+  (prod Server-Timing: a 3-query access stage = 2250ms; Today's 39-query batch
+  streamed ~20s). Query COUNT is a first-class cost alongside depth: budget
+  ~ceil(N/5) round-trip waves. Fixes that hold the line: `max: 5` +
+  `prepare: true` via Hyperdrive only (`src/db/client.ts` — loopback PGlite
+  keeps 1/unprepared, 08P01), the isolate reference cache for seeded
+  global/reference reads (`src/lib/reference-cache.ts` — org-varying reads
+  need org-keyed entries, invariant a), union-window shared reads sliced per
+  consumer (`sharedCompanionReadSpans`/`sliceScoreRows` in `src/lib/maturity.ts`
+  — every slice pinned by an equivalence test), and the speculative
+  org-context prefetch that runs alongside `getSession` in `appContext`
+  (verified-userId-gated; getSession stays the authority).
 - **Gauges:** `curl -sD - https://app.revealyst.com/api/health` →
   `Server-Timing: db;dur=` = connection setup + one query (unauthenticated DB
   probe). Authenticated docs//api//RSC responses carry

@@ -1,5 +1,10 @@
 # Team Capability Intelligence — Gap Details (execution-ready appendix)
 
+> **Status update (2026-07-17):** pinned to `main` = `72005e4`; see the status banner in
+> [tci-gap-analysis.md](tci-gap-analysis.md) for the TCI slice that has shipped since
+> (ADRs 0044–0046, 0050–0051; migrations 0036–0041) and is not reflected in the
+> per-requirement detail below.
+
 > Companion to [tci-gap-analysis.md](tci-gap-analysis.md) — read that first. This file holds the full
 > per-gap working detail (value, changes, data logic, impact, privacy, dependencies, tests) for every
 > requirement that is not already Complete. Requirement registry: [tci-requirements.csv](tci-requirements.csv);
@@ -2022,9 +2027,9 @@
 
 > The TCI gap analysis and any requirements registry must be authored in the established docs/product/ four-file house style, not as a free-form memo. *(TCI whole-document)*
 
-- **What exists today (evidence):** House style exists and is proven: docs/product/revealyst-gap-analysis.md:1-11 (narrative + 'Companion artifacts' list), docs/product/requirements.csv (header id,spec_section,tier,domain,requirement), docs/product/traceability.csv (id,spec_section,tier,domain,status,evidence), docs/product/implementation-roadmap.md. The TCI-specific instance of these does not yet exist.
+- **What exists today (evidence):** House style exists and is proven: docs/legacy/product/revealyst-gap-analysis.md:1-11 (narrative + 'Companion artifacts' list), docs/product/requirements.csv (header id,spec_section,tier,domain,requirement), docs/legacy/product/traceability.csv (id,spec_section,tier,domain,status,evidence), docs/legacy/product/implementation-roadmap.md. The TCI-specific instance of these does not yet exist.
 - **Why users want it:** Managers and agents get a TCI analysis in the same shape they already read, with stable requirement IDs and code-cited evidence rather than prose opinion.
-- **What has to change:** Produce the TCI analysis as: a narrative gap-analysis.md + requirements.csv (stable TCI-* IDs) + traceability.csv (status + file:line evidence) + a roadmap. Reuse the status vocabulary from docs/product/revealyst-gap-analysis.md:37. Recommend a docs/product/tci/ subfolder so it does not overwrite the Spec-V4 registry.
+- **What has to change:** Produce the TCI analysis as: a narrative gap-analysis.md + requirements.csv (stable TCI-* IDs) + traceability.csv (status + file:line evidence) + a roadmap. Reuse the status vocabulary from docs/legacy/product/revealyst-gap-analysis.md:37. Recommend a docs/product/tci/ subfolder so it does not overwrite the Spec-V4 registry.
 - **Backend/API & UI impact:** Docs-only.
 - **Dependencies & migrations:** Depends on the per-domain specialist outputs feeding one reconciled registry (this multi-agent run).
 - **Tests & acceptance:** N/A. Acceptance: four artifacts present, CSV headers match the existing files, every status cites code.
@@ -2035,7 +2040,7 @@
 
 > Any TCI plan/analysis doc must carry the repo's superseded-banner + single-source-of-truth convention so it can never silently outlive the code or duplicate ground truth. *(TCI whole-document)*
 
-- **What exists today (evidence):** Pattern exists: docs/ai-capability-implementation-gap-analysis.md:1-16 (a '> Superseded.' banner pointing to CLAUDE.md wave banners as current truth); docs/Revealyst_Execution_Plan_V4.md §7 'Documentation state & the single-source-of-truth rule'. No TCI doc carries it yet.
+- **What exists today (evidence):** Pattern exists: docs/legacy/ai-capability-implementation-gap-analysis.md:1-16 (a '> Superseded.' banner pointing to CLAUDE.md wave banners as current truth); docs/Revealyst_Execution_Plan_V4.md §7 'Documentation state & the single-source-of-truth rule'. No TCI doc carries it yet.
 - **Why users want it:** Prevents the exact drift the repo keeps hitting — a point-in-time doc read as current after the code moved past it.
 - **What has to change:** Add the standard banner to any TCI doc and cross-link CLAUDE.md/Spec V4 as the live source. When TCI (or parts) ship or are rejected, banner the proposal accordingly rather than editing it into a false 'current' state.
 - **Backend/API & UI impact:** Docs-only.
@@ -2147,7 +2152,7 @@
 
 > TCI assumes a manager-facing team product exists and can be built now. *(TCI §1 / §13 MVP)*
 
-- **What exists today (evidence):** TCI: tci.md:9 'extends the existing Individual AI Growth Companion into a manager-facing capability development platform'; entire §13 MVP (tci.md:2101-2133). Named gate: CLAUDE.md 'W6-A (Companion-in-Team-orgs + dual-source dedup) on the §14 ~6-week dogfood outcome'; docs/product/revealyst-gap-analysis.md:22 (the #1 structural gap is deliberately gated, clock since 2026-07-14).
+- **What exists today (evidence):** TCI: tci.md:9 'extends the existing Individual AI Growth Companion into a manager-facing capability development platform'; entire §13 MVP (tci.md:2101-2133). Named gate: CLAUDE.md 'W6-A (Companion-in-Team-orgs + dual-source dedup) on the §14 ~6-week dogfood outcome'; docs/legacy/product/revealyst-gap-analysis.md:22 (the #1 structural gap is deliberately gated, clock since 2026-07-14).
 - **Why users want it:** The team layer is the monetization bet, but the founder gated it on evidence that individuals voluntarily return first — building the team product before that clock resolves risks inverting the pivot.
 - **What has to change:** Do NOT force W6-A. Record TCI as the candidate design FOR when the dogfood gate clears; note that two of three ADR prerequisites already exist in code (visibility predicate, dual-source dedup per gap-analysis.md:22). Sequence any TCI build behind the clock.
 - **Backend/API & UI impact:** Gates the whole program's start, not individual features.
