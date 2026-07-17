@@ -18,12 +18,21 @@ import {
   beginSignIn,
   detectSources,
   finishOnboarding,
+  getDeviceUsedOnlyByMe,
   isSignedIn,
   openRevealyst,
+  setDeviceUsedOnlyByMe,
   type DetectedSource,
 } from "../lib/agent";
 
-const STEPS = ["Welcome", "Sign in", "Sources", "Privacy mode", "Finish"] as const;
+const STEPS = [
+  "Welcome",
+  "Sign in",
+  "Sources",
+  "This computer",
+  "Privacy mode",
+  "Finish",
+] as const;
 
 export default function OnboardingScreen() {
   const [step, setStep] = useState(0);
@@ -37,6 +46,11 @@ export default function OnboardingScreen() {
   // yet (or still checking).
   const [sources, setSources] = useState<DetectedSource[] | null>(null);
   const [checkingSources, setCheckingSources] = useState(false);
+
+  // "This computer" step: the saved "used only by you" answer. `null` = not
+  // answered yet (the privacy-safe default — activity stays at the computer
+  // level, never tied to a guessed person).
+  const [onlyYou, setOnlyYou] = useState<boolean | null>(null);
 
   // Finish step: an in-flight completion (open/hide) so the buttons can't be
   // double-clicked.
@@ -56,6 +70,34 @@ export default function OnboardingScreen() {
       active = false;
     };
   }, []);
+
+  // Reflect any saved "used only by you" answer on mount.
+  useEffect(() => {
+    let active = true;
+    getDeviceUsedOnlyByMe()
+      .then((value) => {
+        if (active) setOnlyYou(value);
+      })
+      .catch(() => {
+        // Outside Tauri (tests/dev) or no answer yet — leave the safe default.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function chooseOnlyYou(value: boolean) {
+    const previous = onlyYou;
+    setOnlyYou(value); // optimistic; the radio reflects the choice immediately
+    try {
+      await setDeviceUsedOnlyByMe(value);
+    } catch {
+      // Roll back so the radio never implies a saved choice that wasn't saved
+      // (a claim-surface must stay honest). A failed save leaves the identity
+      // ladder on the privacy-safe default.
+      setOnlyYou(previous);
+    }
+  }
 
   // Run the local source check whenever the user is on the Sources step. Cheap:
   // one in-process command, no network. Re-runs on each visit so a source that
@@ -211,6 +253,54 @@ export default function OnboardingScreen() {
 
       {step === 3 && (
         <section>
+          <h2>This computer</h2>
+          <p>
+            Do you share this computer with anyone else? Your answer decides how
+            this computer&rsquo;s activity is shown. If you share it, we keep
+            activity at the computer level and never guess who did what.
+          </p>
+          <div className="choice">
+            <input
+              type="radio"
+              name="only-you"
+              id="only-you-yes"
+              checked={onlyYou === true}
+              onChange={() => void chooseOnlyYou(true)}
+            />
+            <label htmlFor="only-you-yes">
+              <strong>Only I use this computer</strong>
+              <p className="muted">Your activity is shown as yours.</p>
+            </label>
+          </div>
+          <div className="choice">
+            <input
+              type="radio"
+              name="only-you"
+              id="only-you-no"
+              checked={onlyYou === false}
+              onChange={() => void chooseOnlyYou(false)}
+            />
+            <label htmlFor="only-you-no">
+              <strong>Other people use it too</strong>
+              <p className="muted">
+                Activity stays at the computer level, not tied to a person.
+              </p>
+            </label>
+          </div>
+          <p className="muted">
+            You can skip this for now — until you answer, activity stays at the
+            computer level. You can change it later on the Privacy screen.
+          </p>
+          <div className="button-row">
+            <button type="button" className="primary" onClick={next}>
+              Continue
+            </button>
+          </div>
+        </section>
+      )}
+
+      {step === 4 && (
+        <section>
           <h2>Privacy mode</h2>
           <div className="choice">
             <input type="radio" name="privacy-mode" id="mode-analytics" checked readOnly />
@@ -244,7 +334,7 @@ export default function OnboardingScreen() {
         </section>
       )}
 
-      {step === 4 && (
+      {step === 5 && (
         <section>
           <h2>Finish</h2>
           {signedIn ? (

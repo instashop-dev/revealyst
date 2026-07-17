@@ -268,6 +268,11 @@ fn toggle_pause<R: Runtime>(app: &AppHandle<R>) {
         Some(control) => {
             let now_paused = !control.is_paused();
             control.set_paused(now_paused);
+            // Persist so a paused device stays paused after a reboot (the same
+            // guarantee the privacy screen's toggle gives).
+            if let Some(store) = app.try_state::<Arc<Store>>() {
+                crate::runtime::persist_paused(store.inner(), now_paused);
+            }
             tracing::info!(
                 component = "tray",
                 paused = now_paused,

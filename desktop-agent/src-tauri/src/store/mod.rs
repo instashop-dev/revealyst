@@ -64,6 +64,7 @@ pub mod crypto;
 pub mod queue;
 pub mod remote_config;
 pub mod retention;
+pub mod settings;
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -73,8 +74,10 @@ use rusqlite::Connection;
 use crypto::DbKey;
 
 /// Bumped whenever the embedded DDL changes; drives the `PRAGMA user_version`
-/// migration in [`Store::open_with_key`]. Wave M3 ships v1.
-pub const SCHEMA_VERSION: i64 = 1;
+/// migration in [`Store::open_with_key`]. Wave M3 shipped v1; v2 adds the
+/// single-row `local_settings` table (persisted pause + sticky sync status +
+/// the shared-computer answer).
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// The default database file name inside the app data directory.
 pub const DB_FILE_NAME: &str = "agent.db";
@@ -195,6 +198,10 @@ fn migrate(conn: &Connection) -> Result<(), StoreError> {
         conn.execute_batch(SCHEMA_V1)
             .map_err(|_| StoreError::Migrate)?;
     }
+    if current < 2 {
+        conn.execute_batch(SCHEMA_V2)
+            .map_err(|_| StoreError::Migrate)?;
+    }
 
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|_| StoreError::Migrate)?;
@@ -293,6 +300,31 @@ CREATE TABLE IF NOT EXISTS update_state (
 );
 ";
 
+/// Schema v2. Adds the single-row (`id = 1`) `local_settings` table that
+/// persists the user's own device preferences so they survive a restart:
+///   - `paused`: the pause control (a paused device must NEVER silently resume
+///     after a reboot — that would be a privacy surprise);
+///   - `degraded`: the sticky sync-status flag (a real drop signal that would
+///     otherwise reset to clean on every launch);
+///   - `identity_only_you`: the answer to "Is this computer used only by you?"
+///     (`1` = only you → attribute to the person, `0` = shared → account/device
+///     level with an honesty gap, `NULL` = not answered yet → the privacy-safe
+///     default: account level, no person, no shared-device claim).
+///
+/// This is the agent's OWN local SQLite store — NOT the server database. Like
+/// the other bookkeeping tables here, these are plaintext preference columns
+/// (only `pending_events.payload` is encrypted). It holds preferences only; no
+/// activity content, and nothing here changes what leaves the device.
+const SCHEMA_V2: &str = "
+CREATE TABLE IF NOT EXISTS local_settings (
+    id                INTEGER PRIMARY KEY CHECK (id = 1),
+    paused            INTEGER NOT NULL DEFAULT 0,
+    degraded          INTEGER NOT NULL DEFAULT 0,
+    identity_only_you INTEGER,
+    updated_at        INTEGER NOT NULL DEFAULT 0
+);
+";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,6 +348,7 @@ mod tests {
             "remote_config_cache",
             "diagnostics_state",
             "update_state",
+            "local_settings",
         ];
         for table in expected {
             let count: i64 = guard

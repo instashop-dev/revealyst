@@ -16,10 +16,12 @@ import {
   disconnectDevice,
   getAutostart,
   getCollectionPaused,
+  getDeviceUsedOnlyByMe,
   getPendingCount,
   isSignedIn,
   setAutostart,
   setCollectionPaused,
+  setDeviceUsedOnlyByMe,
   type AgentSnapshot,
 } from "../lib/agent";
 import {
@@ -36,6 +38,9 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
   const [paused, setPaused] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [pending, setPending] = useState<number | null>(null);
+  // The saved "used only by you" answer. `null` = not answered yet (the
+  // privacy-safe default — activity stays at the computer level).
+  const [onlyYou, setOnlyYou] = useState<boolean | null>(null);
 
   // Two-step confirms + transient result copy for the destructive actions.
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -61,11 +66,32 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
         if (!cancelled) setSignedIn(s);
       })
       .catch(() => {});
+    getDeviceUsedOnlyByMe()
+      .then((value) => {
+        if (!cancelled) setOnlyYou(value);
+      })
+      .catch(() => {});
     refreshPending(() => cancelled);
     return () => {
       cancelled = true;
     };
   }, []);
+
+  async function onChooseOnlyYou(value: boolean) {
+    const previous = onlyYou;
+    setOnlyYou(value);
+    try {
+      await setDeviceUsedOnlyByMe(value);
+      setNotice(
+        value
+          ? "Saved — this computer's activity is shown as yours."
+          : "Saved — activity stays at the computer level, not tied to a person.",
+      );
+    } catch {
+      setOnlyYou(previous); // roll back so the choice matches what was saved
+      setNotice("Could not save your answer. Please try again.");
+    }
+  }
 
   function refreshPending(isCancelled: () => boolean = () => false) {
     getPendingCount()
@@ -150,6 +176,48 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
           </strong>
           .
         </p>
+      </section>
+
+      <section>
+        <h2>Who uses this computer</h2>
+        <p className="muted">
+          This decides how this computer&rsquo;s activity is shown. If you share
+          the computer, we keep activity at the computer level and never guess
+          who did what.
+        </p>
+        <div className="choice">
+          <input
+            type="radio"
+            name="who-uses"
+            id="who-uses-yes"
+            checked={onlyYou === true}
+            onChange={() => void onChooseOnlyYou(true)}
+          />
+          <label htmlFor="who-uses-yes">
+            <strong>Only I use this computer</strong>
+            <p className="muted">Your activity is shown as yours.</p>
+          </label>
+        </div>
+        <div className="choice">
+          <input
+            type="radio"
+            name="who-uses"
+            id="who-uses-no"
+            checked={onlyYou === false}
+            onChange={() => void onChooseOnlyYou(false)}
+          />
+          <label htmlFor="who-uses-no">
+            <strong>Other people use it too</strong>
+            <p className="muted">
+              Activity stays at the computer level, not tied to a person.
+            </p>
+          </label>
+        </div>
+        {onlyYou === null && (
+          <p className="muted">
+            Not answered yet — for now, activity stays at the computer level.
+          </p>
+        )}
       </section>
 
       <section>

@@ -126,6 +126,26 @@ export function getCollectionPaused(): Promise<boolean> {
   return invoke<boolean>("get_collection_paused");
 }
 
+/**
+ * The saved answer to "Is this computer used only by you?" — `true` = only you
+ * (activity is shown as yours), `false` = shared (kept at the computer level),
+ * `null` = not answered yet (the privacy-safe default: computer level, never a
+ * guessed person). Drives how this computer's activity is attributed.
+ */
+export function getDeviceUsedOnlyByMe(): Promise<boolean | null> {
+  return invoke<boolean | null>("get_device_used_only_by_me");
+}
+
+/**
+ * Save the "Is this computer used only by you?" answer. `true` shows this
+ * computer's activity as yours; `false` keeps it at the computer level, not
+ * tied to a person. The saved answer is the source of truth — no environment
+ * flags or guessing.
+ */
+export function setDeviceUsedOnlyByMe(onlyMe: boolean): Promise<void> {
+  return invoke<void>("set_device_used_only_by_me", { onlyMe });
+}
+
 /** How many analytics events are waiting locally to be sent. A count only;
  * `0` when nothing is collected yet — never a fabricated number. */
 export function getPendingCount(): Promise<number> {
