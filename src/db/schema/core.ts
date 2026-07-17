@@ -84,6 +84,16 @@ export const orgs = pgTable("orgs", {
   bootstrapUserId: text("bootstrap_user_id")
     .unique()
     .references(() => user.id, { onDelete: "set null" }),
+  // Creation provenance (ADR 0052): who created this org. Distinct from
+  // bootstrapUserId, which is the UNIQUE per-user signup-org marker owned by
+  // the personal org (a team workspace must never claim it) — a user can
+  // CREATE many team workspaces but bootstrap exactly one personal org. Drives
+  // the D-ONB-1 per-user creation cap (workspaces you created, not ones you
+  // were invited to administer). NULL for orgs predating the column and for
+  // signup personal orgs (their provenance is already bootstrapUserId).
+  createdByUserId: text("created_by_user_id").references(() => user.id, {
+    onDelete: "set null",
+  }),
   // §7 privacy: team-only pseudonymous default; real names are opt-in.
   visibilityMode: text("visibility_mode", {
     enum: ["private", "managed", "full"],

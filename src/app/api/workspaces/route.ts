@@ -1,8 +1,8 @@
 import { z } from "zod";
 import {
-  countAdminTeamWorkspaces,
   MAX_TEAM_WORKSPACES_PER_USER,
   provisionTeamWorkspace,
+  TeamWorkspaceCapError,
 } from "@/db/org-provisioning";
 import { ApiError } from "@/lib/api-impl";
 import { handleApi, parseBody } from "@/lib/api-route";
@@ -30,9 +30,13 @@ export const dynamic = "force-dynamic";
 // - allowOverFreeBand: true — a user whose CURRENT workspace is over the free
 //   band must not be trapped. The NEW org starts empty with its own free band,
 //   so creating it exposes no gated data.
-// - Per-user cap (MAX_TEAM_WORKSPACES_PER_USER): a modest abuse guard so one
-//   account can't spam-provision orgs. At the cap, a plain-English 403 tells the
-//   user what to do next; the platform-admin seam stays uncapped.
+// - Per-user creation cap (MAX_TEAM_WORKSPACES_PER_USER, ADR 0052): counts
+//   workspaces the user CREATED (orgs.created_by_user_id), never invited-admin
+//   memberships. Enforced INSIDE the provisioning transaction under a per-user
+//   advisory lock, so concurrent requests at cap−1 serialize instead of all
+//   passing a pre-check. At the cap, a plain-English 403 states the fact (no
+//   impossible remediation — there is no leave-workspace affordance). The
+//   platform-admin seam stays uncapped.
 // - The creator is derived from the session (ctx.user.id) — never from the body,
 //   so there is no mass-assignment path to enroll someone else as admin.
 
@@ -47,17 +51,18 @@ export async function POST(req: Request) {
         throw new ApiError(403, "forbidden while impersonating");
       }
       const body = await parseBody(createSchema, req);
-      const owned = await countAdminTeamWorkspaces(ctx.db, ctx.user.id);
-      if (owned >= MAX_TEAM_WORKSPACES_PER_USER) {
-        throw new ApiError(
-          403,
-          teamWorkspaceCapMessage(MAX_TEAM_WORKSPACES_PER_USER),
-        );
+      try {
+        return await provisionTeamWorkspace(ctx.db, {
+          name: body.name,
+          creatorUserId: ctx.user.id,
+          cap: MAX_TEAM_WORKSPACES_PER_USER,
+        });
+      } catch (error) {
+        if (error instanceof TeamWorkspaceCapError) {
+          throw new ApiError(403, teamWorkspaceCapMessage(error.cap));
+        }
+        throw error;
       }
-      return provisionTeamWorkspace(ctx.db, {
-        name: body.name,
-        creatorUserId: ctx.user.id,
-      });
     },
     { allowOverFreeBand: true },
   );

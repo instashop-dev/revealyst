@@ -11,14 +11,24 @@ import { auditLog, orgMembers, orgs, teams } from "./schema";
 // pre-scope position invite-acceptance and ensureOrgOfOne write from.
 
 /**
- * Modest per-user ceiling on how many team workspaces one person can own
- * (be an admin member of). A best-practice abuse guard so a single account
- * can't spam-provision orgs; deliberately generous — most real users own one.
- * Enforced by the user-facing route (POST /api/workspaces) via
- * countAdminTeamWorkspaces; the platform-admin seam is uncapped internal
- * tooling.
+ * Modest per-user ceiling on how many team workspaces one person can CREATE
+ * (orgs.created_by_user_id, ADR 0052 — never memberships: being invited as an
+ * admin to someone else's workspace must not consume the cap). A best-practice
+ * abuse guard so a single account can't spam-provision orgs; deliberately
+ * generous — most real users create one. Enforced inside the provisioning
+ * transaction when the caller passes `cap` (the user-facing POST /api/workspaces
+ * does); the platform-admin seam is uncapped internal tooling.
  */
 export const MAX_TEAM_WORKSPACES_PER_USER = 5;
+
+/** Thrown by provisionTeamWorkspace when the creator is at their cap; the
+ * route maps it to a plain-English 403. Carries the cap so the message can
+ * derive the number from the enforced limit. */
+export class TeamWorkspaceCapError extends Error {
+  constructor(public readonly cap: number) {
+    super(`team workspace cap reached (${cap})`);
+  }
+}
 
 export type ProvisionTeamWorkspaceResult = {
   orgId: string;
@@ -38,8 +48,19 @@ export type ProvisionTeamWorkspaceResult = {
  *
  * `bootstrapUserId` is left NULL: that column is a UNIQUE per-user "signup org"
  * marker owned by the creator's personal org (the constraint that closes the
- * `ensureOrgOfOne` race), so a team workspace must not claim it. A team org has
- * no bootstrap user.
+ * `ensureOrgOfOne` race), so a team workspace must not claim it. Creation
+ * provenance is the separate `createdByUserId` (ADR 0052), stamped here and
+ * ONLY here — signup personal orgs keep it NULL (their provenance is already
+ * `bootstrapUserId`; stamping the same fact twice invites drift).
+ *
+ * `cap` (optional): the per-user creation ceiling. When set, the transaction
+ * FIRST takes a per-user advisory lock
+ * (`pg_advisory_xact_lock(hashtext('team-ws-create:' || userId))`) so
+ * concurrent creates by the same user serialize, THEN counts the user's
+ * created team workspaces and throws `TeamWorkspaceCapError` at the limit —
+ * the check-then-insert pair is atomic under the lock, so N simultaneous
+ * requests at cap−1 cannot all pass (the lock releases on commit/rollback).
+ * Omitted (the platform-admin seam), no lock is taken and no cap applies.
  *
  * Transactional: the org, the admin membership, the default team, AND the
  * `org.create` audit row all commit together — no half-provisioned workspace,
@@ -58,24 +79,42 @@ export type ProvisionTeamWorkspaceResult = {
  */
 export async function provisionTeamWorkspace(
   db: Db,
-  input: { name: string; creatorUserId: string },
+  input: { name: string; creatorUserId: string; cap?: number },
 ): Promise<ProvisionTeamWorkspaceResult> {
   const name = input.name.trim();
+  const { creatorUserId, cap } = input;
   return db.transaction(async (tx) => {
+    if (cap !== undefined) {
+      // Per-user serialization + in-tx count (ADR 0052): both statements run
+      // inside THIS transaction, so a concurrent create by the same user
+      // blocks on the lock until this one commits, then sees its row.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${`team-ws-create:${creatorUserId}`}))`,
+      );
+      const [row] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(orgs)
+        .where(
+          and(eq(orgs.kind, "team"), eq(orgs.createdByUserId, creatorUserId)),
+        );
+      if ((row?.count ?? 0) >= cap) {
+        throw new TeamWorkspaceCapError(cap);
+      }
+    }
     const [org] = await tx
       .insert(orgs)
-      .values({ name, kind: "team" })
+      .values({ name, kind: "team", createdByUserId: creatorUserId })
       .returning({ id: orgs.id });
     await tx
       .insert(orgMembers)
-      .values({ orgId: org.id, userId: input.creatorUserId, role: "admin" });
+      .values({ orgId: org.id, userId: creatorUserId, role: "admin" });
     const [team] = await tx
       .insert(teams)
       .values({ orgId: org.id, name })
       .returning({ id: teams.id });
     await tx.insert(auditLog).values({
       orgId: org.id,
-      actorUserId: input.creatorUserId,
+      actorUserId: creatorUserId,
       action: "org.create",
       targetKind: "org",
       targetId: org.id,
@@ -86,25 +125,21 @@ export async function provisionTeamWorkspace(
 }
 
 /**
- * How many team workspaces the user already owns (is an ADMIN member of).
- * Cross-org by nature — a count over the user's memberships joined to team
- * orgs — so it lives here in the pre-scope schema zone rather than behind
- * `forOrg`. Drives the per-user cap in POST /api/workspaces.
+ * How many team workspaces the user CREATED (orgs.created_by_user_id, ADR
+ * 0052) — never how many they administer: an invited-admin membership must not
+ * consume the creation cap. Cross-org by nature, so it lives here in the
+ * pre-scope schema zone rather than behind `forOrg`. The route's cap
+ * enforcement uses the in-transaction count inside provisionTeamWorkspace
+ * (race-safe under the advisory lock); this standalone reader exists for
+ * tests/tooling.
  */
-export async function countAdminTeamWorkspaces(
+export async function countCreatedTeamWorkspaces(
   db: Db,
   userId: string,
 ): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
-    .from(orgMembers)
-    .innerJoin(orgs, eq(orgMembers.orgId, orgs.id))
-    .where(
-      and(
-        eq(orgMembers.userId, userId),
-        eq(orgMembers.role, "admin"),
-        eq(orgs.kind, "team"),
-      ),
-    );
+    .from(orgs)
+    .where(and(eq(orgs.kind, "team"), eq(orgs.createdByUserId, userId)));
   return row?.count ?? 0;
 }

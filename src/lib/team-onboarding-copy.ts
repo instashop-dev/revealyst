@@ -46,12 +46,14 @@ export const CREATE_TEAM_WORKSPACE_MENU_ITEM = "Create team workspace";
 
 /**
  * The plain-English message shown when a user has hit the per-user cap on team
- * workspaces. Server-owned (returned by POST /api/workspaces) so it can't drift
- * from the enforced limit; takes the live cap so the number is never hard-coded
- * in prose. Action-oriented — tells the user what to do next.
+ * workspaces they have CREATED (ADR 0052). Server-owned (returned by POST
+ * /api/workspaces) so it can't drift from the enforced limit; takes the live
+ * cap so the number is never hard-coded in prose. States the fact only — no
+ * remediation is prescribed, because no leave/delete-workspace affordance
+ * exists (a "leave one" instruction would be an impossible action).
  */
 export const teamWorkspaceCapMessage = (max: number): string =>
-  `You can create up to ${max} team workspaces. Leave one you no longer need before creating another.`;
+  `You've created ${max} team workspaces, which is the maximum for one account.`;
 
 /**
  * The invite call-to-action shown on a brand-new team workspace's empty state,

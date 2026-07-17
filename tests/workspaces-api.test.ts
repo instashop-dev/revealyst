@@ -25,7 +25,7 @@ import { createTeamWorkspace } from "@/db/admin";
 import { acceptInvite, invitesForOrg, orgMembersList } from "@/db/invites";
 import { orgContextForUser } from "@/db/org-context";
 import {
-  countAdminTeamWorkspaces,
+  countCreatedTeamWorkspaces,
   MAX_TEAM_WORKSPACES_PER_USER,
   provisionTeamWorkspace,
 } from "@/db/org-provisioning";
@@ -140,7 +140,7 @@ describe("POST /api/workspaces (user-facing create)", () => {
     expect(m2[0].userId).toBe(USER);
   });
 
-  it("enforces the per-user cap with a plain-English 403 at the limit", async () => {
+  it("enforces the per-user CREATION cap with a plain-English 403 at the limit", async () => {
     const capUser = "wsapi-cap";
     const [u] = await db
       .insert(schema.user)
@@ -148,29 +148,32 @@ describe("POST /api/workspaces (user-facing create)", () => {
       .returning();
     await ensureOrgOfOne(db, u);
 
-    // Own (MAX - 1) team workspaces via the shared provisioning helper directly.
+    // Create (MAX - 1) team workspaces via the shared provisioning helper
+    // directly (it stamps orgs.created_by_user_id, ADR 0052).
     for (let i = 0; i < MAX_TEAM_WORKSPACES_PER_USER - 1; i++) {
       await provisionTeamWorkspace(db, {
         name: `Cap ${i}`,
         creatorUserId: capUser,
       });
     }
-    expect(await countAdminTeamWorkspaces(db, capUser)).toBe(
+    expect(await countCreatedTeamWorkspaces(db, capUser)).toBe(
       MAX_TEAM_WORKSPACES_PER_USER - 1,
     );
 
-    // At (MAX - 1) owned, one more is still allowed — reaching MAX.
+    // At (MAX - 1) created, one more is still allowed — reaching MAX.
     h.ctx = userCtx({ userId: capUser });
     const okRes = await createWorkspacePOST(
       jsonReq("POST", { name: "At Limit" }),
     );
     expect(okRes.status).toBe(200);
-    expect(await countAdminTeamWorkspaces(db, capUser)).toBe(
+    expect(await countCreatedTeamWorkspaces(db, capUser)).toBe(
       MAX_TEAM_WORKSPACES_PER_USER,
     );
 
-    // At MAX owned, the next create is refused with the exact plain-English cap
-    // message (server-owned so UI copy can't drift from the enforced limit).
+    // At MAX created, the next create is refused with the exact plain-English
+    // cap message (server-owned so UI copy can't drift from the enforced
+    // limit), and — being checked inside the provisioning transaction — no
+    // partial org row leaked from the refused attempt.
     const capRes = await createWorkspacePOST(
       jsonReq("POST", { name: "Over Limit" }),
     );
@@ -179,6 +182,45 @@ describe("POST /api/workspaces (user-facing create)", () => {
     expect(capBody.error).toBe(
       teamWorkspaceCapMessage(MAX_TEAM_WORKSPACES_PER_USER),
     );
+    expect(await countCreatedTeamWorkspaces(db, capUser)).toBe(
+      MAX_TEAM_WORKSPACES_PER_USER,
+    );
+    const leaked = await db
+      .select()
+      .from(schema.orgs)
+      .where(eq(schema.orgs.name, "Over Limit"));
+    expect(leaked).toHaveLength(0);
+  });
+
+  it("invited-admin memberships do NOT consume the creation cap", async () => {
+    const invitedAdmin = "wsapi-invited-admin";
+    const owner = "wsapi-owner";
+    await db.insert(schema.user).values([
+      { id: invitedAdmin, name: "Invited", email: "invited@ws.example" },
+      { id: owner, name: "Owner", email: "owner@ws.example" },
+    ]);
+
+    // Someone ELSE creates MAX team workspaces and enrolls our user as an
+    // ADMIN member of every one of them.
+    for (let i = 0; i < MAX_TEAM_WORKSPACES_PER_USER; i++) {
+      const { orgId } = await provisionTeamWorkspace(db, {
+        name: `Owner Org ${i}`,
+        creatorUserId: owner,
+      });
+      await db
+        .insert(schema.orgMembers)
+        .values({ orgId, userId: invitedAdmin, role: "admin" });
+    }
+
+    // The cap counts CREATION provenance, not admin memberships — the invited
+    // admin has created nothing, so their own create still succeeds.
+    expect(await countCreatedTeamWorkspaces(db, invitedAdmin)).toBe(0);
+    h.ctx = userCtx({ userId: invitedAdmin });
+    const res = await createWorkspacePOST(
+      jsonReq("POST", { name: "My Own Team" }),
+    );
+    expect(res.status).toBe(200);
+    expect(await countCreatedTeamWorkspaces(db, invitedAdmin)).toBe(1);
   });
 });
 
@@ -216,6 +258,8 @@ describe("provisioning parity (admin seam vs user path)", () => {
         kind: org.kind,
         name: org.name,
         bootstrapUserIsNull: org.bootstrapUserId === null,
+        // Creation provenance (ADR 0052) is stamped on BOTH paths.
+        createdByIsCreator: org.createdByUserId === creatorId,
         memberCount: members.length,
         memberIsAdminCreator:
           members[0]?.userId === creatorId && members[0]?.role === "admin",
