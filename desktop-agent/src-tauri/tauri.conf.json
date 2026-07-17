@@ -31,6 +31,12 @@
       "desktop": {
         "schemes": ["revealyst"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg1ODYxMUIwREE1ODJGRkYKUldUL0wxamFzQkdHaFlBNWZGSEZIS0dRVzNBNkFsV2E3ODF5NjhGNDRwZ21wNDNPTFRjaGp2b3MK",
+      "endpoints": [
+        "https://app.revealyst.com/api/desktop/updates/{{target}}/{{arch}}/stable/{{current_version}}"
+      ]
     }
   },
   "bundle": {

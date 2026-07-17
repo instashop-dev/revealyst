@@ -24,6 +24,7 @@ pub mod state;
 pub mod store;
 pub mod sync;
 pub mod tray;
+pub mod update;
 
 use std::sync::Arc;
 
@@ -92,6 +93,11 @@ pub fn run() {
         // no frontend deep-link capability exists. Production scheme
         // registration is via tauri.conf.json `plugins.deep-link`.
         .plugin(tauri_plugin_deep_link::init())
+        // Signed auto-update (spec §18). Endpoints + baked pubkey are in
+        // tauri.conf.json `plugins.updater`; the startup + 6-hourly check is
+        // driven from `update.rs` (see setup below). The updater has NO frontend
+        // capability — checks run entirely on the Rust side.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::get_agent_snapshot,
             commands::get_autostart,
@@ -158,6 +164,15 @@ pub fn run() {
                             let control = Arc::new(runtime::CollectionControl::default());
                             app.manage(store.clone());
                             app.manage(control.clone());
+                            // Signed auto-update: startup + 6-hourly check (spec
+                            // §18.3). Shares the same store + control as the
+                            // collection loop so a mandatory update can block
+                            // sync (update_required).
+                            update::spawn_loop(
+                                app.handle().clone(),
+                                store.clone(),
+                                control.clone(),
+                            );
                             runtime::spawn_loop(store, control);
                         }
                         Err(error) => tracing::error!(
