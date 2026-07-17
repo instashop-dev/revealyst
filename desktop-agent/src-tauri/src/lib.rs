@@ -104,6 +104,7 @@ pub fn run() {
             commands::get_pending_count,
             commands::delete_pending_data,
             commands::disconnect_device,
+            commands::import_claude_export,
         ])
         .setup(|app| {
             if let Ok(log_dir) = app.path().app_log_dir() {

@@ -115,6 +115,59 @@ pub async fn sync_now<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
     Ok("Sync finished.".to_string())
 }
 
+/// The `{imported, skipped, failed}` counts one export import produced, for the
+/// import screen (spec §11.3.2). Counts only — never a path or any content.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSummary {
+    pub imported: usize,
+    pub skipped: usize,
+    pub failed: usize,
+}
+
+/// User-initiated Claude data-export import (spec §11.3.2). Given a local file
+/// path the user picked, the Rust core validates + parses the export ENTIRELY in
+/// memory (hardened against path traversal + zip bombs) and privacy-gates the
+/// day-aggregates, returning the imported/skipped/failed counts. Errors surface
+/// as plain-English strings, never a path or content. Reading the file uses
+/// `std::fs` on the Rust side — the frontend has no `fs:` capability.
+///
+/// NOTE: the projected events are computed + validated but NOT enqueued into the
+/// shared sync queue. Live import→sync is gated on a connector-scoped-ingest ADR
+/// (the server's window-delete is connection-scoped, so enqueuing an import that
+/// overlaps the live connector's days would clobber those rows — see
+/// `connectors::claude_export`). This command therefore reports what WOULD import
+/// without yet persisting it.
+#[tauri::command]
+pub fn import_claude_export<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+) -> Result<ImportSummary, String> {
+    let store = match app.try_state::<Arc<Store>>() {
+        Some(store) => store.inner().clone(),
+        None => return Err("Import isn't ready yet.".to_string()),
+    };
+    let cfg = runtime::CollectConfig::from_env();
+    let now = crate::store::queue::now_ms();
+    let ctx = runtime::build_context(now, &cfg);
+    let archive_path = std::path::PathBuf::from(&path);
+    match crate::connectors::claude_export::import_archive(&store, &ctx, &archive_path, now) {
+        Ok(outcome) => Ok(ImportSummary {
+            imported: outcome.imported,
+            skipped: outcome.skipped,
+            failed: outcome.failed,
+        }),
+        Err(error) => {
+            tracing::warn!(
+                component = "commands",
+                error_code = error.code(),
+                "claude export import failed"
+            );
+            Err(error.user_message().to_string())
+        }
+    }
+}
+
 /// Pause or resume background collection (the tray/privacy "Pause" control). While
 /// paused, neither the periodic loop nor "Sync now" collects.
 #[tauri::command]

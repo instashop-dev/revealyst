@@ -54,6 +54,7 @@
 //! ([`counts::sanitize_model`](crate::extract::counts)).
 
 pub mod claude_code;
+pub mod claude_export;
 
 use serde::Serialize;
 
