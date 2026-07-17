@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -169,6 +170,45 @@ describe("membershipsForUser + switchActiveOrg (workspace switcher)", () => {
 
     // Switch forward again to the team org.
     expect(await switchActiveOrg(db, user.id, teamOrgId)).toBe(true);
+    expect((await orgContextForUser(db, user.id))!.org.id).toBe(teamOrgId);
+  });
+
+  it("never rewrites created_at — the rendered 'Joined' date stays truthful (ADR 0051)", async () => {
+    const [user] = await db
+      .insert(schema.user)
+      .values({ id: "join-date", name: "JD", email: "jd@example.com" })
+      .returning();
+    const personal = await ensureOrgOfOne(db, user);
+    const { orgId: teamOrgId } = await createTeamWorkspace(db, {
+      name: "JD Team",
+      adminUserId: user.id,
+    });
+
+    const joinDates = async () =>
+      db
+        .select({
+          orgId: schema.orgMembers.orgId,
+          createdAt: schema.orgMembers.createdAt,
+          lastActiveAt: schema.orgMembers.lastActiveAt,
+        })
+        .from(schema.orgMembers)
+        .where(eq(schema.orgMembers.userId, user.id))
+        .orderBy(schema.orgMembers.orgId);
+
+    const before = await joinDates();
+    // Switch twice (back to personal, forward to team) — the exact sequence
+    // that under the old createdAt-bump design rewrote both join dates.
+    expect(await switchActiveOrg(db, user.id, personal.orgId)).toBe(true);
+    expect(await switchActiveOrg(db, user.id, teamOrgId)).toBe(true);
+    const after = await joinDates();
+
+    // created_at byte-identical on every membership; only last_active_at moved.
+    expect(after.map((r) => [r.orgId, r.createdAt.toISOString()])).toEqual(
+      before.map((r) => [r.orgId, r.createdAt.toISOString()]),
+    );
+    const teamRow = after.find((r) => r.orgId === teamOrgId);
+    expect(teamRow?.lastActiveAt).not.toBeNull();
+    // And the team org is active via the coalesce rank, not a createdAt edit.
     expect((await orgContextForUser(db, user.id))!.org.id).toBe(teamOrgId);
   });
 

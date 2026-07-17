@@ -2,7 +2,8 @@ import { composeAgentToken, generateAgentSecret } from "@/lib/agent-token";
 import { getApiContext } from "@/lib/api-context";
 import { getAuth } from "@/lib/auth";
 import { APP_ORIGIN } from "@/lib/domains";
-import { forOrg, membershipForUser } from "@/db/org-scope";
+import { orgContextForUser } from "@/db/org-context";
+import { forOrg } from "@/db/org-scope";
 
 /** Same-origin? Compares the Origin header's host to the request's own host —
  * a cross-site forgery never matches, while localhost dev and CI preview
@@ -46,12 +47,18 @@ export async function POST(
   }
 
   const { db, env } = getApiContext();
-  const membership = await membershipForUser(db, session.user.id);
-  if (!membership) {
+  // ACTIVE-org resolution (ADR 0004/0051) — the same seam appContext uses, so
+  // this route always pairs devices into the workspace the user is currently
+  // in. It previously used the frozen `membershipForUser` (earliest-first,
+  // the ensureOrgOfOne bootstrap check), which disagreed with every other
+  // surface once the workspace switcher shipped: a user switched into a team
+  // workspace would still mint tokens against their oldest org.
+  const orgContext = await orgContextForUser(db, session.user.id);
+  if (!orgContext) {
     return Response.json({ error: "no org membership" }, { status: 403 });
   }
 
-  const scoped = forOrg(db, membership.orgId);
+  const scoped = forOrg(db, orgContext.org.id);
   const connection = await scoped.connections.get(id);
   if (!connection) {
     return Response.json({ error: "connection not found" }, { status: 404 });
@@ -86,6 +93,6 @@ export async function POST(
     });
 
   return Response.json({
-    token: composeAgentToken(membership.orgId, id, secret),
+    token: composeAgentToken(orgContext.org.id, id, secret),
   });
 }

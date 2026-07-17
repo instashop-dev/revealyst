@@ -9,21 +9,35 @@ import * as schema from "../src/db/schema";
 
 // Route-handler harness for the platform-admin team-workspace unblock. Invokes
 // the REAL route handlers (admin/free-band gate, body parse, error mapping, and
-// the cross-org write) against a PGlite db. Only the request-context resolver
-// (appContext) is mocked — it needs the Workers runtime. The admin route's
-// authz matrix (platform admin succeeds; non-admin, impersonating, and
-// signed-out all rejected) plus the switch route's membership check.
+// the cross-org write) against a PGlite db. Only the request-context resolvers
+// (appContext/getApiContext) and getAuth are mocked — they need the Workers
+// runtime. Covers: the admin route's authz matrix (platform admin succeeds;
+// non-admin, impersonating, and signed-out all rejected), the switch route's
+// membership check + impersonation write-block, and the agent-token route's
+// active-org agreement (it must follow the SWITCHED workspace, ADR 0051).
 
-const h = vi.hoisted(() => ({ ctx: null as unknown }));
+const h = vi.hoisted(() => ({
+  ctx: null as unknown,
+  session: null as unknown,
+  apiCtx: null as unknown,
+}));
 vi.mock("@/lib/api-context", () => ({
   appContext: async () => h.ctx,
+  getApiContext: () => h.apiCtx,
+}));
+vi.mock("@/lib/auth", () => ({
+  getAuth: () => ({ api: { getSession: async () => h.session } }),
 }));
 
 import { POST as createWorkspacePOST } from "@/app/api/admin/team-workspaces/route";
+import { POST as agentTokenPOST } from "@/app/api/connections/[id]/agent-token/route";
 import {
   GET as workspacesGET,
   POST as switchPOST,
 } from "@/app/api/org/workspaces/route";
+import { switchActiveOrg } from "@/db/org-context";
+import { parseAgentToken } from "@/lib/agent-token";
+import type { CredentialEnv } from "@/lib/credentials";
 
 let db: Db;
 const ADMIN = "twapi-admin";
@@ -74,8 +88,18 @@ beforeAll(async () => {
   adminPersonalOrgId = (await ensureOrgOfOne(db, admin)).orgId;
 });
 
+function testKek(): string {
+  const bytes = new Uint8Array(32).fill(7);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return `v1:${btoa(binary)}`;
+}
+const CRED_ENV: CredentialEnv = { CREDENTIAL_KEK_CURRENT: testKek() };
+
 beforeEach(() => {
   h.ctx = adminCtx();
+  h.session = null;
+  h.apiCtx = { db, env: CRED_ENV };
 });
 
 describe("POST /api/admin/team-workspaces", () => {
@@ -201,5 +225,97 @@ describe("GET/POST /api/org/workspaces (switcher)", () => {
       }),
     );
     expect(res.status).toBe(401);
+  });
+
+  it("403s a switch from an impersonating session (no state persisted for the victim)", async () => {
+    h.ctx = adminCtx({ impersonating: true });
+    const res = await switchPOST(
+      jsonReq("http://localhost/api/org/workspaces", "POST", {
+        orgId: adminPersonalOrgId,
+      }),
+    );
+    expect(res.status).toBe(403);
+    // The victim's membership was not stamped by the blocked write.
+    const [row] = await db
+      .select({ lastActiveAt: schema.orgMembers.lastActiveAt })
+      .from(schema.orgMembers)
+      .where(eq(schema.orgMembers.orgId, adminPersonalOrgId));
+    expect(row.lastActiveAt).toBeNull();
+  });
+});
+
+describe("POST /api/connections/:id/agent-token — active-org agreement (ADR 0051)", () => {
+  const PAIR_USER = "twapi-pair";
+  let personalOrgId: string;
+  let teamOrgId: string;
+  let personalConnId: string;
+  let teamConnId: string;
+
+  beforeAll(async () => {
+    const [pairUser] = await db
+      .insert(schema.user)
+      .values({ id: PAIR_USER, name: "Pair", email: "pair@tw.example" })
+      .returning();
+    personalOrgId = (await ensureOrgOfOne(db, pairUser)).orgId;
+    const [teamOrg] = await db
+      .insert(schema.orgs)
+      .values({ name: "Pair Team", kind: "team" })
+      .returning();
+    teamOrgId = teamOrg.id;
+    await db
+      .insert(schema.orgMembers)
+      .values({ orgId: teamOrgId, userId: PAIR_USER, role: "admin" });
+    personalConnId = (
+      await forOrg(db, personalOrgId).connections.create({
+        vendor: "revealyst_agent",
+        displayName: "Personal device",
+        authKind: "device_token",
+      })
+    ).id;
+    teamConnId = (
+      await forOrg(db, teamOrgId).connections.create({
+        vendor: "revealyst_agent",
+        displayName: "Team device",
+        authKind: "device_token",
+      })
+    ).id;
+  });
+
+  function pair(connectionId: string) {
+    return agentTokenPOST(
+      jsonReq(
+        `http://localhost/api/connections/${connectionId}/agent-token`,
+        "POST",
+      ),
+      { params: Promise.resolve({ id: connectionId }) },
+    );
+  }
+
+  it("mints tokens against the SWITCHED workspace and 404s the other org's connection", async () => {
+    h.session = { user: { id: PAIR_USER } };
+
+    // Active org right now: the team org (newest membership). Its connection
+    // pairs, and the token carries the TEAM org id.
+    const teamRes = await pair(teamConnId);
+    expect(teamRes.status).toBe(200);
+    const teamToken = (await teamRes.json()) as { token: string };
+    expect(parseAgentToken(teamToken.token)?.orgId).toBe(teamOrgId);
+    // The personal org's connection is invisible from the team workspace —
+    // fails closed exactly as before.
+    expect((await pair(personalConnId)).status).toBe(404);
+
+    // Switch to the personal workspace: the route follows the switch.
+    expect(await switchActiveOrg(db, PAIR_USER, personalOrgId)).toBe(true);
+    const personalRes = await pair(personalConnId);
+    expect(personalRes.status).toBe(200);
+    const personalToken = (await personalRes.json()) as { token: string };
+    expect(parseAgentToken(personalToken.token)?.orgId).toBe(personalOrgId);
+    // And the team connection is now the invisible one.
+    expect((await pair(teamConnId)).status).toBe(404);
+  });
+
+  it("401s when signed out", async () => {
+    h.session = null;
+    expect((await pair(teamConnId)).status).toBe(401);
   });
 });

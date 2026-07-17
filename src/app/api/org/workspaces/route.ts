@@ -34,13 +34,22 @@ export async function GET() {
 
 const switchSchema = z.object({ orgId: z.string().uuid() });
 
-/** POST /api/org/workspaces — switch the active workspace. Rides ADR 0004's
- * most-recent-membership rule (bumps the chosen membership to now). 404 when the
- * caller is not a member of the target — the same status an unknown org yields,
- * so it can't be used to probe org existence. */
+/** POST /api/org/workspaces — switch the active workspace (ADR 0051: stamps the
+ * chosen membership's last_active_at; created_at — the rendered "Joined" date —
+ * is never touched). 404 when the caller is not a member of the target — the
+ * same status an unknown org yields, so it can't be used to probe org
+ * existence. */
 export async function POST(req: Request) {
   return handleApi(
     async (ctx) => {
+      // Impersonation guard, mirroring handleAdminApi's exact detection
+      // (src/lib/admin-context.ts): a platform admin wearing a user's hat must
+      // not PERSIST state for the victim — a switch outlives the support
+      // session and silently re-homes the user's next login. Reads (the GET
+      // above) stay available while impersonating; only the write is blocked.
+      if (ctx.session.session.impersonatedBy) {
+        throw new ApiError(403, "forbidden while impersonating");
+      }
       const body = await parseBody(switchSchema, req);
       const switched = await switchActiveOrg(ctx.db, ctx.user.id, body.orgId);
       if (!switched) {

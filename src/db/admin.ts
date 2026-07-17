@@ -675,20 +675,25 @@ export type CreateTeamWorkspaceResult = {
  * `ensureOrgOfOne` race), so a team workspace must not claim it. A team org has
  * no bootstrap user.
  *
- * Transactional: the org, the admin membership, and the default team all commit
- * together (no half-provisioned workspace). The admin membership row's fresh
- * `createdAt` also makes this the admin's most-recent membership, so ADR 0004
- * resolution lands them in the new workspace on their next load — reachable
- * without any switch. The audit row is written after commit, into the NEW org's
- * trail (visible in the cross-org platform audit viewer too), mirroring how
- * `team.create` audits into its org.
+ * Transactional: the org, the admin membership, the default team, AND the
+ * `org.create` audit row all commit together — no half-provisioned workspace,
+ * and no post-commit audit write whose failure would 500 a request that
+ * already created the org (a retry would then mint a duplicate orphan org).
+ * The audit insert is a direct table write inside the tx (this module's
+ * sanctioned raw-schema zone) mirroring `auditLogNamespace.record`'s exact row
+ * shape — `forOrg().auditLog` closes over the outer `db`, not the tx, so it
+ * cannot be reused here. Cross-org readable via platformAuditList, so the
+ * genesis event shows in the /admin audit viewer. The admin membership row's
+ * fresh `createdAt` also makes this the admin's most-recently-activated
+ * membership (ADR 0004/0051), so resolution lands them in the new workspace on
+ * their next load — reachable without any switch.
  */
 export async function createTeamWorkspace(
   db: Db,
   input: { name: string; adminUserId: string },
 ): Promise<CreateTeamWorkspaceResult> {
   const name = input.name.trim();
-  const { orgId, teamId } = await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const [org] = await tx
       .insert(orgs)
       .values({ name, kind: "team" })
@@ -700,18 +705,14 @@ export async function createTeamWorkspace(
       .insert(teams)
       .values({ orgId: org.id, name })
       .returning({ id: teams.id });
+    await tx.insert(auditLog).values({
+      orgId: org.id,
+      actorUserId: input.adminUserId,
+      action: "org.create",
+      targetKind: "org",
+      targetId: org.id,
+      metadata: { name, kind: "team", defaultTeamId: team.id },
+    });
     return { orgId: org.id, teamId: team.id };
   });
-
-  // Genesis event in the new org's own trail (ADR 0010). Cross-org readable via
-  // platformAuditList, so it also shows in the /admin audit viewer.
-  await forOrg(db, orgId).auditLog.record({
-    actorUserId: input.adminUserId,
-    action: "org.create",
-    targetKind: "org",
-    targetId: orgId,
-    metadata: { name, kind: "team", defaultTeamId: teamId },
-  });
-
-  return { orgId, teamId };
 }
