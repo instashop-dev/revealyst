@@ -196,7 +196,10 @@ pub fn disconnect_device() -> Result<(), String> {
         );
         return Err("Could not fully disconnect this computer. Please try again.".to_string());
     }
-    tracing::info!(component = "commands", "device disconnected (keychain secrets wiped)");
+    tracing::info!(
+        component = "commands",
+        "device disconnected (keychain secrets wiped)"
+    );
     Ok(())
 }
 
