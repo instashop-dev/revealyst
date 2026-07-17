@@ -94,6 +94,29 @@ describe("WorkspaceSwitcher", () => {
     expect(await axe(container)).toHaveNoViolations();
     expect(container.textContent ?? "").not.toMatch(BANNED_PHRASING);
   });
+
+  it("offers a 'Create team workspace' affordance that opens the create dialog", async () => {
+    // Menu open triggers the lazy workspace fetch — stub it so it doesn't error.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => WORKSPACES }),
+    );
+    render(
+      <WorkspaceSwitcher currentOrg={{ name: "My space", kind: "personal" }} />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /switch workspace/i }),
+    );
+    const createItem = await screen.findByText(/create team workspace/i);
+    await userEvent.click(createItem);
+
+    // The shared create dialog opens with plain, benchmark-free copy.
+    expect(
+      await screen.findByText(/a team workspace is a shared space/i),
+    ).toBeInTheDocument();
+    expect(document.body.textContent ?? "").not.toMatch(BANNED_PHRASING);
+    expect(await axe(document.body)).toHaveNoViolations();
+  });
 });
 
 describe("CreateTeamWorkspaceDialog (admin)", () => {

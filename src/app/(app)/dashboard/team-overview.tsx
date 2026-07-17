@@ -57,6 +57,7 @@ import { timeStage } from "@/lib/request-timing";
 import { computeSignalCoverage } from "@/lib/signal-coverage";
 import { isTeamOverviewView, trackLaunchEvent } from "@/lib/launch-events";
 import { TEAM_OVERVIEW_COPY } from "@/lib/team-overview-copy";
+import { NEW_TEAM_INVITE_CTA } from "@/lib/team-onboarding-copy";
 import { MANAGER_ROSTER_COPY } from "@/lib/manager-capability-copy";
 import { managerSurfaceAvailable } from "@/lib/manager-capability-view";
 import {
@@ -500,6 +501,19 @@ export async function TeamOverview({ ctx }: { ctx: AppContext }) {
           title="No scores yet"
           description="Adoption, Fluency, and Efficiency scores appear after your first connection syncs data. Nothing here is estimated — scores only ever come from real, attributed metrics."
         >
+          {/* A brand-new team workspace lands here. Point the admin who just
+           * created it at inviting people (Settings → People, where the invite
+           * affordance lives) so the create → invite path is coherent. Members
+           * can't manage people, so they see only the "how scores work" link. */}
+          {ctx.role === "admin" ? (
+            <Button
+              nativeButton={false}
+              render={<Link href="/settings/people" />}
+            >
+              <UsersRound data-icon="inline-start" />
+              {NEW_TEAM_INVITE_CTA.action}
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             nativeButton={false}
