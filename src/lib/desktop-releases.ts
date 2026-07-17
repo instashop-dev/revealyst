@@ -82,9 +82,18 @@ export type DesktopRelease = {
   rolloutPct: number;
   /** True ONLY for security/privacy/protocol-critical releases (spec §18.3):
    * the agent then enters `update_required` and blocks sync until updated.
-   * Surfaced in the manifest; the agent's mandatory-block also has the signed
-   * config's `minimumAgentVersion` as its authoritative, signed enforcement
-   * path (see `desktop-agent/src-tauri/src/config.rs`). */
+   * Today this block is driven SOLELY by this `mandatory` flag on the manifest
+   * served by the unauthenticated updates endpoint — the agent reads it and
+   * gates collection (`update.rs` → `CollectionControl`). A parallel,
+   * signature-backed enforcement path exists in
+   * `desktop-agent/src-tauri/src/config.rs` (a signed config's
+   * `minimumAgentVersion` resolves to `UpdateRequired`), but that resolution is
+   * NOT yet wired into the collection gate — wiring it in as defense-in-depth
+   * (so a signed config can also enforce/clear the block, not just the unsigned
+   * manifest) is a documented follow-up. Until then, a sustained transport MITM
+   * could hold a client in `update_required` (a sync stall, never code
+   * execution — the artifact will not install without a valid baked-pubkey
+   * signature). */
   mandatory: boolean;
   /** Per-target artifact + signature. A caller whose target is absent is not
    * offered this release. */

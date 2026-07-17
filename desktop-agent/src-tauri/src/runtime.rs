@@ -231,7 +231,10 @@ mod tests {
         // A pending mandatory update forbids collection regardless of the
         // pause/enrollment state (spec §20 update_required blocks sync).
         assert!(!collection_allowed(&control));
-        // Clearing it (update installed / release pulled) re-permits the gate.
+        // Clearing it (update installed / release pulled) flips the flag back
+        // off. (We can't assert collection_allowed becomes true here — this test
+        // has no keychain token, so the enrollment gate keeps it false; the
+        // point proven is that update_required no longer contributes a block.)
         control.set_update_required(false);
         assert!(!control.is_update_required());
     }

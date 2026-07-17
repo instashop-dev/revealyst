@@ -285,8 +285,14 @@ mod wiring {
         match updater.check().await {
             Ok(Some(update)) => {
                 let available = AvailableUpdate::from_parts(&update.version, &update.raw_json);
-                if update_required(crate::agent_version(), Some(&available)) {
-                    control.set_update_required(true);
+                // Set the block to the COMPUTED value unconditionally — a
+                // superseding NON-mandatory release must CLEAR a stale block
+                // left by an earlier mandatory update whose install failed (user
+                // declined UAC / interrupted) and was then halted. Only a
+                // still-present newer mandatory update keeps it set.
+                let blocking = update_required(crate::agent_version(), Some(&available));
+                control.set_update_required(blocking);
+                if blocking {
                     tracing::warn!(
                         component = "update",
                         result = "mandatory",
@@ -462,6 +468,37 @@ mod tests {
         };
         assert!(!update_required("0.1.0", Some(&opt_new)));
         // No update → never blocks.
+        assert!(!update_required("0.1.0", None));
+    }
+
+    /// The availability fix (F1): the block flag is the COMPUTED value of the
+    /// currently-offered release, so a superseding NON-mandatory release clears
+    /// a stale block left by an earlier mandatory update. This is the exact
+    /// value `check_once` now stores unconditionally in the `Ok(Some(_))` arm.
+    #[test]
+    fn a_non_mandatory_release_clears_a_prior_mandatory_block() {
+        // R1: mandatory + newer → the block would be set.
+        let r1 = AvailableUpdate {
+            version: "0.2.0".into(),
+            mandatory: true,
+        };
+        let blocked_after_r1 = update_required("0.1.0", Some(&r1));
+        assert!(blocked_after_r1, "a newer mandatory release blocks");
+
+        // R1's install failed and ops halted it; the next check now returns a
+        // NON-mandatory R2. The computed flag for R2 is false → the block clears
+        // (no more mandatory update pending), so sync is not stuck forever.
+        let r2 = AvailableUpdate {
+            version: "0.3.0".into(),
+            mandatory: false,
+        };
+        let blocked_after_r2 = update_required("0.1.0", Some(&r2));
+        assert!(
+            !blocked_after_r2,
+            "a superseding non-mandatory release clears the block"
+        );
+
+        // And an Ok(None) check (no offer at all) also computes to false.
         assert!(!update_required("0.1.0", None));
     }
 
