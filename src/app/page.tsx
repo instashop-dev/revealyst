@@ -55,7 +55,7 @@ import {
 export const metadata: Metadata = {
   title: "Revealyst — see who's actually adopting AI, and how well",
   description:
-    "Neutral, cross-tool AI adoption analytics. Revealyst turns the admin APIs of Cursor, OpenAI, and Anthropic — plus Claude Code — into Adoption, Fluency, and Efficiency scores your board will believe. Team-level, pseudonymized, no prompt content.",
+    "Neutral AI adoption analytics. The Revealyst Agent reads your Claude Code usage on your own machine and turns it into Adoption, Fluency, and Efficiency scores your board will believe. Team-level, pseudonymized, no prompt content.",
   openGraph: {
     title: "Revealyst — see who's actually adopting AI, and how well",
     description:
@@ -157,7 +157,7 @@ const PRIVACY_POINTS = [
     icon: Unplug,
     title: "No extension, no proxy",
     detail:
-      "Ingestion is admin APIs and keys you control. We rejected browser extensions outright — that's monitoring, and it's not the product.",
+      "Ingestion is an on-device agent you run yourself — it reads your local AI-tool logs and pushes only aggregates. We rejected browser extensions outright — that's monitoring, and it's not the product.",
   },
   {
     icon: FileSearch,
@@ -265,10 +265,10 @@ export default function Home() {
                 your AI tools.
               </h1>
               <p className="text-lg text-muted-foreground text-pretty">
-                Revealyst reads the admin APIs of the AI tools you already pay
-                for and turns them into Adoption, Fluency, and Efficiency
-                scores you can defend. Team-level and pseudonymized by default.
-                No prompt content, ever.
+                Revealyst reads your AI usage right where it happens — the
+                Revealyst Agent runs on your own machine — and turns it into
+                Adoption, Fluency, and Efficiency scores you can defend.
+                Team-level and pseudonymized by default. No prompt content, ever.
               </p>
               <div className="flex flex-wrap items-center gap-3">
                 <Button
