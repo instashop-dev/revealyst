@@ -32,7 +32,7 @@ import {
   computeAgenticAdoption,
 } from "@/lib/agentic-adoption";
 import { detectDailySpike } from "@/lib/anomaly";
-import { type AppContext } from "@/lib/api-context";
+import { requireAppContext } from "@/lib/api-context";
 import { dashboardSummary } from "@/lib/api-impl";
 import {
   buildDailyNudge,
@@ -82,16 +82,19 @@ import { CAPABILITY_STATE_CONSTANTS } from "@/scoring/capability-state";
 import { deriveMissionRows } from "@/scoring/mission-progress";
 import { AttentionSection, DAY_MS, SpendGovernanceLine } from "./shared";
 
-export async function PersonalSelfView({
-  ctx,
-  connectionsPromise,
-}: {
-  ctx: AppContext;
-  // Passed in flight (not awaited) so it overlaps the pageData batch below —
-  // resolved inside that batch's single Promise.all, then the onboarding gate
-  // is evaluated on the result before any card renders.
-  connectionsPromise: ReturnType<AppContext["scope"]["connections"]["list"]>;
-}) {
+export async function PersonalSelfView() {
+  // Fetched here, NOT passed as a prop from page.tsx: React's `cache()`
+  // dedupes appContext within the request (zero extra queries), and a
+  // server-component PROP carrying the AppContext poisons `next dev` — the
+  // dev flight stream serializes element props as debug info, introspecting
+  // ctx.env (the miniflare magic proxy) RPCs into workerd ("Failed to get
+  // handler to worker") and the whole route falls to its error boundary.
+  // Production is indifferent; local dev is not.
+  const ctx = await requireAppContext();
+  // Kicked off before the batch (not awaited) so it overlaps the pageData
+  // batch below — resolved inside that batch's single Promise.all, then the
+  // onboarding gate is evaluated on the result before any card renders.
+  const connectionsPromise = ctx.scope.connections.list();
   const today = new Date().toISOString().slice(0, 10);
   const period = periodFor("month", today);
   const prevPeriod = periodFor("month", previousDay(period.periodStart));
