@@ -6,9 +6,15 @@
 // factories, and recomputeOrg. Raw table writes happen ONLY where no writer
 // exists on those seams: auth users' emailVerified flip + org_members rows
 // (mirrors the exact pattern ensureOrgOfOne itself uses, and
-// tests/personal-presets-seed.test.ts's createAuthUser) and the benchmarks
-// verified-status flip (README.md item 12). See README.md for the full
-// invariant list this file must not violate.
+// tests/personal-presets-seed.test.ts's createAuthUser), the benchmarks
+// verified-status flip (README.md item 12), BACKDATED mission_progress
+// opt-ins (missions.start can't set started_at — a frozen-seam param would
+// need an ADR — and a wall-clock start would postdate the reducer's
+// asOfDay-derived completion stamp), and BACKDATED people.created_at
+// (peopleCreatedOn — no seam sets created_at, and a seed-run stamp
+// postdates every data window, zeroing maturity's knownPeopleAsOf
+// activation denominator). See README.md for the full invariant list this
+// file must not violate.
 //
 // scripts/** sits outside the org-scope guard's static scan (CLAUDE.md), so
 // the raw inserts/updates below are a deliberate, reviewed exception, not a
@@ -23,22 +29,37 @@ import {
   type LoadedFixture,
 } from "../../src/db/fixtures";
 import { invitesForOrg } from "../../src/db/invites";
+import { switchActiveOrg } from "../../src/db/org-context";
 import {
   forOrg,
   membershipForUser,
   type OrgScopedDb,
 } from "../../src/db/org-scope";
-import { benchmarks, orgMembers, orgs, people, user } from "../../src/db/schema";
+import {
+  benchmarks,
+  missionProgress,
+  orgMembers,
+  orgs,
+  people,
+  user,
+} from "../../src/db/schema";
 import { shareLinksForOrg } from "../../src/db/share-links";
 import { applyPaddleSubscriptionEvent } from "../../src/db/subscriptions";
 import { createAuth, type Auth, type AuthEnv } from "../../src/lib/auth";
 import { periodFor } from "../../src/scoring/periods";
 import { recomputeOrg } from "../../src/scoring/recompute";
+import { recomputeCapabilityHistory } from "../../src/scoring/recompute-capability-history";
+import { recomputeCapabilityState } from "../../src/scoring/recompute-capability-state";
+import { recomputeTeamInsights } from "../../src/scoring/recompute-team-insights";
 import type {
   ConnectionStateSpec,
   ConnectorRunSpec,
   CustomIndexSpec,
   LoadSeedPlanResult,
+  MissionStartSpec,
+  RecExposureSpec,
+  RecInteractionSpec,
+  RenewalSpec,
   SeedOrgPlan,
   SeedPlan,
   ShareLinkSpec,
@@ -223,6 +244,89 @@ async function applyShareLink(
     publicLabel: spec.publicLabel,
     createdByUserId: userIdByPersonKey.get(spec.person),
   });
+}
+
+function resolvePersonId(
+  loaded: LoadedFixture,
+  personKey: string,
+  specName: string,
+): string {
+  const personId = loaded.people[personKey];
+  if (!personId) {
+    throw new Error(`${specName} references unknown person '${personKey}'`);
+  }
+  return personId;
+}
+
+/**
+ * Renewal chip + suppressed reminder emails: writes the user-entered
+ * connections.renewal_date, then pre-claims the given T-thresholds in
+ * renewal_reminder_state exactly as the reminder cron would after sending —
+ * so a live cron run against a long-lived demo DB never emails a fixture
+ * address for a threshold the seed narrative says already fired.
+ */
+async function applyRenewal(
+  scoped: OrgScopedDb,
+  loaded: LoadedFixture,
+  spec: RenewalSpec,
+): Promise<void> {
+  const connectionId = loaded.connections[spec.connection];
+  if (!connectionId) {
+    throw new Error(`renewals references unknown connection '${spec.connection}'`);
+  }
+  await scoped.connections.update(connectionId, { renewalDate: spec.renewalDate });
+  for (const threshold of spec.claimThresholds ?? []) {
+    await scoped.renewalReminderState.claim(connectionId, spec.renewalDate, threshold);
+  }
+}
+
+async function applyRecInteraction(
+  scoped: OrgScopedDb,
+  loaded: LoadedFixture,
+  spec: RecInteractionSpec,
+): Promise<void> {
+  const personId = resolvePersonId(loaded, spec.person, "recInteractions");
+  await scoped.recInteractions.set({
+    personId,
+    recId: spec.recId,
+    state: spec.state,
+    snoozeUntil: spec.snoozeUntilDay
+      ? new Date(`${spec.snoozeUntilDay}T00:00:00.000Z`)
+      : null,
+  });
+}
+
+/**
+ * Backdated mission opt-in. This is one of the loader's documented RAW
+ * writes (file header): the production seam (missions.start) stamps
+ * started_at = now(), but a seeded start must PREDATE the derivedRecompute
+ * pass that completes it (the reducer stamps completed_at from that pass's
+ * asOfDay), or the demo would show a mission completed before it started.
+ * Mirrors missions.start exactly otherwise — same conflict target, same
+ * "a re-start never resets a completed row" semantics.
+ */
+async function applyMissionStart(
+  db: Db,
+  orgId: string,
+  loaded: LoadedFixture,
+  spec: MissionStartSpec,
+): Promise<void> {
+  const personId = resolvePersonId(loaded, spec.person, "missionStarts");
+  await db
+    .insert(missionProgress)
+    .values({
+      orgId,
+      personId,
+      missionSlug: spec.missionSlug,
+      startedAt: new Date(`${spec.startedOnDay}T09:00:00.000Z`),
+    })
+    .onConflictDoNothing({
+      target: [
+        missionProgress.orgId,
+        missionProgress.personId,
+        missionProgress.missionSlug,
+      ],
+    });
 }
 
 type OrgSummary = LoadSeedPlanResult["orgs"][number];
@@ -428,12 +532,149 @@ async function loadOrgPlan(
     });
   }
 
+  // ── Post-W5 org-scoped surfaces (roles/teams/emails/recs/missions) ──
+  // All are plain seam writes; mission starts MUST land before the derived
+  // chain below, or the reducer has nothing to complete. Each group's rows
+  // are independent of one another, so every group runs as one Promise.all
+  // wave — the prod-safe seed pays ~600ms per Neon round trip, and Acme
+  // alone has ~40 of these rows. Only the budget-threshold claims stay
+  // sequential (claimThreshold is a monotonic compare-and-set).
+  const anchorMonth = anchorDay.slice(0, 7);
+
+  // Backdated people.created_at (another documented raw write — no seam
+  // sets created_at, and the fixture loader's seed-run stamp postdates every
+  // data window, which zeroes maturity's knownPeopleAsOf activation
+  // denominator and makes the LEVEL structurally unplaceable on seed data).
+  await Promise.all(
+    (orgPlan.peopleCreatedOn ?? []).map((spec) =>
+      db
+        .update(people)
+        .set({ createdAt: new Date(`${spec.day}T00:00:00.000Z`) })
+        .where(
+          and(
+            eq(people.orgId, orgId),
+            eq(people.id, resolvePersonId(loaded, spec.person, "peopleCreatedOn")),
+          ),
+        ),
+    ),
+  );
+
+  if (orgPlan.roleAssignments?.length) {
+    // Production role assignment is an admin action — attribute it to the
+    // org's first admin user (the same convention invites use).
+    const adminSpec = users.find(
+      (u) => u.orgRole === "admin" && userIdByKey.has(u.key),
+    );
+    const assignedByUserId = adminSpec ? userIdByKey.get(adminSpec.key) : null;
+    await Promise.all(
+      orgPlan.roleAssignments.map((spec) =>
+        scoped.roles.assign({
+          personId: resolvePersonId(loaded, spec.person, "roleAssignments"),
+          roleSlug: spec.roleSlug,
+          assignedByUserId,
+        }),
+      ),
+    );
+  }
+
+  await Promise.all(
+    (orgPlan.teamManagers ?? []).map((spec) => {
+      const teamId = loaded.teams[spec.team];
+      const userId = userIdByKey.get(spec.user);
+      if (!teamId) throw new Error(`teamManagers references unknown team '${spec.team}'`);
+      if (!userId) throw new Error(`teamManagers references unknown user '${spec.user}'`);
+      return scoped.teamManagers.assign(teamId, userId);
+    }),
+  );
+
+  await Promise.all(
+    (orgPlan.teamSettings ?? []).map((spec) => {
+      const teamId = loaded.teams[spec.team];
+      if (!teamId) throw new Error(`teamSettings references unknown team '${spec.team}'`);
+      return scoped.teamSettings.set(teamId, {
+        managersSeeIndividualCost: spec.managersSeeIndividualCost,
+      });
+    }),
+  );
+
+  if (orgPlan.execReport) {
+    await scoped.execReportState.setEnabled(orgPlan.execReport.enabled);
+    if (orgPlan.execReport.enabled && orgPlan.execReport.claimCurrentMonth) {
+      // Claim the anchor month as if the memo already went out, so a live
+      // monthly cron never emails this org's fixture addresses.
+      await scoped.execReportState.claimMonth(anchorMonth);
+    }
+  }
+
+  await Promise.all(
+    (orgPlan.renewals ?? []).map((spec) => applyRenewal(scoped, loaded, spec)),
+  );
+
+  for (const threshold of orgPlan.budgetClaimedThresholds ?? []) {
+    await scoped.budgetAlertState.claimThreshold(anchorMonth, threshold);
+  }
+
+  await Promise.all(
+    (orgPlan.digestPreferences ?? []).map((spec) => {
+      const userId = userIdByKey.get(spec.user);
+      if (!userId) {
+        throw new Error(`digestPreferences references unknown user '${spec.user}'`);
+      }
+      return scoped.digestPreferences.setEnabled(userId, spec.enabled);
+    }),
+  );
+
+  await Promise.all(
+    (orgPlan.recInteractions ?? []).map((spec) =>
+      applyRecInteraction(scoped, loaded, spec),
+    ),
+  );
+
+  if (orgPlan.recExposures?.length) {
+    // One batched write, mirroring the digest sender's off-hot-path log().
+    await scoped.exposures.log(
+      orgPlan.recExposures.map((spec: RecExposureSpec) => ({
+        personId: resolvePersonId(loaded, spec.person, "recExposures"),
+        recId: spec.recId,
+        surface: spec.surface,
+        shownAt: spec.day,
+        experimentKey: null,
+        variant: null,
+      })),
+    );
+  }
+
+  await Promise.all(
+    (orgPlan.missionStarts ?? []).map((spec) =>
+      applyMissionStart(db, orgId, loaded, spec),
+    ),
+  );
+
   let scoreResults = 0;
   for (const r of orgPlan.recompute) {
     const summary = await recomputeOrg(db, orgId, {
       period: periodFor(r.grain, r.anchorDay),
     });
     scoreResults += summary.resultsWritten;
+  }
+
+  // The derived chain the poller's score-recompute step runs after
+  // recomputeOrg (src/poller/process.ts) — replayed here per pass so
+  // user_capability_state / team_capability_history / team_insights are
+  // DERIVED from the seeded evidence by the real engines, never fabricated.
+  // Mission completion also flows through the reducer's measured-crossing
+  // stamp inside recomputeCapabilityState.
+  for (const pass of orgPlan.derivedRecompute ?? []) {
+    const cap = await recomputeCapabilityState(db, orgId, { asOfDay: pass.asOfDay });
+    await recomputeCapabilityHistory(db, orgId, { asOfDay: pass.asOfDay });
+    if (pass.teamInsights) {
+      await recomputeTeamInsights(db, orgId, { asOfDay: pass.asOfDay });
+    }
+    console.log(
+      `seed: derived pass ${pass.asOfDay} for "${orgPlan.name}" — ` +
+        `${cap.rowsWritten} capability rows / ${cap.peopleWithState} people, ` +
+        `${cap.missionsCompleted} missions completed`,
+    );
   }
 
   return {
@@ -464,6 +705,67 @@ export async function loadSeedPlan(
     const summary = await loadOrgPlan(db, auth, orgPlan, plan.anchorDay);
     if (summary) {
       orgResults.push(summary);
+    }
+  }
+
+  // ── Cross-org memberships + active workspaces (workspace-switcher demo) ──
+  // Applied AFTER the org loop so both sides exist. Org names resolve ONLY
+  // against orgs THIS RUN created (never findOrgIdByName): on a long-lived
+  // DB a real org can share a demo base name exactly (the adversarially
+  // reproduced teardown collision), and a name-wide lookup would grant a
+  // committed-password demo account membership in the REAL org. Warn-and-
+  // skip (never throw) on a missing user/org: a re-run skips every existing
+  // org above, so these plan-level extras must stay best-effort.
+  const createdOrgIdByName = new Map(orgResults.map((o) => [o.name, o.orgId]));
+  const resolveMembershipTarget = async (
+    spec: { email: string; orgName: string },
+    label: string,
+  ): Promise<{ userId: string; orgId: string } | undefined> => {
+    const [u] = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.email, spec.email))
+      .limit(1);
+    const targetOrgId = createdOrgIdByName.get(spec.orgName);
+    if (!u || !targetOrgId) {
+      console.warn(
+        `seed: ${label} skipped — ${!u ? `no user '${spec.email}'` : `org "${spec.orgName}" was not created by this run`}`,
+      );
+      return undefined;
+    }
+    return { userId: u.id, orgId: targetOrgId };
+  };
+
+  for (const spec of plan.crossOrgMemberships ?? []) {
+    const target = await resolveMembershipTarget(spec, "crossOrgMemberships");
+    if (!target) continue;
+    // Same documented raw org_members exception the per-org loader uses
+    // (mirrors ensureOrgOfOne's own insert); idempotent on re-run. The join
+    // date is backdated a minute so the activeWorkspaces switch below
+    // STRICTLY outranks it — under the tests' frozen clock, a same-instant
+    // created_at ties with switchActiveOrg's last_active_at stamp and the
+    // active org falls to the org-id tiebreak (nondeterministic per run).
+    await db
+      .insert(orgMembers)
+      .values({
+        orgId: target.orgId,
+        userId: target.userId,
+        role: spec.role,
+        createdAt: new Date(Date.now() - 60_000),
+      })
+      .onConflictDoNothing();
+  }
+
+  for (const spec of plan.activeWorkspaces ?? []) {
+    const target = await resolveMembershipTarget(spec, "activeWorkspaces");
+    if (!target) continue;
+    // The production switcher seam (ADR 0051) — stamps last_active_at so the
+    // resolver picks this org over the later-created cross-org membership.
+    const switched = await switchActiveOrg(db, target.userId, target.orgId);
+    if (!switched) {
+      console.warn(
+        `seed: activeWorkspaces — '${spec.email}' is not a member of "${spec.orgName}"`,
+      );
     }
   }
 

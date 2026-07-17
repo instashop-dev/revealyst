@@ -852,6 +852,56 @@ function emitClaudeCodeLocalDay(
   });
 }
 
+/**
+ * OTel marker source (W7-8, ADR 0039) — mirrors src/lib/otel-receiver.ts's
+ * OTEL_SOURCE (the tests pin the two strings against each other). Markers are
+ * a SEPARATE channel from the claude_code_local connector: the receiver
+ * ingests real Claude Code telemetry keyed by the same device token, so the
+ * honest seed shape is marker rows on the SAME claude_code_local person
+ * subject, distinct sourceConnector.
+ */
+export const OTEL_MARKER_SOURCE_CONNECTOR = "claude-code-otel@1";
+
+/** Acme personas whose local agent (honestly) also ships OTel telemetry —
+ * the ONLY people whose capabilities may render the `measured` tier. Must be
+ * a subset of the personas running claude_code_local (a marker without a
+ * local agent would fabricate a channel the person doesn't have). */
+export const OTEL_MARKER_PERSONAS: ReadonlySet<string> = new Set(["brisk-falcon"]);
+
+/**
+ * One day of OTel marker metrics (mig 0034: otel_active_time seconds,
+ * otel_edit_accepted/rejected counts). Emitted alongside (never instead of)
+ * emitClaudeCodeLocalDay for the OTel-enabled personas. With ≥2 distinct
+ * markers carrying evidence, the capability engine upgrades bound
+ * capabilities (effective-prompting, ship-with-ai) from `directional` to
+ * `measured` — agentic-delivery binds only otel_active_time, so it stays
+ * directional by construction (both tiers visible on one person).
+ */
+function emitOtelMarkersDay(
+  g: GraphBuilder,
+  rng: Rng,
+  subjectKey: string,
+  day: string,
+): void {
+  const sc = OTEL_MARKER_SOURCE_CONNECTOR;
+  const attribution: AttributionLevel = "person";
+  g.addRecord(
+    rec(subjectKey, "otel_active_time", day, "", jitterInt(rng, 9000, 0.5, 1200), attribution, sc),
+  );
+  g.addRecord(
+    rec(subjectKey, "otel_edit_accepted", day, "", jitterInt(rng, 16, 0.5, 3), attribution, sc),
+  );
+  // ~1 day in 5 has NO rejected-edit row at all — the receiver never
+  // zero-fills, so a rejection-free day IS honest absence, and the demo
+  // data should contain that state (jitterInt alone can't produce it: its
+  // jitter band around 4 never reaches 0).
+  if (chance(rng, 0.8)) {
+    g.addRecord(
+      rec(subjectKey, "otel_edit_rejected", day, "", jitterInt(rng, 4, 0.6, 1), attribution, sc),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Special Acme subjects: the shared console login, the unresolved CI key,
 // and the two org-level billing accounts.
@@ -1247,6 +1297,9 @@ function buildAcmeGraph(rng: Rng, ctx: WindowCtx): GraphBuilder {
             break;
           case "claude_code_local":
             emitClaudeCodeLocalDay(g, rng, subjectKey, day, multiplier, weekIndex, promptsMult);
+            if (OTEL_MARKER_PERSONAS.has(persona.key)) {
+              emitOtelMarkersDay(g, rng, subjectKey, day);
+            }
             break;
         }
       }
@@ -1380,6 +1433,28 @@ function buildAcmeOrg(ctx: WindowCtx): SeedOrgPlan {
         person: "brisk-falcon",
       },
       {
+        // Team-manager demo (TCI): manages Product Eng below. Linked to a
+        // person so their own self-view renders too.
+        key: "member-manager",
+        name: "Marco Lynx",
+        email: `amber-lynx@${ACME_EMAIL_DOMAIN}`,
+        password: "Demo-Pass-2026!",
+        orgRole: "member",
+        person: "amber-lynx",
+      },
+      {
+        // Coaching demo: sable-wren is the engineered "weak Data team"
+        // persona, so THIS login's Today page actually renders coaching
+        // recommendations (low measured components) + the interaction states
+        // and the in-progress mission seeded below.
+        key: "member-coach",
+        name: "Devi Wren",
+        email: `sable-wren@${ACME_EMAIL_DOMAIN}`,
+        password: "Demo-Pass-2026!",
+        orgRole: "member",
+        person: "sable-wren",
+      },
+      {
         key: "platform-staff",
         name: "Sam Reyes",
         email: "sam.reyes@revealyst.example",
@@ -1488,6 +1563,86 @@ function buildAcmeOrg(ctx: WindowCtx): SeedOrgPlan {
       { grain: "month", anchorDay: ctx.anchorDay },
       { grain: "rolling_28d", anchorDay: ctx.anchorDay },
     ],
+    // Known-since dates: everyone from the window start except the new
+    // joiner (their real eligibility start) — maturity's activation
+    // denominator (knownPeopleAsOf) divides by these, and the level is
+    // unplaceable while created_at postdates the data window.
+    peopleCreatedOn: ACME_PEOPLE.map((p) => ({
+      person: p.key,
+      day:
+        p.activeSinceDaysBeforeAnchor != null
+          ? addDays(ctx.anchorDay, -p.activeSinceDaysBeforeAnchor)
+          : ctx.windowStart,
+    })),
+    // Every person gets an engineering role (Settings roster + the W6-C
+    // catalog's applicable_roles eligibility gate both read these).
+    roleAssignments: ACME_PEOPLE.map((p) => ({ person: p.key, roleSlug: p.role })),
+    teamManagers: [{ team: "product_eng", user: "member-manager" }],
+    // Only Product Eng flips the D-TCI-2 spend toggle — the other two teams
+    // stay at the absent-row default (the settings contrast case).
+    teamSettings: [{ team: "product_eng", managersSeeIndividualCost: true }],
+    // Settings shows the memo opted in; the anchor month is pre-claimed so a
+    // live monthly cron never emails the fixture admins.
+    execReport: { enabled: true, claimCurrentMonth: true },
+    // Renewal chips on Connections: one mid-horizon, one urgent. Both
+    // reminder thresholds pre-claimed — the demo shows the chip (from
+    // connections.renewal_date), never a live reminder email.
+    renewals: [
+      { connection: "cursor", renewalDate: addDays(ctx.anchorDay, 21), claimThresholds: [30, 7] },
+      { connection: "openai_legacy", renewalDate: addDays(ctx.anchorDay, 5), claimThresholds: [30, 7] },
+    ],
+    // MTD lands ≈85% of the budget above — 50 and 80 have crossed (and are
+    // claimed as already-emailed), 100 has not.
+    budgetClaimedThresholds: [50, 80],
+    digestPreferences: [
+      { user: "tara", enabled: false },
+      { user: "member-coach", enabled: true },
+    ],
+    // All three interaction states on the coach persona (self-view demo) +
+    // one "tried" on the power user.
+    recInteractions: [
+      {
+        person: "sable-wren",
+        recId: "adoption-active-days",
+        state: "snoozed",
+        snoozeUntilDay: addDays(ctx.anchorDay, 7),
+      },
+      { person: "sable-wren", recId: "efficiency-output-per-spend", state: "dismissed" },
+      { person: "sable-wren", recId: "fluency-breadth", state: "tried" },
+      { person: "brisk-falcon", recId: "adoption-tool-coverage", state: "tried" },
+    ],
+    // Exposure rows inside the previous-1..7-day novelty window (COACH-004):
+    // the recently-shown recs take the novelty-0 rank penalty on the next
+    // dashboard render — the rotation demo.
+    recExposures: [
+      { person: "sable-wren", recId: "adoption-active-days", surface: "digest", day: addDays(ctx.anchorDay, -3) },
+      { person: "sable-wren", recId: "fluency-depth", surface: "dashboard", day: addDays(ctx.anchorDay, -1) },
+      { person: "brisk-falcon", recId: "adoption-tool-coverage", surface: "digest", day: addDays(ctx.anchorDay, -2) },
+    ],
+    // Mission tri-state: brisk-falcon's two starts COMPLETE via the reducer
+    // (his OTel-backed mastery clears every step target); sable-wren's
+    // ship-work-with-ai stays IN PROGRESS forever (OpenAI-only → no
+    // suggestions/markers → effective-prompting has no evidence, fails
+    // closed); everyone else is not-started. Starts are backdated to the
+    // previous month's first day so the reducer's completion stamp (an
+    // asOfDay) always postdates them, whatever the anchor.
+    missionStarts: [
+      { person: "brisk-falcon", missionSlug: "get-started-with-ai", startedOnDay: ctx.prevMonth.start },
+      { person: "brisk-falcon", missionSlug: "ship-work-with-ai", startedOnDay: ctx.prevMonth.start },
+      { person: "sable-wren", missionSlug: "get-started-with-ai", startedOnDay: ctx.prevMonth.start },
+      // Also prevMonth.start (NOT a recent day): every start must precede
+      // every derivedRecompute pass, so that IF this mission ever becomes
+      // completable (a binding/persona change), the reducer's stamp still
+      // postdates the opt-in instead of producing completed-before-started.
+      { person: "sable-wren", missionSlug: "ship-work-with-ai", startedOnDay: ctx.prevMonth.start },
+    ],
+    // Two passes: the prev-month-end pass writes the prior capability-history
+    // period the insights engine's movement categories need; the anchor pass
+    // is the live state (and runs team insights).
+    derivedRecompute: [
+      { asOfDay: ctx.prevMonth.end },
+      { asOfDay: ctx.anchorDay, teamInsights: true },
+    ],
   };
 }
 
@@ -1583,6 +1738,9 @@ function buildJordanOrg(ctx: WindowCtx): SeedOrgPlan {
       emitOpenaiDay(g, rng, "jordan-openai", day, 1.0);
     }
     emitClaudeCodeLocalDay(g, rng, "jordan-claude_code_local", day, 1.4, weekIndex);
+    // Jordan's agent ships OTel telemetry too — the personal-mode `measured`
+    // tier (and the Growth-Journey capability-band headline it unlocks).
+    emitOtelMarkersDay(g, rng, "jordan-claude_code_local", day);
   }
 
   // Daily billed spend on the self-linked billing account (spend_cents ONLY
@@ -1659,6 +1817,37 @@ function buildJordanOrg(ctx: WindowCtx): SeedOrgPlan {
       { grain: "month", anchorDay: ctx.prevMonthMidDay },
       { grain: "month", anchorDay: ctx.anchorDay },
       { grain: "rolling_28d", anchorDay: ctx.anchorDay },
+    ],
+    // Jordan has been active since the window start — without this the
+    // maturity level (his Growth Journey headline) is unplaceable (see
+    // Acme's peopleCreatedOn note).
+    peopleCreatedOn: [{ person: JORDAN_KEY, day: ctx.windowStart }],
+    // Jordan opted into both missions; his dense, OTel-backed evidence
+    // completes them via the reducer — the personal-mode completed-timeline
+    // demo. Backdated to the previous month's first day (see Acme's note).
+    missionStarts: [
+      { person: JORDAN_KEY, missionSlug: "get-started-with-ai", startedOnDay: ctx.prevMonth.start },
+      { person: JORDAN_KEY, missionSlug: "ship-work-with-ai", startedOnDay: ctx.prevMonth.start },
+    ],
+    // The LIVE coaching-lifecycle demo: the Personal Companion in team orgs
+    // is still gated (W6-A/T5.1), so Jordan's is the only rendered coaching
+    // card today — his low tool-coverage/breadth components make both recs
+    // genuinely eligible, one carries a "tried" flag, one is dismissed, and
+    // the exposure row exercises the novelty rotation on a real surface.
+    // (Acme's interaction rows cover the snoozed state + the gated surface.)
+    recInteractions: [
+      { person: JORDAN_KEY, recId: "fluency-breadth", state: "tried" },
+      { person: JORDAN_KEY, recId: "efficiency-engagement-per-spend", state: "dismissed" },
+    ],
+    recExposures: [
+      { person: JORDAN_KEY, recId: "adoption-tool-coverage", surface: "digest", day: addDays(ctx.anchorDay, -2) },
+    ],
+    // No teamInsights pass: a personal org's insights are MIN_PEOPLE-
+    // suppressed by construction, so running the engine would only write
+    // nothing — the capability state/history passes are what Growth reads.
+    derivedRecompute: [
+      { asOfDay: ctx.prevMonth.end },
+      { asOfDay: ctx.anchorDay },
     ],
   };
 }
@@ -1786,6 +1975,20 @@ function buildGlobexOrg(ctx: WindowCtx): SeedOrgPlan {
       { grain: "month", anchorDay: ctx.anchorDay },
       { grain: "rolling_28d", anchorDay: ctx.anchorDay },
     ],
+    // Known since the window start (see Acme's peopleCreatedOn note).
+    peopleCreatedOn: GLOBEX_PEOPLE.map((p) => ({
+      person: p.key,
+      day: ctx.windowStart,
+    })),
+    // Globex is engineered OVER budget — every threshold has crossed and is
+    // claimed as already-emailed, so a live poll never re-alerts. The org
+    // otherwise stays minimal (the small-pilot contrast case).
+    budgetClaimedThresholds: [50, 80, 100],
+    // The MIN_PEOPLE-floor contrast org: 3 people < SEGMENT_MIN_PEOPLE_TO_NAME
+    // (4), so every derived capability sits below the coverage floor and the
+    // team capability card / insights feed render their honest small-team
+    // empty states — while per-person rows still exist for self-views.
+    derivedRecompute: [{ asOfDay: ctx.anchorDay, teamInsights: true }],
   };
 }
 
@@ -1865,5 +2068,13 @@ export const buildDemoSeedPlan: BuildDemoSeedPlan = (anchorDay: string): SeedPla
       ...buildOnboardingOrgs(),
     ],
     verifyBenchmark: { scoreSlug: "fluency", componentKey: "effectiveness" },
+    // Workspace-switcher demo (ADR 0051): Jordan also belongs to Acme (as a
+    // plain member — invited consultant narrative), with his personal org
+    // pinned active so his sign-in lands on the Companion, and the switcher
+    // lists both.
+    crossOrgMemberships: [
+      { email: JORDAN_EMAIL, orgName: "Acme Robotics", role: "member" },
+    ],
+    activeWorkspaces: [{ email: JORDAN_EMAIL, orgName: "Jordan Lee" }],
   };
 };

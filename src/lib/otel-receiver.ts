@@ -23,8 +23,10 @@ export {
 // DISTINCT metric keys from any connector's, so they never double-count a
 // connector event. Returns an OTLP success response ({} = full success).
 
-/** The OTLP sourceConnector tag stamped on marker records. */
-const OTEL_SOURCE = "claude-code-otel@1";
+/** The OTLP sourceConnector tag stamped on marker records. Exported so the
+ * demo seed's marker emitter (scripts/seed/activity.ts) can be test-pinned
+ * against the real receiver's tag instead of drifting silently. */
+export const OTEL_SOURCE = "claude-code-otel@1";
 
 export type OtelReceiverOutcome = {
   ok: boolean;

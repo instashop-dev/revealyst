@@ -32,11 +32,26 @@ export type ActivityBand =
  *   trends without each persona needing its own trend logic.
  * - activeSince/activeUntil: eligibility bounds (new joiner / churned).
  */
+/** Engineering-role slug from the GLOBAL `roles` reference table (mig 0026)
+ * — the seed assigns one per person via SeedOrgPlan.roleAssignments. */
+export type RoleSlug =
+  | "backend"
+  | "frontend"
+  | "fullstack"
+  | "mobile"
+  | "platform"
+  | "data"
+  | "ml"
+  | "sre";
+
 export type AcmePersona = {
   key: string;
   pseudonym: string;
   team: "platform" | "product_eng" | "data";
   band: ActivityBand;
+  /** Engineering role (tests pin every value against the seeded `roles`
+   * table, so a slug typo fails loudly rather than at FK time). */
+  role: RoleSlug;
   vendors: readonly AcmeVendorKey[];
   currentMonthActiveDays: number;
   trailing28ActiveDays: number;
@@ -60,6 +75,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "brisk-falcon",
     pseudonym: "brisk-falcon",
+    role: "platform",
     team: "platform",
     band: "power",
     vendors: ["anthropic", "cursor", "claude_code_local"],
@@ -72,6 +88,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "amber-lynx",
     pseudonym: "amber-lynx",
+    role: "fullstack",
     team: "product_eng",
     band: "power",
     // copilot + anthropic + openai = 6 distinct feature dims (completion,
@@ -90,6 +107,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "quiet-otter",
     pseudonym: "quiet-otter",
+    role: "backend",
     team: "platform",
     band: "regular",
     vendors: ["cursor"],
@@ -102,6 +120,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "gilded-heron",
     pseudonym: "gilded-heron",
+    role: "frontend",
     team: "product_eng",
     band: "regular",
     vendors: ["copilot"],
@@ -114,6 +133,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "mellow-badger",
     pseudonym: "mellow-badger",
+    role: "frontend",
     team: "product_eng",
     band: "regular",
     vendors: ["copilot"],
@@ -126,6 +146,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "placid-egret",
     pseudonym: "placid-egret",
+    role: "mobile",
     team: "product_eng",
     band: "regular",
     vendors: ["openai"],
@@ -138,6 +159,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "dusky-marten",
     pseudonym: "dusky-marten",
+    role: "sre",
     team: "platform",
     band: "moderate",
     vendors: ["cursor"],
@@ -150,6 +172,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "sable-wren",
     pseudonym: "sable-wren",
+    role: "data",
     team: "data",
     band: "moderate",
     vendors: ["openai"],
@@ -162,6 +185,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "hushed-vole",
     pseudonym: "hushed-vole",
+    role: "data",
     team: "data",
     band: "moderate",
     vendors: ["openai"],
@@ -174,6 +198,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "faded-ibis",
     pseudonym: "faded-ibis",
+    role: "platform",
     team: "platform",
     band: "occasional",
     vendors: ["cursor"],
@@ -186,6 +211,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "muted-shrew",
     pseudonym: "muted-shrew",
+    role: "ml",
     team: "data",
     band: "occasional",
     vendors: ["openai"],
@@ -198,6 +224,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "vernal-finch",
     pseudonym: "vernal-finch",
+    role: "backend",
     team: "platform",
     band: "new_joiner",
     vendors: ["cursor"],
@@ -210,6 +237,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "wistful-stoat",
     pseudonym: "wistful-stoat",
+    role: "fullstack",
     team: "product_eng",
     band: "churned",
     vendors: ["copilot"],
@@ -224,6 +252,7 @@ export const ACME_PEOPLE: readonly AcmePersona[] = [
   {
     key: "idle-newt",
     pseudonym: "idle-newt",
+    role: "data",
     team: "data",
     band: "unsegmented",
     vendors: [],

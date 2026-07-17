@@ -42,14 +42,51 @@ Extras: custom indexes (one active using `agent_active`, one archived), a
 share link, a pending invite, benchmark consent, connector_runs with all five
 honesty-gap kinds incl. an exact duplicate pair (dedupe check), audit events.
 
+Post-W5 surfaces (all DERIVED where a real engine exists — the loader replays
+the poller's capability-state → capability-history → team-insights chain at
+two asOfDays, prev-month end + anchor, so `user_capability_state`,
+`team_capability_history`, and `team_insights` come from the real reducers,
+never hand-written rows): every persona has an engineering role (mig 0026);
+Marco Lynx manages Product Eng (`team_managers`) and Product Eng alone flips
+the D-TCI-2 individual-cost toggle (`team_settings`); exec report opted in
+with the anchor month pre-claimed; renewal dates on two connections (anchor
++21d and +5d) with both reminder thresholds pre-claimed; budget alerts
+claimed through 80; one digest opt-out + one opt-in; brisk-falcon's local
+agent also ships **OTel markers** (`claude-code-otel@1`, mig 0034) so
+`effective-prompting` + `ship-with-ai` render the **measured** tier while
+`agentic-delivery` (1 bound marker) stays directional; missions tri-state —
+brisk-falcon's two starts complete via the reducer, sable-wren's
+`ship-work-with-ai` is honestly stuck in-progress (OpenAI-only ⇒ no
+effective-prompting evidence), everyone else not-started; sable-wren carries
+all three rec-interaction states (snoozed/dismissed/tried) + exposure rows
+inside the COACH-004 novelty window — NOTE these Acme self-view rows have no
+rendered surface until the gated companion-in-team-orgs slice (W6-A/T5.1)
+ships; they exist for the tests, the interaction API, and that future
+surface. The LIVE coaching-lifecycle demo is Jordan's (below). Sign in as
+`amber-lynx@` (manager view) alongside the existing users.
+
 **Org 2 — "Jordan Lee"** (personal): created through the real signup path
 (`ensureOrgOfOne` clones person-level presets). Anthropic api_key + Claude
 Code agent subjects, exclusive identity links, current + previous month
 activity ⇒ person-level scores with a delta; verified benchmark row visible;
-consent + share link.
+consent + share link. His agent ships OTel markers too ⇒ measured-tier rows
+activate the Growth-Journey capability-band headline; both missions
+completed; carries the LIVE coaching-lifecycle states (a "tried" + a
+dismissed rec, an exposure inside the novelty window — the only rendered
+coaching card while companion-in-team-orgs stays gated); ALSO a member of
+Acme Robotics with the personal org pinned active (`switchActiveOrg`) — the
+workspace-switcher demo.
 
 **Org 3 — "Globex Pilot"** (small team, no subscription): over-budget
-(≥100% of limit) + estimated-only spend stretch.
+(≥100% of limit, all three alert thresholds claimed) + estimated-only spend
+stretch. Gets a derived capability pass too: with 3 people, EVERY capability
+sits under the MIN_PEOPLE naming floor — the team card's honest small-team
+empty state (the floored contrast to Acme).
+
+Deliberately NOT seeded: `desktop_pairing_codes` (≤10-min-TTL hashed codes
+with no rendered surface after the exchange — a seeded row is expired
+garbage; the paired connection itself is already in the graph as
+`claude_code_local`).
 
 **Orgs 4–7 — onboarding states** (tiny, no records): `same_day` (usable poll
 connection), `overnight` (agent connection, synced), `awaiting_agent` (agent
@@ -103,7 +140,21 @@ with them (a regression test pins the collision-org-survives behavior).
 ## Invariants (do not violate)
 
 - Every write goes through `forOrg`/factories; raw inserts only for auth
-  users + the benchmarks status flip (documented above).
+  users, the benchmarks status flip (documented above), cross-org
+  `org_members` rows (same insert `ensureOrgOfOne` uses), BACKDATED
+  `mission_progress` opt-ins (the frozen `missions.start` seam can't set
+  `started_at`, and a wall-clock start would postdate the reducer's
+  asOfDay-derived completion stamp), and BACKDATED `people.created_at`
+  (`peopleCreatedOn` — maturity's activation denominator counts people known
+  AS OF each window end; a seed-run `created_at` postdates every data
+  window, making the level structurally unplaceable).
+- Derived state is never fabricated: `user_capability_state`,
+  `team_capability_history`, `team_insights`, and every mission COMPLETION
+  come exclusively from replaying the real reducers (`derivedRecompute`).
+- Every send-state table (`exec_report_state`, `renewal_reminder_state`,
+  `budget_alert_state`) is pre-claimed for exactly what the seeded data has
+  "already sent", so a live cron against a seeded DB never emails a fixture
+  address.
 - Never fabricate person-level rows from key/account data — attribution is
   carried per record and mixes across the ladder deliberately.
 - Ratio components need BOTH sides seeded except where omission is the
