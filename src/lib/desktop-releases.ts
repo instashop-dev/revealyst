@@ -108,6 +108,18 @@ export type DesktopRelease = {
  */
 export const DESKTOP_RELEASES: readonly DesktopRelease[] = [];
 
+/**
+ * The unsigned internal test build's GitHub Release, published in place under a
+ * fixed tag by the release workflow's dry-run (`publish-unsigned`), so this URL
+ * is stable across rebuilds. Surfaced ONLY on the signed-in Settings → Devices
+ * page, clearly labeled — the public /download page stays honest ("coming
+ * soon") until a signed release ships (D-DA-7). These installers are UNSIGNED:
+ * macOS Gatekeeper / Windows SmartScreen will warn they are from an
+ * unidentified developer.
+ */
+export const INTERNAL_TEST_BUILD_URL =
+  "https://github.com/instashop-dev/revealyst/releases/tag/desktop-internal-latest";
+
 /** Human labels for the known desktop download targets (spec §3.3). */
 const DOWNLOAD_TARGET_LABELS: Record<string, string> = {
   "darwin-aarch64": "macOS (Apple Silicon)",

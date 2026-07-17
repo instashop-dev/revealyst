@@ -387,16 +387,49 @@ jobs:
           path: release
           if-no-files-found: error
 
-  # ── 6. Publish GitHub Release ─────────────────────────────────────────────
-  # internal channel by default. `environment: desktop-release` so a real
-  # publish inherits the same required-reviewer gate as signing (a dry run
-  # still publishes a clearly-marked UNSIGNED prerelease so the wiring is
-  # observable end-to-end). Staged rollout percentage is data-side (T6.1
-  # release record/config) — this job publishes artifacts + the channel
-  # manifest, it does not set the rollout %.
-  publish:
+  # ── 6a. Publish UNSIGNED internal test build (dry-run only) ───────────────
+  # NO `environment:` — so this job can never read the desktop-release signing
+  # secrets (§25.2/§29 secret-safety is structural: a job without the
+  # environment gets EMPTY strings for those secrets, and this job references
+  # none anyway — only `github.token`). Publishes to the FIXED, clobbered tag
+  # `desktop-internal-latest` so the internal test build always has ONE stable
+  # GitHub Release URL for the signed-in "internal test build" surface. These
+  # artifacts are UNSIGNED and for internal testing only.
+  publish-unsigned:
     needs: checksums-manifest
-    if: ${{ always() && needs.checksums-manifest.result == 'success' }}
+    if: ${{ always() && needs.checksums-manifest.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release payload
+        uses: actions/download-artifact@v4
+        with:
+          name: release-payload
+          path: release
+      - name: Publish unsigned internal test release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: desktop-internal-latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="UNSIGNED INTERNAL TEST BUILD — not signed or notarized; your OS (Gatekeeper / SmartScreen) will warn it is from an unidentified developer. For internal testing only; do NOT distribute. Channel: ${RELEASE_CHANNEL}. Rebuilt in place on each dry run."
+          # Clobber the fixed internal-latest release so the URL stays stable.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+            gh release edit "$TAG" --title "Revealyst desktop — internal test build (unsigned)" --notes "$notes" --prerelease
+          else
+            gh release create "$TAG" release/* \
+              --title "Revealyst desktop — internal test build (unsigned)" \
+              --notes "$notes" --prerelease
+          fi
+
+  # ── 6b. Publish SIGNED GitHub Release (real release only) ─────────────────
+  # `environment: desktop-release` — the required-reviewer gate + signing
+  # secrets. Runs on a `desktop-v*` tag push or a non-dry-run dispatch. Staged
+  # rollout percentage is data-side (T6.1 release record/config).
+  publish-signed:
+    needs: checksums-manifest
+    if: ${{ always() && needs.checksums-manifest.result == 'success' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
     environment: desktop-release
     runs-on: ubuntu-latest
     steps:
@@ -410,16 +443,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${DRY_RUN}" = "true" ]; then
-            tag="desktop-dryrun-${GITHUB_RUN_ID}"
-            title="Desktop ${RELEASE_CHANNEL} (UNSIGNED dry run)"
-            prerelease=true
-          else
-            tag="${GITHUB_REF_NAME}"
-            title="Desktop ${tag} (${RELEASE_CHANNEL})"
-            # internal + beta are prereleases; stable is a full release.
-            if [ "${RELEASE_CHANNEL}" = "stable" ]; then prerelease=false; else prerelease=true; fi
-          fi
+          tag="${GITHUB_REF_NAME}"
+          title="Desktop ${tag} (${RELEASE_CHANNEL})"
+          # internal + beta are prereleases; stable is a full release.
+          if [ "${RELEASE_CHANNEL}" = "stable" ]; then prerelease=false; else prerelease=true; fi
           {
             echo "tag=$tag"
             echo "title=$title"
@@ -435,9 +462,6 @@ jobs:
         run: |
           set -euo pipefail
           notes="Channel: ${RELEASE_CHANNEL}. Rollout percentage is set in the release record (T6.1)."
-          if [ "${DRY_RUN}" = "true" ]; then
-            notes="UNSIGNED DRY RUN — artifacts are NOT signed or notarized and MUST NOT be distributed. ${notes}"
-          fi
           flags=(--title "$TITLE" --notes "$notes")
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
           # `release create` fails if the tag already has a release; on a
@@ -457,7 +481,7 @@ jobs:
   # non-dry-run dispatch that names beta/stable.
   promote:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && (inputs.channel == 'beta' || inputs.channel == 'stable') }}
-    needs: publish
+    needs: publish-signed
     environment: desktop-release
     runs-on: ubuntu-latest
     steps:
