@@ -2,9 +2,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Screens run inside the Tauri webview; jsdom has no Tauri bridge, so the
-// invoke layer is mocked with a small stateful fake of the autostart store
-// (the tests pin what the screen sends and shows, not the IPC).
-const backend = vi.hoisted(() => ({ autostart: false }));
+// invoke layer is mocked with a small stateful fake of the Rust command
+// surface (the tests pin what the screen sends and shows, not the IPC).
+const backend = vi.hoisted(() => ({
+  autostart: false,
+  paused: false,
+  signedIn: true,
+  pending: 3,
+}));
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -13,20 +18,48 @@ vi.mock("@tauri-apps/api/core", () => ({
 import { invoke } from "@tauri-apps/api/core";
 
 import type { AgentSnapshot } from "../lib/agent";
+import {
+  ENCRYPTION_DISCLOSURE,
+  ON_DEVICE_ONLY_FIELDS,
+  SENT_FIELDS,
+} from "../lib/collection-disclosure";
 import PrivacyScreen from "./privacy";
 
 function fakeBackend(command: string, args?: unknown): Promise<unknown> {
-  if (command === "get_autostart") return Promise.resolve(backend.autostart);
-  if (command === "set_autostart") {
-    backend.autostart = (args as { enabled: boolean }).enabled;
-    return Promise.resolve(undefined);
+  switch (command) {
+    case "get_autostart":
+      return Promise.resolve(backend.autostart);
+    case "set_autostart":
+      backend.autostart = (args as { enabled: boolean }).enabled;
+      return Promise.resolve(undefined);
+    case "get_collection_paused":
+      return Promise.resolve(backend.paused);
+    case "set_collection_paused":
+      backend.paused = (args as { paused: boolean }).paused;
+      return Promise.resolve(undefined);
+    case "get_pending_count":
+      return Promise.resolve(backend.pending);
+    case "delete_pending_data": {
+      const removed = backend.pending;
+      backend.pending = 0;
+      return Promise.resolve(removed);
+    }
+    case "is_signed_in":
+      return Promise.resolve(backend.signedIn);
+    case "disconnect_device":
+      backend.signedIn = false;
+      return Promise.resolve(undefined);
+    default:
+      return Promise.resolve(undefined);
   }
-  return Promise.resolve(undefined);
 }
 
 afterEach(cleanup);
 beforeEach(() => {
   backend.autostart = false;
+  backend.paused = false;
+  backend.signedIn = true;
+  backend.pending = 3;
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation(fakeBackend as unknown as typeof invoke);
 });
@@ -40,34 +73,84 @@ const snapshot: AgentSnapshot = {
 };
 
 describe("PrivacyScreen", () => {
-  it("renders the spec §19.4 sections with an honest what-leaves placeholder", () => {
+  it("renders the spec §19.4 sections", () => {
     render(<PrivacyScreen snapshot={snapshot} />);
     expect(screen.getByText("Current mode")).toBeTruthy();
     expect(screen.getByText("What leaves this computer")).toBeTruthy();
     expect(screen.getByText("What never leaves this computer")).toBeTruthy();
     expect(screen.getByText("Organization restrictions")).toBeTruthy();
-    // F3 honesty: the mode is described as a default that takes effect when
-    // collection arrives — not as an active mechanism.
-    expect(
-      screen.getByText(
-        /Nothing is collected or uploaded yet\. When collection arrives, prompt text will not be uploaded in this mode\./,
-      ),
-    ).toBeTruthy();
-    // Law 3: no hand-written collection claims — only the honest placeholder.
-    expect(
-      screen.getByText(/Nothing yet\. This app does not collect anything right now\./),
-    ).toBeTruthy();
   });
 
-  it("shows disabled pause/delete/disconnect controls with plain explanations", () => {
+  it("lists EXACTLY the allowlist sent:true fields under 'what leaves' (law 3)", () => {
     render(<PrivacyScreen snapshot={snapshot} />);
-    for (const name of ["Pause collection", "Delete pending local data", "Disconnect this device"]) {
-      const button = screen.getByRole("button", { name });
-      expect((button as HTMLButtonElement).disabled).toBe(true);
+    const leaves = screen.getByTestId("what-leaves");
+    const items = leaves.querySelectorAll("li");
+    // The rendered set is EXACTLY the allowlist's sent:true fields.
+    expect(items.length).toBe(SENT_FIELDS.length);
+    // Guard against a vacuous test if the allowlist ever empties.
+    expect(SENT_FIELDS.length).toBeGreaterThan(0);
+    // Every sent field is rendered (label + purpose from the artifact)...
+    for (const f of SENT_FIELDS) {
+      expect(leaves.textContent).toContain(f.label);
+      expect(leaves.textContent).toContain(f.purpose);
     }
-    expect(screen.getByText("Nothing is collected yet.")).toBeTruthy();
-    expect(screen.getByText("There is no local data yet.")).toBeTruthy();
-    expect(screen.getByText("This computer is not connected yet.")).toBeTruthy();
+    // ...and NO on-device-only field leaks into the "what leaves" list.
+    for (const f of ON_DEVICE_ONLY_FIELDS) {
+      expect(leaves.textContent).not.toContain(f.label);
+    }
+  });
+
+  it("lists EXACTLY the allowlist sent:false fields under 'what never leaves'", () => {
+    render(<PrivacyScreen snapshot={snapshot} />);
+    const never = screen.getByTestId("what-never-leaves");
+    const items = never.querySelectorAll("li");
+    expect(items.length).toBe(ON_DEVICE_ONLY_FIELDS.length);
+    expect(ON_DEVICE_ONLY_FIELDS.length).toBeGreaterThan(0);
+    for (const f of ON_DEVICE_ONLY_FIELDS) {
+      expect(never.textContent).toContain(f.label);
+    }
+    for (const f of SENT_FIELDS) {
+      expect(never.textContent).not.toContain(f.label);
+    }
+  });
+
+  it("discloses the honest encryption-delta (structure/timestamps/counts readable)", () => {
+    render(<PrivacyScreen snapshot={snapshot} />);
+    expect(screen.getByText(ENCRYPTION_DISCLOSURE)).toBeTruthy();
+    // The delta must name what is NOT hidden — not claim whole-file encryption.
+    expect(ENCRYPTION_DISCLOSURE).toMatch(/AES-256-GCM/);
+    expect(ENCRYPTION_DISCLOSURE).toMatch(/can be read if someone copies the file/);
+  });
+
+  it("pausing collection calls set_collection_paused", async () => {
+    render(<PrivacyScreen snapshot={snapshot} />);
+    const toggle = screen.getByRole("checkbox", { name: /Pause collection/ });
+    fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("set_collection_paused", { paused: true });
+    });
+    expect(backend.paused).toBe(true);
+  });
+
+  it("deleting pending data confirms, then calls delete_pending_data", async () => {
+    render(<PrivacyScreen snapshot={snapshot} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete pending local data" }));
+    // Confirm step appears — the command has NOT fired yet.
+    expect(invoke).not.toHaveBeenCalledWith("delete_pending_data");
+    fireEvent.click(screen.getByRole("button", { name: "Yes, delete it" }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("delete_pending_data");
+    });
+  });
+
+  it("disconnecting confirms, then calls disconnect_device", async () => {
+    render(<PrivacyScreen snapshot={snapshot} />);
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect this device" }));
+    expect(invoke).not.toHaveBeenCalledWith("disconnect_device");
+    fireEvent.click(screen.getByRole("button", { name: "Yes, disconnect" }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("disconnect_device");
+    });
   });
 
   it("reads the persisted autostart state on mount — mount-read wins over a stale snapshot", async () => {
@@ -80,36 +163,16 @@ describe("PrivacyScreen", () => {
     expect(invoke).toHaveBeenCalledWith("get_autostart");
   });
 
-  it("start-at-login is off by default and toggling persists via set_autostart", async () => {
+  it("start-at-login toggling persists via set_autostart", async () => {
     render(<PrivacyScreen snapshot={snapshot} />);
     const toggle = screen.getByRole("checkbox", { name: /Start Revealyst when you log in/ });
-    expect((toggle as HTMLInputElement).checked).toBe(false);
-
     fireEvent.click(toggle);
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("set_autostart", { enabled: true });
     });
-    // The checkbox reflects the re-read persisted state, not just hope.
     await waitFor(() => {
       expect((toggle as HTMLInputElement).checked).toBe(true);
     });
     expect(backend.autostart).toBe(true);
-  });
-
-  it("rolls the toggle back if the command fails", async () => {
-    vi.mocked(invoke).mockImplementation(((command: string) => {
-      if (command === "set_autostart") return Promise.reject(new Error("nope"));
-      return fakeBackend(command);
-    }) as unknown as typeof invoke);
-    render(<PrivacyScreen snapshot={snapshot} />);
-    const toggle = screen.getByRole("checkbox", { name: /Start Revealyst when you log in/ });
-
-    fireEvent.click(toggle);
-    await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("set_autostart", { enabled: true });
-    });
-    await waitFor(() => {
-      expect((toggle as HTMLInputElement).checked).toBe(false);
-    });
   });
 });

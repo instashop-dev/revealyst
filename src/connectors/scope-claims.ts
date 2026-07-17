@@ -102,6 +102,7 @@ export const SCOPE_CLAIMS: Record<string, ScopeClaims> = {
       "Anything older than about 30 days — older local logs are deleted automatically",
       "The content of your prompts or code — only counts and structure are ever read",
       "Whether you accepted or rejected each suggestion exactly (only rough signals)",
+      "Claude Desktop chats — detailed conversation sync from the Claude Desktop app is not available in Phase 1",
     ],
   },
 };

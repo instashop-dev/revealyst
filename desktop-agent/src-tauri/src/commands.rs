@@ -2,8 +2,12 @@
 //! directly access filesystem/shell/network/etc. — it calls these narrowly
 //! scoped Rust commands and nothing else).
 //!
-//! Wave M1 surface: ONE read-only snapshot command plus the two autostart
-//! commands used by the privacy screen. No other commands exist.
+//! The surface grows one narrowly-scoped command at a time, per wave: the
+//! read-only snapshot + autostart (M1), sign-in (M2), sync/pause (M4/T5.1),
+//! and the M5 privacy-screen reads/actions (`get_collection_paused`,
+//! `get_pending_count`, `delete_pending_data`, `disconnect_device`). Each is a
+//! bounded Rust command — no filesystem/shell/network capability crosses to
+//! the frontend (spec §22.2).
 
 use std::sync::Arc;
 
@@ -123,6 +127,77 @@ pub fn set_collection_paused<R: Runtime>(app: AppHandle<R>, paused: bool) -> Res
         }
         None => Err("Collection isn't ready yet.".to_string()),
     }
+}
+
+/// Whether background collection is currently paused (drives the privacy
+/// screen's "Pause collection" toggle and the status "Privacy mode" row). When
+/// collection isn't wired up yet there is nothing to pause, so the honest
+/// default is `false`. A boolean only — never a path or token.
+#[tauri::command]
+pub fn get_collection_paused<R: Runtime>(app: AppHandle<R>) -> bool {
+    let control = match app.try_state::<Arc<CollectionControl>>() {
+        Some(control) => control.inner().clone(),
+        None => return false,
+    };
+    control.is_paused()
+}
+
+/// How many analytics events are waiting in the local queue to be sent (the
+/// "Waiting to send" status row + the "Delete pending local data" count). A
+/// count only, never a payload; `0` when collection isn't ready — never a
+/// fabricated number.
+#[tauri::command]
+pub fn get_pending_count<R: Runtime>(app: AppHandle<R>) -> i64 {
+    let store = match app.try_state::<Arc<Store>>() {
+        Some(store) => store.inner().clone(),
+        None => return 0,
+    };
+    store.pending_count().unwrap_or(0)
+}
+
+/// Delete every analytics event still waiting in the local queue (the privacy
+/// screen's "Delete pending local data" control, spec §19.4). Returns the
+/// number removed. Touches ONLY the local outbox — never anything already
+/// uploaded. A no-op returning 0 when collection isn't ready.
+#[tauri::command]
+pub fn delete_pending_data<R: Runtime>(app: AppHandle<R>) -> Result<usize, String> {
+    let store = match app.try_state::<Arc<Store>>() {
+        Some(store) => store.inner().clone(),
+        None => return Ok(0),
+    };
+    store.purge_all_pending().map_err(|error| {
+        tracing::warn!(
+            component = "commands",
+            error_code = error.code(),
+            "delete pending data failed"
+        );
+        "Could not delete the pending data. Please try again.".to_string()
+    })
+}
+
+/// Disconnect this computer from Revealyst (the privacy screen's "Disconnect
+/// this device", spec §19.4). Wipes BOTH keychain secrets: the device token
+/// (so the background loop idles — [`runtime::collection_allowed`] is
+/// token-gated — and the server rejects the next attempt) AND the local-store
+/// encryption key (which makes any queued analytics permanently unreadable by
+/// design, spec §13). Absence of either secret is treated as success. Returns
+/// nothing; errors surface as plain English, never a secret.
+#[tauri::command]
+pub fn disconnect_device() -> Result<(), String> {
+    // Attempt BOTH wipes even if the first fails, so a half-disconnect can't
+    // strand one secret. Report a single plain-English failure if either errs.
+    let token = crate::secrets::delete_token();
+    let db_key = crate::secrets::delete_db_key();
+    if token.is_err() || db_key.is_err() {
+        tracing::warn!(
+            component = "commands",
+            error_code = "disconnect_failed",
+            "disconnect: wiping a keychain secret failed"
+        );
+        return Err("Could not fully disconnect this computer. Please try again.".to_string());
+    }
+    tracing::info!(component = "commands", "device disconnected (keychain secrets wiped)");
+    Ok(())
 }
 
 #[tauri::command]
