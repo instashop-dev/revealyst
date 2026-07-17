@@ -18,6 +18,7 @@ import {
   SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { authClient } from "@/lib/auth-client";
 import { navFor } from "@/lib/nav-items";
 
@@ -53,12 +54,10 @@ export function AppSidebar({
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary font-heading text-sm font-bold text-primary-foreground">
             R
           </div>
-          <div className="flex min-w-0 flex-col">
-            <span className="truncate text-sm font-semibold">Revealyst</span>
-            <span className="truncate text-xs text-muted-foreground">
-              {org.name}
-            </span>
-          </div>
+          {/* Workspace switcher: shows the active workspace and, on open, lets a
+              multi-workspace user (e.g. a platform admin with a personal org +
+              a team workspace) switch between them. */}
+          <WorkspaceSwitcher currentOrg={org} />
         </div>
       </SidebarHeader>
       <SidebarContent>

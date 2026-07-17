@@ -5,9 +5,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { apiRoutes } from "../src/contracts/api";
 import type { Db } from "../src/db/client";
 import {
+  membershipsForUser,
   orgContextForSessionToken,
   orgContextForUser,
+  switchActiveOrg,
 } from "../src/db/org-context";
+import { createTeamWorkspace } from "../src/db/admin";
 import { ensureOrgOfOne, membershipForUser } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
 import { sessionTokenFromCookieHeader } from "../src/lib/session-cookie";
@@ -105,6 +108,86 @@ describe("orgContextForSessionToken (appContext's speculative prefetch)", () => 
 
   it("returns undefined for an unknown token", async () => {
     expect(await orgContextForSessionToken(db, "no-such-token")).toBeUndefined();
+  });
+});
+
+describe("membershipsForUser + switchActiveOrg (workspace switcher)", () => {
+  it("lists every workspace newest-first, excluding the system org", async () => {
+    const [user] = await db
+      .insert(schema.user)
+      .values({ id: "multi-ws", name: "Mo", email: "mo@example.com" })
+      .returning();
+    await ensureOrgOfOne(db, user); // personal org
+    const { orgId: teamOrgId } = await createTeamWorkspace(db, {
+      name: "Mo's Team",
+      adminUserId: user.id,
+    });
+    // A system-org membership must never surface as a switchable workspace.
+    // (Seeded with an OLD createdAt — real users never hold one, and this keeps
+    // it from perturbing the most-recent-membership resolution below.)
+    const [sys] = await db
+      .insert(schema.orgs)
+      .values({ name: "System", kind: "system" })
+      .returning();
+    await db.insert(schema.orgMembers).values({
+      orgId: sys.id,
+      userId: user.id,
+      role: "member",
+      createdAt: new Date("2000-01-01T00:00:00Z"),
+    });
+
+    const workspaces = await membershipsForUser(db, user.id);
+    const ids = workspaces.map((w) => w.orgId);
+    expect(ids).not.toContain(sys.id);
+    expect(ids).toContain(teamOrgId);
+    // The team workspace was created last → its membership is most-recent →
+    // it is the active org and sorts first (ADR 0004).
+    expect(workspaces[0].orgId).toBe(teamOrgId);
+    expect(workspaces[0].orgKind).toBe("team");
+    // And it is exactly what orgContextForUser resolves as active.
+    const active = await orgContextForUser(db, user.id);
+    expect(active!.org.id).toBe(teamOrgId);
+  });
+
+  it("switches the active org by bumping the chosen membership to most-recent", async () => {
+    const [user] = await db
+      .insert(schema.user)
+      .values({ id: "switcher", name: "Switch", email: "sw@example.com" })
+      .returning();
+    const personal = await ensureOrgOfOne(db, user);
+    const { orgId: teamOrgId } = await createTeamWorkspace(db, {
+      name: "Switch Team",
+      adminUserId: user.id,
+    });
+    // After creation the team org is active (most-recent).
+    expect((await orgContextForUser(db, user.id))!.org.id).toBe(teamOrgId);
+
+    // Switch back to personal.
+    const ok = await switchActiveOrg(db, user.id, personal.orgId);
+    expect(ok).toBe(true);
+    expect((await orgContextForUser(db, user.id))!.org.id).toBe(personal.orgId);
+
+    // Switch forward again to the team org.
+    expect(await switchActiveOrg(db, user.id, teamOrgId)).toBe(true);
+    expect((await orgContextForUser(db, user.id))!.org.id).toBe(teamOrgId);
+  });
+
+  it("fails closed for an org the user is not a member of (no probe)", async () => {
+    const [user] = await db
+      .insert(schema.user)
+      .values({ id: "no-member", name: "NM", email: "nm@example.com" })
+      .returning();
+    await ensureOrgOfOne(db, user);
+    // A real org the user does NOT belong to.
+    const [foreign] = await db
+      .insert(schema.orgs)
+      .values({ name: "Foreign", kind: "team" })
+      .returning();
+    expect(await switchActiveOrg(db, user.id, foreign.id)).toBe(false);
+    // A totally unknown org id — same false, so existence isn't leaked.
+    expect(
+      await switchActiveOrg(db, user.id, "00000000-0000-0000-0000-000000000000"),
+    ).toBe(false);
   });
 });
 

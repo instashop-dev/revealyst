@@ -30,6 +30,7 @@ import {
   orgMembers,
   orgs,
   subscriptions,
+  teams,
   user,
 } from "./schema";
 import { subscriptionsForOrg } from "./subscriptions";
@@ -37,10 +38,16 @@ import { subscriptionsForOrg } from "./subscriptions";
 // Platform-admin cross-org reads (ADR 0016, Feature 3). Mirrors
 // src/db/system.ts: the only sanctioned home for raw schema access outside
 // forOrg (scripts/check-org-scope.mjs allows schema imports only under
-// src/db/**). Every export here is read-only and deliberately cross-org —
-// the admin dashboard's whole point is a platform-wide view no org-scoped
-// query could produce. Callers gate via requireAdminContext/handleAdminApi
-// (src/lib/admin-context.ts); this module does no authorization itself.
+// src/db/**). Reads here are deliberately cross-org — the admin dashboard's
+// whole point is a platform-wide view no org-scoped query could produce.
+// Callers gate via requireAdminContext/handleAdminApi (src/lib/admin-context.ts);
+// this module does no authorization itself.
+//
+// The one WRITE in this module is `createTeamWorkspace` — a cross-org org
+// bootstrap (a platform admin provisioning a NEW team workspace) that has no
+// single org scope to run inside. It is the deliberate exception to the
+// "reads only" rule, and like every reader here it trusts its caller to have
+// passed the handleAdminApi gate.
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const RECENT_LIMIT = 10;
@@ -639,4 +646,72 @@ export async function platformAuditList(
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
     .limit(limit);
+}
+
+// ── Team-workspace provisioning (platform-admin unblock) ──────────────────
+
+export type CreateTeamWorkspaceResult = {
+  orgId: string;
+  /** The default team seeded in the new workspace (named after it) so the
+   * Settings → People manager-assignment card has a team to grant against
+   * immediately. */
+  teamId: string;
+};
+
+/**
+ * Create a NEW team workspace and enroll the requesting platform admin as its
+ * org admin. This is the ONLY code path that sets `orgs.kind = 'team'` — the
+ * signup bootstrap (`ensureOrgOfOne`) only ever creates `kind = 'personal'`, so
+ * without this the entire team surface (team dashboard, People/Privacy admin
+ * cards, the TCI manager layer) was unreachable for real users.
+ *
+ * Deliberately admin-only and separate from the user-facing "create a team"
+ * onboarding flow, which remains a pending product decision. It does NOT
+ * convert the admin's existing personal org — a distinct org row is created, so
+ * the §14 dogfood personal org is untouched.
+ *
+ * `bootstrapUserId` is left NULL: that column is a UNIQUE per-user "signup org"
+ * marker owned by the admin's personal org (the constraint that closes the
+ * `ensureOrgOfOne` race), so a team workspace must not claim it. A team org has
+ * no bootstrap user.
+ *
+ * Transactional: the org, the admin membership, and the default team all commit
+ * together (no half-provisioned workspace). The admin membership row's fresh
+ * `createdAt` also makes this the admin's most-recent membership, so ADR 0004
+ * resolution lands them in the new workspace on their next load — reachable
+ * without any switch. The audit row is written after commit, into the NEW org's
+ * trail (visible in the cross-org platform audit viewer too), mirroring how
+ * `team.create` audits into its org.
+ */
+export async function createTeamWorkspace(
+  db: Db,
+  input: { name: string; adminUserId: string },
+): Promise<CreateTeamWorkspaceResult> {
+  const name = input.name.trim();
+  const { orgId, teamId } = await db.transaction(async (tx) => {
+    const [org] = await tx
+      .insert(orgs)
+      .values({ name, kind: "team" })
+      .returning({ id: orgs.id });
+    await tx
+      .insert(orgMembers)
+      .values({ orgId: org.id, userId: input.adminUserId, role: "admin" });
+    const [team] = await tx
+      .insert(teams)
+      .values({ orgId: org.id, name })
+      .returning({ id: teams.id });
+    return { orgId: org.id, teamId: team.id };
+  });
+
+  // Genesis event in the new org's own trail (ADR 0010). Cross-org readable via
+  // platformAuditList, so it also shows in the /admin audit viewer.
+  await forOrg(db, orgId).auditLog.record({
+    actorUserId: input.adminUserId,
+    action: "org.create",
+    targetKind: "org",
+    targetId: orgId,
+    metadata: { name, kind: "team", defaultTeamId: teamId },
+  });
+
+  return { orgId, teamId };
 }
