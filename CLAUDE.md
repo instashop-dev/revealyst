@@ -229,11 +229,18 @@ it is the interface between agents.
 > path-filtered `desktop-ci.yml`. Shipped through PR #284: PKCE pairing (ADR 0047, mig
 > 0037), device management (ADR 0048), signed remote config (ADR 0049), Claude Code
 > connector, hardened export importer, coverage UI, diagnostics bundle, signed Tauri
-> updater. **M7 remains** (incl. token-rotation hardening T7.2 per D-DA-4). Gates:
-> **D-DA-1 signed 2026-07-16** (resident-collector go); **D-DA-2** (Spec V4 §9.4
-> sub-case-C ADR before any Team-org enrollment; Personal orgs first) still pending —
-> do not force. Prompt-feature extraction ships shape+counts only until **D-DA-5**.
-> Ledger rows D-DA-2…7 pending in `docs/product-signoffs.md`.
+> updater, plus the protected signed-release workflow (`release-desktop.yml`, tag
+> `desktop-v*`, signing under the `desktop-release` environment — unsigned dry-run
+> proves wiring; real certs are D-DA-7). **M7 remains** (real-hardware perf/platform
+> matrix, internal→staged-stable rollout, token-rotation hardening T7.2 per D-DA-4).
+> Gates: **D-DA-1 signed 2026-07-16** (resident-collector go); **D-DA-2** (Spec V4
+> §9.4 sub-case-C ADR before any Team-org enrollment; Personal orgs first) still
+> pending — do not force. Prompt-feature extraction ships shape+counts only until
+> **D-DA-5**. **D-DA-8** (connector-scoped ingest window-delete): the hardened Claude
+> **export importer ships projection-only** (no live enqueue) — live export-import→sync
+> is gated because the server window-delete is connection-scoped and would clobber the
+> live connector's overlapping-day metrics; the fix is a frozen ingest+scoring change,
+> founder-gated. Ledger rows D-DA-2…8 pending in `docs/product-signoffs.md`.
 
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and
