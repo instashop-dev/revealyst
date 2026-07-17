@@ -44,6 +44,18 @@ vi.mock("@/lib/manager-spend-view", () => ({
   loadManagerSpendDrillIn: async () => ({ status: "cost-hidden" as const }),
 }));
 
+// D-TCI-7 added a notes read alongside the spend read. Same ownership split:
+// this test pins only the outcome→HTTP mapping, so the notes loader is stubbed
+// to the neutral "forbidden" outcome (section omitted) and the author-byline
+// member list to empty; their own authz/render behavior is covered by
+// tests/manager-notes.test.ts + the section component test.
+vi.mock("@/lib/manager-notes-view", () => ({
+  loadManagerNotes: async () => ({ status: "forbidden" as const }),
+}));
+vi.mock("@/db/invites", () => ({
+  orgMembersList: async () => [],
+}));
+
 import ManagerCapabilityDrillInPage from "@/app/(app)/team/[personId]/page";
 import ManagerRosterPage from "@/app/(app)/team/page";
 
