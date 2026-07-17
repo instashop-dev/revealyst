@@ -3,9 +3,25 @@
 //! A **user-initiated** importer (not a background loop): given the path to a
 //! Claude data export, it validates + parses the archive **entirely in memory**,
 //! reduces it to the same Analytics-Only day-aggregates the live Claude Code
-//! connector produces (reusing the T3.4 extractor), runs them through the T3.3
-//! privacy gate, and enqueues the `usage_summary` events the sync engine drains.
-//! It reports `{imported, skipped, failed}` conversation counts.
+//! connector produces (reusing the T3.4 extractor), and runs them through the
+//! T3.3 privacy gate. It reports `{imported, skipped, failed}` conversation
+//! counts and returns the validated, projected `usage_summary` events.
+//!
+//! ## Live sync is GATED — the projection is NOT enqueued (data-loss guard)
+//!
+//! This importer deliberately **does NOT enqueue** the projected events into the
+//! shared sync queue. The desktop agent uploads through ONE device connection,
+//! and the server's window-delete is **connection-scoped, not connector-scoped**
+//! (`deleteWindowForConnection`, `src/lib/agent-ingest.ts` /
+//! `src/db/org-scope/metrics.ts`): it erases the whole `min..max` day-window for
+//! the connection regardless of `sourceConnector`. So an import that spans or
+//! overlaps days the live `claude_code` connector also covers (e.g. a chunk
+//! carrying Jul 1 + Jul 16 ⇒ window `[Jul 1 .. Jul 16]`) would clobber the live
+//! rows for the intervening days on the next sync — a HIGH data-loss defect. The
+//! full parse + hardening + privacy validation runs and the projection is
+//! returned/inspected, but live import→sync stays gated on a
+//! connector-scoped-ingest decision (ADR). See [`CONNECTOR_ID`] and
+//! [`import_archive_with`].
 //!
 //! ## The export shape we parse
 //!
@@ -79,9 +95,18 @@ use crate::sync::batch::USAGE_SUMMARY_EVENT_TYPE;
 use super::claude_code::{resolve_local_identity, LocalIdentity};
 use super::ConnectorContext;
 
-/// The connector id stamped on imported events + used as their checkpoint key.
-/// Distinct from the live `claude_code` connector so the two never share a
-/// window (imports are authoritative only for the days they carry).
+/// The connector id stamped on projected import events.
+///
+/// **NOTE: this is NOT a safety boundary.** The desktop agent uploads through ONE
+/// device connection, and the server's window-delete
+/// (`deleteWindowForConnection`) is **connection-scoped, not connector-scoped** —
+/// it erases the whole `min..max` day-window for the connection regardless of
+/// `sourceConnector`. So an import that spans or overlaps days the live
+/// `claude_code` connector also covers WOULD clobber the live rows for those days
+/// on sync. A distinct connector id does not prevent this. Because of it, live
+/// import→sync is gated: the importer computes + validates the projected events
+/// but does NOT enqueue them into the shared sync queue (see
+/// [`import_archive_with`]), pending a connector-scoped-ingest ADR.
 pub const CONNECTOR_ID: &str = "claude_export";
 
 /// The entry the importer inflates. Matched on basename anywhere in the archive
@@ -187,8 +212,13 @@ impl From<crate::store::StoreError> for ImportError {
     }
 }
 
-/// The result of one import, for the import screen + logs. Counts only.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// The result of one import: the per-conversation counts for the import screen +
+/// the validated, projected day-aggregate events. The projection is deliberately
+/// NOT enqueued into the shared sync queue (see the module docs / [`CONNECTOR_ID`]
+/// on the connection-scoped window-delete data-loss guard); it is returned so the
+/// caller (and tests) can inspect exactly what a future connector-scoped-ingest
+/// path WOULD sync.
+#[derive(Debug, Default)]
 pub struct ImportOutcome {
     /// Conversations that contributed at least one usable message.
     pub imported: usize,
@@ -196,12 +226,13 @@ pub struct ImportOutcome {
     pub skipped: usize,
     /// Conversation entries that were not a parseable object.
     pub failed: usize,
-    /// Day-aggregate events newly inserted into the queue (dedup ⇒ 0 on re-import).
-    pub enqueued: usize,
     /// Candidate events that would have quarantined (>0 ⇒ failed closed).
     pub would_quarantine: usize,
-    /// `true` iff the import halted before enqueue (policy blocked / drift).
+    /// `true` iff the import halted before projection (policy blocked / drift).
     pub halted: bool,
+    /// The validated day-aggregate `usage_summary` events this import WOULD sync.
+    /// NOT enqueued — live sync is gated (see the module docs).
+    pub projected_events: Vec<NewEvent>,
 }
 
 // ---- Archive validation ----------------------------------------------------
@@ -658,9 +689,12 @@ impl Drop for TempWorkspace {
 // ---- Public entry ----------------------------------------------------------
 
 /// Import a Claude data export from `archive_path`: validate + parse it in
-/// memory, privacy-gate the day-aggregates, enqueue them, and report the
-/// `{imported, skipped, failed}` counts. Temp scratch (if any) lives under the
-/// system temp dir and is cleaned before return.
+/// memory, privacy-gate the day-aggregates, and report the
+/// `{imported, skipped, failed}` counts plus the validated projected events.
+/// The projection is deliberately NOT enqueued into the shared sync queue (live
+/// import→sync is gated on a connector-scoped-ingest ADR — see the module docs).
+/// Temp scratch (if any) lives under the system temp dir and is cleaned before
+/// return.
 pub fn import_archive(
     store: &Store,
     ctx: &ConnectorContext,
@@ -679,6 +713,11 @@ pub fn import_archive(
 
 /// [`import_archive`] with injectable limits + temp root (for tests). The temp
 /// root holds the scoped [`TempWorkspace`], removed before this returns.
+///
+/// The projected events are computed + privacy-validated but NOT enqueued (the
+/// connection-scoped window-delete data-loss guard — module docs). `store` is
+/// used only to record a content-free quarantine diagnostic on the fail-closed
+/// path; nothing is written to the sync queue.
 pub fn import_archive_with(
     store: &Store,
     ctx: &ConnectorContext,
@@ -703,6 +742,11 @@ pub fn import_archive_with(
     let identity = resolve_local_identity(ctx);
     // A very wide window so no real day is filtered; the emitted events' days
     // (and thus the sync window) auto-pin to the days actually present.
+    //
+    // Follow-up (shared extractor, not fixed here): `peak_concurrency` in
+    // `crate::extract` is O(sessions²) per day. A large single-day import (many
+    // conversations sharing one UTC day) could be slow; the fix belongs in the
+    // shared extractor (used by the live connector too), not in this importer.
     let out = extract(
         &parse.records,
         &ExtractOptions {
@@ -750,19 +794,18 @@ pub fn import_archive_with(
             failed: parse.failed,
             would_quarantine,
             halted: true,
-            ..ImportOutcome::default()
+            projected_events: Vec::new(),
         });
     }
 
-    // Step 2 — durable enqueue. Nothing to enqueue when the export produced no
-    // in-scope days; still return the honest counts.
-    let events = build_import_events(&out, &identity, &extra_gaps);
-    let enqueued = if events.is_empty() {
-        0
-    } else {
-        let checkpoint = archive_manifest(archive_path);
-        store.enqueue_and_checkpoint_at(CONNECTOR_ID, &events, &checkpoint, now_ms)?
-    };
+    // Step 2 — PROJECT (do NOT enqueue). The validated day-aggregate events are
+    // computed and returned, but they are deliberately never written to the
+    // shared sync queue: the server's window-delete is connection-scoped, so
+    // enqueuing an import that spans days the live connector also covers would
+    // clobber those rows on sync (module docs). Live import→sync is gated on a
+    // connector-scoped-ingest ADR; until then this is a pure, side-effect-free
+    // projection the caller can inspect.
+    let projected_events = build_import_events(&out, &identity, &extra_gaps);
 
     tracing::info!(
         component = "connector",
@@ -770,36 +813,18 @@ pub fn import_archive_with(
         imported = parse.imported,
         skipped = parse.skipped,
         failed = parse.failed,
-        enqueued,
-        "claude export import complete"
+        projected = projected_events.len(),
+        "claude export import projected (not enqueued — live sync gated)"
     );
 
     Ok(ImportOutcome {
         imported: parse.imported,
         skipped: parse.skipped,
         failed: parse.failed,
-        enqueued,
         would_quarantine: 0,
         halted: false,
+        projected_events,
     })
-}
-
-/// A deterministic checkpoint for an import: a hash of the archive's path, size,
-/// and mtime. Re-importing the same file re-derives the same content-addressed
-/// event ids anyway (dedup); the checkpoint is bookkeeping only.
-fn archive_manifest(archive_path: &Path) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(archive_path.to_string_lossy().as_bytes());
-    hasher.update([0u8]);
-    if let Ok(meta) = std::fs::metadata(archive_path) {
-        hasher.update(meta.len().to_le_bytes());
-        if let Ok(modified) = meta.modified() {
-            if let Ok(dur) = modified.duration_since(std::time::UNIX_EPOCH) {
-                hasher.update((dur.as_millis() as u64).to_le_bytes());
-            }
-        }
-    }
-    format!("import:{}", &hex(&hasher.finalize())[..16])
 }
 
 #[cfg(test)]

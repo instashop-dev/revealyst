@@ -13,9 +13,12 @@
 //!     + counted; malformed JSON is rejected.
 //!  8. **Verified cleanup** — the temp root is empty after import; the workspace
 //!     guard removes a non-empty dir on drop.
-//!  9. **Content drop** — a sentinel prompt string never reaches an enqueued payload.
+//!  9. **Content drop** — sentinel prompt text (and a sentinel conversation title
+//!     that becomes the session id) never reaches a projected payload.
 //! 10. **End-to-end** — a mixed synthetic export yields correct counts + sane
 //!     day-aggregates that decode into a valid `IngestRequest`.
+//! 11. **No shared-queue enqueue** — the importer projects but never writes to the
+//!     sync queue (the connection-scoped window-delete data-loss guard).
 
 use super::*;
 
@@ -28,8 +31,29 @@ use zip::{CompressionMethod, ZipWriter};
 use crate::connectors::ConnectorContext;
 use crate::privacy::{ContentMode, PolicyBlockReason, PolicyResolution};
 use crate::store::crypto::{DbKey, KEY_LEN};
+use crate::store::queue::{NewEvent, PendingEvent};
 use crate::store::Store;
 use crate::sync::batch::build_request;
+
+/// Project the importer's `NewEvent`s into `PendingEvent`s (as the sync engine
+/// would after a dequeue) so a test can build an `IngestRequest` WITHOUT ever
+/// enqueuing into the shared connection — the whole point of the gating.
+fn as_pending(events: &[NewEvent]) -> Vec<PendingEvent> {
+    events
+        .iter()
+        .enumerate()
+        .map(|(i, e)| PendingEvent {
+            id: i as i64,
+            event_id: e.event_id.clone(),
+            connector_id: e.connector_id.clone(),
+            event_type: e.event_type.clone(),
+            content_mode: e.content_mode.clone(),
+            occurred_at: e.occurred_at,
+            enqueued_at: 0,
+            payload: e.payload.clone(),
+        })
+        .collect()
+}
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -390,7 +414,7 @@ fn temp_workspace_drop_removes_nonempty_dir() {
 }
 
 #[test]
-fn no_raw_conversation_text_reaches_the_queue() {
+fn no_raw_conversation_text_reaches_the_projection() {
     let zip = build_zip(&[(
         "conversations.json",
         &valid_conversations_json(),
@@ -398,9 +422,8 @@ fn no_raw_conversation_text_reaches_the_queue() {
     )]);
     let (_dir, path) = write_export("sentinel", &zip);
     let temp_root = scratch("sentinel-tmp");
-    let store = store();
     let outcome = import_archive_with(
-        &store,
+        &store(),
         &ctx(),
         &path,
         &ImportLimits::default(),
@@ -409,21 +432,64 @@ fn no_raw_conversation_text_reaches_the_queue() {
     )
     .unwrap();
     assert!(
-        outcome.enqueued > 0,
-        "the import must enqueue day-aggregates"
+        !outcome.projected_events.is_empty(),
+        "the import must project day-aggregates"
     );
 
-    // Scan every enqueued payload: the sentinel prompt text must appear NOWHERE.
-    let queued = store.dequeue_batch(1000).unwrap();
-    for event in &queued {
+    // Scan every projected payload: the sentinel prompt text must appear NOWHERE.
+    for event in &outcome.projected_events {
         let serialized = event.payload.to_string();
         assert!(
             !serialized.contains(SENTINEL),
-            "raw conversation text leaked into an enqueued payload"
+            "raw conversation text leaked into a projected payload"
         );
         assert!(
             !serialized.contains("hello there") && !serialized.contains("another question"),
-            "human prompt text leaked into an enqueued payload"
+            "human prompt text leaked into a projected payload"
+        );
+    }
+}
+
+/// A conversation with NO uuid falls back to its `name` for the session id — so a
+/// sentinel TITLE exercises that fallback path. The title still never reaches a
+/// projected payload (the session id is not a payload field), so the content-drop
+/// guarantee holds even for the derived identifier.
+#[test]
+fn sentinel_conversation_title_never_reaches_the_projection() {
+    const TITLE_SENTINEL: &str = "SENTINEL_CONVERSATION_TITLE_QRS";
+    let json = format!(
+        r#"[
+          {{ "name": "{TITLE_SENTINEL}",
+             "chat_messages": [
+               {{ "sender": "human", "text": "hi",
+                  "created_at": "2026-07-15T10:00:00Z" }}
+             ] }}
+        ]"#
+    );
+    let zip = build_zip(&[(
+        "conversations.json",
+        json.as_bytes(),
+        CompressionMethod::Stored,
+    )]);
+    let (_dir, path) = write_export("title-sentinel", &zip);
+    let temp_root = scratch("title-sentinel-tmp");
+    let outcome = import_archive_with(
+        &store(),
+        &ctx(),
+        &path,
+        &ImportLimits::default(),
+        &temp_root,
+        1,
+    )
+    .unwrap();
+    // The conversation imported via the name→session_id fallback (no uuid).
+    assert_eq!(outcome.imported, 1);
+    assert!(!outcome.projected_events.is_empty());
+    for event in &outcome.projected_events {
+        let serialized = event.payload.to_string();
+        assert!(
+            !serialized.contains(TITLE_SENTINEL),
+            "conversation title (session id) leaked into a projected payload"
         );
     }
 }
@@ -454,11 +520,15 @@ fn mixed_export_produces_sane_day_aggregates() {
     assert_eq!(outcome.skipped, 0);
     assert_eq!(outcome.failed, 0);
     assert!(!outcome.halted);
-    // Two days present ⇒ two day-aggregate events.
-    assert_eq!(outcome.enqueued, 2);
+    // Two days present ⇒ two projected day-aggregate events.
+    assert_eq!(outcome.projected_events.len(), 2);
+    // The projection was NOT written to the shared sync queue (data-loss guard).
+    assert_eq!(store.pending_count().unwrap(), 0);
 
-    // The enqueued events decode into a valid IngestRequest (the pipeline is live).
-    let queued = store.dequeue_batch(1000).unwrap();
+    // The projected events decode into a valid IngestRequest without ever touching
+    // the shared connection — proving the shape a connector-scoped-ingest path
+    // WOULD sync.
+    let queued = as_pending(&outcome.projected_events);
     let request = build_request("0.1.0", 1, &queued);
     assert_eq!(request.window.start, "2026-07-15");
     assert_eq!(request.window.end, "2026-07-16");

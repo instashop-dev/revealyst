@@ -127,10 +127,17 @@ pub struct ImportSummary {
 
 /// User-initiated Claude data-export import (spec §11.3.2). Given a local file
 /// path the user picked, the Rust core validates + parses the export ENTIRELY in
-/// memory (hardened against path traversal + zip bombs), privacy-gates the
-/// day-aggregates, and queues them. Returns the imported/skipped/failed counts;
-/// errors surface as plain-English strings, never a path or content. Reading the
-/// file uses `std::fs` on the Rust side — the frontend has no `fs:` capability.
+/// memory (hardened against path traversal + zip bombs) and privacy-gates the
+/// day-aggregates, returning the imported/skipped/failed counts. Errors surface
+/// as plain-English strings, never a path or content. Reading the file uses
+/// `std::fs` on the Rust side — the frontend has no `fs:` capability.
+///
+/// NOTE: the projected events are computed + validated but NOT enqueued into the
+/// shared sync queue. Live import→sync is gated on a connector-scoped-ingest ADR
+/// (the server's window-delete is connection-scoped, so enqueuing an import that
+/// overlaps the live connector's days would clobber those rows — see
+/// `connectors::claude_export`). This command therefore reports what WOULD import
+/// without yet persisting it.
 #[tauri::command]
 pub fn import_claude_export<R: Runtime>(
     app: AppHandle<R>,
