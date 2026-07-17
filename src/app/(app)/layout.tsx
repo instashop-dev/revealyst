@@ -5,8 +5,8 @@ import { RouteFocusManager } from "@/components/route-focus";
 import { SiteHeader } from "@/components/site-header";
 import { UpgradePaywall } from "@/components/upgrade-paywall";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { computeAccess } from "@/lib/access";
 import { requireAppContext } from "@/lib/api-context";
+import { cachedAccessDecision } from "@/lib/reference-cache";
 import { resolvePaddleClientConfig, type PaddleEnv } from "@/lib/paddle";
 import { isPaywallExempt } from "@/lib/paywall-exempt";
 import { timeStage } from "@/lib/request-timing";
@@ -42,9 +42,12 @@ export default async function AppLayout({
   // Free-band paywall (PR4): an un-entitled workspace over the tracked-user
   // limit sees the upgrade paywall in place of the whole app. Enforced here,
   // the single shell every app page renders through, so no page can forget it —
-  // and the same computeAccess gates the JSON APIs in handleApi.
+  // and the same cached decision gates the JSON APIs in handleApi. The 60s
+  // per-org cache stores only UNBLOCKED results (an upgrade unblocks on the
+  // very next request — see cachedAccessDecision), saving computeAccess's
+  // round-trip wave (2–3 pipelined queries) on every page render.
   const access = await timeStage("access", () =>
-    computeAccess(ctx.db, ctx.scope, ctx.org),
+    cachedAccessDecision(ctx.db, ctx.scope, ctx.org),
   );
   if (access.blocked && !paywallExempt) {
     let clientConfig: { clientToken: string; environment: "sandbox" | "production" } | null =

@@ -287,6 +287,8 @@ export async function dashboardSummary(
     results?: Promise<Awaited<ReturnType<OrgScope["scores"]["results"]>>>;
     /** `spend_cents` metric rows sliced to [from, to] — same sharing rule. */
     spendRows?: Promise<Awaited<ReturnType<OrgScope["metrics"]["records"]>>>;
+    /** `spend_cents_estimated` rows sliced to [from, to] — same sharing rule. */
+    estimatedRows?: Promise<Awaited<ReturnType<OrgScope["metrics"]["records"]>>>;
   },
 ) {
   const { from, to } = period;
@@ -295,7 +297,8 @@ export async function dashboardSummary(
       prefetched?.results ?? scope.scores.results({ from, to }),
       prefetched?.spendRows ??
         scope.metrics.records({ metricKey: "spend_cents", from, to }),
-      scope.metrics.records({ metricKey: "spend_cents_estimated", from, to }),
+      prefetched?.estimatedRows ??
+        scope.metrics.records({ metricKey: "spend_cents_estimated", from, to }),
       scope.billing.trackedUsers({ start: from, end: to }),
       scope.connectorRuns.list({ limit: 200 }),
     ]);

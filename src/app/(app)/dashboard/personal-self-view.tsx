@@ -55,7 +55,10 @@ import {
   cachedRecommendationCatalog,
   cachedVerifiedOverallBenchmarks,
 } from "@/lib/reference-cache";
-import { readBudgetAlertForRole } from "@/lib/spend-governance";
+import {
+  monthToDateWindow,
+  readBudgetAlertForRole,
+} from "@/lib/spend-governance";
 import {
   CONCEPT_GLOSSARY,
   methodologyAnchor,
@@ -142,6 +145,30 @@ export async function PersonalSelfView({
     from: spans.spendFrom,
     to: spans.spendTo,
   });
+  // Estimated spend, fetched ONCE over exactly dashboardSummary's month
+  // window and shared between the summary and the budget alert below (which
+  // used to run its own duplicate reads of both spend families).
+  const estimatedSpendPromise = ctx.scope.metrics.records({
+    metricKey: "spend_cents_estimated",
+    from: period.periodStart,
+    to: period.periodEnd,
+  });
+  // The budget alert measures MONTH-TO-DATE spend (monthToDateWindow: month
+  // start → today) — slice both shared fetches to that exact day range so
+  // readMonthToDateSpend sees precisely what its direct reads would return.
+  const monthToDate = monthToDateWindow(today);
+  const sliceToMonthToDate = (
+    rows: Awaited<ReturnType<typeof ctx.scope.metrics.records>>,
+  ) => rows.filter((r) => r.day >= monthToDate.from && r.day <= monthToDate.to);
+  // The budget alert never AWAITS its prefetched slices for a member-role
+  // viewer (role gate returns null first) — pre-attach a no-op rejection
+  // handler so an unconsumed slice can't surface as an unhandled rejection
+  // in the Workers runtime. The base promises are consumed by the batch
+  // below either way, so a real failure still fails the page loudly.
+  const swallowWhenUnused = <T,>(p: Promise<T>): Promise<T> => {
+    p.catch(() => {});
+    return p;
+  };
   // One score read (all subject levels) spanning the delta months AND
   // maturity's team-score window — sliced per consumer via sliceScoreRows
   // (the one JS replica of `results()`'s SQL predicate).
@@ -196,6 +223,8 @@ export async function PersonalSelfView({
                 (r) => r.day >= period.periodStart && r.day <= period.periodEnd,
               ),
             ),
+            // Fetched over exactly the summary's window above — no slice needed.
+            estimatedRows: estimatedSpendPromise,
           },
         ),
         // Personal self-view compares against the "overall" segment — an
@@ -219,8 +248,15 @@ export async function PersonalSelfView({
         // a personal-kind org CAN have an invited member (org-of-one machinery is
         // identical to Team), and the budget limit is admin-configured governance
         // — for a member the read is skipped entirely, not fetched-then-hidden.
-        // Null also when no budget is set or no threshold is crossed.
-        readBudgetAlertForRole(ctx.scope, ctx.role, today),
+        // Null also when no budget is set or no threshold is crossed. Its two
+        // spend reads are month-to-date slices of the page's shared fetches
+        // (only the budget-row read still hits Postgres here).
+        readBudgetAlertForRole(ctx.scope, ctx.role, today, {
+          reportedRows: swallowWhenUnused(spendPromise.then(sliceToMonthToDate)),
+          estimatedRows: swallowWhenUnused(
+            estimatedSpendPromise.then(sliceToMonthToDate),
+          ),
+        }),
         // Agentic adoption inputs (F1.4). Numerator + denominator over the
         // wider trend window; the rate + weekly trend derive in JS below.
         activeDayPromise,

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { z } from "zod";
 import { appContext, type AppContext } from "@/lib/api-context";
 import { ApiError } from "@/lib/api-impl";
-import { computeAccess } from "@/lib/access";
+import { cachedAccessDecision } from "@/lib/reference-cache";
 
 /**
  * Shared HTTP glue for contract route handlers: session (401), role
@@ -27,7 +27,10 @@ export async function handleApi(
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   if (!opts.allowOverFreeBand) {
-    const access = await computeAccess(ctx.db, ctx.scope, ctx.org);
+    // Same cached decision as the app shell (60s per-org, unblocked-only
+    // storage — a blocked org is re-checked fresh on every call, so an
+    // upgrade lifts the 402 immediately; see cachedAccessDecision).
+    const access = await cachedAccessDecision(ctx.db, ctx.scope, ctx.org);
     if (access.blocked) {
       return NextResponse.json(
         { error: "upgrade required" },
