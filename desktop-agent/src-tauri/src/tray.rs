@@ -6,7 +6,7 @@
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 
 use crate::lifecycle;
 use crate::state::AgentState;
@@ -68,7 +68,9 @@ impl MenuEntry {
 /// - "Pause collection" is present but disabled: collection does not exist
 ///   until M3/M5, and a pause that pauses nothing would be a fake control.
 /// - "Check for updates" is disabled until the signed updater ships (M6).
-/// - "Send diagnostics" is disabled until the diagnostics bundle ships (M4).
+///
+/// "Send diagnostics" is now LIVE (M4/T4.3): it builds a counts-only bundle
+/// from the local store and POSTs it to `/api/desktop/diagnostics`.
 pub fn menu_model(state: &AgentState, last_sync: Option<&str>) -> Vec<MenuEntry> {
     vec![
         MenuEntry::Info {
@@ -113,8 +115,8 @@ pub fn menu_model(state: &AgentState, last_sync: Option<&str>) -> Vec<MenuEntry>
         MenuEntry::Action {
             id: ids::SEND_DIAGNOSTICS,
             label: "Send diagnostics",
-            enabled: false,
-            note: Some("not available yet"),
+            enabled: true,
+            note: None,
         },
         MenuEntry::Action {
             id: ids::QUIT,
@@ -174,14 +176,38 @@ fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
         ids::OPEN_REVEALYST => lifecycle::open_revealyst(app),
         ids::CONNECTION_STATUS => lifecycle::show_screen(app, "status"),
         ids::PRIVACY_SETTINGS => lifecycle::show_screen(app, "privacy"),
+        ids::SEND_DIAGNOSTICS => trigger_send_diagnostics(app),
         ids::QUIT => {
             tracing::info!(component = "tray", "quit requested from tray menu");
             app.exit(0);
         }
-        // Disabled placeholders (pause/updates/diagnostics) and info lines
-        // can't emit events; anything else is ignored.
+        // Disabled placeholders (pause/updates) and info lines can't emit
+        // events; anything else is ignored.
         _ => {}
     }
+}
+
+/// Kick off the user-triggered "Send diagnostics" action (T4.3): resolve the
+/// on-disk store + log paths and spawn the one-shot build-and-POST. Never
+/// blocks the tray thread; the outcome (and only a non-secret code) is logged by
+/// [`crate::diagnostics::send_diagnostics`]. A richer in-window "sent / failed"
+/// surface is the T5.4 status screen's job.
+fn trigger_send_diagnostics<R: Runtime>(app: &AppHandle<R>) {
+    let store_path = match app.path().app_data_dir() {
+        Ok(dir) => dir.join(crate::store::DB_FILE_NAME),
+        Err(_) => {
+            tracing::warn!(
+                component = "diagnostics",
+                error_code = "no_data_dir",
+                "cannot resolve the app data dir for diagnostics"
+            );
+            return;
+        }
+    };
+    let log_dir = app.path().app_log_dir().ok();
+    tauri::async_runtime::spawn(async move {
+        crate::diagnostics::send_diagnostics(&store_path, log_dir.as_deref()).await;
+    });
 }
 
 #[cfg(test)]
@@ -287,13 +313,21 @@ mod tests {
                 "check-updates must be disabled ({state:?})"
             );
             assert_eq!(updates.text(), "Check for updates (not available yet)");
+        }
+    }
 
+    /// T4.3: "Send diagnostics" is now live (enabled, no placeholder note) in
+    /// every state — it builds a counts-only bundle and POSTs it.
+    #[test]
+    fn send_diagnostics_is_live_in_every_state() {
+        for state in ALL_STATES {
+            let model = menu_model(&state, None);
             let diagnostics = entry_by_id(&model, ids::SEND_DIAGNOSTICS);
             assert!(
-                !enabled_of(diagnostics),
-                "send-diagnostics must be disabled ({state:?})"
+                enabled_of(diagnostics),
+                "send-diagnostics must be enabled ({state:?})"
             );
-            assert_eq!(diagnostics.text(), "Send diagnostics (not available yet)");
+            assert_eq!(diagnostics.text(), "Send diagnostics");
         }
     }
 
@@ -305,6 +339,7 @@ mod tests {
                 ids::OPEN_REVEALYST,
                 ids::CONNECTION_STATUS,
                 ids::PRIVACY_SETTINGS,
+                ids::SEND_DIAGNOSTICS,
                 ids::QUIT,
             ] {
                 assert!(

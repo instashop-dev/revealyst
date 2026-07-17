@@ -13,6 +13,7 @@ pub mod commands;
 pub mod config;
 pub mod connectors;
 pub mod deeplink;
+pub mod diagnostics;
 pub mod extract;
 pub mod lifecycle;
 pub mod logging;

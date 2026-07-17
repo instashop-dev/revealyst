@@ -14,6 +14,7 @@
     "rotate:kek": "tsx scripts/rotate-kek.ts",
     "generate:desktop-allowlist": "tsx scripts/generate-agent-allowlist-json.mjs",
     "generate:desktop-ingest-fixture": "tsx scripts/generate-agent-ingest-fixture.mjs",
+    "generate:desktop-diagnostics-fixture": "tsx scripts/generate-desktop-diagnostics-fixture.mjs",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
