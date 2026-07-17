@@ -24,6 +24,7 @@ use super::*;
 use std::path::{Path, PathBuf};
 
 use crate::connectors::{ConnectorContext, ConnectorState, SourceConnector};
+use crate::extract::counts::MAX_MODEL_LEN;
 use crate::extract::{extract, ExtractOptions, ExtractOutput, MetricKey, RecordKind};
 use crate::privacy::{validate_and_enqueue, ContentMode, PolicyResolution};
 use crate::store::crypto::{DbKey, KEY_LEN};
@@ -281,8 +282,14 @@ fn parse_counts_match_cli() {
     assert_eq!(side.records[1].kind, RecordKind::Assistant);
 }
 
-/// A hostile model id read from a vendor line cannot smuggle content: the
-/// extractor sanitizes it to the safe charset before it enters any payload.
+/// A hostile model id read from a vendor line is reduced to a BOUNDED,
+/// safe-charset label before it enters any payload: `sanitize_model` keeps only
+/// `[A-Za-z0-9._:-]` and caps at MAX_MODEL_LEN. So injection structure — spaces,
+/// angle brackets, control chars, newlines — cannot survive, and the field can
+/// never exceed the cap. It is a legitimate `sent:true` identifier (accepted
+/// per the T3.3 review, F3): alphanumeric runs are NOT word-stripped (you can't
+/// distinguish a real model token from an injected word), so the guarantee is
+/// boundedness + charset-safety, not arbitrary-substring removal.
 #[test]
 fn hostile_model_is_bounded_after_extract() {
     let hostile = r#"{"type":"assistant","isSidechain":false,"sessionId":"s1","timestamp":"2026-07-01T10:00:00.000Z","requestId":"r1","message":{"id":"m1","model":"claude fable 5 <SENTINEL rotate AWS key>","usage":{"input_tokens":1}}}"#;
@@ -294,11 +301,32 @@ fn hostile_model_is_bounded_after_extract() {
             .iter()
             .map(|e| e.payload.to_string())
             .collect::<String>();
-    assert!(
-        !dump.contains("SENTINEL"),
-        "hostile model text must not survive"
-    );
+    // Injection structure is stripped: no spaces, no angle brackets, no
+    // control chars — so the raw hostile string can never appear verbatim.
     assert!(!dump.contains(' '), "sanitized model carries no spaces");
+    assert!(
+        !dump.contains('<') && !dump.contains('>'),
+        "no angle brackets"
+    );
+    assert!(
+        !dump.contains("SENTINEL rotate"),
+        "the raw free-text structure must not survive verbatim"
+    );
+    assert!(
+        !dump.chars().any(|c| c.is_control()),
+        "no control characters survive"
+    );
+    // And every emitted model value is within the safe charset + length cap.
+    for ev in &out.candidate_events {
+        if let Some(m) = ev.payload.get("model").and_then(|v| v.as_str()) {
+            assert!(m.len() <= MAX_MODEL_LEN, "model is length-bounded");
+            assert!(
+                m.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._:-".contains(c)),
+                "model is charset-safe"
+            );
+        }
+    }
 }
 
 /// F1 CLI-parity: an assistant record with `"usage": null` is NOT a usage-bearing
