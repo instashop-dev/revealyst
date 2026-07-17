@@ -1,7 +1,14 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import { orgMembers } from "./auth-schema";
-import { auditLog, managerNotes, orgs, teamManagers } from "./schema";
+import {
+  auditLog,
+  benchmarkConsent,
+  digestPreferences,
+  managerNotes,
+  orgs,
+  teamManagers,
+} from "./schema";
 
 // Membership removal — LEAVE (self-service) and admin REMOVE (P7). Lives in the
 // schema zone beside org-scope.ts / invites.ts / account-deletion.ts: it does
@@ -15,8 +22,18 @@ import { auditLog, managerNotes, orgs, teamManagers } from "./schema";
 // admins could never evict a departed employee's login. These two functions are
 // the only sanctioned org_members DELETE paths in the app.
 //
+// LAST-ADMIN SAFETY (concurrency). The "don't orphan a team org" invariant is
+// enforced INSIDE the removal transaction, holding a `SELECT ... FOR UPDATE` lock
+// on the org row (below). A pre-transaction count is check-then-act racy: two
+// co-admins leaving concurrently each read [A,B], each pass a stale guard, each
+// delete their own row (no write conflict under READ COMMITTED) → ZERO admins,
+// and an orphaned team org is unrecoverable (invites need an admin; there is no
+// promote-non-admin or delete-org path). The lock serializes all membership
+// mutations for one org, so the second transaction recounts AFTER the first
+// commits and correctly refuses.
+//
 // CASCADE CLEANUP (both paths, in the SAME transaction as the org_members delete
-// so a partial removal can't strand a grant):
+// so a partial removal can't strand a row):
 //   1. team_managers — the departing user's manager grants in THIS org. A grant
 //      confers "manager" status (an org member with >=1 row); a non-member must
 //      never remain a manager, so these die with the membership. (Its user FK
@@ -26,8 +43,17 @@ import { auditLog, managerNotes, orgs, teamManagers } from "./schema";
 //      They are leaving, so their authored observations here are removed (the
 //      author_user_id FK cascades only on ACCOUNT deletion). Notes about the
 //      person written by OTHER managers are untouched.
+//   3. digest_preferences — the (org_id, user_id) weekly-digest row. Membership-
+//      derived: on RE-INVITE a stale row would silently resurrect a digest
+//      subscription (old digest_enabled + unsubscribe token). Its FK cascades
+//      only on org/account delete, so an explicit delete is required (and keeps
+//      digest.ts's "a member who leaves keeps no dangling preference" claim true).
+//   4. benchmark_consent — the (org_id, user_id) consent row. Membership-derived:
+//      a re-invite must start from NO consent, never a stale prior grant (consent
+//      freshness). Its FK likewise cascades only on org/account delete.
 //
-// DELIBERATELY KEPT (the user account survives a leave/remove, so no FK dangles):
+// DELIBERATELY KEPT (account-level attribution, NOT membership-derived — the user
+// account survives a leave/remove, so no FK dangles):
 //   - invites they created (invited_by_user_id) — an invite is the ORG's pending
 //     addition, not a membership-derived grant; it stays valid and auditable.
 //   - role_assignments.assigned_by_user_id — historical "which admin last set
@@ -49,27 +75,25 @@ export type RemoveMemberOutcome =
   | { ok: true }
   | { ok: false; reason: "not_member" | "self" | "owner" | "last_admin" };
 
-/**
- * Is `userId` the SOLE admin of `orgId`? Probes at most two admin rows — we only
- * need "more than one?" — so removing the last admin (which would orphan a team
- * org: no one could ever manage or invite again, and there is no delete-org
- * flow) is refused. A member (non-admin) leaving is never the last admin.
- */
-async function isSoleAdmin(db: Db, orgId: string): Promise<boolean> {
-  const admins = await db
-    .select({ userId: orgMembers.userId })
-    .from(orgMembers)
-    .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.role, "admin")))
-    .limit(2);
-  return admins.length <= 1;
-}
+/** Internal sentinel: thrown inside purgeMembership's transaction when the
+ * (locked) recount shows the user is the org's sole admin, rolling the whole
+ * removal back. Mapped to the `last_admin` outcome by the callers. */
+class LastAdminError extends Error {}
 
 /**
- * Delete the membership + its cascade grants + write the audit row, all in one
- * transaction. Shared by both paths so leave and remove can never diverge on
- * WHAT gets cleaned up. `actorUserId` is who performed the action (the leaver
- * themselves, or the admin doing the removing); `userId` is whose membership is
- * being removed; `action` is the audit verb.
+ * Delete the membership + its cascade rows + write the audit row, all in ONE
+ * transaction guarded by a row lock. Shared by both paths so leave and remove can
+ * never diverge on WHAT gets cleaned up OR on the last-admin invariant.
+ *
+ * Steps (order matters):
+ *   1. `SELECT id FROM orgs WHERE id = :orgId FOR UPDATE` — serializes every
+ *      membership mutation for this org against concurrent leaves/removes.
+ *   2. Re-read the target's role UNDER THE LOCK; if they are an admin and the
+ *      (also-under-lock) admin count is <= 1, throw LastAdminError to roll back.
+ *   3. Delete the cascade rows + the membership; insert the audit row.
+ *
+ * `actorUserId` is who performed the action; `userId` is whose membership is
+ * removed; `action` is the audit verb. Returns "ok" or "last_admin".
  */
 async function purgeMembership(
   db: Db,
@@ -79,35 +103,83 @@ async function purgeMembership(
     actorUserId: string;
     action: "org.member_leave" | "org.member_remove";
   },
-): Promise<void> {
+): Promise<"ok" | "last_admin"> {
   const { orgId, userId, actorUserId, action } = params;
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(teamManagers)
-      .where(and(eq(teamManagers.orgId, orgId), eq(teamManagers.userId, userId)));
-    await tx
-      .delete(managerNotes)
-      .where(
-        and(
-          eq(managerNotes.orgId, orgId),
-          eq(managerNotes.authorUserId, userId),
-        ),
+  try {
+    await db.transaction(async (tx) => {
+      // Serialize membership mutations for this org (see the LAST-ADMIN SAFETY
+      // note above). Every leave/remove takes this same lock first.
+      await tx.execute(
+        sql`select id from ${orgs} where ${orgs.id} = ${orgId} for update`,
       );
-    await tx
-      .delete(orgMembers)
-      .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)));
-    // Accountability trail (ADR 0010), written in-transaction so a removed
-    // membership always has its matching audit row (and vice versa). targetId
-    // is the user whose membership was removed.
-    await tx.insert(auditLog).values({
-      orgId,
-      actorUserId,
-      action,
-      targetKind: "member",
-      targetId: userId,
-      metadata: {},
+      // Authoritative last-admin check, holding the lock. Re-read the role too
+      // (it may have changed since the caller's pre-checks).
+      const [membership] = await tx
+        .select({ role: orgMembers.role })
+        .from(orgMembers)
+        .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)))
+        .limit(1);
+      if (membership?.role === "admin") {
+        const admins = await tx
+          .select({ userId: orgMembers.userId })
+          .from(orgMembers)
+          .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.role, "admin")))
+          .limit(2);
+        if (admins.length <= 1) {
+          throw new LastAdminError();
+        }
+      }
+      await tx
+        .delete(teamManagers)
+        .where(
+          and(eq(teamManagers.orgId, orgId), eq(teamManagers.userId, userId)),
+        );
+      await tx
+        .delete(managerNotes)
+        .where(
+          and(
+            eq(managerNotes.orgId, orgId),
+            eq(managerNotes.authorUserId, userId),
+          ),
+        );
+      await tx
+        .delete(digestPreferences)
+        .where(
+          and(
+            eq(digestPreferences.orgId, orgId),
+            eq(digestPreferences.userId, userId),
+          ),
+        );
+      await tx
+        .delete(benchmarkConsent)
+        .where(
+          and(
+            eq(benchmarkConsent.orgId, orgId),
+            eq(benchmarkConsent.userId, userId),
+          ),
+        );
+      await tx
+        .delete(orgMembers)
+        .where(and(eq(orgMembers.orgId, orgId), eq(orgMembers.userId, userId)));
+      // Accountability trail (ADR 0010), written in-transaction so a removed
+      // membership always has its matching audit row (and vice versa). targetId
+      // is the user whose membership was removed.
+      await tx.insert(auditLog).values({
+        orgId,
+        actorUserId,
+        action,
+        targetKind: "member",
+        targetId: userId,
+        metadata: {},
+      });
     });
-  });
+    return "ok";
+  } catch (error) {
+    if (error instanceof LastAdminError) {
+      return "last_admin";
+    }
+    throw error;
+  }
 }
 
 /**
@@ -118,8 +190,9 @@ async function purgeMembership(
  *     (account deletion resolves it via orgs.bootstrap_user_id). You leave a team
  *     workspace, never your own account's home.
  *   - `last_admin`: the caller is the only admin of a team org — leaving would
- *     orphan it. They must make someone else an admin first.
- * Otherwise deletes the membership + cascade grants transactionally.
+ *     orphan it. They must make someone else an admin first. (Enforced under a
+ *     row lock inside the transaction — see purgeMembership.)
+ * Otherwise deletes the membership + cascade rows transactionally.
  */
 export async function leaveOrg(
   db: Db,
@@ -142,16 +215,15 @@ export async function leaveOrg(
   if (org?.bootstrapUserId === userId) {
     return { ok: false, reason: "personal_org" };
   }
-  if (membership.role === "admin" && (await isSoleAdmin(db, orgId))) {
-    return { ok: false, reason: "last_admin" };
-  }
-  await purgeMembership(db, {
+  const result = await purgeMembership(db, {
     orgId,
     userId,
     actorUserId: userId,
     action: "org.member_leave",
   });
-  return { ok: true };
+  return result === "last_admin"
+    ? { ok: false, reason: "last_admin" }
+    : { ok: true };
 }
 
 /**
@@ -165,8 +237,9 @@ export async function leaveOrg(
  *   - `owner`: the target is this org's bootstrap owner (identity anchor) — never
  *     evictable. For a personal org this coincides with the sole admin; the guard
  *     also covers the (rare) multi-admin personal org.
- *   - `last_admin`: the target is the org's only admin — removing them orphans it.
- * Otherwise deletes the target's membership + cascade grants transactionally.
+ *   - `last_admin`: the target is the org's only admin — removing them orphans it
+ *     (enforced under a row lock inside the transaction — see purgeMembership).
+ * Otherwise deletes the target's membership + cascade rows transactionally.
  */
 export async function removeOrgMember(
   db: Db,
@@ -192,14 +265,13 @@ export async function removeOrgMember(
   if (org?.bootstrapUserId === targetUserId) {
     return { ok: false, reason: "owner" };
   }
-  if (membership.role === "admin" && (await isSoleAdmin(db, orgId))) {
-    return { ok: false, reason: "last_admin" };
-  }
-  await purgeMembership(db, {
+  const result = await purgeMembership(db, {
     orgId,
     userId: targetUserId,
     actorUserId,
     action: "org.member_remove",
   });
-  return { ok: true };
+  return result === "last_admin"
+    ? { ok: false, reason: "last_admin" }
+    : { ok: true };
 }

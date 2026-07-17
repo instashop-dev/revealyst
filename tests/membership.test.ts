@@ -107,6 +107,40 @@ describe("leaveOrg (self-service)", () => {
     expect(await membershipExists(orgId, a1)).toBe(true);
   });
 
+  it("two co-admins leaving concurrently leave EXACTLY one admin (last-admin race)", async () => {
+    const a1 = await mkUser("race-a1");
+    const a2 = await mkUser("race-a2");
+    const { orgId } = await createTeamWorkspace(db, {
+      name: "Race",
+      adminUserId: a1,
+    });
+    await addMember(orgId, a2, "admin");
+
+    // Fire both leaves without awaiting between them — the guard must not let
+    // both pass. The FOR UPDATE lock inside purgeMembership is the production
+    // guarantee that serializes them; on PGlite (single connection) the two
+    // transactions serialize regardless, so this asserts the invariant holds.
+    const [r1, r2] = await Promise.all([
+      leaveOrg(db, { userId: a1, orgId }),
+      leaveOrg(db, { userId: a2, orgId }),
+    ]);
+
+    // Exactly one succeeded; the other was refused as last_admin.
+    const outcomes = [r1, r2];
+    expect(outcomes.filter((r) => r.ok)).toHaveLength(1);
+    expect(
+      outcomes.filter((r) => !r.ok && r.reason === "last_admin"),
+    ).toHaveLength(1);
+
+    // And the org is NOT orphaned: exactly one admin remains.
+    const remaining = await db
+      .select({ userId: schema.orgMembers.userId, role: schema.orgMembers.role })
+      .from(schema.orgMembers)
+      .where(eq(schema.orgMembers.orgId, orgId));
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].role).toBe("admin");
+  });
+
   it("a member leaves: membership + manager grant + THEIR notes gone, others' kept, audit written, active org falls back", async () => {
     const admin = await mkUser("leave-cascade-admin");
     const member = await mkUser("leave-cascade-member");
@@ -129,6 +163,13 @@ describe("leaveOrg (self-service)", () => {
       { orgId, personId: person.id, authorUserId: member, body: "member note" },
       { orgId, personId: person.id, authorUserId: admin, body: "admin note" },
     ]);
+    // Membership-derived rows that must NOT survive to a re-invite.
+    await db
+      .insert(schema.digestPreferences)
+      .values({ orgId, userId: member, digestEnabled: true });
+    await db
+      .insert(schema.benchmarkConsent)
+      .values({ orgId, userId: member, granted: true });
     // The member was active in the team org (so we can prove the fallback moves).
     await db
       .update(schema.orgMembers)
@@ -162,6 +203,27 @@ describe("leaveOrg (self-service)", () => {
       .from(schema.managerNotes)
       .where(eq(schema.managerNotes.orgId, orgId));
     expect(notes.map((n) => n.author)).toEqual([admin]);
+    // Membership-derived rows gone (no stale digest sub / consent on re-invite).
+    const digest = await db
+      .select()
+      .from(schema.digestPreferences)
+      .where(
+        and(
+          eq(schema.digestPreferences.orgId, orgId),
+          eq(schema.digestPreferences.userId, member),
+        ),
+      );
+    expect(digest).toHaveLength(0);
+    const consent = await db
+      .select()
+      .from(schema.benchmarkConsent)
+      .where(
+        and(
+          eq(schema.benchmarkConsent.orgId, orgId),
+          eq(schema.benchmarkConsent.userId, member),
+        ),
+      );
+    expect(consent).toHaveLength(0);
     // Audit row written for the leave, attributed to and targeting the leaver.
     const audit = await forOrg(db, orgId).auditLog.list();
     const leaveRow = audit.find((a) => a.action === "org.member_leave");
