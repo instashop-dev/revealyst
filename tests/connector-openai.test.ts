@@ -7,7 +7,6 @@ import { openAiConnector, openAiEntry } from "../src/connectors/openai";
 import { checkAdminKey, fetchCompletionsUsage } from "../src/connectors/openai/client";
 import { normalizeOpenAi, ORG_SUBJECT } from "../src/connectors/openai/normalize";
 import { ENVELOPE_KINDS, type OpenAiRaw } from "../src/connectors/openai/types";
-import { getConnector } from "../src/connectors/registry";
 import type {
   ConnectorContext,
   RawPayloadEnvelope,
@@ -195,12 +194,12 @@ describe("determinism + registration", () => {
     expect(normalizeOpenAi(usageEnvelope)).toEqual(normalizeOpenAi(usageEnvelope));
   });
 
-  it("src/connectors registers both W1-D vendors", async () => {
-    await import("../src/connectors");
-    expect(getConnector("openai")?.sourceConnector).toBe("openai@1");
-    expect(getConnector("anthropic_console")?.sourceConnector).toBe(
-      "anthropic-console@1",
-    );
+  // ADR 0056: connectors are no longer auto-registered (empty registry); the
+  // module survives as an inert fixture, so its entry keeps its stamp. The
+  // anthropic_console stamp is covered by connector-anthropic + the seed-demo
+  // drift test, which checks all four entries.
+  it("the openai connector entry carries its sourceConnector stamp", () => {
+    expect(openAiEntry.sourceConnector).toBe("openai@1");
   });
 });
 

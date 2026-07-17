@@ -7,7 +7,6 @@ import { cursorConnector, cursorEntry } from "../src/connectors/cursor";
 import { checkAdminKey, fetchDailyUsage } from "../src/connectors/cursor/client";
 import { normalizeCursor } from "../src/connectors/cursor/normalize";
 import { ENVELOPE_KINDS, type CursorRaw } from "../src/connectors/cursor/types";
-import { getConnector } from "../src/connectors/registry";
 import type { RawPayloadEnvelope } from "../src/contracts/connector";
 import type { Db } from "../src/db/client";
 import { createFixtureOrg } from "../src/db/fixtures";
@@ -260,9 +259,10 @@ describe("determinism + registration", () => {
     expect(normalizeCursor(eventsEnvelope)).toEqual(normalizeCursor(eventsEnvelope));
   });
 
-  it("src/connectors registers cursor", async () => {
-    await import("../src/connectors");
-    expect(getConnector("cursor")?.sourceConnector).toBe("cursor@1");
+  // ADR 0056: connectors are no longer auto-registered (empty registry); the
+  // module survives as an inert fixture, so its entry keeps its stamp.
+  it("the cursor connector entry carries its sourceConnector stamp", () => {
+    expect(cursorEntry.sourceConnector).toBe("cursor@1");
   });
 
   it("capabilities match connector-facts §2", () => {

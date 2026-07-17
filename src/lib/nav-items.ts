@@ -1,5 +1,4 @@
 import {
-  Cable,
   Gauge,
   LayoutDashboard,
   ScanFace,
@@ -61,7 +60,6 @@ export type OrgRole = "admin" | "member";
 const PERSONAL_NAV_ITEMS: NavItem[] = [
   { title: "Today", href: "/dashboard", icon: LayoutDashboard },
   { title: "Growth", href: "/growth", icon: Sprout },
-  { title: "Connections", href: "/connections", icon: Cable },
   { title: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -71,7 +69,6 @@ const PERSONAL_NAV_ITEMS: NavItem[] = [
 const TEAM_NAV_ITEMS: NavItem[] = [
   { title: "Team", href: "/dashboard", icon: LayoutDashboard },
   { title: "AI maturity", href: "/maturity", icon: Gauge },
-  { title: "Connections", href: "/connections", icon: Cable },
   { title: "Settings", href: "/settings", icon: Settings },
 ];
 

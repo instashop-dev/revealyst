@@ -118,11 +118,11 @@ export const GROWTH_PAGE_COPY = {
      * signal is still accumulating). */
     withSources:
       "Your connected tools haven't produced enough measured activity yet. As more comes through, each capability fills in here — nothing is generic, it only reflects your own data.",
-    /** Rendered when the person has no active connection producing signal —
-     * points them at Connections without inventing a specific reading. */
+    /** Rendered when the person has no active source producing signal —
+     * points them at the desktop agent without inventing a specific reading. */
     noSources:
-      "Connect a tool to start building an evidence-based read of your AI capabilities. Until then there's nothing measured to show — and we won't guess.",
-    connectLabel: "Go to Connections",
+      "Set up the Revealyst Agent to start building an evidence-based read of your AI capabilities. Until then there's nothing measured to show — and we won't guess.",
+    connectLabel: "Set up the agent",
   },
 } as const;
 

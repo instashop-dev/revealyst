@@ -54,11 +54,14 @@ import {
   readSpendGovernance,
   todayUtc,
 } from "../src/lib/spend-governance";
-// Side-effect import: registers every shipped connector (tests/
-// vendor-connect-meta.test.ts's pattern) — needed so getConnector() below
-// resolves real sourceConnector strings instead of undefined.
-import "../src/connectors";
-import { getConnector } from "../src/connectors/registry";
+// ADR 0056: connectors are no longer auto-registered (empty registry). The
+// modules survive as inert fixtures, so the drift test below resolves each
+// canonical sourceConnector from the entry module directly rather than the
+// global registry.
+import { anthropicConsoleEntry } from "../src/connectors/anthropic";
+import { copilotEntry } from "../src/connectors/copilot";
+import { cursorEntry } from "../src/connectors/cursor";
+import { openAiEntry } from "../src/connectors/openai";
 import personalPresets from "../fixtures/score-definitions/personal-presets.json";
 
 // End-to-end validation of the rich demo seed (scripts/seed/README.md):
@@ -761,13 +764,20 @@ describe("drift tripwires (generator vs. sources of truth)", () => {
     expect(PERSON_PRESET_CLONES).toEqual(personalPresets.definitions);
   });
 
-  it("SOURCE_CONNECTOR values equal the registered connectors' sourceConnector strings", () => {
+  it("SOURCE_CONNECTOR values equal the connector entries' sourceConnector strings", () => {
+    // Canonical sourceConnector lives on the entry modules (the fixtures), not
+    // the global registry (empty since ADR 0056).
+    const entryByVendor = new Map(
+      [anthropicConsoleEntry, openAiEntry, cursorEntry, copilotEntry].map(
+        (e) => [e.connector.vendor as string, e],
+      ),
+    );
     const vendorByKey = new Map(ACME_CONNECTIONS.map((c) => [c.key, c.vendor]));
     let checked = 0;
     for (const [key, sourceConnector] of Object.entries(SOURCE_CONNECTOR)) {
       const vendor = vendorByKey.get(key);
       expect(vendor, `ACME_CONNECTIONS has no entry for SOURCE_CONNECTOR key '${key}'`).toBeTruthy();
-      const registered = getConnector(vendor!);
+      const registered = entryByVendor.get(vendor!);
       if (!registered) {
         // claude_code_local is a local-agent push with no polled connector
         // registered — the one intentional gap; anything else missing here

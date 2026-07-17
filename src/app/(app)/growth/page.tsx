@@ -279,7 +279,7 @@ export default async function GrowthPage() {
                     variant="outline"
                     size="sm"
                     nativeButton={false}
-                    render={<Link href="/connections" />}
+                    render={<Link href="/settings/devices" />}
                   >
                     {GROWTH_PAGE_COPY.empty.connectLabel}
                   </Button>

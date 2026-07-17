@@ -25,7 +25,7 @@ export function dashboardWindow(): { from: string; to: string } {
 
 function attentionActionLabel(href: string): string {
   if (href === "/reconcile") return "Match accounts";
-  if (href === "/connections") return "Go to Connections";
+  if (href === "/settings/devices") return "Go to Devices";
   return "View";
 }
 

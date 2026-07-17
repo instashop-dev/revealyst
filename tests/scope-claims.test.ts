@@ -75,34 +75,3 @@ describe("scope-claims completeness", () => {
     ).toBeDefined();
   });
 });
-
-describe("no hard-coded vendor capability prose in (app) pages", () => {
-  // The connections page must READ scopeClaims (from the registry / the map),
-  // not embed vendor-capability sentences as string literals. This is the
-  // structural W3-P guard applied to the trust-upgrade copy.
-  const connectionsPage = "src/app/(app)/connections/page.tsx";
-
-  it("the connections page imports the claims source rather than re-typing prose", () => {
-    const src = readSrc(connectionsPage);
-    expect(
-      /scope-claims|scopeClaims/.test(src),
-      "connections page should resolve vendor claims from scope-claims, not hard-code them",
-    ).toBe(true);
-  });
-
-  it("the connections page contains none of the exact claim sentences as string literals", () => {
-    // If a claim sentence appears verbatim in the page source, someone
-    // pasted registry copy into the page — exactly the drift this guards.
-    const src = readSrc(connectionsPage);
-    const allClaims = Object.values(SCOPE_CLAIMS).flatMap((c) => [
-      ...c.measures,
-      ...c.cannotMeasure,
-    ]);
-    for (const claim of allClaims) {
-      expect(
-        src.includes(claim),
-        `connections page hard-codes a vendor claim: "${claim}"`,
-      ).toBe(false);
-    }
-  });
-});

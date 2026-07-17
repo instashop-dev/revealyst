@@ -17,7 +17,6 @@ import {
   type PaddleServerConfig,
 } from "./lib/paddle";
 import { listOrgIds, listSubscriptionsToMeter } from "./db/system";
-import { dispatchDueConnectorWork } from "./poller/dispatch";
 import { SYSTEM_ORG_ID, type PollMessage } from "./poller/messages";
 import { processPollMessage } from "./poller/process";
 import { sendInBatches } from "./poller/queue";
@@ -53,11 +52,6 @@ const FLYWHEEL_CRON = "0 15 * * 1";
 // just ended (the consumer anchors its reads at yesterday). Matches the sixth
 // wrangler.jsonc "triggers".crons entry.
 const MONTHLY_EXEC_CRON = "0 16 1 * *";
-// Daily renewal-reminder scan (W6-G): 13:00 UTC — one message per org; the
-// consumer emails admins about user-entered renewal dates exactly 30 or 7 days
-// out (idempotent via renewal_reminder_state CAS). Daily so each exact-day
-// threshold is checked on its calendar day.
-const RENEWAL_REMINDER_CRON = "0 13 * * *";
 
 /** Paddle server config for the consumer, or undefined when unconfigured —
  * resolved safely so a missing key never breaks non-metering queue work. */
@@ -269,29 +263,17 @@ export default {
       await sendInBatches(env.POLL_QUEUE, messages);
       return;
     }
-    if (controller.cron === RENEWAL_REMINDER_CRON) {
-      // Daily renewal-reminder fan-out: one message per org onto the existing
-      // poll queue. Messages stay tiny (org id only); the consumer scans that
-      // org's connections for user-entered renewal dates 30/7 days out and
-      // emails admins (src/poller/renewal-reminder.ts), idempotent via the
-      // renewal_reminder_state CAS.
-      const db = createDb(env);
-      const messages = (await listOrgIds(db)).map(
-        (orgId) =>
-          ({ kind: "renewal-reminder-scan", orgId }) satisfies PollMessage,
-      );
-      await sendInBatches(env.POLL_QUEUE, messages);
-      return;
-    }
+    // Heartbeat + raw-payload purge on the */5 tick. Connector polling was
+    // REMOVED with the pivot to the desktop-agent usage-source model (ADR
+    // 0056): the registry ships empty and usage now arrives via the device
+    // push path (/api/agent/ingest, /v1/metrics), so there is no per-connection
+    // poll to dispatch. Existing connector rows are frozen in place — they
+    // simply receive no new data.
     await env.POLL_QUEUE.send({
       kind: "noop-poll",
       orgId: SYSTEM_ORG_ID,
     } satisfies PollMessage);
     await env.POLL_QUEUE.send({ kind: "purge-raw" } satisfies PollMessage);
-    const db = createDb(env);
-    await dispatchDueConnectorWork(db, {
-      send: (messages) => sendInBatches(env.POLL_QUEUE, messages),
-    });
   },
 
   async queue(batch, env) {

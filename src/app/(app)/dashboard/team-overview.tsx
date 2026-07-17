@@ -573,16 +573,16 @@ export async function TeamOverview() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Connections</CardTitle>
+              <CardTitle>Sources</CardTitle>
               <CardDescription>
-                The tools connected to your workspace.
+                The tools feeding your workspace.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 text-sm">
               {connections.length === 0 ? (
                 <p className="text-muted-foreground">
-                  No tools connected yet — connect one to start seeing your
-                  numbers here.
+                  No sources yet — set up the Revealyst Agent to start seeing
+                  your numbers here.
                 </p>
               ) : (
                 connections.slice(0, 4).map((connection) => (
@@ -615,12 +615,10 @@ export async function TeamOverview() {
                   variant="outline"
                   size="sm"
                   nativeButton={false}
-                  render={<Link href="/connections" />}
+                  render={<Link href="/settings/devices" />}
                 >
                   <Cable data-icon="inline-start" />
-                  {connections.length === 0
-                    ? "View connections"
-                    : "Manage connections"}
+                  {connections.length === 0 ? "Set up a source" : "Manage sources"}
                 </Button>
               </div>
             </CardContent>
