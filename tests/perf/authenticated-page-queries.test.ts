@@ -1,7 +1,7 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { Db } from "../../src/db/client";
 import { createFixtureOrg, loadFixture } from "../../src/db/fixtures";
 import { orgContextForUser } from "../../src/db/org-context";
@@ -10,10 +10,20 @@ import * as schema from "../../src/db/schema";
 import { applyPaddleSubscriptionEvent } from "../../src/db/subscriptions";
 import { computeAccess } from "../../src/lib/access";
 import { dashboardSummary } from "../../src/lib/api-impl";
-import { listBenchmarks } from "../../src/db/benchmarks";
+import {
+  cachedCapabilityGraph,
+  cachedMissionCatalog,
+  cachedRecommendationCatalog,
+  cachedVerifiedOverallBenchmarks,
+  clearReferenceCache,
+} from "../../src/lib/reference-cache";
 import { readBudgetAlertForRole } from "../../src/lib/spend-governance";
 import { readDashboardView } from "../../src/lib/dashboard-view";
-import { readMaturityView } from "../../src/lib/maturity";
+import {
+  readMaturityView,
+  sharedCompanionReadSpans,
+  sliceScoreRows,
+} from "../../src/lib/maturity";
 import { periodFor, previousDay, recomputeOrg } from "../../src/scoring";
 import { buildTeamFixtureGraph } from "./fixture-graph";
 import { formatTable, instrumentPglite, measure, type ScenarioResult } from "./query-counter";
@@ -220,138 +230,249 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     expect(result.sequentialDepth).toBeLessThanOrEqual(3);
   });
 
-  it("4. Today (personal self-view) — the WHOLE recomposed batch stays ONE depth-1 stage", async () => {
-    // U1.1 recomposes the personal companion into Today: the RENDERING moves
-    // (growth cluster → /growth), but the page's flat Promise.all reads are
-    // UNCHANGED — the capability graph/state + mission catalog/progress reads
-    // stay (deriveAttention's eligibility gates, the overall band, and the
-    // active-mission strip all consume them). This scenario mirrors the FULL
-    // personal-self-view batch (not a slice) so the "Today budget" is a real
-    // number: it must not grow, and — the whole point — every read overlaps in
-    // ONE stage, so sequentialDepth stays exactly 1 (a regression that
-    // serialized any read behind the rest would push depth to 2 and fail here).
-    const anchor = "2026-06-30";
+  // Mirrors personal-self-view.tsx's batch EXACTLY (the shared-read shape):
+  // one read per table over the UNION of the page's and readMaturityView's
+  // windows, handed to both consumers via prefetched inputs; reference tables
+  // (capability graph, mission catalog, rec catalog, benchmarks) go through
+  // the isolate cache helpers (pass-through when the cache is cold/disabled).
+  async function runTodayBatch(anchor: string) {
     const period = periodFor("month", anchor);
     const prevPeriod = periodFor("month", previousDay(period.periodStart));
     const definitionsPromise = scope.scores.definitions();
-    // Multi-person guard: ONE people query shared between the page's caller-
-    // person resolution and dashboardSummary's hydration (prefetched.people),
-    // mirroring personal-self-view.tsx.
     const peoplePromise = scope.people.list();
-    let placed = false;
-    const result = await measure(counter, "Today (personal)", async () => {
-      const [maturity] = await Promise.all([
-        readMaturityView(scope, anchor),
-        scope.connections.list(),
-        dashboardSummary(
-          scope,
-          "private",
-          { from: period.periodStart, to: period.periodEnd },
-          { definitions: definitionsPromise, people: peoplePromise },
-        ),
-        listBenchmarks(db, { status: "verified", segment: "overall" }),
-        definitionsPromise,
-        scope.scores.results({
+    const connectionsPromise = scope.connections.list();
+    const identitiesPromise = scope.identities.all();
+    const spans = sharedCompanionReadSpans({
+      today: anchor,
+      agenticFrom: WINDOW.from,
+      period,
+      prevPeriod,
+    });
+    const activeDayPromise = scope.metrics.records({
+      metricKey: "active_day",
+      from: spans.metricFrom,
+      to: spans.metricTo,
+    });
+    const agentActivePromise = scope.metrics.records({
+      metricKey: "agent_active",
+      from: spans.metricFrom,
+      to: spans.metricTo,
+    });
+    const spendPromise = scope.metrics.records({
+      metricKey: "spend_cents",
+      from: spans.spendFrom,
+      to: spans.spendTo,
+    });
+    const scoreRowsPromise = scope.scores.results({
+      from: spans.scoreFrom,
+      to: spans.scoreTo,
+    });
+    const [maturity] = await Promise.all([
+      readMaturityView(scope, anchor, {
+        people: peoplePromise,
+        identities: identitiesPromise,
+        connections: connectionsPromise,
+        activeDayRows: activeDayPromise,
+        agentActiveRows: agentActivePromise,
+        spendRows: spendPromise,
+        scoreRows: scoreRowsPromise,
+        definitions: definitionsPromise,
+      }),
+      connectionsPromise,
+      dashboardSummary(
+        scope,
+        "private",
+        { from: period.periodStart, to: period.periodEnd },
+        {
+          definitions: definitionsPromise,
+          people: peoplePromise,
+          results: scoreRowsPromise.then((rows) =>
+            sliceScoreRows(rows, {
+              from: period.periodStart,
+              to: period.periodEnd,
+            }),
+          ),
+          spendRows: spendPromise.then((rows) =>
+            rows.filter(
+              (r) => r.day >= period.periodStart && r.day <= period.periodEnd,
+            ),
+          ),
+        },
+      ),
+      cachedVerifiedOverallBenchmarks(db),
+      definitionsPromise,
+      scoreRowsPromise.then((rows) =>
+        sliceScoreRows(rows, {
           from: prevPeriod.periodStart,
           to: prevPeriod.periodEnd,
           subjectLevel: "person",
         }),
-        readBudgetAlertForRole(scope, "admin", anchor),
-        scope.metrics.records({ metricKey: "active_day", from: WINDOW.from, to: WINDOW.to }),
-        scope.metrics.records({ metricKey: "agent_active", from: WINDOW.from, to: WINDOW.to }),
-        scope.identities.all(),
-        scope.metrics.records({ metricKey: "spend_cents", from: WINDOW.from, to: WINDOW.to }),
-        scope.recInteractions.statesForUser(userId),
-        scope.catalog.list(),
-        scope.capabilities.graph(),
-        scope.mastery.forUser(userId),
-        scope.missions.catalog(),
-        scope.missions.progressForUser(userId),
-        // COACH-004: the signed-in person's OWN exposures, for novelty rotation.
-        scope.exposures.forUser(userId),
-        // Multi-person guard: the SAME in-flight people promise shared with
-        // dashboardSummary above (one query, like definitions).
-        peoplePromise,
-      ]);
+      ),
+      readBudgetAlertForRole(scope, "admin", anchor),
+      activeDayPromise,
+      agentActivePromise,
+      identitiesPromise,
+      spendPromise,
+      scope.recInteractions.statesForUser(userId),
+      cachedRecommendationCatalog(scope),
+      cachedCapabilityGraph(scope),
+      scope.mastery.forUser(userId),
+      cachedMissionCatalog(scope),
+      scope.missions.progressForUser(userId),
+      scope.exposures.forUser(userId),
+      peoplePromise,
+    ]);
+    return maturity;
+  }
+
+  it("4. Today (personal self-view) — the WHOLE recomposed batch stays ONE depth-1 stage", async () => {
+    // The shared-read pass (perf: dashboard/growth <2s): this page and
+    // readMaturityView used to fetch people/identities/connections and the
+    // active_day/agent_active/spend_cents/score rows SEPARATELY over
+    // overlapping windows (total 39). Each is now ONE union-window read handed
+    // to both consumers, and the four reference reads go through the isolate
+    // cache. This scenario is the COLD-isolate number (cache disabled in
+    // tests → the reference reads still hit Postgres); the warm scenario
+    // below shows the steady-state. Depth stays EXACTLY 1 — every read still
+    // overlaps in one stage.
+    const anchor = "2026-06-30";
+    let placed = false;
+    const result = await measure(counter, "Today (cold isolate)", async () => {
+      const maturity = await runTodayBatch(anchor);
       expect(maturity.numbers).toBeDefined();
       placed = maturity.currentWindow.to.length > 0;
     });
     results.push(result);
     expect(placed).toBe(true);
 
-    // Measured Today budget (this fixture): total 39, depth 1 (the
-    // multi-person guard's people read is the same one dashboardSummary
-    // already ran, now shared via prefetched.people — net zero). Generous ceiling
-    // (~1.5x) catches a real regression (an accidental N+1 or a new sequential
-    // stage) without being brittle to a one-query change. Depth is pinned EXACT
-    // — U1 must not add a round-trip stage (the growth cluster's reads stay in
-    // this one batch; only the RENDERING moved).
+    // Measured after the shared-read pass (this fixture): total 29 cold /
+    // 22 warm (was 39), depth 1. Generous ceiling catches a real regression
+    // (an accidental N+1 or a re-duplicated read) without being brittle to a
+    // one-query change. Depth is pinned EXACT.
     expect(result.total).toBeGreaterThan(0);
-    expect(result.total).toBeLessThanOrEqual(60);
+    expect(result.total).toBeLessThanOrEqual(40);
     expect(result.sequentialDepth).toBe(1);
   });
 
-  it("5. Growth (/growth) — its own flat Promise.all, depth 1", async () => {
-    // U1.3: the new Growth route has its own depth-1 batch. It re-derives the
-    // hero level via readMaturityView (kicked off synchronously as a batch
-    // element, so its internal reads overlap) + the capability graph/state,
-    // missions, this-and-last month's own score rows (the milestone breadth
-    // baseline), connections (the empty-state connector line), people (to resolve
-    // the CALLER's own person id so the milestone breadth is person-scoped), and
-    // its OWN agentic-adoption inputs (active_day/agent_active/identities over the
-    // window ending TODAY — so the milestone gates match the dashboard's agentic
-    // card to the day, never readMaturityView's yesterday-ending window). It runs
-    // on a SEPARATE page load from Today (a user is on one route or the other),
-    // so its cost is additive to Today only across two navigations — its own
-    // budget is what this pins. Depth must stay 1.
-    const anchor = "2026-06-30";
+  it("4b. Today (warm isolate) — reference cache serves the seeded tables", async () => {
+    // The production steady state: the isolate has served this org before, so
+    // the capability graph (3 queries), mission catalog (2), rec catalog (1)
+    // and benchmarks (1) come from the isolate cache — ~7 fewer Neon round
+    // trips per page load. NODE_ENV is stubbed to production because the cache
+    // deliberately disables itself in tests (see reference-cache.ts).
+    vi.stubEnv("NODE_ENV", "production");
+    clearReferenceCache();
+    try {
+      await runTodayBatch("2026-06-30"); // warm the cache (uncounted)
+      const result = await measure(counter, "Today (warm isolate)", async () => {
+        const maturity = await runTodayBatch("2026-06-30");
+        expect(maturity.numbers).toBeDefined();
+      });
+      results.push(result);
+      expect(result.total).toBeGreaterThan(0);
+      expect(result.total).toBeLessThanOrEqual(32);
+      expect(result.sequentialDepth).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
+      clearReferenceCache();
+    }
+  });
+
+  // Mirrors growth/page.tsx's batch EXACTLY (same shared-read shape as Today,
+  // minus the summary/budget/spend cluster).
+  async function runGrowthBatch(anchor: string) {
     const period = periodFor("month", anchor);
     const prevPeriod = periodFor("month", previousDay(period.periodStart));
+    const spans = sharedCompanionReadSpans({
+      today: anchor,
+      agenticFrom: WINDOW.from,
+      period,
+      prevPeriod,
+    });
+    const peoplePromise = scope.people.list();
+    const identitiesPromise = scope.identities.all();
+    const connectionsPromise = scope.connections.list();
+    const activeDayPromise = scope.metrics.records({
+      metricKey: "active_day",
+      from: spans.metricFrom,
+      to: spans.metricTo,
+    });
+    const agentActivePromise = scope.metrics.records({
+      metricKey: "agent_active",
+      from: spans.metricFrom,
+      to: spans.metricTo,
+    });
+    const scoreRowsPromise = scope.scores.results({
+      from: spans.scoreFrom,
+      to: spans.scoreTo,
+    });
+    const [maturity, graph] = await Promise.all([
+      readMaturityView(scope, anchor, {
+        people: peoplePromise,
+        identities: identitiesPromise,
+        connections: connectionsPromise,
+        activeDayRows: activeDayPromise,
+        agentActiveRows: agentActivePromise,
+        scoreRows: scoreRowsPromise,
+      }),
+      cachedCapabilityGraph(scope),
+      scope.mastery.forUser(userId),
+      cachedMissionCatalog(scope),
+      scope.missions.progressForUser(userId),
+      scoreRowsPromise,
+      connectionsPromise,
+      peoplePromise,
+      activeDayPromise,
+      agentActivePromise,
+      identitiesPromise,
+    ]);
+    return { maturity, graph };
+  }
+
+  it("5. Growth (/growth) — its own flat Promise.all, depth 1", async () => {
+    // U1.3 + the shared-read pass: the route composes readMaturityView INSIDE
+    // its batch and hands it the page's own people/identities/connections/
+    // metric/score reads as prefetched inputs (each ONE union-window read).
+    // The two narrow person-score reads (current + previous month) are now
+    // JS slices of the one shared score read. Depth must stay 1.
+    const anchor = "2026-06-30";
     let ok = false;
-    const result = await measure(counter, "Growth", async () => {
-      const [maturity, graph] = await Promise.all([
-        readMaturityView(scope, anchor),
-        scope.capabilities.graph(),
-        scope.mastery.forUser(userId),
-        scope.missions.catalog(),
-        scope.missions.progressForUser(userId),
-        scope.scores.results({
-          from: period.periodStart,
-          to: period.periodEnd,
-          subjectLevel: "person",
-        }),
-        scope.scores.results({
-          from: prevPeriod.periodStart,
-          to: prevPeriod.periodEnd,
-          subjectLevel: "person",
-        }),
-        scope.connections.list(),
-        // Finding 1: resolve the caller's own person id for person-scoped
-        // milestone breadth.
-        scope.people.list(),
-        // Finding 3: own agentic inputs over the window ending TODAY.
-        scope.metrics.records({ metricKey: "active_day", from: WINDOW.from, to: WINDOW.to }),
-        scope.metrics.records({ metricKey: "agent_active", from: WINDOW.from, to: WINDOW.to }),
-        scope.identities.all(),
-      ]);
+    const result = await measure(counter, "Growth (cold isolate)", async () => {
+      const { maturity, graph } = await runGrowthBatch(anchor);
       expect(maturity.numbers).toBeDefined();
       ok = graph.capabilities.length >= 0;
     });
     results.push(result);
     expect(ok).toBe(true);
 
-    // Measured Growth budget (this fixture): total 25, depth 1 (U1.3 person-scope
-    // + own-agentic reads added people.list + active_day/agent_active/identities
-    // to the batch). Generous ceiling (~1.5x). Depth pinned EXACT — the route
-    // composes readMaturityView INSIDE the batch (never back-to-back with another
-    // composed read).
+    // Measured after the shared-read pass (this fixture): total 18 cold /
+    // 13 warm (was 25), depth 1. Generous ceiling (~1.5x). Depth pinned EXACT.
     expect(result.total).toBeGreaterThan(0);
-    expect(result.total).toBeLessThanOrEqual(36);
+    expect(result.total).toBeLessThanOrEqual(28);
     expect(result.sequentialDepth).toBe(1);
   });
 
+  it("5b. Growth (warm isolate) — reference cache serves the seeded tables", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    clearReferenceCache();
+    try {
+      await runGrowthBatch("2026-06-30"); // warm the cache (uncounted)
+      const result = await measure(counter, "Growth (warm isolate)", async () => {
+        const { maturity } = await runGrowthBatch("2026-06-30");
+        expect(maturity.numbers).toBeDefined();
+      });
+      results.push(result);
+      expect(result.total).toBeGreaterThan(0);
+      expect(result.total).toBeLessThanOrEqual(20);
+      expect(result.sequentialDepth).toBe(1);
+    } finally {
+      vi.unstubAllEnvs();
+      clearReferenceCache();
+    }
+  });
+
   it("prints the baseline table", () => {
-    expect(results).toHaveLength(6);
+    expect(results).toHaveLength(8);
     // eslint-disable-next-line no-console
     console.log(`\nAuthenticated-page query baseline (org: ${PEOPLE_COUNT} tracked people, 30d window)\n${formatTable(results)}\n`);
   });

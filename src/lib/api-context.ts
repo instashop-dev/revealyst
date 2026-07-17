@@ -3,12 +3,13 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createDb, probeDbConnection, type Db } from "@/db/client";
-import { orgContextForUser } from "@/db/org-context";
+import { orgContextForSessionToken, orgContextForUser } from "@/db/org-context";
 import { ensureOrgOfOne, forOrg } from "@/db/org-scope";
 import { isPlatformAdmin } from "@/lib/admin-access";
 import { createAuth, type AuthEnv } from "@/lib/auth";
 import type { CredentialEnv } from "@/lib/credentials";
 import { timeStage } from "@/lib/request-timing";
+import { sessionTokenFromCookieHeader } from "@/lib/session-cookie";
 
 /**
  * Request-scoped context for authenticated pages and API routes: one db
@@ -29,6 +30,20 @@ export const appContext = cache(async () => {
   await probeDbConnection(db, env);
   const auth = createAuth(db, env as AuthEnv);
   const requestHeaders = await headers();
+  // Speculative org-context prefetch, fired CONCURRENTLY with getSession so
+  // the two reads share one round-trip wave instead of running one after the
+  // other (~600ms of authenticated TTFB at the measured per-trip cost).
+  // getSession stays the sole authority: the prefetch result is used only
+  // when its userId matches the VERIFIED session's user id (below); any
+  // error or mismatch falls back to the sequential path. The catch is
+  // attached immediately so a speculative failure can never surface as an
+  // unhandled rejection.
+  const speculativeToken = sessionTokenFromCookieHeader(
+    requestHeaders.get("cookie"),
+  );
+  const speculativeOrgContext = speculativeToken
+    ? orgContextForSessionToken(db, speculativeToken).catch(() => undefined)
+    : Promise.resolve(undefined);
   const session = await timeStage("session", () =>
     auth.api.getSession({ headers: requestHeaders }),
   );
@@ -44,6 +59,22 @@ export const appContext = cache(async () => {
   // needs, so this preserves self-heal semantics while saving a DB
   // round-trip on every warm request.
   let orgContext = await timeStage("orgContext", async () => {
+    // Common case: the speculative read (already resolved by now — it ran
+    // alongside getSession, which just completed a full round trip) matches
+    // the verified user → zero extra round trips in this stage. The wait is
+    // BOUNDED: a speculative query that stalls without settling (its result
+    // might be discarded anyway) must never hang the request, so past the
+    // grace window we abandon it and run the sequential path.
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    const speculative = await Promise.race([
+      speculativeOrgContext,
+      new Promise<undefined>((resolve) => {
+        graceTimer = setTimeout(() => resolve(undefined), 1_000);
+      }),
+    ]).finally(() => clearTimeout(graceTimer));
+    if (speculative !== undefined && speculative.userId === session.user.id) {
+      return { org: speculative.org, role: speculative.role };
+    }
     let ctx = await orgContextForUser(db, session.user.id);
     if (!ctx) {
       await ensureOrgOfOne(db, session.user);

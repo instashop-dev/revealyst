@@ -27,7 +27,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { listBenchmarks } from "@/db/benchmarks";
 import {
   AGENTIC_WINDOW_DAYS,
   computeAgenticAdoption,
@@ -45,7 +44,17 @@ import {
   overallCapabilityBand,
 } from "@/lib/capability-glossary";
 import { buildDataConfidence } from "@/lib/data-confidence";
-import { readMaturityView } from "@/lib/maturity";
+import {
+  readMaturityView,
+  sharedCompanionReadSpans,
+  sliceScoreRows,
+} from "@/lib/maturity";
+import {
+  cachedCapabilityGraph,
+  cachedMissionCatalog,
+  cachedRecommendationCatalog,
+  cachedVerifiedOverallBenchmarks,
+} from "@/lib/reference-cache";
 import { readBudgetAlertForRole } from "@/lib/spend-governance";
 import {
   CONCEPT_GLOSSARY,
@@ -84,11 +93,7 @@ export async function PersonalSelfView({
   const period = periodFor("month", today);
   const prevPeriod = periodFor("month", previousDay(period.periodStart));
   // Independent reads (one Postgres round trip each on Workers→Hyperdrive→
-  // Neon) — gathered concurrently rather than run one after another. The
-  // previous-period score read is separate from `dashboardSummary`'s window
-  // (which stays the current month, feeding "Spend this month") — it exists
-  // purely to compute a same-definition-version delta, never to widen what
-  // spend is summed over.
+  // Neon) — gathered concurrently rather than run one after another.
   // Kicked off once, then handed to BOTH `dashboardSummary` (which otherwise
   // fetches its own definitions internally, via hydrateScoreResults) and this
   // Promise.all directly — one definitions query per page load, not two,
@@ -102,12 +107,48 @@ export async function PersonalSelfView({
   const peoplePromise = ctx.scope.people.list();
   // A wider window than the current-month summary, purely so the agentic
   // adoption card has ~12 weeks to draw a real trend line (the lib slices to
-  // its own AGENTIC_WINDOW_DAYS window ending today — this fetch matches it).
-  // Org-of-one, so these rows are the viewer's own — the person-day rate IS
-  // their personal rate.
+  // its own AGENTIC_WINDOW_DAYS window ending today — a wider fetch changes
+  // nothing). Org-of-one, so these rows are the viewer's own — the person-day
+  // rate IS their personal rate.
   const agenticFrom = new Date(Date.now() - (AGENTIC_WINDOW_DAYS - 1) * DAY_MS)
     .toISOString()
     .slice(0, 10);
+  // Shared in-flight reads (the definitions/people pattern, widened): this
+  // page and readMaturityView used to fetch the SAME tables separately —
+  // identities, plus active_day/agent_active/spend_cents and score rows over
+  // overlapping windows. Each is now ONE read over the UNION of the windows,
+  // handed to the batch below AND to readMaturityView/dashboardSummary as
+  // prefetched inputs; every consumer already window-slices in JS
+  // (computeAgenticAdoption, detectDailySpike's 28-day baseline, and the
+  // maturity math), so output is unchanged while the page drops ~9 Neon
+  // round trips.
+  const spans = sharedCompanionReadSpans({ today, agenticFrom, period, prevPeriod });
+  const identitiesPromise = ctx.scope.identities.all();
+  const activeDayPromise = ctx.scope.metrics.records({
+    metricKey: "active_day",
+    from: spans.metricFrom,
+    to: spans.metricTo,
+  });
+  const agentActivePromise = ctx.scope.metrics.records({
+    metricKey: "agent_active",
+    from: spans.metricFrom,
+    to: spans.metricTo,
+  });
+  // spend runs to spans.spendTo (month end, not today): dashboardSummary's
+  // replaced direct read included future-dated in-month rows and must keep
+  // doing so — see sharedCompanionReadSpans' doc comment.
+  const spendPromise = ctx.scope.metrics.records({
+    metricKey: "spend_cents",
+    from: spans.spendFrom,
+    to: spans.spendTo,
+  });
+  // One score read (all subject levels) spanning the delta months AND
+  // maturity's team-score window — sliced per consumer via sliceScoreRows
+  // (the one JS replica of `results()`'s SQL predicate).
+  const scoreRowsPromise = ctx.scope.scores.results({
+    from: spans.scoreFrom,
+    to: spans.scoreTo,
+  });
   const [
     connections,
     summary,
@@ -137,23 +178,43 @@ export async function PersonalSelfView({
           ctx.scope,
           ctx.org.visibilityMode,
           { from: period.periodStart, to: period.periodEnd },
-          { definitions: definitionsPromise, people: peoplePromise },
+          {
+            definitions: definitionsPromise,
+            people: peoplePromise,
+            // Sliced from the shared reads above with the exact predicates
+            // dashboardSummary's own narrow reads used — the summary's window
+            // stays the current month, feeding "Spend this month"; only the
+            // FETCH is shared, never the window.
+            results: scoreRowsPromise.then((rows) =>
+              sliceScoreRows(rows, {
+                from: period.periodStart,
+                to: period.periodEnd,
+              }),
+            ),
+            spendRows: spendPromise.then((rows) =>
+              rows.filter(
+                (r) => r.day >= period.periodStart && r.day <= period.periodEnd,
+              ),
+            ),
+          },
         ),
         // Personal self-view compares against the "overall" segment — an
-        // enterprise/smb norm is not this solo user's peer group.
-        listBenchmarks(ctx.db, { status: "verified", segment: "overall" }),
+        // enterprise/smb norm is not this solo user's peer group. A GLOBAL
+        // table, served from the isolate-scope reference cache (5-min TTL).
+        cachedVerifiedOverallBenchmarks(ctx.db),
         definitionsPromise,
-        // Person-level only — this read exists purely to compute a
-        // same-definition-version personal delta, so team/org-level rows
-        // (which `personDeltaResult` would filter out in JS anyway) are
-        // never fetched from Postgres in the first place. It still returns
-        // EVERY person's rows (no personId filter on `scores.results`) —
-        // the delta calls below pin to one person in JS.
-        ctx.scope.scores.results({
-          from: prevPeriod.periodStart,
-          to: prevPeriod.periodEnd,
-          subjectLevel: "person",
-        }),
+        // Person-level rows for the previous month — this slice exists purely
+        // to compute a same-definition-version personal delta (team/org-level
+        // rows are excluded exactly like the old subjectLevel:"person" read).
+        // It still returns EVERY person's rows — the delta calls below pin to
+        // one person in JS.
+        scoreRowsPromise.then((rows) =>
+          sliceScoreRows(rows, {
+            from: prevPeriod.periodStart,
+            to: prevPeriod.periodEnd,
+            subjectLevel: "person",
+          }),
+        ),
         // The month-to-date budget alert (W4-V), role-gated like TeamOverview's:
         // a personal-kind org CAN have an invited member (org-of-one machinery is
         // identical to Team), and the budget limit is admin-configured governance
@@ -162,32 +223,17 @@ export async function PersonalSelfView({
         readBudgetAlertForRole(ctx.scope, ctx.role, today),
         // Agentic adoption inputs (F1.4). Numerator + denominator over the
         // wider trend window; the rate + weekly trend derive in JS below.
-        ctx.scope.metrics.records({
-          metricKey: "active_day",
-          from: agenticFrom,
-          to: today,
-        }),
-        ctx.scope.metrics.records({
-          metricKey: "agent_active",
-          from: agenticFrom,
-          to: today,
-        }),
+        activeDayPromise,
+        agentActivePromise,
         // Identity links resolve the agentic rows' subject-days to
         // person-days — the same human often spans several vendor subjects
-        // (review F1). Fetched inside this flat Promise.all: +1 query, still
-        // round-trip depth 1.
-        ctx.scope.identities.all(),
-        // F2.3 (I2): reported spend over the same wide window, so the spend
+        // (review F1).
+        identitiesPromise,
+        // F2.3 (I2): reported spend over the wide window, so the spend
         // spike detector has a trailing 28-day baseline (the current-month
         // summary window is too short). Org-of-one, so these rows are the
-        // viewer's own spend. The ONE new stage-1 read this feature adds on the
-        // personal path — inside this flat Promise.all, still round-trip depth
-        // 1 (no new sequential stage).
-        ctx.scope.metrics.records({
-          metricKey: "spend_cents",
-          from: agenticFrom,
-          to: today,
-        }),
+        // viewer's own spend.
+        spendPromise,
         // Growth Journey headline (W5-C): the modeled maturity LEVEL — for an
         // org-of-one it is personally true (errata §1.2(6)). readMaturityView
         // does its OWN flat Promise.all internally, and because it is CALLED
@@ -195,8 +241,19 @@ export async function PersonalSelfView({
         // kicked off synchronously (before its first await) alongside the
         // reads above — so the whole batch stays round-trip depth 1 (G10). We
         // never call readDashboardView + readMaturityView back-to-back; the
-        // personal path composes maturity into this single existing stage.
-        readMaturityView(ctx.scope, today),
+        // personal path composes maturity into this single existing stage —
+        // and every table both needed is now fetched ONCE and shared via
+        // `prefetched` (readMaturityView slices each to its own window).
+        readMaturityView(ctx.scope, today, {
+          people: peoplePromise,
+          identities: identitiesPromise,
+          connections: connectionsPromise,
+          activeDayRows: activeDayPromise,
+          agentActiveRows: agentActivePromise,
+          spendRows: spendPromise,
+          scoreRows: scoreRowsPromise,
+          definitions: definitionsPromise,
+        }),
         // W5-D: the signed-in person's recommendation interaction state
         // (snoozed/dismissed/tried), resolved by auth user INSIDE the query so
         // it needs no personId (unknown until `summary` resolves) and folds
@@ -204,20 +261,22 @@ export async function PersonalSelfView({
         // Self-view by construction: returns only the caller's OWN person's
         // states (empty when no person is linked yet).
         ctx.scope.recInteractions.statesForUser(ctx.user.id),
-        // W6-C (ADR 0033): the per-org recommendation catalog — ONE read folded
-        // into this flat Promise.all (+1 query, still round-trip depth 1),
-        // evaluated in memory by `deriveAttention` below (§8.2 perf floor).
-        ctx.scope.catalog.list(),
-        // W7-1: the capability graph (labels + prerequisite edges), same batch
-        // — the coaching card's label source AND the W7-3 prerequisite gate.
-        ctx.scope.capabilities.graph(),
+        // W6-C (ADR 0033): the per-org recommendation catalog (global presets
+        // ∪ this org's rows), evaluated in memory by `deriveAttention` below
+        // (§8.2 perf floor). Cached per-ORG in the isolate reference cache —
+        // the org key is what keeps one tenant's custom rows out of another's
+        // view (invariant a).
+        cachedRecommendationCatalog(ctx.scope),
+        // W7-1: the capability graph (labels + prerequisite edges) — a GLOBAL
+        // seeded reference table, served from the isolate reference cache.
+        cachedCapabilityGraph(ctx.scope),
         // W7-2: the signed-in user's OWN capability state (self-view), folded
         // into this depth-1 batch via a people.auth_user_id join so it needs no
         // resolved tracked personId ahead of the batch.
         ctx.scope.mastery.forUser(ctx.user.id),
-        // W7-5: the global mission catalog + the signed-in user's own progress
-        // (self-view), same batch.
-        ctx.scope.missions.catalog(),
+        // W7-5: the global mission catalog (cached reference read) + the
+        // signed-in user's own progress (self-view), same batch.
+        cachedMissionCatalog(ctx.scope),
         ctx.scope.missions.progressForUser(ctx.user.id),
         // COACH-004 novelty: the signed-in person's OWN recommendation exposures
         // (self-view — the namespace joins people.auth_user_id), folded into this

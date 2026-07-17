@@ -353,6 +353,20 @@ reducing options and clarifying words is real work, not a nice-to-have.
   slow, everything else fast" means DB-layer cost, not app code. Reduce
   sequential query STAGES first (see `readDashboardView`'s single flat
   `Promise.all` + prefetched-params pattern), then per-op cost.
+- **Depth-1 ≠ parallel (24s dashboard incident, PR #265):** postgres.js does
+  NOT pipeline concurrent queries on one connection — it queues them — so with
+  the old `max: 1` a "depth-1" batch of N queries serialized at ~600ms EACH
+  (prod Server-Timing: a 3-query access stage = 2250ms; Today's 39-query batch
+  streamed ~20s). Query COUNT is a first-class cost alongside depth: budget
+  ~ceil(N/5) round-trip waves. Fixes that hold the line: `max: 5` +
+  `prepare: true` via Hyperdrive only (`src/db/client.ts` — loopback PGlite
+  keeps 1/unprepared, 08P01), the isolate reference cache for seeded
+  global/reference reads (`src/lib/reference-cache.ts` — org-varying reads
+  need org-keyed entries, invariant a), union-window shared reads sliced per
+  consumer (`sharedCompanionReadSpans`/`sliceScoreRows` in `src/lib/maturity.ts`
+  — every slice pinned by an equivalence test), and the speculative
+  org-context prefetch that runs alongside `getSession` in `appContext`
+  (verified-userId-gated; getSession stays the authority).
 - **Gauges:** `curl -sD - https://app.revealyst.com/api/health` →
   `Server-Timing: db;dur=` = connection setup + one query (unauthenticated DB
   probe). Authenticated docs//api//RSC responses carry

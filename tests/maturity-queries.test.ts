@@ -44,4 +44,44 @@ describe("readMaturityView query shape (measurement, not correctness)", () => {
     // (people/identities/connections/5×metrics.records/allSignals/scores×2).
     expect(result.total).toBeLessThanOrEqual(15);
   });
+
+  it("prefetched inputs produce IDENTICAL output to the direct reads", async () => {
+    // The shared-read pass (perf: dashboard/growth <2s) hands readMaturityView
+    // WIDER row sets than its own reads fetch — active_day without the dim=""
+    // SQL filter, metric/score spans extending past fullSpan/current.to — and
+    // relies on the reader slicing each back to the direct read's exact
+    // predicate. This is the equivalence pin: same org, same anchor, direct vs
+    // prefetched, deep-equal output. A future filter drift (a forgotten dim
+    // slice, an off-by-one span) fails here, not on a dashboard.
+    const anchor = "2026-07-01";
+    const direct = await readMaturityView(scope, anchor);
+
+    // Deliberately WIDER than the reader needs, mirroring the pages: metric
+    // reads span [fullSpan.from − slack, anchor] with no dim filter; the score
+    // read spans beyond current.to and carries every subject level.
+    const prefetched = await readMaturityView(scope, anchor, {
+      people: scope.people.list(),
+      identities: scope.identities.all(),
+      connections: scope.connections.list(),
+      activeDayRows: scope.metrics.records({
+        metricKey: "active_day",
+        from: "2025-01-01",
+        to: anchor,
+      }),
+      agentActiveRows: scope.metrics.records({
+        metricKey: "agent_active",
+        from: "2025-01-01",
+        to: anchor,
+      }),
+      spendRows: scope.metrics.records({
+        metricKey: "spend_cents",
+        from: "2025-01-01",
+        to: anchor,
+      }),
+      scoreRows: scope.scores.results({ from: "2025-01-01", to: "2026-12-31" }),
+      definitions: scope.scores.definitions(),
+    });
+
+    expect(prefetched).toEqual(direct);
+  });
 });
