@@ -40,10 +40,73 @@
 //! version flagged unsafe — the already-queued events stay put and upload after.
 
 use serde_json::Value;
+use tauri::{AppHandle, Runtime};
+
+use crate::runtime::CollectionControl;
+use crate::store::Store;
 
 /// The six-hour re-check cadence (spec §18.3). Startup fires one immediate
 /// check; the loop then re-checks on this interval.
 pub const UPDATE_CHECK_INTERVAL_SECS: u64 = 6 * 60 * 60;
+
+/// Shown when a manual "Check for updates" is asked before the local store /
+/// collection control are ready (e.g. the store failed to open). Plain English.
+pub const NOT_READY_MESSAGE: &str = "Updates aren't ready yet. Please try again in a moment.";
+
+/// The plain-English result of one manual "Check for updates" click (tray item
+/// or the Status-screen button). Every message is honest about what actually
+/// happened — never a blanket "not available" (invariant b). By the time an
+/// outcome is built, the download+install step has already run to completion, so
+/// the copy describes an update that is READY (pending a restart), never one
+/// still in progress.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManualCheckOutcome {
+    /// The agent is already on the newest release.
+    UpToDate,
+    /// A newer (optional) release was fetched and installed; it applies on the
+    /// next launch.
+    Downloading,
+    /// A required release was fetched and installed; a restart applies it and
+    /// resumes syncing.
+    Mandatory,
+    /// A check was already running, so this one was skipped (no double download).
+    AlreadyChecking,
+    /// The check couldn't finish (offline, endpoint problem, or install error).
+    Failed,
+}
+
+impl ManualCheckOutcome {
+    /// A short, plain-English line for the UI. Beginner-friendly (CLAUDE.md).
+    pub fn message(self) -> &'static str {
+        match self {
+            ManualCheckOutcome::UpToDate => "You're on the latest version.",
+            ManualCheckOutcome::Downloading => {
+                "A new version is ready. Restart Revealyst to finish updating."
+            }
+            ManualCheckOutcome::Mandatory => {
+                "A required update is ready. Restart Revealyst to finish updating."
+            }
+            ManualCheckOutcome::AlreadyChecking => "Already checking for updates…",
+            ManualCheckOutcome::Failed => {
+                "Couldn't check for updates right now. Please try again later."
+            }
+        }
+    }
+}
+
+/// Run ONE update check on demand (the tray "Check for updates" item and the
+/// Status-screen button share this). Reuses the exact same signed-updater path
+/// as the background loop — same endpoint, same baked-pubkey verification, same
+/// mandatory-block handling — and returns a plain-English [`ManualCheckOutcome`]
+/// the caller shows. Never panics; every failure maps to
+/// [`ManualCheckOutcome::Failed`].
+pub async fn check_now<R: Runtime>(
+    app: &AppHandle<R>,
+    store: &Store,
+    control: &CollectionControl,
+) -> ManualCheckOutcome {
+    wiring::check_once(app, store, control).await
+}
 
 /// Header the agent sends so the backend can bucket it into a staged-rollout
 /// cohort. Must match the backend route's `INSTALLATION_ID_HEADER`.
@@ -196,6 +259,17 @@ mod wiring {
     use crate::runtime::CollectionControl;
     use crate::store::Store;
 
+    /// Holds the single update-check slot for the duration of a check and
+    /// releases it on drop — so an early return OR an (unexpected) panic can
+    /// never wedge the flag and permanently block future checks.
+    struct UpdateCheckGuard<'a>(&'a CollectionControl);
+
+    impl Drop for UpdateCheckGuard<'_> {
+        fn drop(&mut self) {
+            self.0.end_update_check();
+        }
+    }
+
     /// Resolve the effective update channel from the cached signed config
     /// (no network — a fetch is the sync loop's job), falling back to the fleet
     /// default. Reuses the config resolver so the channel can never disagree
@@ -219,11 +293,23 @@ mod wiring {
     /// id header, ask the plugin to check, and — if an update is offered — set
     /// the mandatory-block flag and download+install in the background. All
     /// failures are logged with a fixed, content-free code and never panic.
-    async fn check_once<R: Runtime>(
+    /// Returns a [`ManualCheckOutcome`] so the manual "Check for updates" path
+    /// ([`super::check_now`]) can report a plain-English result; the background
+    /// loop ignores it.
+    pub(super) async fn check_once<R: Runtime>(
         app: &AppHandle<R>,
         store: &Store,
         control: &CollectionControl,
-    ) {
+    ) -> ManualCheckOutcome {
+        // Single-in-flight guard: the loop + the two manual triggers all reach
+        // here, and two overlapping checks would download+install the same
+        // release twice (e.g. two installer prompts). If a check is already
+        // running, skip this one honestly.
+        if !control.try_begin_update_check() {
+            return ManualCheckOutcome::AlreadyChecking;
+        }
+        let _check_guard = UpdateCheckGuard(control);
+
         let channel = current_channel(store);
         let origin = crate::auth::app_origin();
         let endpoint = build_update_endpoint(&origin, &channel);
@@ -243,7 +329,7 @@ mod wiring {
                     error_code = "endpoint_parse_failed",
                     "could not build the update endpoint"
                 );
-                return;
+                return ManualCheckOutcome::Failed;
             }
         };
 
@@ -256,7 +342,7 @@ mod wiring {
                     error_code = "endpoints_rejected",
                     "updater rejected the endpoint"
                 );
-                return;
+                return ManualCheckOutcome::Failed;
             }
         };
         let builder = match builder.header(INSTALLATION_ID_HEADER, installation_id.as_str()) {
@@ -267,7 +353,7 @@ mod wiring {
                     error_code = "header_rejected",
                     "updater rejected the installation-id header"
                 );
-                return;
+                return ManualCheckOutcome::Failed;
             }
         };
         let updater = match builder.build() {
@@ -278,7 +364,7 @@ mod wiring {
                     error_code = "updater_build_failed",
                     "could not build the updater"
                 );
-                return;
+                return ManualCheckOutcome::Failed;
             }
         };
 
@@ -317,6 +403,12 @@ mod wiring {
                         error_code = "download_or_install_failed",
                         "update download/verify/install failed"
                     );
+                    return ManualCheckOutcome::Failed;
+                }
+                if blocking {
+                    ManualCheckOutcome::Mandatory
+                } else {
+                    ManualCheckOutcome::Downloading
                 }
             }
             Ok(None) => {
@@ -324,12 +416,16 @@ mod wiring {
                 // pulled (halted) mandatory release stops blocking sync.
                 control.set_update_required(false);
                 tracing::debug!(component = "update", result = "up_to_date", "no update");
+                ManualCheckOutcome::UpToDate
             }
-            Err(_error) => tracing::warn!(
-                component = "update",
-                error_code = "check_failed",
-                "update check failed"
-            ),
+            Err(_error) => {
+                tracing::warn!(
+                    component = "update",
+                    error_code = "check_failed",
+                    "update check failed"
+                );
+                ManualCheckOutcome::Failed
+            }
         }
     }
 
@@ -349,7 +445,10 @@ mod wiring {
                 "update loop started (startup check + 6-hourly)"
             );
             loop {
-                check_once(&app, &store, &control).await;
+                // The loop only cares about the mandatory-block side effect the
+                // check applies to `control`; the returned outcome is for the
+                // manual "Check for updates" path only.
+                let _ = check_once(&app, &store, &control).await;
                 tokio::time::sleep(interval).await;
             }
         });
@@ -362,6 +461,38 @@ pub use wiring::spawn_loop;
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The manual-check outcome messages are honest and never describe an
+    /// update as still in progress (the install has finished by the time an
+    /// outcome is built), and every variant has a distinct, non-empty line.
+    #[test]
+    fn manual_check_messages_are_honest_and_distinct() {
+        let all = [
+            ManualCheckOutcome::UpToDate,
+            ManualCheckOutcome::Downloading,
+            ManualCheckOutcome::Mandatory,
+            ManualCheckOutcome::AlreadyChecking,
+            ManualCheckOutcome::Failed,
+        ];
+        for outcome in all {
+            let msg = outcome.message();
+            assert!(!msg.is_empty(), "{outcome:?} must have a message");
+            // Never claim an install is still happening — it already completed.
+            assert!(
+                !msg.to_lowercase().contains("downloading"),
+                "{outcome:?} must not claim it is still downloading: {msg:?}"
+            );
+        }
+        // The variants are distinct so the UI never conflates two outcomes.
+        let mut messages: Vec<&str> = all.iter().map(|o| o.message()).collect();
+        messages.sort_unstable();
+        messages.dedup();
+        assert_eq!(
+            messages.len(),
+            all.len(),
+            "outcome messages must be distinct"
+        );
+    }
 
     #[test]
     fn cohort_matches_backend_vectors() {

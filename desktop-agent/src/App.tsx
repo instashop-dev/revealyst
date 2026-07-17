@@ -23,6 +23,7 @@ const NAV: { id: Screen; label: string }[] = [
 export default function App() {
   const [screen, setScreen] = useState<Screen>("onboarding");
   const [snapshot, setSnapshot] = useState<AgentSnapshot | null>(null);
+  const [updateNotice, setUpdateNotice] = useState<string | null>(null);
 
   // One refresh function, reused by the initial load, the background poll, and
   // the status screen's "Sync now" button — so the UI reflects a completed
@@ -65,6 +66,30 @@ export default function App() {
     };
   }, []);
 
+  // The tray "Check for updates" item runs the check on the Rust side and pushes
+  // its plain-English result here. Show the Status screen and hand the message
+  // to it. Listening at the app level (always mounted) avoids missing the event
+  // during the brief screen switch.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    listen<string>("update-result", (event) => {
+      setUpdateNotice(event.payload);
+      setScreen("status");
+    })
+      .then((fn) => {
+        if (cancelled) fn();
+        else unlisten = fn;
+      })
+      .catch(() => {
+        // Outside Tauri there is no event bridge — the in-app button still works.
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
   return (
     <div className="app">
       <nav className="sidebar" aria-label="Main">
@@ -84,7 +109,11 @@ export default function App() {
       <main className="content">
         {screen === "onboarding" && <OnboardingScreen />}
         {screen === "status" && (
-          <StatusScreen snapshot={snapshot} onRefresh={refreshSnapshot} />
+          <StatusScreen
+            snapshot={snapshot}
+            onRefresh={refreshSnapshot}
+            updateNotice={updateNotice}
+          />
         )}
         {screen === "privacy" && <PrivacyScreen snapshot={snapshot} />}
         {screen === "diagnostics" && <DiagnosticsScreen snapshot={snapshot} />}

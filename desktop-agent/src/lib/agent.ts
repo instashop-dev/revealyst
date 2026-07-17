@@ -38,6 +38,26 @@ export function syncNow(): Promise<string> {
   return invoke<string>("sync_now");
 }
 
+/**
+ * Check for a newer signed release right now ("Check for updates"). Runs the
+ * same signed-updater path as the background loop (startup + every 6 hours) and
+ * resolves with a short plain-English result. Safe to call whether or not this
+ * computer is signed in — updates are independent of sign-in.
+ */
+export function checkForUpdates(): Promise<string> {
+  return invoke<string>("check_for_updates");
+}
+
+/**
+ * Send a diagnostics bundle now ("Send diagnostics"). Builds a counts-and-
+ * versions bundle from the local store and sends it — never your prompt text or
+ * any keys. Resolves with a plain-English result; errors arrive as plain-English
+ * strings too.
+ */
+export function sendDiagnostics(): Promise<string> {
+  return invoke<string>("send_diagnostics");
+}
+
 export function getAutostart(): Promise<boolean> {
   return invoke<boolean>("get_autostart");
 }

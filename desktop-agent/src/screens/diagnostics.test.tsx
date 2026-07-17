@@ -1,10 +1,24 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The Send diagnostics button calls the send_diagnostics command. jsdom has no
+// Tauri bridge, so invoke is mocked.
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+}));
+
+import { invoke } from "@tauri-apps/api/core";
 
 import type { AgentSnapshot } from "../lib/agent";
 import DiagnosticsScreen from "./diagnostics";
 
 afterEach(cleanup);
+beforeEach(() => {
+  vi.mocked(invoke).mockReset();
+  vi.mocked(invoke).mockResolvedValue(
+    "Diagnostics sent. Thanks — this helps us fix problems.",
+  );
+});
 
 const snapshot: AgentSnapshot = {
   state: "onboarding",
@@ -26,11 +40,37 @@ describe("DiagnosticsScreen", () => {
     expect(screen.getByText(snapshot.logDir)).toBeTruthy();
   });
 
-  it("keeps Send diagnostics disabled (M4 not built)", () => {
+  it("Send diagnostics is enabled and no longer shows a placeholder", () => {
     render(<DiagnosticsScreen snapshot={snapshot} />);
-    const button = screen.getByRole("button", { name: "Send diagnostics" });
-    expect((button as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("Not available yet.")).toBeTruthy();
+    const button = screen.getByRole("button", {
+      name: "Send diagnostics",
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(screen.queryByText("Not available yet.")).toBeNull();
+  });
+
+  it("Send diagnostics triggers the send_diagnostics command and shows the result", async () => {
+    render(<DiagnosticsScreen snapshot={snapshot} />);
+    fireEvent.click(screen.getByRole("button", { name: "Send diagnostics" }));
+    await waitFor(() => {
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("send_diagnostics");
+    });
+    expect(
+      await screen.findByText(
+        "Diagnostics sent. Thanks — this helps us fix problems.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("shows the plain-English error when the send fails", async () => {
+    vi.mocked(invoke).mockRejectedValueOnce(
+      "Sign in first, then you can send diagnostics.",
+    );
+    render(<DiagnosticsScreen snapshot={snapshot} />);
+    fireEvent.click(screen.getByRole("button", { name: "Send diagnostics" }));
+    expect(
+      await screen.findByText("Sign in first, then you can send diagnostics."),
+    ).toBeTruthy();
   });
 
   it("renders placeholders when no snapshot is available yet", () => {

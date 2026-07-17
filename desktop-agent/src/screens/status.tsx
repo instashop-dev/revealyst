@@ -5,9 +5,9 @@
 // Coverage / unsupported-source claims come from the disclosure registry,
 // never hand-written here.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import { syncNow, type AgentSnapshot } from "../lib/agent";
+import { checkForUpdates, syncNow, type AgentSnapshot } from "../lib/agent";
 import {
   COVERAGE_LIMITATIONS,
   UNSUPPORTED_SOURCES,
@@ -18,12 +18,25 @@ import { AGENT_STATE_LABELS } from "../lib/state";
 export default function StatusScreen({
   snapshot,
   onRefresh,
+  updateNotice,
 }: {
   snapshot: AgentSnapshot | null;
   onRefresh?: () => void;
+  /** A plain-English update-check result pushed from the tray "Check for
+   * updates" item (via the `update-result` event App listens for). Shown in the
+   * same place as this screen's own "Check for updates" button result. */
+  updateNotice?: string | null;
 }) {
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
+
+  // Show the tray-triggered update result here too (the tray runs the check and
+  // pushes its result down as a prop). A new result replaces the old one.
+  useEffect(() => {
+    if (updateNotice != null) setUpdateMessage(updateNotice);
+  }, [updateNotice]);
 
   // Everything comes from the (live-polled) snapshot; null = not loaded yet.
   const signedIn = snapshot ? snapshot.signedIn : null;
@@ -56,6 +69,25 @@ export default function StatusScreen({
     } finally {
       setSyncing(false);
       // Pull the fresh last-sync time + pending count straight away.
+      onRefresh?.();
+    }
+  }
+
+  async function handleCheckForUpdates() {
+    setCheckingUpdates(true);
+    setUpdateMessage(null);
+    try {
+      const result = await checkForUpdates();
+      setUpdateMessage(result);
+    } catch (error) {
+      setUpdateMessage(
+        typeof error === "string"
+          ? error
+          : "Couldn't check for updates. Please try again later.",
+      );
+    } finally {
+      setCheckingUpdates(false);
+      // A mandatory update flips the agent state — refresh so the row reflects it.
       onRefresh?.();
     }
   }
@@ -135,8 +167,28 @@ export default function StatusScreen({
         <dd>{snapshot?.version ?? "—"}</dd>
 
         <dt>Updates</dt>
-        <dd>Automatic updates aren&apos;t available yet</dd>
+        <dd>
+          {snapshot?.state === "update_required"
+            ? "A required update is pending — restart Revealyst to finish updating."
+            : "Automatic updates are on. New signed versions install in the background."}
+        </dd>
       </dl>
+
+      <div className="button-row">
+        <button
+          type="button"
+          className="secondary"
+          onClick={handleCheckForUpdates}
+          disabled={checkingUpdates}
+        >
+          {checkingUpdates ? "Checking…" : "Check for updates"}
+        </button>
+      </div>
+      {updateMessage && (
+        <p className="muted" role="status">
+          {updateMessage}
+        </p>
+      )}
 
       {signedIn && (
         <>

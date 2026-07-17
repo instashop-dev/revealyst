@@ -45,6 +45,13 @@ pub struct CollectionControl {
     /// until the update installs. Cleared when the update is gone (installed or
     /// the release was halted/pulled).
     update_required: AtomicBool,
+    /// Set while an update check (`check → download → install`) is running, so
+    /// the background loop, the tray "Check for updates", and the Status-screen
+    /// button never run two overlapping checks — which would download+install
+    /// the SAME release twice (e.g. two installer/UAC prompts). Claim it with
+    /// [`CollectionControl::try_begin_update_check`], release with
+    /// [`CollectionControl::end_update_check`].
+    update_check_in_flight: AtomicBool,
 }
 
 impl CollectionControl {
@@ -66,6 +73,22 @@ impl CollectionControl {
     pub fn set_update_required(&self, update_required: bool) {
         self.update_required
             .store(update_required, Ordering::Release);
+    }
+
+    /// Try to claim the single update-check slot. Returns `true` if the caller
+    /// now owns the check (and MUST release it with [`end_update_check`]),
+    /// `false` if a check is already running. This is the single-in-flight
+    /// guard that keeps the loop + the two manual triggers from racing the same
+    /// download/install.
+    pub fn try_begin_update_check(&self) -> bool {
+        self.update_check_in_flight
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    /// Release the update-check slot claimed by [`try_begin_update_check`].
+    pub fn end_update_check(&self) {
+        self.update_check_in_flight.store(false, Ordering::Release);
     }
 }
 
@@ -292,6 +315,19 @@ mod tests {
         assert!(control.is_paused());
         // Even if a token existed, a paused control forbids collection.
         assert!(!collection_allowed(&control));
+    }
+
+    #[test]
+    fn update_check_slot_admits_only_one_at_a_time() {
+        let control = CollectionControl::default();
+        // First claimant wins…
+        assert!(control.try_begin_update_check());
+        // …a second concurrent claim is refused while the first holds the slot.
+        assert!(!control.try_begin_update_check());
+        // Releasing lets the next caller claim it again.
+        control.end_update_check();
+        assert!(control.try_begin_update_check());
+        control.end_update_check();
     }
 
     #[test]
