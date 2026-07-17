@@ -33,8 +33,9 @@ pub fn current_state() -> AgentState {
 /// sync-outcome flags ([`runtime::SyncStatus`], set by each sync cycle). Falls
 /// back to the honest default (`Onboarding`) when the managed state isn't ready
 /// yet. This is what makes "Syncing normally" / "Running with problems" etc.
-/// reflect reality instead of the frozen M1 placeholder.
-fn resolve_live_state<R: Runtime>(app: &AppHandle<R>) -> AgentState {
+/// reflect reality instead of the frozen M1 placeholder. Public so the tray can
+/// rebuild its menu from the same live state the snapshot uses.
+pub fn resolve_live_state<R: Runtime>(app: &AppHandle<R>) -> AgentState {
     let mut inputs = app
         .try_state::<Arc<runtime::SyncStatus>>()
         .map(|s| s.current())
@@ -171,6 +172,56 @@ pub async fn sync_now<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
     Ok(runtime::sync_now_message(outcome).to_string())
 }
 
+/// Check for a newer signed release right now ("Check for updates"). Runs the
+/// SAME signed-updater path as the background loop (startup + every 6 hours) and
+/// returns a plain-English result. A no-op-safe wrapper: if the store/control
+/// aren't ready it returns an honest "not ready" message rather than pretend.
+#[tauri::command]
+pub async fn check_for_updates<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
+    let store = match app.try_state::<Arc<Store>>() {
+        Some(store) => store.inner().clone(),
+        None => return Ok(crate::update::NOT_READY_MESSAGE.to_string()),
+    };
+    let control = match app.try_state::<Arc<CollectionControl>>() {
+        Some(control) => control.inner().clone(),
+        None => return Ok(crate::update::NOT_READY_MESSAGE.to_string()),
+    };
+    let outcome = crate::update::check_now(&app, &store, &control).await;
+    Ok(outcome.message().to_string())
+}
+
+/// Send a diagnostics bundle now ("Send diagnostics"). Builds a counts/versions/
+/// states/sanitized-log bundle from the local store and POSTs it — the SAME path
+/// the tray "Send diagnostics" item runs (spec §23.2). Returns a plain-English
+/// result; the bundle carries no prompt/response content by construction and the
+/// device token never crosses this boundary.
+#[tauri::command]
+pub async fn send_diagnostics<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
+    let store_path = match app.path().app_data_dir() {
+        Ok(dir) => dir.join(crate::store::DB_FILE_NAME),
+        Err(_) => return Err("Couldn't find the local data to send.".to_string()),
+    };
+    let log_dir = app.path().app_log_dir().ok();
+    let outcome = crate::diagnostics::send_diagnostics(&store_path, log_dir.as_deref()).await;
+    match outcome {
+        crate::diagnostics::SendOutcome::Sent => {
+            Ok("Diagnostics sent. Thanks — this helps us fix problems.".to_string())
+        }
+        crate::diagnostics::SendOutcome::NotSignedIn => {
+            Err("Sign in first, then you can send diagnostics.".to_string())
+        }
+        crate::diagnostics::SendOutcome::Unreachable => {
+            Err("Couldn't reach Revealyst. Check your connection and try again.".to_string())
+        }
+        crate::diagnostics::SendOutcome::Rejected(_) => {
+            Err("Revealyst couldn't accept the diagnostics. Please try again later.".to_string())
+        }
+        crate::diagnostics::SendOutcome::LocalError => {
+            Err("Couldn't gather the diagnostics. Please try again.".to_string())
+        }
+    }
+}
+
 /// The `{imported, skipped, failed}` counts one export import produced, for the
 /// import screen (spec §11.3.2). Counts only — never a path or any content.
 #[derive(Debug, Serialize)]
@@ -232,6 +283,9 @@ pub fn set_collection_paused<R: Runtime>(app: AppHandle<R>, paused: bool) -> Res
         Some(control) => {
             control.set_paused(paused);
             tracing::info!(component = "commands", paused, "collection pause toggled");
+            // Keep the tray's Pause/Resume label in sync with this change so the
+            // two controls never disagree about the current state.
+            crate::tray::refresh_tray(&app);
             Ok(())
         }
         None => Err("Collection isn't ready yet.".to_string()),

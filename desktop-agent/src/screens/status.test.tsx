@@ -45,9 +45,19 @@ describe("StatusScreen", () => {
     expect(screen.getByText("Never — not signed in yet")).toBeTruthy();
     expect(screen.getByText("None yet")).toBeTruthy();
     expect(screen.getByText("Nothing waiting")).toBeTruthy();
-    expect(screen.getByText("Automatic updates aren't available yet")).toBeTruthy();
-    // No Sync now button while signed out.
+    expect(
+      screen.getByText(
+        "Automatic updates are on. New signed versions install in the background.",
+      ),
+    ).toBeTruthy();
+    // The stale "not available yet" copy is gone.
+    expect(screen.queryByText("Automatic updates aren't available yet")).toBeNull();
+    // No Sync now button while signed out...
     expect(screen.queryByRole("button", { name: /sync now/i })).toBeNull();
+    // ...but Check for updates is always available (updates are sign-in-independent).
+    expect(
+      screen.getByRole("button", { name: /check for updates/i }),
+    ).toBeTruthy();
   });
 
   it("surfaces the Claude Desktop Phase-1 limitation from the disclosure registry", () => {
@@ -131,5 +141,38 @@ describe("StatusScreen", () => {
   it("renders placeholders when no snapshot is available yet", () => {
     render(<StatusScreen snapshot={null} />);
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+  });
+
+  it("reflects a pending required update in the Updates row", () => {
+    render(<StatusScreen snapshot={snap({ state: "update_required" })} />);
+    expect(
+      screen.getByText(
+        "A required update is pending — restart Revealyst to finish updating.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("Check for updates triggers the command and shows the plain-English result", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce("You're on the latest version.");
+    render(<StatusScreen snapshot={snap()} />);
+    fireEvent.click(screen.getByRole("button", { name: /check for updates/i }));
+    await waitFor(() => {
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("check_for_updates");
+    });
+    expect(await screen.findByText("You're on the latest version.")).toBeTruthy();
+  });
+
+  it("shows a tray-pushed update result via the updateNotice prop", () => {
+    render(
+      <StatusScreen
+        snapshot={snap()}
+        updateNotice="A new version is ready. Restart Revealyst to finish updating."
+      />,
+    );
+    expect(
+      screen.getByText(
+        "A new version is ready. Restart Revealyst to finish updating.",
+      ),
+    ).toBeTruthy();
   });
 });

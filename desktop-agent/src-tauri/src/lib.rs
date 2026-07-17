@@ -105,6 +105,8 @@ pub fn run() {
             commands::begin_sign_in,
             commands::is_signed_in,
             commands::sync_now,
+            commands::check_for_updates,
+            commands::send_diagnostics,
             commands::set_collection_paused,
             commands::get_collection_paused,
             commands::get_pending_count,
