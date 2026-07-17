@@ -15,9 +15,12 @@ import { orgs } from "./core";
 // hash of their one-click unsubscribe token (plaintext lives only in the email
 // URL — mirrors share_links), and the ISO week last sent so a redelivered
 // queue message can compare-and-set instead of double-sending. Cascade-deleted
-// with the org (org_id) AND with the user (user_id) — a member who leaves or is
-// deleted keeps no dangling preference. NOT a send log: exactly one row per
-// person per org, upserted; delivery history is not retained here.
+// with the org (org_id) AND with the user account (user_id). A member who LEAVES
+// or is REMOVED (not an account delete, so neither FK fires) keeps no dangling
+// preference either — src/db/membership.ts deletes this row in the same
+// transaction as the membership (P7), so a re-invite can't resurrect a stale
+// subscription. NOT a send log: exactly one row per person per org, upserted;
+// delivery history is not retained here.
 export const digestPreferences = pgTable(
   "digest_preferences",
   {

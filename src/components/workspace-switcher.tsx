@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Check, ChevronsUpDown, Plus } from "lucide-react";
+import { Check, ChevronsUpDown, LogOut, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { CreateTeamWorkspaceDialog } from "@/components/create-team-workspace-dialog";
+import { LeaveWorkspaceDialog } from "@/components/leave-workspace-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +39,7 @@ export function WorkspaceSwitcher({
   const [loading, setLoading] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
 
   async function loadOnOpen(open: boolean) {
     if (!open || workspaces !== null || loading) {
@@ -134,6 +136,19 @@ export function WorkspaceSwitcher({
             <Plus className="size-4" />
             <span>{CREATE_TEAM_WORKSPACE_MENU_ITEM}</span>
           </DropdownMenuItem>
+          {/* Leave the current workspace — a member-accessible action (Settings
+              hides its admin tabs from members, so the switcher is the reachable
+              home). Never offered for a personal workspace: it's the account's
+              own home, and the server refuses it anyway. */}
+          {currentOrg.kind !== "personal" ? (
+            <DropdownMenuItem
+              onClick={() => setLeaveOpen(true)}
+              className="text-destructive focus:text-destructive"
+            >
+              <LogOut className="size-4" />
+              <span>Leave workspace</span>
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
       <CreateTeamWorkspaceDialog
@@ -141,6 +156,11 @@ export function WorkspaceSwitcher({
         copy={CREATE_TEAM_WORKSPACE_COPY}
         open={createOpen}
         onOpenChange={setCreateOpen}
+      />
+      <LeaveWorkspaceDialog
+        workspaceName={currentOrg.name}
+        open={leaveOpen}
+        onOpenChange={setLeaveOpen}
       />
     </>
   );

@@ -1,6 +1,7 @@
 import { InviteMemberDialog } from "@/components/invite-member-dialog";
 import { RevokeInviteButton } from "@/components/revoke-invite-button";
 import { AdminOnlyNotice } from "@/components/settings/admin-only-notice";
+import { RemoveMemberDialog } from "@/components/settings/remove-member-dialog";
 import { RoleManagementCard } from "@/components/settings/role-management-card";
 import { TeamCostVisibilityCard } from "@/components/settings/team-cost-visibility-card";
 import { TeamManagementCard } from "@/components/settings/team-management-card";
@@ -146,6 +147,9 @@ export default async function SettingsPeoplePage() {
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
                   <TableHead className="text-right">Joined</TableHead>
+                  <TableHead className="text-right">
+                    <span className="sr-only">Actions</span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -167,6 +171,17 @@ export default async function SettingsPeoplePage() {
                     </TableCell>
                     <TableCell className="text-right text-muted-foreground">
                       {formatRelativeTime(member.createdAt)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {/* Remove another member. Never yourself — that's the
+                          switcher's "Leave workspace". The server also refuses
+                          the sole admin / workspace owner with a clear message. */}
+                      {member.userId !== ctx.user.id ? (
+                        <RemoveMemberDialog
+                          userId={member.userId}
+                          label={member.name || member.email}
+                        />
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 ))}
