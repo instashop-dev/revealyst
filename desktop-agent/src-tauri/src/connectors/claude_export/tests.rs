@@ -340,15 +340,13 @@ fn malformed_json_rejected() {
 fn malformed_conversation_entries_skipped_and_counted() {
     // A good conversation, a non-object element (failed), and an empty-messages
     // conversation (skipped).
-    let json = format!(
-        r#"[
-          {{ "uuid": "ok", "chat_messages": [
-             {{ "uuid": "m1", "sender": "human", "text": "hi",
-                "created_at": "2026-07-15T10:00:00Z" }} ] }},
+    let json = r#"[
+          { "uuid": "ok", "chat_messages": [
+             { "uuid": "m1", "sender": "human", "text": "hi",
+                "created_at": "2026-07-15T10:00:00Z" } ] },
           "not-an-object",
-          {{ "uuid": "empty", "chat_messages": [] }}
-        ]"#
-    );
+          { "uuid": "empty", "chat_messages": [] }
+        ]"#;
     let zip = build_zip(&[(
         "conversations.json",
         json.as_bytes(),
