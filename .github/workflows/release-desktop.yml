@@ -1,0 +1,487 @@
+# Protected release pipeline for the Revealyst Desktop Agent (Desktop Agent
+# plan T6.2; spec §25.2). Mirrors release-agent.yml's founder-triggered shape.
+#
+#   tag release → full test suite → build platform artifacts → SIGN binaries
+#   → notarize macOS → verify signatures → checksums → signed update manifest
+#   → publish internal channel → promote beta → staged stable rollout
+#
+# ── SIGNING-SECRET SAFETY (spec §25.2 / §29 hard rule) ──────────────────────
+# PR workflows MUST NOT be able to reach signing secrets. This is enforced
+# structurally, not by convention:
+#   1. This workflow has NO `pull_request` trigger. It runs only on a
+#      `desktop-v*` tag push or a manual `workflow_dispatch`.
+#   2. Every job that references `secrets.APPLE_*`, `secrets.WINDOWS_CERT_*`,
+#      or `secrets.TAURI_SIGNING_PRIVATE_KEY*` declares
+#      `environment: desktop-release`. GitHub Environment secrets are ONLY
+#      injected into jobs that name that environment, and the environment
+#      carries a required-reviewer protection rule. A job without the
+#      `environment:` key — and therefore any job reachable from a PR — gets
+#      an EMPTY string for those secrets.
+#   3. The `test` and `build` jobs reference NO signing secret at all, so the
+#      unsigned dry-run path proves the whole wiring with zero secret access.
+#
+# ── CERTS ARE PENDING (D-DA-7) ──────────────────────────────────────────────
+# The Apple Developer ID cert, Windows EV cert, the `desktop-release`
+# Environment, and the Tauri updater keypair do NOT exist yet (docs/approvals.md
+# T0.4 rows — founder action). Until the founder creates the Environment and
+# adds the secrets, the `sign`/`verify`/`publish-signed` path cannot run a real
+# signed release. The workflow is authored COMPLETE so it works the moment
+# those land; a `dry_run` dispatch exercises test → build → checksums → publish
+# with UNSIGNED artifacts and needs no secret. See docs/desktop-release-runbook.md.
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Unsigned dry run — skip all signing/notarization; prove job wiring without secrets"
+        type: boolean
+        default: false
+      channel:
+        description: "Release channel to publish"
+        type: choice
+        options:
+          - internal
+          - beta
+          - stable
+        default: internal
+
+concurrency:
+  # One release at a time; never cancel a signing/publish run mid-flight.
+  group: release-desktop
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  # `dry_run` is only a dispatch input; a tag push has no inputs, so it must
+  # default to a real (signed) release. Normalize to a single boolean string
+  # every job can read.
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+  RELEASE_CHANNEL: ${{ (github.event_name == 'workflow_dispatch' && inputs.channel) || 'internal' }}
+
+jobs:
+  # ── 1. Full desktop test suite ────────────────────────────────────────────
+  # Mirrors the merge-blocking checks in desktop-ci.yml (kept inline rather than
+  # via workflow_call so desktop-ci.yml — a pull_request workflow — stays
+  # untouched, plan T6.2 constraint). A release must not ship code that a PR
+  # would have blocked.
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-agent/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: desktop-agent
+        run: npm ci
+      # tauri::generate_context! embeds ../dist at compile time.
+      - name: Build frontend (generate_context! embeds ../dist)
+        working-directory: desktop-agent
+        run: npm run build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-agent/src-tauri
+      - name: Rust format
+        working-directory: desktop-agent/src-tauri
+        run: cargo fmt --check
+      - name: Clippy (deny warnings)
+        working-directory: desktop-agent/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Rust tests
+        working-directory: desktop-agent/src-tauri
+        run: cargo test
+      # Privacy tests (spec §26.1) as a DISTINCT step. The `::` path selector
+      # MUST be quoted — an unquoted `cargo test privacy::` is a YAML flow
+      # error that silently turns the whole workflow into a startup_failure.
+      - name: Privacy tests (merge-blocking, spec §26.1)
+        working-directory: desktop-agent/src-tauri
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: "cargo test privacy::"
+      - name: Frontend typecheck + unit tests
+        working-directory: desktop-agent
+        run: |
+          npm run typecheck
+          npm test
+      - name: Tauri capability + CSP audit
+        run: node scripts/desktop-capability-audit.mjs
+
+  # ── 2. Build platform artifacts (UNSIGNED) ────────────────────────────────
+  # NO environment, NO signing secret. Produces the unsigned bundles that the
+  # dry-run path publishes, and proves the build wiring for every target
+  # without touching a single secret.
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            rust_target: aarch64-apple-darwin
+            bundles: dmg
+            artifact: macos-arm64
+          - os: macos-13
+            rust_target: x86_64-apple-darwin
+            bundles: dmg
+            artifact: macos-x64
+          - os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            bundles: "msi,nsis"
+            artifact: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-agent/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-agent/src-tauri
+      - name: Install frontend dependencies
+        working-directory: desktop-agent
+        run: npm ci
+      - name: Unsigned Tauri build
+        working-directory: desktop-agent
+        run: "npm run tauri build -- --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundles }}"
+      - name: Collect bundles
+        shell: bash
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: "bash scripts/desktop-collect-bundles.sh artifacts/${{ matrix.artifact }}"
+      - name: Upload unsigned bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-${{ matrix.artifact }}
+          path: artifacts/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  # ── 3. Sign + notarize (PROTECTED — desktop-release environment only) ──────
+  # Signing secrets live ONLY here. Because this job declares
+  # `environment: desktop-release`, the APPLE_*/WINDOWS_CERT_*/TAURI_SIGNING_*
+  # secrets are unreachable from any job that does not — and a PR can never
+  # trigger this workflow at all.
+  #
+  # macOS/Windows signing is done by re-running the Tauri bundler WITH the
+  # signing env set (Tauri natively codesigns the .app, signs the .dmg,
+  # submits to notarytool + staples when APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID
+  # are present, and runs signtool for Windows). Injecting a signature into a
+  # pre-built .dmg by re-packaging is fragile, so signing happens at bundle
+  # time; the unsigned `build` job remains the dry-run proof + the fallback
+  # artifact source. TAURI_SIGNING_PRIVATE_KEY makes the bundler emit the
+  # updater `.sig` used by the signed manifest (job 5).
+  sign:
+    needs: build
+    # Skipped on a dry run — the release then ships the unsigned `build` output.
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+    environment: desktop-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            rust_target: aarch64-apple-darwin
+            bundles: dmg
+            artifact: macos-arm64
+          - os: macos-13
+            rust_target: x86_64-apple-darwin
+            bundles: dmg
+            artifact: macos-x64
+          - os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            bundles: "msi,nsis"
+            artifact: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require signing secrets
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::error::desktop-release secrets are not configured yet (D-DA-7 pending — docs/approvals.md T0.4). A signed release needs the founder to create the Environment + add certs/keys. Use the dry_run dispatch for an unsigned build."
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop-agent/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-agent/src-tauri
+      - name: Install frontend dependencies
+        working-directory: desktop-agent
+        run: npm ci
+      # macOS Developer ID codesign + notarytool submit + staple, driven by
+      # Tauri from the APPLE_* env. APPLE_CERTIFICATE is the base64 .p12;
+      # APPLE_CERTIFICATE_PASSWORD unlocks it; APPLE_SIGNING_IDENTITY is the
+      # "Developer ID Application: …" name; APPLE_ID/APPLE_PASSWORD (app-specific)
+      # /APPLE_TEAM_ID drive notarytool.
+      - name: Signed Tauri build (codesign + notarize + staple / signtool)
+        working-directory: desktop-agent
+        shell: bash
+        env:
+          # macOS code signing + notarization
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows Authenticode (EV) — consumed by tauri.conf signCommand /
+          # signtool on the Windows runner.
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          # Tauri updater signature (Ed25519/minisign) — emits the `.sig` files.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: "npm run tauri build -- --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundles }}"
+      - name: Collect signed bundles + updater signatures
+        shell: bash
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: "bash scripts/desktop-collect-bundles.sh artifacts/${{ matrix.artifact }}"
+      - name: Upload signed bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-${{ matrix.artifact }}
+          path: artifacts/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  # ── 4. Verify signatures (signed path only) ───────────────────────────────
+  # `environment: desktop-release` so the macOS keychain/notarization check has
+  # the same trust context; no secret is actually needed to VERIFY a signature.
+  verify:
+    needs: sign
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run == true) }}
+    environment: desktop-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            artifact: macos-arm64
+          - os: macos-13
+            artifact: macos-x64
+          - os: windows-latest
+            artifact: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Download signed bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-${{ matrix.artifact }}
+          path: artifacts
+      - name: Verify macOS signature + notarization staple
+        if: ${{ startsWith(matrix.os, 'macos') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for dmg in artifacts/*.dmg; do
+            echo "== $dmg =="
+            # Gatekeeper assessment of the notarized, stapled installer.
+            spctl --assess --type open --context context:primary-signature -vv "$dmg"
+            codesign --verify --deep --strict --verbose=2 "$dmg"
+            xcrun stapler validate "$dmg"
+          done
+      - name: Verify Windows Authenticode signature
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $files = Get-ChildItem -Path artifacts -Include *.msi,*.exe -Recurse
+          if (-not $files) { throw "no Windows installer found to verify" }
+          foreach ($f in $files) {
+            Write-Host "== $($f.FullName) =="
+            $sig = Get-AuthenticodeSignature $f.FullName
+            if ($sig.Status -ne "Valid") {
+              throw "signature status $($sig.Status) for $($f.Name)"
+            }
+            Write-Host "Valid — signer: $($sig.SignerCertificate.Subject)"
+          }
+
+  # ── 5. Checksums + signed update manifest ─────────────────────────────────
+  # Picks the signed artifacts when they exist (real release) and falls back to
+  # the unsigned bundles on a dry run. Emits SHA256SUMS.txt + a Tauri v2
+  # updater manifest (`<channel>.json`). The manifest shape is the contract
+  # T6.1's dynamic update endpoint serves (see docs/desktop-release-runbook.md
+  # §"Update manifest shape"): top-level version/notes/pub_date + a
+  # `platforms.<target>.{signature,url}` map. On the unsigned dry-run path the
+  # `.sig` files are absent, so the manifest is written WITHOUT signatures and
+  # is marked non-installable (a real updater rejects an unsigned manifest —
+  # deliberate; the dry run must never yield an installable manifest).
+  checksums-manifest:
+    needs: [build, sign]
+    # Runs on a real release AND on a dry run (sign is skipped, not failed).
+    if: ${{ always() && needs.build.result == 'success' && (needs.sign.result == 'success' || needs.sign.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: incoming
+      - name: Assemble release directory
+        id: assemble
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          if [ -d incoming ] && ls incoming | grep -q '^signed-'; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            src_prefix="signed-"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            src_prefix="unsigned-"
+          fi
+          # Flatten the per-arch artifact dirs into one release/ folder.
+          for d in incoming/${src_prefix}*; do
+            [ -d "$d" ] || continue
+            cp -v "$d"/* release/ 2>/dev/null || true
+          done
+          ls -la release
+      - name: Generate checksums
+        working-directory: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Checksum every artifact except the sidecar .sig files.
+          find . -maxdepth 1 -type f ! -name "*.sig" ! -name "SHA256SUMS.txt" \
+            -printf "%f\n" | sort | while read -r f; do
+            sha256sum "$f"
+          done > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Generate updater manifest
+        env:
+          SIGNED: ${{ steps.assemble.outputs.signed }}
+          CHANNEL: ${{ env.RELEASE_CHANNEL }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: "node scripts/desktop-updater-manifest.mjs release \"$CHANNEL\""
+      - name: Upload release payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-payload
+          path: release
+          if-no-files-found: error
+
+  # ── 6. Publish GitHub Release ─────────────────────────────────────────────
+  # internal channel by default. `environment: desktop-release` so a real
+  # publish inherits the same required-reviewer gate as signing (a dry run
+  # still publishes a clearly-marked UNSIGNED prerelease so the wiring is
+  # observable end-to-end). Staged rollout percentage is data-side (T6.1
+  # release record/config) — this job publishes artifacts + the channel
+  # manifest, it does not set the rollout %.
+  publish:
+    needs: checksums-manifest
+    if: ${{ always() && needs.checksums-manifest.result == 'success' }}
+    environment: desktop-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release payload
+        uses: actions/download-artifact@v4
+        with:
+          name: release-payload
+          path: release
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${DRY_RUN}" = "true" ]; then
+            tag="desktop-dryrun-${GITHUB_RUN_ID}"
+            title="Desktop ${RELEASE_CHANNEL} (UNSIGNED dry run)"
+            prerelease=true
+          else
+            tag="${GITHUB_REF_NAME}"
+            title="Desktop ${tag} (${RELEASE_CHANNEL})"
+            # internal + beta are prereleases; stable is a full release.
+            if [ "${RELEASE_CHANNEL}" = "stable" ]; then prerelease=false; else prerelease=true; fi
+          fi
+          {
+            echo "tag=$tag"
+            echo "title=$title"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          TITLE: ${{ steps.meta.outputs.title }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          notes="Channel: ${RELEASE_CHANNEL}. Rollout percentage is set in the release record (T6.1)."
+          if [ "${DRY_RUN}" = "true" ]; then
+            notes="UNSIGNED DRY RUN — artifacts are NOT signed or notarized and MUST NOT be distributed. ${notes}"
+          fi
+          flags=(--title "$TITLE" --notes "$notes")
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          # `release create` fails if the tag already has a release; on a
+          # re-run, upload assets to the existing release instead.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber
+          else
+            gh release create "$TAG" release/* "${flags[@]}"
+          fi
+
+  # ── 7. Promote to beta / stable (manual dispatch) ─────────────────────────
+  # Promotion re-points a channel manifest at an already-published, signed
+  # release. The staged-stable rollout (5→25→50→100%) is deterministic and
+  # data-side (T6.1: stable-hash of installationId+releaseId vs the release
+  # record's rollout %) — CI does not set the percentage. This job only
+  # regenerates + publishes the target channel's manifest, and only for a
+  # non-dry-run dispatch that names beta/stable.
+  promote:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == false && (inputs.channel == 'beta' || inputs.channel == 'stable') }}
+    needs: publish
+    environment: desktop-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download release payload
+        uses: actions/download-artifact@v4
+        with:
+          name: release-payload
+          path: release
+      - name: Regenerate manifest for the promoted channel
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          # A promoted channel points at an already-signed, published release.
+          SIGNED: "true"
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: "node scripts/desktop-updater-manifest.mjs release \"$CHANNEL\""
+      - name: Publish promoted channel manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Promoting ${{ inputs.channel }} channel manifest for $TAG."
+          echo "Set the rollout percentage in the release record (T6.1) — CI does not."
+          gh release upload "$TAG" "release/${{ inputs.channel }}.json" --clobber
