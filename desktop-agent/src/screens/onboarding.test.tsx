@@ -16,6 +16,8 @@ beforeEach(() => {
   // unless a test overrides it.
   invokeMock.mockImplementation((command: string) => {
     if (command === "is_signed_in") return Promise.resolve(false);
+    // No saved shared-computer answer yet (the privacy-safe default).
+    if (command === "get_device_used_only_by_me") return Promise.resolve(null);
     return new Promise(() => {});
   });
 });
@@ -76,6 +78,33 @@ describe("OnboardingScreen", () => {
         "Couldn't reach Revealyst. Check your connection and try again.",
       ),
     ).toBeTruthy();
+  });
+
+  it("asks one plain 'who uses this computer' question with neither option pre-selected", async () => {
+    render(<OnboardingScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "This computer" }));
+    const onlyMe = screen.getByRole("radio", { name: /Only I use this computer/ });
+    const shared = screen.getByRole("radio", { name: /Other people use it too/ });
+    // Safe default: no attribution to a person until the user actively answers.
+    await waitFor(() => {
+      expect((onlyMe as HTMLInputElement).checked).toBe(false);
+      expect((shared as HTMLInputElement).checked).toBe(false);
+    });
+  });
+
+  it("saves the shared-computer answer via set_device_used_only_by_me", async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "is_signed_in") return Promise.resolve(false);
+      if (command === "get_device_used_only_by_me") return Promise.resolve(null);
+      if (command === "set_device_used_only_by_me") return Promise.resolve();
+      return new Promise(() => {});
+    });
+    render(<OnboardingScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "This computer" }));
+    fireEvent.click(screen.getByRole("radio", { name: /Other people use it too/ }));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("set_device_used_only_by_me", { onlyMe: false }),
+    );
   });
 
   it("shows the privacy-mode step with Analytics Only selected and the others not selectable", () => {

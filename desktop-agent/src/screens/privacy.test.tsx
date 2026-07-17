@@ -9,6 +9,7 @@ const backend = vi.hoisted(() => ({
   paused: false,
   signedIn: true,
   pending: 3,
+  onlyYou: null as boolean | null,
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -49,6 +50,11 @@ function fakeBackend(command: string, args?: unknown): Promise<unknown> {
     case "disconnect_device":
       backend.signedIn = false;
       return Promise.resolve(undefined);
+    case "get_device_used_only_by_me":
+      return Promise.resolve(backend.onlyYou);
+    case "set_device_used_only_by_me":
+      backend.onlyYou = (args as { onlyMe: boolean }).onlyMe;
+      return Promise.resolve(undefined);
     default:
       return Promise.resolve(undefined);
   }
@@ -60,6 +66,7 @@ beforeEach(() => {
   backend.paused = false;
   backend.signedIn = true;
   backend.pending = 3;
+  backend.onlyYou = null;
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation(fakeBackend as unknown as typeof invoke);
 });
@@ -124,6 +131,38 @@ describe("PrivacyScreen", () => {
     // The delta must name what is NOT hidden — not claim whole-file encryption.
     expect(ENCRYPTION_DISCLOSURE).toMatch(/AES-256-GCM/);
     expect(ENCRYPTION_DISCLOSURE).toMatch(/can be read if someone copies the file/);
+  });
+
+  it("shows 'who uses this computer' with neither option pre-selected before an answer", async () => {
+    render(<PrivacyScreen snapshot={snapshot} />);
+    expect(screen.getByText("Who uses this computer")).toBeTruthy();
+    const onlyMe = screen.getByRole("radio", { name: /Only I use this computer/ });
+    const shared = screen.getByRole("radio", { name: /Other people use it too/ });
+    // Invariant (b) / safe default: nothing is attributed to a person until the
+    // user actively answers, so neither radio is checked.
+    await waitFor(() => {
+      expect((onlyMe as HTMLInputElement).checked).toBe(false);
+      expect((shared as HTMLInputElement).checked).toBe(false);
+    });
+  });
+
+  it("answering 'only I use this computer' saves via set_device_used_only_by_me", async () => {
+    render(<PrivacyScreen snapshot={snapshot} />);
+    fireEvent.click(screen.getByRole("radio", { name: /Only I use this computer/ }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith("set_device_used_only_by_me", { onlyMe: true });
+    });
+    expect(backend.onlyYou).toBe(true);
+  });
+
+  it("reflects a saved 'shared computer' answer on mount", async () => {
+    backend.onlyYou = false;
+    render(<PrivacyScreen snapshot={snapshot} />);
+    const shared = screen.getByRole("radio", { name: /Other people use it too/ });
+    await waitFor(() => {
+      expect((shared as HTMLInputElement).checked).toBe(true);
+    });
+    expect(invoke).toHaveBeenCalledWith("get_device_used_only_by_me");
   });
 
   it("pausing collection calls set_collection_paused", async () => {

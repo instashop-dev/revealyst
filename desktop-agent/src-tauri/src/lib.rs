@@ -112,6 +112,8 @@ pub fn run() {
             commands::send_diagnostics,
             commands::set_collection_paused,
             commands::get_collection_paused,
+            commands::get_device_used_only_by_me,
+            commands::set_device_used_only_by_me,
             commands::get_pending_count,
             commands::delete_pending_data,
             commands::disconnect_device,
@@ -166,11 +168,20 @@ pub fn run() {
                     match store::Store::open(&db_path) {
                         Ok(store) => {
                             let store = Arc::new(store);
+                            // Restore the persisted local settings BEFORE the
+                            // collection loop can run, so a device the user
+                            // paused stays paused across a reboot (never silently
+                            // resume — a privacy surprise) and a sticky
+                            // `degraded` drop signal survives the restart.
+                            let settings = store.read_local_settings().unwrap_or_default();
                             let control = Arc::new(runtime::CollectionControl::default());
+                            control.set_paused(settings.paused);
                             // Shared live sync status: each cycle folds its
                             // outcome in here so the tray/window status +
                             // last-sync reflect reality (not the M1 default).
-                            let sync_status = Arc::new(runtime::SyncStatus::default());
+                            // Seeded from the persisted sticky flag.
+                            let sync_status =
+                                Arc::new(runtime::SyncStatus::restored(settings.degraded));
                             // ONE sync engine shared by the loop and "Sync now"
                             // so their single-in-flight guard actually
                             // serializes the two paths.

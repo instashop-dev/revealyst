@@ -103,16 +103,30 @@ impl CollectionControl {
 /// [`CollectionControl`]) and are merged in at snapshot time, so a stale copy
 /// can never contradict them.
 ///
-/// This lives in memory: after a restart it starts clean and re-derives on the
-/// first cycle (which runs within seconds of launch). A `degraded` flag that
-/// flagged an already-drained drop is therefore not carried across a restart —
-/// persisting drop history is a separate follow-up.
+/// The sticky `degraded` flag is now PERSISTED (schema v2 `local_settings`) and
+/// restored on startup via [`SyncStatus::restored`], so a real drop signal is
+/// no longer lost on relaunch. The fresh-per-attempt flags (`offline` /
+/// `authentication_required`) are deliberately NOT restored: they re-derive on
+/// the first cycle (within seconds of launch), and carrying a stale "offline"
+/// across a restart would be misleading.
 #[derive(Debug, Default)]
 pub struct SyncStatus {
     inputs: Mutex<StateInputs>,
 }
 
 impl SyncStatus {
+    /// Rebuild from the persisted sticky flag on startup. Only `degraded` is
+    /// carried across a restart (the fresh-per-attempt flags re-derive on the
+    /// first cycle), so a standing drop signal survives a relaunch.
+    pub fn restored(degraded: bool) -> Self {
+        SyncStatus {
+            inputs: Mutex::new(StateInputs {
+                degraded,
+                ..StateInputs::default()
+            }),
+        }
+    }
+
     /// Fold the latest sync outcome into the sticky flags (called once per
     /// cycle by [`run_cycle`]).
     pub fn record(&self, outcome: SyncOutcome) {
@@ -141,22 +155,83 @@ pub struct CollectConfig {
 }
 
 impl CollectConfig {
-    /// Resolve from the OS environment. The shared-device + identity-consent
-    /// toggles are wired to the privacy/onboarding screen in T5.4; for dogfood
-    /// they are sourced from env so a shared machine (or identity consent) can be
-    /// declared without a rebuild:
+    /// Resolve from the OS environment only. The shared-device + identity-consent
+    /// toggles come from env here:
     ///   - `REVEALYST_SHARED_DEVICE=1` → account attribution + honesty gap (§10.3)
     ///   - `REVEALYST_IDENTITY_CONSENT=1` → attach the Claude account email as a
     ///     `person` subject (otherwise the device account is used — invariant-b).
+    ///
+    /// Used where the persisted answer is not needed (e.g. local source
+    /// detection, which never resolves identity) and by tests. The live
+    /// collection path uses [`CollectConfig::resolve`] instead, so the user's
+    /// saved onboarding/privacy answer is the source of truth.
     pub fn from_env() -> Self {
+        let (shared_device, consent_identity) = env_identity_flags();
         CollectConfig {
             home_dir: home_dir(),
             device_seed: device_seed(),
             window_days: 30,
-            shared_device: env_flag("REVEALYST_SHARED_DEVICE"),
-            consent_identity: env_flag("REVEALYST_IDENTITY_CONSENT"),
+            shared_device,
+            consent_identity,
             config_dir_override: std::env::var("CLAUDE_CONFIG_DIR").ok(),
         }
+    }
+
+    /// Resolve for a live collection pass, with the user's SAVED answer to "Is
+    /// this computer used only by you?" as the source of truth for attribution:
+    ///   - saved "only you"  → attribute activity to the person;
+    ///   - saved "shared"    → account/device level + the honesty gap (§10.3);
+    ///   - not answered yet  → the privacy-safe default (account/device level,
+    ///     never a guessed person, no shared-device claim). Before an answer
+    ///     exists the dev env flags still apply as an override, so dogfood can
+    ///     declare a shared machine or identity consent without a rebuild.
+    ///
+    /// A store-read failure falls back to the same privacy-safe default (env
+    /// flags still honored) — never to attributing activity to a named person.
+    pub fn resolve(store: &Store) -> Self {
+        let saved = store
+            .read_local_settings()
+            .ok()
+            .and_then(|s| s.identity_only_you);
+        let (shared_device, consent_identity) = match saved {
+            // The saved answer is authoritative once given.
+            Some(true) => (false, true),
+            Some(false) => (true, false),
+            // Unanswered: privacy-safe default, honoring the dev env override.
+            None => env_identity_flags(),
+        };
+        CollectConfig {
+            home_dir: home_dir(),
+            device_seed: device_seed(),
+            window_days: 30,
+            shared_device,
+            consent_identity,
+            config_dir_override: std::env::var("CLAUDE_CONFIG_DIR").ok(),
+        }
+    }
+}
+
+/// The dev/dogfood env override for attribution: `(shared_device,
+/// consent_identity)`. Absent flags yield the privacy-safe default `(false,
+/// false)` — account/device level, never a guessed person.
+fn env_identity_flags() -> (bool, bool) {
+    (
+        env_flag("REVEALYST_SHARED_DEVICE"),
+        env_flag("REVEALYST_IDENTITY_CONSENT"),
+    )
+}
+
+/// Persist the pause flag so a paused device stays paused after a reboot — a
+/// paused device silently resuming collection would be a privacy surprise. A
+/// store-write failure is logged, never fatal: the in-memory pause still holds
+/// for this session.
+pub fn persist_paused(store: &Store, paused: bool) {
+    if let Err(err) = store.set_paused_setting(paused, now_ms()) {
+        tracing::warn!(
+            component = "runtime",
+            error_code = err.code(),
+            "could not persist pause state"
+        );
     }
 }
 
@@ -242,6 +317,16 @@ pub async fn run_cycle(
     match engine.sync(store).await {
         Ok(outcome) => {
             status.record(outcome);
+            // Persist the sticky `degraded` flag so a real drop signal survives
+            // a restart (the other status flags are fresh-per-attempt and
+            // re-derive on the next cycle).
+            if let Err(err) = store.set_degraded_setting(status.current().degraded, now_ms()) {
+                tracing::warn!(
+                    component = "runtime",
+                    error_code = err.code(),
+                    "could not persist sync status"
+                );
+            }
             tracing::info!(
                 component = "runtime",
                 outcome = ?outcome,
@@ -285,7 +370,6 @@ pub fn spawn_loop(
     engine: Arc<SyncEngine<ReqwestTransport>>,
 ) {
     tauri::async_runtime::spawn(async move {
-        let cfg = CollectConfig::from_env();
         let interval = Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS);
         tracing::info!(
             component = "runtime",
@@ -293,6 +377,9 @@ pub fn spawn_loop(
             "collection loop started (idle until enrolled)"
         );
         loop {
+            // Re-resolve each cycle so a change to the saved "used only by you"
+            // answer takes effect without a restart (cheap: one local read).
+            let cfg = CollectConfig::resolve(&store);
             // The engine is SHARED with the "Sync now" command so its
             // single-in-flight guard actually serializes the two paths (a
             // per-call engine would let a manual sync race the loop and
@@ -424,5 +511,66 @@ mod tests {
         ));
         assert_eq!(ctx.window_days, 30);
         assert!(ctx.shared_device);
+    }
+
+    fn settings_store() -> Store {
+        use crate::store::crypto::{DbKey, KEY_LEN};
+        Store::open_in_memory(DbKey::from_bytes([4u8; KEY_LEN])).unwrap()
+    }
+
+    // All manipulation of the REVEALYST_SHARED_DEVICE/IDENTITY_CONSENT env vars
+    // lives in THIS one test so it never races another (cargo runs tests in one
+    // process; the Some(..) tests below short-circuit before reading env, so
+    // they are safe even if this test has a var set mid-run).
+    #[test]
+    fn resolve_env_override_applies_only_before_an_answer() {
+        // With no saved answer AND no dev env override, attribution stays at the
+        // account/device level: never a guessed person, and NOT marked shared.
+        std::env::remove_var("REVEALYST_SHARED_DEVICE");
+        std::env::remove_var("REVEALYST_IDENTITY_CONSENT");
+        let store = settings_store();
+        let cfg = CollectConfig::resolve(&store);
+        assert!(!cfg.consent_identity, "no person attribution before an answer");
+        assert!(!cfg.shared_device, "no shared-device claim before an answer");
+
+        // A saved answer is authoritative: a stray dev env flag must not silently
+        // flip a person-attributed device to shared.
+        std::env::set_var("REVEALYST_SHARED_DEVICE", "1");
+        store.set_identity_only_you(Some(true), 1).unwrap();
+        let cfg = CollectConfig::resolve(&store);
+        assert!(cfg.consent_identity);
+        assert!(!cfg.shared_device);
+        std::env::remove_var("REVEALYST_SHARED_DEVICE");
+    }
+
+    #[test]
+    fn resolve_saved_only_you_enables_person_attribution() {
+        let store = settings_store();
+        store.set_identity_only_you(Some(true), 1).unwrap();
+        let cfg = CollectConfig::resolve(&store);
+        assert!(cfg.consent_identity);
+        assert!(!cfg.shared_device);
+    }
+
+    #[test]
+    fn resolve_saved_shared_stays_account_level_with_gap() {
+        let store = settings_store();
+        store.set_identity_only_you(Some(false), 1).unwrap();
+        let cfg = CollectConfig::resolve(&store);
+        // Shared → account/device level; the shared-device honesty gap fires in
+        // the connector because `shared_device` is set.
+        assert!(!cfg.consent_identity);
+        assert!(cfg.shared_device);
+    }
+
+    #[test]
+    fn sync_status_restored_carries_only_the_sticky_flag() {
+        // A restored SyncStatus keeps the sticky `degraded` signal but leaves the
+        // fresh-per-attempt flags clear (they re-derive on the first cycle).
+        let restored = SyncStatus::restored(true);
+        let inputs = restored.current();
+        assert!(inputs.degraded);
+        assert!(!inputs.offline);
+        assert!(!inputs.authentication_required);
     }
 }

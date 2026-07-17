@@ -212,7 +212,8 @@ pub async fn sync_now<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
             "Nothing to sync yet — sign in first (and make sure sync isn't paused).".to_string(),
         );
     }
-    let cfg = runtime::CollectConfig::from_env();
+    // Resolve with the saved "used only by you" answer as the source of truth.
+    let cfg = runtime::CollectConfig::resolve(&store);
     let outcome = runtime::run_cycle(&store, &engine, &control, &cfg, &status).await;
     Ok(runtime::sync_now_message(outcome).to_string())
 }
@@ -299,7 +300,9 @@ pub fn import_claude_export<R: Runtime>(
         Some(store) => store.inner().clone(),
         None => return Err("Import isn't ready yet.".to_string()),
     };
-    let cfg = runtime::CollectConfig::from_env();
+    // Resolve with the saved "used only by you" answer so an import attributes
+    // activity the same way a live pass would.
+    let cfg = runtime::CollectConfig::resolve(&store);
     let now = crate::store::queue::now_ms();
     let ctx = runtime::build_context(now, &cfg);
     let archive_path = std::path::PathBuf::from(&path);
@@ -327,6 +330,11 @@ pub fn set_collection_paused<R: Runtime>(app: AppHandle<R>, paused: bool) -> Res
     match app.try_state::<Arc<CollectionControl>>() {
         Some(control) => {
             control.set_paused(paused);
+            // Persist the choice so a paused device stays paused after a reboot
+            // (never silently resume collecting — a privacy surprise).
+            if let Some(store) = app.try_state::<Arc<Store>>() {
+                runtime::persist_paused(store.inner(), paused);
+            }
             tracing::info!(component = "commands", paused, "collection pause toggled");
             // Keep the tray's Pause/Resume label in sync with this change so the
             // two controls never disagree about the current state.
@@ -335,6 +343,49 @@ pub fn set_collection_paused<R: Runtime>(app: AppHandle<R>, paused: bool) -> Res
         }
         None => Err("Collection isn't ready yet.".to_string()),
     }
+}
+
+/// Whether this computer is used only by the current person — the saved answer
+/// to the onboarding/privacy question, which decides how activity is attributed.
+/// `Some(true)` = only you (attribute to the person), `Some(false)` = shared
+/// (account/device level), `None` = not answered yet (the privacy-safe default:
+/// account/device level, never a guessed person). Returns `None` when the store
+/// isn't ready — never a fabricated answer.
+#[tauri::command]
+pub fn get_device_used_only_by_me<R: Runtime>(app: AppHandle<R>) -> Option<bool> {
+    let store = match app.try_state::<Arc<Store>>() {
+        Some(store) => store.inner().clone(),
+        None => return None,
+    };
+    store
+        .read_local_settings()
+        .map(|s| s.identity_only_you)
+        .unwrap_or(None)
+}
+
+/// Save the "Is this computer used only by you?" answer (onboarding + privacy
+/// screen). `true` attributes activity to the person; `false` keeps it at the
+/// account/device level with the honest shared-device disclosure. The saved
+/// answer is the source of truth the identity ladder reads on the next cycle.
+#[tauri::command]
+pub fn set_device_used_only_by_me<R: Runtime>(
+    app: AppHandle<R>,
+    only_me: bool,
+) -> Result<(), String> {
+    let store = match app.try_state::<Arc<Store>>() {
+        Some(store) => store.inner().clone(),
+        None => return Err("This isn't ready yet. Please try again.".to_string()),
+    };
+    store
+        .set_identity_only_you(Some(only_me), crate::store::queue::now_ms())
+        .map_err(|error| {
+            tracing::warn!(
+                component = "commands",
+                error_code = error.code(),
+                "could not save the shared-computer answer"
+            );
+            "Could not save your answer. Please try again.".to_string()
+        })
 }
 
 /// Whether background collection is currently paused (drives the privacy
