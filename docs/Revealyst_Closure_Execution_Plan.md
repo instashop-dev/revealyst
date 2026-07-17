@@ -1,7 +1,7 @@
 # Revealyst — V4 Closure & Hardening Execution Plan (Wave 9 + gated Wave 10)
 
 > Execution-ready plan converting the Spec V4 gap-analysis roadmap
-> ([implementation-roadmap.md](product/implementation-roadmap.md), merged PR #225) into
+> ([implementation-roadmap.md](legacy/product/implementation-roadmap.md), merged PR #225) into
 > build-ready workstreams. Grounded at `main` = `5fe43e2` by a 7-domain read-only
 > specialist fan-out (architecture, backend, frontend, data/migrations, UX/a11y, QA/CI,
 > docs/governance) — every file/line anchor below was verified against code, not prose.
@@ -121,7 +121,7 @@ roadmap's wording** where they differ; each is reflected in the task specs below
 | **Activate (no schema change)** | `deriveAttention`'s `fatigueRecIds` param (exists, never passed) + a new `recentlyShownRecIds` novelty input from the shipped exposure log (T3.1) | Output-equivalence guards extended first |
 | **Migrate (seed-only)** | TEL-012 context-usage metric key → `CANONICAL_METRICS` + `metric_catalog` seed insert, mig 0035 (T4.2) | Contract ADR; OTel-gated rendering (≥2-source rule) — or formally move to Future |
 | **Remove** | `SignalCoverageBadge` + its test (dead; concept re-homed on the Data Confidence card, T1.5) · `FIRST_SYNC_AHA_COPY` (`src/lib/companion-glossary.ts:232-237`, zero imports) | T1.5 / T0 cleanup |
-| **Deprecate (banner/move)** | `docs/ai-capability-implementation-gap-analysis.md` → supersession banner or `docs/legacy/` (T0.5) | Point-in-time audit, fully shipped |
+| **Deprecate (banner/move)** | `docs/legacy/ai-capability-implementation-gap-analysis.md` → supersession banner or `docs/legacy/` (T0.5) | Point-in-time audit, fully shipped |
 | **Not built (tripwires)** | LMS/courses/certification (NOT-019) · XP/streaks/leagues · prompt-content ingestion · ML service | GJ-007 stays a static content module; banned-phrasing tests extended |
 
 ---
@@ -250,7 +250,7 @@ apply fixes → PR → merge on green CI.
   **pending**), OQ-002 Custom Index demotion (**pending** ratification; code already
   matches the default), OQ-008 third-ladder (**pending** — see T0.3), plus rows for the
   §6 decision queue below as they resolve. Add a supersession banner to
-  `docs/ai-capability-implementation-gap-analysis.md` (or move it to `docs/legacy/` — the
+  `docs/legacy/ai-capability-implementation-gap-analysis.md` (or move it to `docs/legacy/` — the
   established home; banner preferred since the AI Capability plan and Spec V4 link it by
   path).
 - **Tests/acceptance:** ledger exists; roadmap P0 acceptance ("sign-off ledger entries
@@ -803,7 +803,7 @@ it.
   `FIRST_SYNC_AHA_COPY` (fold into any P1 companion-adjacent PR — zero imports,
   delete-only); stale `/v1/logs` route comment (T2.2); the stale `src/db/system.ts`
   retention docstring ("`kind = 'poll'` ONLY" — the code purges `agent_ingest` too;
-  fix alongside T1.2); `docs/ai-capability-implementation-gap-analysis.md` banner (T0.5).
+  fix alongside T1.2); `docs/legacy/ai-capability-implementation-gap-analysis.md` banner (T0.5).
 - **After T5.2:** update ADR 0027's "deferred follow-up" note (it names the schema split
   as pending — close the loop).
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-07-08
-- **Deciders:** Founder (approved plan: `docs/admin-section-plan.md`, PR #118)
+- **Deciders:** Founder (approved plan: `docs/legacy/admin-section-plan.md`, PR #118)
 
 ## Context
 
@@ -17,7 +17,7 @@ the Paddle/Neon dashboards.
 The identity layer is the **Better Auth admin plugin** (already in the
 installed `better-auth@1.6.23`, previously unwired). Wiring it requires new
 nullable columns on the auth tables, and `drizzle/**` is frozen — hence this
-ADR. The full plan (7 features, 6 PRs) is in `docs/admin-section-plan.md`;
+ADR. The full plan (7 features, 6 PRs) is in `docs/legacy/admin-section-plan.md`;
 this ADR records the contract-touching decisions.
 
 ## Decision

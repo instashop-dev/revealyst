@@ -30,7 +30,7 @@ Status: planned, not started. Scope: the public marketing website for Revealyst,
 
 The site's job is to let a CTO self-qualify and self-serve without a call, and to catch the individual-developer champion loop. Four purposes, in priority order:
 
-1. **Convert** — free signup is the only conversion action (Personal or Team ≤5 free); the product is the lead capture (no email list exists at launch, per `docs/launch/launch-plan.md`).
+1. **Convert** — free signup is the only conversion action (Personal or Team ≤5 free); the product is the lead capture (no email list exists at launch, per `docs/legacy/launch/launch-plan.md`).
 2. **De-risk** — the buyer's two anxieties are "is this monitoring?" and "can I trust the numbers?"; `/security` and the attribution-honesty story answer them before the objection is voiced.
 3. **Educate** — the scoring model is the product's credibility; marketing explains *why* (value), `/docs` explains *how* (methodology) — a deliberate split.
 4. **Capture search intent** — high-intent queries ("cursor usage analytics", "AI adoption dashboard", "copilot analytics alternative") via programmatic connector pages and, later, comparison pages.
@@ -165,7 +165,7 @@ Semantic landmarks (`header/nav/main/footer`, one `h1`/page, ordered headings �
 
 - **Events** (extend `LaunchEventName`): `marketing_page_view` (dim = page slug — one name, low AE-index cardinality) and optional `cta_click` (dim = CTA id: `hero_primary`, `pricing_team`, `personal_share`). `landing_view` keeps its name when `/` cuts over to the beacon; the bot-semantics change (beacon counts JS-executing humans, not crawler HTML fetches) is a deliberate, dated, documented cut-over in `launch-events.ts` — an improvement in fidelity, a break in series comparability.
 - **Funnel:** landing/marketing view → sign-up → connect → first score (TTFI) → share card → Team upgrade. View events in Analytics Engine; everything from sign-up onward already comes from DB rows via `src/lib/launch-funnel.ts` + `npm run launch:metrics` (untouched).
-- **CTA strategy:** one action everywhere (free signup), "How scoring works" as secondary; UTM/`?ref=` capture per `docs/launch/launch-plan.md`.
+- **CTA strategy:** one action everywhere (free signup), "How scoring works" as secondary; UTM/`?ref=` capture per `docs/legacy/launch/launch-plan.md`.
 - **Lead capture:** the product is the capture — no email forms in v1.
 - **Success metrics:** marketing-page → sign-in click-through, activation rate and TTFI <10 min, share-card rate, Personal→Team conversion.
 

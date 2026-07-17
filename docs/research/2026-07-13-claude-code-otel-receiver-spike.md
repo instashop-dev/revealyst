@@ -1,7 +1,11 @@
 # Claude Code OTel Receiver — De-risking Spike (W5-B)
 
 **Date:** 2026-07-13 · **Author:** W5-B (AI-assisted single-ownership spike) ·
-**Status:** Research → go/no-go decision for **W6-D** (Execution Plan V4 §3 W6-D;
+**Status:** ~~Research → go/no-go decision~~ **Decided GO and implemented** — the OTLP
+receiver + measured tier shipped as W7 P8 (mig 0034,
+[ADR 0039](../decisions/0039-otel-measured-tier.md)), decoded against the real captured
+fixtures in `fixtures/otel/`. Kept as the point-in-time spike record. Original scope:
+go/no-go for **W6-D** (Execution Plan V4 §3 W6-D;
 AI Intelligence Plan §6 F3.1). Docs + fixtures only — no app source, tables,
 migrations, or contracts changed. Supersedes the OTel notes in
 `docs/connector-facts.md` §5 "OTel export" and

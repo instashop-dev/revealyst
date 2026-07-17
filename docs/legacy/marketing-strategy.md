@@ -33,7 +33,7 @@ APIs of the AI tools a company already pays for and turns them into three scores
 **Adoption** ("who's using AI"), **Fluency** ("how well" — the flagship), and
 **Efficiency** ("are we getting our money's worth") — plus benchmarks, segments
 (Skeptic / Casual / Power User / AI Native), and shared-account detection
-(`docs/Revealyst_Product_Spec_V2.md`, `docs/score-definitions.md`).
+(`docs/legacy/Revealyst_Product_Spec_V2.md`, `docs/score-definitions.md`).
 
 - **Shipped connectors** (`src/connectors/index.ts`): Anthropic Console, OpenAI,
   Cursor, plus the **Claude Code local agent** (`packages/revealyst-agent`, a CLI
@@ -45,7 +45,7 @@ APIs of the AI tools a company already pays for and turns them into three scores
 
 ### 1.2 Target audience
 
-Two personas, one funnel (`docs/Revealyst_Product_Spec_V2.md` §3, §6a):
+Two personas, one funnel (`docs/legacy/Revealyst_Product_Spec_V2.md` §3, §6a):
 
 1. **Buyer — CTO / VP Eng / technical founder** at engineering-led companies,
    **25–200 employees**. Self-serves tooling analytics; will not take a sales call
@@ -54,7 +54,7 @@ Two personas, one funnel (`docs/Revealyst_Product_Spec_V2.md` §3, §6a):
    own Fluency score and brings Revealyst to their CTO (the "Grammarly/RescueTime
    motion"). Personal mode is free forever by design.
 
-### 1.3 Customer pain points (from `docs/Revealyst_Feasibility_Study.md` §2.2)
+### 1.3 Customer pain points (from `docs/legacy/Revealyst_Feasibility_Study.md` §2.2)
 
 - **The ROI void:** MIT's "GenAI Divide" — 95% of enterprise GenAI pilots show no
   measurable ROI; boards are asking "are we getting our money's worth" and CTOs
@@ -95,7 +95,7 @@ Ranked by fit with a solo founder (details in later sections):
    evergreen benchmark reports (the Worklytics playbook; Spec calls it "the
    content moat" and the solo-founder-compatible channel).
 4. **Directories** — one-time submissions with permanent backlinks
-   (`docs/launch/directories.md` already enumerates them).
+   (`docs/legacy/launch/directories.md` already enumerates them).
 5. **The open-source-adjacent CLI** — `revealyst-agent` on npm is a discoverable
    artifact in the `ccusage` tradition.
 
@@ -144,7 +144,7 @@ input, so the portfolio must be **high-leverage assets, not high-volume activity
 | Community moderation (own Discord/Slack) | Permanent daily obligation | Participate opportunistically in existing communities during launch window only |
 | Continuous manual content writing | The treadmill this strategy exists to avoid | AI-drafted, founder-approved; sources derived from repo/data (see §5, §8) |
 
-The **one sanctioned manual push** is launch week itself: `docs/launch/launch-plan.md`
+The **one sanctioned manual push** is launch week itself: `docs/legacy/launch/launch-plan.md`
 is already written, copy is pre-drafted in `announcements.md`, and the whole
 sequence is bounded (T-7 → T+7). Its purpose is to seed the automated loops
 (share cards in the wild, backlinks, first consented benchmark data) — a one-time
@@ -268,7 +268,7 @@ manual HN/newsletter touch), but the page itself stays current automatically.
 
 ### System F — Directory & listing layer (one-time, permanent)
 
-Execute `docs/launch/directories.md` exactly as written at T+7: Product Hunt
+Execute `docs/legacy/launch/directories.md` exactly as written at T+7: Product Hunt
 listing claim, AlternativeTo (as alternative to Worklytics/Jellyfish/WakaTime),
 G2, Capterra/GetApp, SaaSHub, Indie Hackers, Uneed/Peerlist; tier-2
 opportunistically; skip paid slots and anything bossware-adjacent. Each with
@@ -357,7 +357,7 @@ Channels evaluated for fit; only recommended ones listed with a verdict.
 | **GEO / AI-search** | **Do** | System G. First-mover citation opportunity in an unnamed category. |
 | **Documentation** | **Do — core** | §7 below. |
 | **Product-led growth** | **Do — core** | Free Personal mode + free ≤5 Team band + share card + invite flow are all shipped. Marketing's job is only to feed the top of this funnel. |
-| **Directories** | **Do** | System F; list exists in `docs/launch/directories.md`. |
+| **Directories** | **Do** | System F; list exists in `docs/legacy/launch/directories.md`. |
 | **Open source / npm** | **Do — light** | Publish `packages/revealyst-agent` on npm with a real README ("privacy-first Claude Code usage sync — summaries only, never prompt content"). It's discoverable where `ccusage` users already look, and the README is a permanent acquisition page on npmjs.com. Optionally public-source the agent repo for trust (it runs on user machines; inspectability is a selling point). Not a full OSS program — no roadmap/community obligations. |
 | **Templates / resource pages** | **Do — already have them** | The DPIA template, works-council notification, and AI Act checklist (`docs/compliance/`) are genuinely rare, search-worthy artifacts ("AI tool DPIA template", "works council AI monitoring notification"). Publish them as public docs pages (gated nothing) — trust + SEO + the exact objection-handling content the EU buyer needs. |
 | **Referral mechanism** | **Share card is the referral program** | No paid referral program: at $2/user the economics don't support one, and it's machinery to maintain. The share card + free band already reward sharing intrinsically. |
@@ -381,7 +381,7 @@ adversarial fact-check treatment before merge.
 | Merged PRs / git history | Changelog entries + RSS | System D: scheduled Action drafts, founder merges. |
 | Consented aggregates (`benchmark_consent`, score results) | Living benchmark report + per-score benchmark stats on docs pages | System E: cron recompute → regenerate page. Honesty rules enforced in the generator (withhold under min-N, label draft vs verified). |
 | `docs/compliance/*` | Public compliance resource pages + FAQ | One-time conversion to MDX; updated only when the source docs change (CI can diff-detect and flag). |
-| `docs/launch/announcements.md` patterns + changelog entries | Drafted social snippets (X/LinkedIn) batched monthly for optional founder approval | AI agent drafts into a file/issue; founder posts in one 10-minute batch or skips entirely — posting is optional, never load-bearing. |
+| `docs/legacy/launch/announcements.md` patterns + changelog entries | Drafted social snippets (X/LinkedIn) batched monthly for optional founder approval | AI agent drafts into a file/issue; founder posts in one 10-minute batch or skips entirely — posting is optional, never load-bearing. |
 | Support questions the founder answers | FAQ page accretion | When a question is answered twice, an agent turns the answer into an FAQ entry PR. Converts support time into permanent content. |
 
 **Human involvement across all of the above:** review/merge PRs (~15–30 min/week

@@ -4,7 +4,7 @@
 > capability/mastery state, recommendation ranker, personal coaching, missions, and
 > privacy-safe team rollups. Extends [V4 Execution Plan](Revealyst_Execution_Plan_V4.md)
 > (at W6) as **Wave 7** (non-gated) + **Wave 8** (gated tail). Grounded in
-> [AI Capability Gap Analysis](ai-capability-implementation-gap-analysis.md) and the
+> [AI Capability Gap Analysis](legacy/ai-capability-implementation-gap-analysis.md) and the
 > [AI-capability deep-research report]. Every workstream follows the operating rules in
 > [CLAUDE.md](../CLAUDE.md) (rules 1–7, three-registration law, honesty invariants a–d).
 >

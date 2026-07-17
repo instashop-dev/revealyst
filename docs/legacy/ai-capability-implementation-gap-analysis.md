@@ -3,8 +3,8 @@
 > **Superseded.** This is a point-in-time audit at `main` = `e7be5b0` (2026-07-14). Its
 > P0–P8 build path has since shipped across V4 Wave 7 (P0–P8), Wave 8, and Wave 9 closure;
 > the deliberately gated items it lists (Outcomes/feedback entity, non-engineering role
-> expansion) remain gated by design — see the wave banners in [CLAUDE.md](../CLAUDE.md) and
-> [Revealyst_Closure_Execution_Plan.md](Revealyst_Closure_Execution_Plan.md) for current,
+> expansion) remain gated by design — see the wave banners in [CLAUDE.md](../../CLAUDE.md) and
+> [Revealyst_Closure_Execution_Plan.md](../Revealyst_Closure_Execution_Plan.md) for current,
 > code-verified status. Kept for historical record only; do not treat any "gap" or
 > "missing" finding below as current without checking those sources first.
 

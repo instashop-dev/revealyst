@@ -217,7 +217,7 @@ it is the interface between agents.
 > toggle to Settings→Privacy); D-U4 (mobile bottom nav) and D-U6 (persistent Help entry) **not
 > adopted**; D-U7 (Playbooks direction) sits on the Future ledger.
 
-> **Desktop Agent — planning phase merged, build NOT started — 2026-07-16**
+> **Desktop Agent — build in progress, M0–M6 shipped — 2026-07-17**
 > (`docs/Revealyst_Desktop_Agent_Execution_Plan.md`, phases M0–M7; spec transcript
 > `docs/product/desktop-agent-spec.md`; gap analysis + registry
 > `docs/product/desktop-agent-{gap-analysis.md,requirements.csv}`). The agent is the
@@ -225,16 +225,15 @@ it is the interface between agents.
 > macOS 13+/Win 10 22H2+, **Analytics Only default, never raw prompt/response upload**;
 > reuses the `rva1.` device-token scheme, `AgentIngestRequest` day-aggregates, and the
 > `AGENT_COLLECTION_FIELDS` allowlist (bridged to Rust via generated JSON). Desktop code
-> will live in top-level `desktop-agent/` (excluded from root tsconfig — the only root
-> build-config change, plus a `.gitignore` addition for Rust artifacts), with its own
-> path-filtered `desktop-ci.yml` and a
-> `release-desktop.yml` under a protected GitHub Environment (signing secrets NEVER in
-> PR workflows). **Gates (do not force): D-DA-1** (resident-collector go/no-go —
-> SYNC-007/TEL-017 demotion must be founder-cleared before any product-behavior PR) and
-> **D-DA-2** (Spec V4 §9.4 sub-case-C ADR before any Team-org enrollment; Personal orgs
-> first). Prompt-feature extraction ships shape+counts only until **D-DA-5**. Ledger rows
-> D-DA-1…7 pending in `docs/product-signoffs.md`. Next ADR 0044 / migration 0036 (verify
-> both at PR time).
+> lives in top-level `desktop-agent/` (excluded from root tsconfig) with its own
+> path-filtered `desktop-ci.yml`. Shipped through PR #284: PKCE pairing (ADR 0047, mig
+> 0037), device management (ADR 0048), signed remote config (ADR 0049), Claude Code
+> connector, hardened export importer, coverage UI, diagnostics bundle, signed Tauri
+> updater. **M7 remains** (incl. token-rotation hardening T7.2 per D-DA-4). Gates:
+> **D-DA-1 signed 2026-07-16** (resident-collector go); **D-DA-2** (Spec V4 §9.4
+> sub-case-C ADR before any Team-org enrollment; Personal orgs first) still pending —
+> do not force. Prompt-feature extraction ships shape+counts only until **D-DA-5**.
+> Ledger rows D-DA-2…7 pending in `docs/product-signoffs.md`.
 
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and

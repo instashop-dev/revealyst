@@ -8,11 +8,14 @@
 > [gap analysis](product/desktop-agent-gap-analysis.md) before starting any
 > task — the spec's §29 hard rules are non-negotiable.
 >
-> Status: **plan approved for docs; build NOT started.** M0–M1 (repo
-> enablement + non-collecting app shell) may proceed at any time; M2+ needs
-> D-DA-1. The first shipped binary is gated on **D-DA-1**
-> (resident-collector go/no-go) and any Team-org enrollment on **D-DA-2**
-> (the Spec V4 §9.4 sub-case-C ADR). See §6.
+> Status: **build in progress — M0–M6 shipped** (through PR #284, 2026-07-17:
+> PKCE pairing [ADR 0047](decisions/0047-desktop-pkce-pairing.md) + mig 0037,
+> device management [ADR 0048](decisions/0048-desktop-device-management.md),
+> signed remote config [ADR 0049](decisions/0049-desktop-signed-remote-config.md),
+> Claude Code connector, hardened export importer, coverage UI, diagnostics
+> bundle, and the signed Tauri updater). **M7 remains.** Any Team-org
+> enrollment stays gated on **D-DA-2** (the Spec V4 §9.4 sub-case-C ADR).
+> See §6.
 
 ## 0. Plan-on-a-page
 

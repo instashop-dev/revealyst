@@ -23,6 +23,12 @@ never *what it is today*. Git history is preserved (every file was moved with `g
 | [launch/announcements.md](launch/announcements.md) | Adoption-dashboard channel copy retired by V4. | Structure retained; copy needs re-cutting. |
 | [launch/directories.md](launch/directories.md) | Standard product description predates the V4 pivot. | The directory list/process is still a valid reference for a not-yet-executed task. |
 | [evidence/w1-g-preview-verification.md](evidence/w1-g-preview-verification.md) | One-off W1-G (PR #36→#46) manual preview-verification log from 2026-07-06; orphaned. | Purely historical. |
+| [admin-section-plan.md](admin-section-plan.md) | Platform-admin design plan; shipped via PRs #119–#123 and recorded in [ADR 0016](../decisions/0016-platform-admin.md). | The historical design record; `remove-user` stays deliberately blocked. |
+| [ai-capability-implementation-gap-analysis.md](ai-capability-implementation-gap-analysis.md) | Point-in-time audit (2026-07-14); its P0–P8 path shipped across Waves 7–9. | Deliberately gated items it lists remain gated by design (see CLAUDE.md wave banners). |
+| [Revealyst_W7_Implementation_Report.md](Revealyst_W7_Implementation_Report.md) | Wave 7–8 build report; everything it describes is on `main` and summarized in CLAUDE.md. | Purely historical. |
+| [product/revealyst-gap-analysis.md](product/revealyst-gap-analysis.md) | Spec V4 gap analysis at `82c2cd1` (2026-07-15); executed by the Wave 9 closure. | The 18-domain audit method + status vocabulary remain the house pattern (reused by the TCI analysis). |
+| [product/traceability.csv](product/traceability.csv) | Per-requirement status matrix pinned to migration 0034 / ADR 0039; statuses no longer current. | Companion evidence to the archived gap analysis. The live registry [product/requirements.csv](../product/requirements.csv) stays in `docs/product/`. |
+| [product/implementation-roadmap.md](product/implementation-roadmap.md) | V4 P0–P5 roadmap; executed by [Revealyst_Closure_Execution_Plan.md](../Revealyst_Closure_Execution_Plan.md). | Only externally gated Wave 10 items remain, tracked in CLAUDE.md + `docs/product-signoffs.md`. |
 
 ## Not archived (kept live in `docs/`, by design)
 

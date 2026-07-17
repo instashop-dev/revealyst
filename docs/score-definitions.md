@@ -162,7 +162,7 @@ ratio) — treat cross-tool comparisons as directional, not exact.
 Score definitions are seeded with reasonable-looking ranges, but the true
 test is whether they track real usage sensibly. Calibration compares
 computed scores against the founder's own real Anthropic + Claude Code data
-(available since Wave 1) using `scripts/calibrate-scores.mjs` — a manually
+(available since Wave 1) using `scripts/calibrate-scores.ts` — a manually
 run operator tool, not a merge gate. If calibration surfaces a genuine
 miscalibration (a normalization range that's clearly off, thresholds that
 misclassify an obviously heavy user), that becomes a new versioned

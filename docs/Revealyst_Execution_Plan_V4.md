@@ -704,7 +704,7 @@ Shipped **with this plan's PR** (wave-start, not wave-end):
 | `CLAUDE.md` | Ground-truth block links this plan |
 | `docs/legacy/marketing-strategy.md`, `docs/legacy/marketing-website-plan.md` | Supersession banners (pre-pivot positioning: CTO-first, "Fluency (flagship)"); broken `documenation-plan.md` link fixed |
 | `docs/legacy/Revealyst_Feasibility_Study.md` | Supersession banner (business math stands; positioning superseded by V4 §1–§2) |
-| `docs/Architecture-brief.md` | Basis line → Spec V4; production hosts corrected to the custom-domain split |
+| `docs/architecture-brief.md` | Basis line → Spec V4; production hosts corrected to the custom-domain split |
 | `docs/legacy/launch/launch-plan.md`, `announcements.md`, `directories.md` | Positioning banners: copy predates the pivot — re-cut against V4 §1–§2 before any launch execution (the share-card "My AI Fluency: 78" headline is exactly what V4 kills) |
 | `docs/decisions/0014-*.md` (both) | Collision disambiguation note each; cite by slug; next free number 0027 |
 | Everything else (compliance, legal, gates, research, ops-runbooks, scoring docs, connector-facts) | Verified current/reference — untouched; `ops-runbooks.md` is code-referenced (`scripts/rotate-kek.ts:4`) and must never move |

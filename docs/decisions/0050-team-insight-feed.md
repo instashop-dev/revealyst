@@ -1,4 +1,4 @@
-# 0048 — Aggregate manager insight feed (`team_insights`)
+# 0050 — Aggregate manager insight feed (`team_insights`)
 
 - **Status:** Accepted
 - **Date:** 2026-07-17
