@@ -334,7 +334,10 @@ mod tests {
     fn sync_now_message_never_fakes_success() {
         // Only a genuine Healthy sync says "finished"; every other outcome is
         // honest about what happened (invariant b).
-        assert_eq!(sync_now_message(Some(SyncOutcome::Healthy)), "Sync finished.");
+        assert_eq!(
+            sync_now_message(Some(SyncOutcome::Healthy)),
+            "Sync finished."
+        );
         assert_eq!(
             sync_now_message(Some(SyncOutcome::Idle)),
             "Nothing new to send."
