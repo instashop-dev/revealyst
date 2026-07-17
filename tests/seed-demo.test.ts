@@ -12,10 +12,26 @@ import { shareLinksForOrg } from "../src/db/share-links";
 import { invitesForOrg } from "../src/db/invites";
 import {
   ACME_CONNECTIONS,
+  OTEL_MARKER_PERSONAS,
+  OTEL_MARKER_SOURCE_CONNECTOR,
   PERSON_PRESET_CLONES,
   SOURCE_CONNECTOR,
   buildDemoSeedPlan,
 } from "../scripts/seed/activity";
+import {
+  ACME_EMAIL_DOMAIN,
+  ACME_PEOPLE,
+  JORDAN_EMAIL,
+} from "../scripts/seed/personas";
+import { membershipsForUser } from "../src/db/org-context";
+import { OTEL_MARKER_METRIC_KEYS } from "../src/contracts/metrics";
+import { OTEL_SOURCE } from "../src/lib/otel-receiver";
+import { overallCapabilityBand } from "../src/lib/capability-glossary";
+import { recentlyShownRecIds } from "../src/lib/recommendation-catalog";
+import { SEGMENT_MIN_PEOPLE_TO_NAME } from "../src/lib/segments";
+import { CAPABILITY_STATE_CONSTANTS } from "../src/scoring/capability-state";
+import { recomputeTeamInsights } from "../src/scoring/recompute-team-insights";
+import { readMaturityView } from "../src/lib/maturity";
 import { loadSeedPlan } from "../scripts/seed/load";
 import type { LoadSeedPlanResult } from "../scripts/seed/plan";
 import { readDashboardView, type DashboardView } from "../src/lib/dashboard-view";
@@ -768,5 +784,432 @@ describe("drift tripwires (generator vs. sources of truth)", () => {
     // have been checked — guards against the skip branch above silently
     // swallowing every entry.
     expect(checked).toBe(4);
+  });
+
+  it("OTel marker source tag equals the real receiver's OTEL_SOURCE", () => {
+    expect(OTEL_MARKER_SOURCE_CONNECTOR).toBe(OTEL_SOURCE);
+  });
+
+  it("the generator is deterministic: same anchor → deep-equal plan", () => {
+    expect(buildDemoSeedPlan(ANCHOR_DAY)).toEqual(buildDemoSeedPlan(ANCHOR_DAY));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 19. Roles & team governance (migs 0026/0036/0039) — the Settings roster,
+// manager grants, and the D-TCI-2 per-team spend toggle.
+// ─────────────────────────────────────────────────────────────────────────
+
+async function userIdByEmail(email: string): Promise<string> {
+  const [row] = await db
+    .select({ id: schema.user.id })
+    .from(schema.user)
+    .where(eq(schema.user.email, email))
+    .limit(1);
+  if (!row) throw new Error(`no seeded auth user for ${email}`);
+  return row.id;
+}
+
+// One shared scope per org (also what makes the person-lookup memo below
+// effective — a fresh forOrg() per test would defeat the per-scope cache).
+const scopeByOrgName = new Map<string, OrgScopedDb>();
+function scopeFor(name: string): OrgScopedDb {
+  let scope = scopeByOrgName.get(name);
+  if (!scope) {
+    scope = forOrg(db, orgId(name));
+    scopeByOrgName.set(name, scope);
+  }
+  return scope;
+}
+
+// Memoized per scope: several tests below resolve a dozen pseudonyms each,
+// and re-running people.list() per lookup would serialize dozens of
+// identical queries through PGlite's single session.
+const peopleByScope = new Map<OrgScopedDb, Map<string, string>>();
+
+async function personIdByPseudonym(
+  scope: OrgScopedDb,
+  pseudonym: string,
+): Promise<string> {
+  let byPseudonym = peopleByScope.get(scope);
+  if (!byPseudonym) {
+    const people = await scope.people.list();
+    byPseudonym = new Map(people.map((p) => [p.pseudonym, p.id]));
+    peopleByScope.set(scope, byPseudonym);
+  }
+  const personId = byPseudonym.get(pseudonym);
+  if (!personId) throw new Error(`person '${pseudonym}' not found`);
+  return personId;
+}
+
+describe("roles & team governance (Acme)", () => {
+  it("every persona has a role assignment whose slug exists in the global roles table", async () => {
+    const [assignments, roleRows, people] = await Promise.all([
+      acmeScope.roles.assignments(),
+      acmeScope.roles.list(),
+      acmeScope.people.list(),
+    ]);
+    expect(assignments.length).toBe(ACME_PEOPLE.length);
+
+    // Drift tripwire vs mig 0026: a persona role slug absent from the seeded
+    // reference table means personas.ts drifted (or a role was retired).
+    const validSlugs = new Set(roleRows.map((r) => r.slug));
+    const idByPseudonym = new Map(people.map((p) => [p.pseudonym, p.id]));
+    const assignedByPersonId = new Map(assignments.map((a) => [a.personId, a.roleSlug]));
+    for (const persona of ACME_PEOPLE) {
+      expect(validSlugs.has(persona.role), `role '${persona.role}'`).toBe(true);
+      expect(
+        assignedByPersonId.get(idByPseudonym.get(persona.pseudonym)!),
+        persona.pseudonym,
+      ).toBe(persona.role);
+    }
+  });
+
+  it("the manager user manages Product Eng, and only Product Eng shows individual cost", async () => {
+    const productEngId = await teamIdByName(acmeScope, "Product Eng");
+    const platformId = await teamIdByName(acmeScope, "Platform");
+
+    const managers = await acmeScope.teamManagers.list();
+    expect(managers).toHaveLength(1);
+    expect(managers[0].teamId).toBe(productEngId);
+    expect(managers[0].userId).toBe(
+      await userIdByEmail(`amber-lynx@${ACME_EMAIL_DOMAIN}`),
+    );
+
+    // Product Eng flipped the D-TCI-2 toggle; Platform has NO row and reads
+    // the absent-row default — the settings contrast the demo needs.
+    expect((await acmeScope.teamSettings.get(productEngId)).managersSeeIndividualCost).toBe(true);
+    expect((await acmeScope.teamSettings.get(platformId)).managersSeeIndividualCost).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 20. Email-lane send state — exec report, renewal reminders, budget
+// alerts, digest preferences. The seed pre-claims everything its data has
+// already "sent", so a live cron against a seeded DB never emails fixture
+// addresses; each claim's CAS must therefore LOSE on replay.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("email-lane send state", () => {
+  it("exec report: opted in, anchor month claimed, cron replay loses", async () => {
+    const state = await acmeScope.execReportState.get();
+    expect(state?.execReportEnabled).toBe(true);
+    expect(state?.lastSentMonth).toBe("2026-07");
+    expect(await acmeScope.execReportState.claimMonth("2026-07")).toBe(false);
+  });
+
+  it("renewals: dates stored on the connections, both thresholds pre-claimed", async () => {
+    const connections = await acmeScope.connections.list();
+    const cursor = connections.find((c) => c.displayName === "Cursor");
+    const legacy = connections.find((c) => c.displayName === "OpenAI (legacy key)");
+    expect(cursor?.renewalDate).toBe("2026-07-31"); // anchor + 21
+    expect(legacy?.renewalDate).toBe("2026-07-15"); // anchor + 5 (urgent)
+
+    const claims = await acmeScope.renewalReminderState.list();
+    expect(claims).toHaveLength(4); // 2 connections × [30, 7]
+    // A daily-cron replay of an already-claimed threshold must lose (CAS).
+    expect(
+      await acmeScope.renewalReminderState.claim(cursor!.id, "2026-07-31", 7),
+    ).toBe(false);
+  });
+
+  it("budget alerts: Acme claimed through 80 (≈85% MTD), Globex through 100 (over budget)", async () => {
+    expect(
+      (await acmeScope.budgetAlertState.get("2026-07"))?.highestAlertedThreshold,
+    ).toBe(80);
+    const globexScope = scopeFor("Globex Pilot");
+    expect(
+      (await globexScope.budgetAlertState.get("2026-07"))?.highestAlertedThreshold,
+    ).toBe(100);
+    // Replaying an already-claimed crossing loses; the NEXT threshold wins.
+    expect(await acmeScope.budgetAlertState.claimThreshold("2026-07", 80)).toBe(false);
+  });
+
+  it("digest preferences: an explicit opt-out and an explicit opt-in", async () => {
+    const taraId = await userIdByEmail(`tara.cto@${ACME_EMAIL_DOMAIN}`);
+    const deviId = await userIdByEmail(`sable-wren@${ACME_EMAIL_DOMAIN}`);
+    expect((await acmeScope.digestPreferences.getForUser(taraId))?.digestEnabled).toBe(false);
+    expect((await acmeScope.digestPreferences.getForUser(deviId))?.digestEnabled).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 21. Capability mastery & the OTel measured tier (migs 0030/0031/0034) —
+// derived by the REAL reducer from the seeded evidence, never written by
+// the loader.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("capability mastery & the OTel measured tier", () => {
+  it("brisk-falcon is measured ONLY where ≥2 bound markers carry evidence", async () => {
+    const rows = await acmeScope.mastery.forPerson(
+      await personIdByPseudonym(acmeScope, "brisk-falcon"),
+    );
+    const tierBySlug = new Map(rows.map((r) => [r.capabilitySlug, r.confidenceTier]));
+    // effective-prompting (3 bound markers) + ship-with-ai (2) upgrade;
+    // agentic-delivery binds only otel_active_time — 1 < MEASURED_MARKER_MIN,
+    // so it stays directional even though the person ships markers.
+    expect(tierBySlug.get("effective-prompting")).toBe("measured");
+    expect(tierBySlug.get("ship-with-ai")).toBe("measured");
+    expect(tierBySlug.get("agentic-delivery")).toBe("directional");
+    // Everyone else in the org is directional-only (no OTel channel).
+    const allRows = await Promise.all(
+      ACME_PEOPLE.filter(
+        (p) => !OTEL_MARKER_PERSONAS.has(p.key) && p.vendors.length > 0,
+      ).map(async (p) =>
+        acmeScope.mastery.forPerson(await personIdByPseudonym(acmeScope, p.pseudonym)),
+      ),
+    );
+    for (const row of allRows.flat()) {
+      expect(row.confidenceTier, row.capabilitySlug).toBe("directional");
+    }
+  });
+
+  it("honesty: the no-signal and churned personas have NO capability rows", async () => {
+    // idle-newt has no subjects at all; wistful-stoat's evidence is >42 days
+    // stale (grace 14 + decay span 28) — both must be withheld, never a 0.
+    for (const pseudonym of ["idle-newt", "wistful-stoat"]) {
+      const rows = await acmeScope.mastery.forPerson(
+        await personIdByPseudonym(acmeScope, pseudonym),
+      );
+      expect(rows, pseudonym).toHaveLength(0);
+    }
+  });
+
+  it("marker records: canonical keys, the real receiver's source tag, only on OTel personas' subjects", async () => {
+    const [subjects, identities] = await Promise.all([
+      acmeScope.subjects.list(),
+      acmeScope.identities.all(),
+    ]);
+    const falconId = await personIdByPseudonym(acmeScope, "brisk-falcon");
+    const falconSubjects = new Set(
+      identities.filter((i) => i.personId === falconId).map((i) => i.subjectId),
+    );
+    expect(subjects.length).toBeGreaterThan(0);
+
+    let markerRows = 0;
+    for (const metricKey of OTEL_MARKER_METRIC_KEYS) {
+      const rows = await acmeScope.metrics.records({
+        metricKey,
+        from: "2026-01-01",
+        to: ANCHOR_DAY,
+      });
+      for (const row of rows) {
+        markerRows++;
+        expect(row.sourceConnector).toBe(OTEL_SOURCE);
+        expect(row.attribution).toBe("person");
+        expect(falconSubjects.has(row.subjectId), "marker on a non-OTel subject").toBe(true);
+      }
+    }
+    expect(markerRows).toBeGreaterThan(0); // anti-vacuity
+  });
+
+  it("Jordan's measured rows activate the Growth-Journey capability band", async () => {
+    const jordanScope2 = scopeFor("Jordan Lee");
+    const rows = await jordanScope2.mastery.forPerson(
+      await personIdByPseudonym(jordanScope2, "solo-fox"),
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.some((r) => r.confidenceTier === "measured")).toBe(true);
+    // The W7-4 headline gate: null until ≥1 measured row exists.
+    expect(overallCapabilityBand(rows)).not.toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 22. Missions (mig 0032) — opt-in starts seeded, completion stamped ONLY
+// by the reducer's measured crossing.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("missions", () => {
+  it("every seeded mission slug exists in the global catalog (drift tripwire vs mig 0032)", async () => {
+    const catalog = await acmeScope.missions.catalog();
+    const validSlugs = new Set(catalog.missions.map((m) => m.slug));
+    const plan = buildDemoSeedPlan(ANCHOR_DAY);
+    const starts = plan.orgs.flatMap((o) => o.missionStarts ?? []);
+    expect(starts.length).toBeGreaterThan(0); // anti-vacuity
+    for (const start of starts) {
+      expect(validSlugs.has(start.missionSlug), start.missionSlug).toBe(true);
+    }
+  });
+
+  it("tri-state: reducer-completed, honestly stuck in-progress, and not-started", async () => {
+    const progress = await acmeScope.missions.progressForOrg();
+    const falconId = await personIdByPseudonym(acmeScope, "brisk-falcon");
+    const wrenId = await personIdByPseudonym(acmeScope, "sable-wren");
+    const otterId = await personIdByPseudonym(acmeScope, "quiet-otter");
+
+    // brisk-falcon: both starts completed by the derived pass, and the
+    // measured-crossing stamp postdates the backdated opt-in.
+    const falcon = progress.filter((r) => r.personId === falconId);
+    expect(falcon).toHaveLength(2);
+    for (const row of falcon) {
+      expect(row.completedAt, row.missionSlug).not.toBeNull();
+      expect(row.completedAt!.getTime()).toBeGreaterThan(row.startedAt.getTime());
+    }
+
+    // sable-wren (OpenAI-only): ship-work-with-ai can never complete —
+    // effective-prompting has NO evidence for her (no suggestions metrics,
+    // no markers), and isMissionComplete fails closed on a missing
+    // capability. get-started-with-ai did complete (real active days).
+    const wren = new Map(
+      progress
+        .filter((r) => r.personId === wrenId)
+        .map((r) => [r.missionSlug, r.completedAt]),
+    );
+    expect(wren.get("ship-work-with-ai")).toBeNull();
+    expect(wren.get("get-started-with-ai")).not.toBeNull();
+
+    // Everyone who never opted in has NO row (opt-in only, never auto).
+    expect(progress.some((r) => r.personId === otterId)).toBe(false);
+  });
+
+  it("Jordan completed both missions through the reducer", async () => {
+    const jordanScope2 = scopeFor("Jordan Lee");
+    const progress = await jordanScope2.missions.progressForOrg();
+    expect(progress).toHaveLength(2);
+    for (const row of progress) {
+      expect(row.completedAt, row.missionSlug).not.toBeNull();
+      expect(row.completedAt!.getTime()).toBeGreaterThan(row.startedAt.getTime());
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 23. Team capability history & insights (migs 0038/0040) + the MIN_PEOPLE
+// coverage floor contrast (Acme clears it, Globex sits under it).
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("team capability history & insights", () => {
+  it("Acme has history rows for both derived periods (prev month + current)", async () => {
+    const rows = await acmeScope.capabilityHistory.list();
+    const periods = new Set(rows.map((r) => `${r.periodStart}..${r.periodEnd}`));
+    expect(periods.has("2026-06-01..2026-06-30")).toBe(true);
+    expect(periods.has("2026-07-01..2026-07-31")).toBe(true);
+  });
+
+  it("Acme has open team insights, and re-running the engine is idempotent", async () => {
+    const before = await acmeScope.teamInsights.listOpen();
+    expect(before.length).toBeGreaterThan(0);
+    await recomputeTeamInsights(db, acmeId, { asOfDay: ANCHOR_DAY });
+    const after = await acmeScope.teamInsights.listOpen();
+    expect(after.map((r) => `${r.category}:${r.subject}`).sort()).toEqual(
+      before.map((r) => `${r.category}:${r.subject}`).sort(),
+    );
+  });
+
+  it("coverage floor: Acme clears MIN_PEOPLE on some capabilities, Globex on none", async () => {
+    const threshold = CAPABILITY_STATE_CONSTANTS.MASTERED_THRESHOLD;
+    const acmeCounts = await acmeScope.mastery.coverageCounts(threshold);
+    expect(
+      [...acmeCounts.values()].some(
+        (c) => c.withState >= SEGMENT_MIN_PEOPLE_TO_NAME,
+      ),
+    ).toBe(true);
+
+    // Globex derived per-person rows too (self-views work), but with 3
+    // people every capability sits under the naming floor — the team card's
+    // honest small-team empty state.
+    const globexScope = scopeFor("Globex Pilot");
+    const globexCounts = await globexScope.mastery.coverageCounts(threshold);
+    expect(globexCounts.size).toBeGreaterThan(0);
+    for (const [slug, c] of globexCounts) {
+      expect(c.withState, slug).toBeLessThan(SEGMENT_MIN_PEOPLE_TO_NAME);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 24. Recommendation lifecycle (migs 0024/0033) — interaction tri-state,
+// exposure log, and the COACH-004 novelty window.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("recommendation lifecycle", () => {
+  it("the coach persona carries all three interaction states, ids from the live catalog", async () => {
+    const deviId = await userIdByEmail(`sable-wren@${ACME_EMAIL_DOMAIN}`);
+    const states = await acmeScope.recInteractions.statesForUser(deviId);
+    expect(new Set(states.map((s) => s.state))).toEqual(
+      new Set(["snoozed", "dismissed", "tried"]),
+    );
+
+    // Drift tripwire vs mig 0029: every seeded recId must be a live catalog
+    // slug, or the interaction/exposure rows point at nothing.
+    const catalog = await acmeScope.catalog.list();
+    const validIds = new Set(catalog.map((c) => c.id));
+    for (const s of states) {
+      expect(validIds.has(s.recId), s.recId).toBe(true);
+    }
+
+    // The snooze is still live at the frozen "now" (expires anchor + 7).
+    const snoozed = states.find((s) => s.state === "snoozed");
+    expect(snoozed?.snoozeUntil!.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("exposures land inside the novelty lookback and rotate those recs", async () => {
+    const deviId = await userIdByEmail(`sable-wren@${ACME_EMAIL_DOMAIN}`);
+    const exposures = await acmeScope.exposures.forUser(deviId);
+    expect(exposures).toHaveLength(2);
+
+    const catalog = await acmeScope.catalog.list();
+    const validIds = new Set(catalog.map((c) => c.id));
+    for (const e of exposures) {
+      expect(validIds.has(e.recId), e.recId).toBe(true);
+    }
+
+    // Both exposure days sit in the previous-1..7-day window (excluding
+    // today), so the shared novelty derivation picks them up — the exact
+    // set the dashboard AND digest would deprioritize.
+    expect(recentlyShownRecIds(exposures, new Date())).toEqual(
+      new Set(["adoption-active-days", "fluency-depth"]),
+    );
+  });
+
+  it("Jordan carries the LIVE lifecycle states (his companion is the only rendered coaching card while team-org companions stay gated)", async () => {
+    const jordanUserId = await userIdByEmail(JORDAN_EMAIL);
+    const jordanScope2 = scopeFor("Jordan Lee");
+    const states = await jordanScope2.recInteractions.statesForUser(jordanUserId);
+    expect(new Set(states.map((s) => s.state))).toEqual(
+      new Set(["tried", "dismissed"]),
+    );
+    const exposures = await jordanScope2.exposures.forUser(jordanUserId);
+    expect(recentlyShownRecIds(exposures, new Date())).toEqual(
+      new Set(["adoption-tool-coverage"]),
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 26. Maturity level placement — the Growth-Journey headline, the AI
+// maturity board, and the exec report all render THE LEVEL only when
+// activation is computable: people must be KNOWN (created_at) as of the
+// window end (knownPeopleAsOf, F3). The fixture loader stamps created_at =
+// seed-run time, which postdates every data window — peopleCreatedOn
+// backdates it, or the level is structurally unplaceable on seeded data.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("maturity level placement", () => {
+  it("Acme and Jordan both place a level (activation computable)", async () => {
+    const acmeView = await readMaturityView(acmeScope, todayUtc());
+    expect(acmeView.axes.activationPct).not.toBeNull();
+    expect(acmeView.axes.activationPct!).toBeGreaterThan(50);
+    expect(acmeView.level, "Acme level").not.toBeNull();
+
+    const jordanView = await readMaturityView(scopeFor("Jordan Lee"), todayUtc());
+    expect(jordanView.level, "Jordan level").not.toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// 25. Workspace switcher (mig 0041, ADR 0051) — one user in two orgs with
+// the personal org pinned active via the production switch seam.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("workspace switcher", () => {
+  it("Jordan belongs to both orgs, personal org active-first", async () => {
+    const jordanUserId = await userIdByEmail(JORDAN_EMAIL);
+    const memberships = await membershipsForUser(db, jordanUserId);
+    expect(memberships.map((m) => m.orgName)).toEqual([
+      "Jordan Lee",
+      "Acme Robotics",
+    ]);
   });
 });

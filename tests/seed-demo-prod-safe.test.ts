@@ -69,6 +69,77 @@ describe("applyProdSafety (pure transform, full plan)", () => {
       true,
     );
   });
+
+  it("forces the exec-report opt-in OFF (never a live monthly memo from a demo org)", () => {
+    expect(base.orgs.some((o) => o.execReport?.enabled)).toBe(true);
+    for (const org of safe.orgs) {
+      if (org.execReport) {
+        expect(org.execReport.enabled).toBe(false);
+        expect(org.execReport.claimCurrentMonth).toBeUndefined();
+      }
+    }
+    // Base plan untouched.
+    expect(base.orgs.some((o) => o.execReport?.enabled)).toBe(true);
+  });
+
+  it("forces an explicit digest opt-OUT row for every seeded user (the personal-lane absent-row default is ON)", () => {
+    // The base plan has at least one explicit opt-IN to invert (anti-vacuity)
+    // AND at least one org whose users had NO explicit rows at all — the case
+    // where the sender's personal-owner default would otherwise email a
+    // fixture address weekly.
+    expect(
+      base.orgs.some((o) => o.digestPreferences?.some((p) => p.enabled)),
+    ).toBe(true);
+    expect(
+      base.orgs.some((o) => (o.users?.length ?? 0) > 0 && !o.digestPreferences),
+    ).toBe(true);
+
+    for (const org of safe.orgs) {
+      const userKeys = (org.users ?? []).map((u) => u.key).sort();
+      const prefs = (org.digestPreferences ?? []).sort((a, b) =>
+        a.user.localeCompare(b.user),
+      );
+      expect(prefs.map((p) => p.user)).toEqual(userKeys);
+      for (const p of prefs) expect(p.enabled).toBe(false);
+    }
+  });
+
+  it("re-prefixes the plan-level org references so the switcher demo still resolves", () => {
+    // The base plan carries at least one of each (anti-vacuity).
+    expect(base.crossOrgMemberships?.length).toBeGreaterThan(0);
+    expect(base.activeWorkspaces?.length).toBeGreaterThan(0);
+
+    const safeOrgNames = new Set(safe.orgs.map((o) => o.name));
+    for (const m of safe.crossOrgMemberships ?? []) {
+      expect(m.orgName.startsWith(DEMO_ORG_PREFIX)).toBe(true);
+      expect(safeOrgNames.has(m.orgName), m.orgName).toBe(true);
+    }
+    for (const w of safe.activeWorkspaces ?? []) {
+      expect(w.orgName.startsWith(DEMO_ORG_PREFIX)).toBe(true);
+      expect(safeOrgNames.has(w.orgName), w.orgName).toBe(true);
+    }
+  });
+
+  it("carries the inert demo-state fields through untouched (self-view rows, never a send)", () => {
+    // Interactions/exposures/missions/roles are inert data — the transform
+    // must NOT strip them, or the prod demo loses the surfaces it exists to
+    // show. digestPreferences is deliberately absent here: it IS a send
+    // switch and gets forced off (previous test).
+    const pick = (plan: SeedPlan) =>
+      plan.orgs.map((o) => ({
+        roleAssignments: o.roleAssignments,
+        teamManagers: o.teamManagers,
+        teamSettings: o.teamSettings,
+        renewals: o.renewals,
+        budgetClaimedThresholds: o.budgetClaimedThresholds,
+        peopleCreatedOn: o.peopleCreatedOn,
+        recInteractions: o.recInteractions,
+        recExposures: o.recExposures,
+        missionStarts: o.missionStarts,
+        derivedRecompute: o.derivedRecompute,
+      }));
+    expect(pick(safe)).toEqual(pick(base));
+  });
 });
 
 describe("teardownDemoData (DB round-trip, minimal plan)", () => {
