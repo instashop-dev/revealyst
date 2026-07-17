@@ -10,6 +10,7 @@ import {
 import type { Db } from "../src/db/client";
 import { createFixtureOrg } from "../src/db/fixtures";
 import * as schema from "../src/db/schema";
+import { instrumentPglite, measure } from "./perf/query-counter";
 
 // Platform-admin cross-org data-layer readers (ADR 0016, Features 4/5/7).
 // Seeds two ordinary orgs + one system org (to prove system-org exclusion),
@@ -17,6 +18,7 @@ import * as schema from "../src/db/schema";
 // connections, and audit rows spanning both orgs.
 
 let db: Db;
+let counter: ReturnType<typeof instrumentPglite>;
 
 // Orgs
 let orgTeam: { id: string; name: string };
@@ -35,7 +37,9 @@ let conn2: { id: string }; // orgTeam, error
 let conn3: { id: string }; // orgPersonal, pending
 
 beforeAll(async () => {
-  const pglite = drizzle(new PGlite(), { schema });
+  const raw = new PGlite();
+  counter = instrumentPglite(raw);
+  const pglite = drizzle(raw, { schema });
   await migrate(pglite, { migrationsFolder: "./drizzle" });
   db = pglite as unknown as Db;
 
@@ -469,6 +473,20 @@ describe("listUsersForAdmin", () => {
 describe("userDetailForAdmin", () => {
   it("returns null for an unknown id", async () => {
     expect(await userDetailForAdmin(db, "00000000-0000-0000-0000-000000000000", {})).toBeNull();
+  });
+
+  it("reads in TWO round-trip stages (perf pin — /admin/users/[id] was 4.2s at depth 5)", async () => {
+    // Same discipline as tests/perf/authenticated-page-queries.test.ts: on
+    // Workers→Hyperdrive→Neon every sequential await is a ~500ms network
+    // round trip, so this reader batches (user ∥ memberships ∥ audit) then
+    // (connections ∥ per-org plan/tracked). `multi` belongs to TWO orgs, so
+    // this also pins that the per-org fan-out stays inside stage 2 instead
+    // of adding a stage per membership.
+    const result = await measure(counter, "userDetailForAdmin", async () => {
+      const detail = await userDetailForAdmin(db, multi.id, {});
+      expect(detail?.memberships).toHaveLength(2);
+    });
+    expect(result.sequentialDepth).toBeLessThanOrEqual(2);
   });
 
   it("classifies an ADMIN_USER_IDS bootstrap admin (role NULL) as platformAdmin", async () => {

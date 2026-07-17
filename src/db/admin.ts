@@ -469,60 +469,84 @@ export async function userDetailForAdmin(
   userId: string,
   env: AdminEnv,
 ): Promise<AdminUserDetail | null> {
-  const [row] = await db
-    .select({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      createdAt: user.createdAt,
-      role: user.role,
-      banned: user.banned,
-      banReason: user.banReason,
-      banExpires: user.banExpires,
-    })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
+  // TWO round-trip stages, not five (the /dashboard perf discipline — on
+  // Workers→Hyperdrive→Neon each sequential await is a full ~500ms network
+  // round trip, and this page measured 4.2s when these reads ran one after
+  // another). Stage 1 batches the three reads that depend only on `userId`
+  // (user row, memberships, recent audit); stage 2 batches everything that
+  // needs the resolved org ids (connections + the per-org plan/tracked-user
+  // reads). The unknown-user path fires stage 1's two extra reads before
+  // returning null — read-only waste on a rare 404, cheaper than serializing
+  // every real page load behind the user-row read.
+  const [userRows, memberRows, recentAudit] = await Promise.all([
+    db
+      .select({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        createdAt: user.createdAt,
+        role: user.role,
+        banned: user.banned,
+        banReason: user.banReason,
+        banExpires: user.banExpires,
+      })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1),
+    db
+      .select({
+        orgId: orgs.id,
+        orgName: orgs.name,
+        orgKind: orgs.kind,
+        role: orgMembers.role,
+      })
+      .from(orgMembers)
+      .innerJoin(orgs, eq(orgMembers.orgId, orgs.id))
+      .where(and(eq(orgMembers.userId, userId), ne(orgs.kind, "system")))
+      .orderBy(desc(orgMembers.createdAt)),
+    db
+      .select({
+        id: auditLog.id,
+        action: auditLog.action,
+        createdAt: auditLog.createdAt,
+        orgId: auditLog.orgId,
+        targetKind: auditLog.targetKind,
+        targetId: auditLog.targetId,
+      })
+      .from(auditLog)
+      .where(eq(auditLog.actorUserId, userId))
+      .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
+      .limit(USER_DETAIL_AUDIT_LIMIT),
+  ]);
+  const [row] = userRows;
   if (!row) {
     return null;
   }
 
-  const memberRows = await db
-    .select({
-      orgId: orgs.id,
-      orgName: orgs.name,
-      orgKind: orgs.kind,
-      role: orgMembers.role,
-    })
-    .from(orgMembers)
-    .innerJoin(orgs, eq(orgMembers.orgId, orgs.id))
-    .where(and(eq(orgMembers.userId, userId), ne(orgs.kind, "system")))
-    .orderBy(desc(orgMembers.createdAt));
-
-  const period = trailing30dPeriod();
-  const memberships = await Promise.all(
-    memberRows.map(async (m) => {
-      const [entitlement, trackedUsers] = await Promise.all([
-        subscriptionsForOrg(db, m.orgId).current(),
-        forOrg(db, m.orgId)
-          .billing.trackedUsers(period)
-          .then((r) => r.trackedPersonIds.length),
-      ]);
-      return {
-        orgId: m.orgId,
-        orgName: m.orgName,
-        orgKind: m.orgKind as "personal" | "team",
-        role: m.role as "admin" | "member",
-        plan: entitlement.plan === "team" ? (entitlement.status ?? "team") : "free",
-        trackedUsers,
-      };
-    }),
-  );
-
   const orgIds = memberRows.map((m) => m.orgId);
-  const connectionRows =
+  const period = trailing30dPeriod();
+  const [memberships, connectionRows] = await Promise.all([
+    Promise.all(
+      memberRows.map(async (m) => {
+        const [entitlement, trackedUsers] = await Promise.all([
+          subscriptionsForOrg(db, m.orgId).current(),
+          forOrg(db, m.orgId)
+            .billing.trackedUsers(period)
+            .then((r) => r.trackedPersonIds.length),
+        ]);
+        return {
+          orgId: m.orgId,
+          orgName: m.orgName,
+          orgKind: m.orgKind as "personal" | "team",
+          role: m.role as "admin" | "member",
+          plan:
+            entitlement.plan === "team" ? (entitlement.status ?? "team") : "free",
+          trackedUsers,
+        };
+      }),
+    ),
     orgIds.length > 0
-      ? await db
+      ? db
           .select({
             id: connections.id,
             vendor: connections.vendor,
@@ -533,21 +557,8 @@ export async function userDetailForAdmin(
           })
           .from(connections)
           .where(inArray(connections.orgId, orgIds))
-      : [];
-
-  const recentAudit = await db
-    .select({
-      id: auditLog.id,
-      action: auditLog.action,
-      createdAt: auditLog.createdAt,
-      orgId: auditLog.orgId,
-      targetKind: auditLog.targetKind,
-      targetId: auditLog.targetId,
-    })
-    .from(auditLog)
-    .where(eq(auditLog.actorUserId, userId))
-    .orderBy(desc(auditLog.createdAt), desc(auditLog.id))
-    .limit(USER_DETAIL_AUDIT_LIMIT);
+      : Promise.resolve([] as AdminUserDetail["connections"]),
+  ]);
 
   return {
     id: row.id,
