@@ -16,7 +16,6 @@ import {
 } from "../src/connectors/copilot/github-app";
 import { normalizeCopilot } from "../src/connectors/copilot/normalize";
 import { ENVELOPE_KINDS, type CopilotRaw } from "../src/connectors/copilot/types";
-import { getConnector } from "../src/connectors/registry";
 import type { RawPayloadEnvelope } from "../src/contracts/connector";
 import type { Db } from "../src/db/client";
 import { createFixtureOrg } from "../src/db/fixtures";
@@ -498,10 +497,12 @@ describe("capabilities + registration", () => {
     expect(caps.maxBackfillDays).toBe(365);
   });
 
-  it("src/connectors registers github_copilot", async () => {
-    await import("../src/connectors");
-    expect(getConnector("github_copilot")?.sourceConnector).toBe("github-copilot@1");
-  }, 30000); // cold import of the full connector graph is slow on Windows
+  // ADR 0054: connectors are no longer auto-registered (the registry ships
+  // empty). The module still exists as an inert fixture, so its entry keeps its
+  // canonical sourceConnector stamp — that's what the seed + ingest paths rely on.
+  it("the github_copilot connector entry carries its sourceConnector stamp", () => {
+    expect(copilotEntry.sourceConnector).toBe("github-copilot@1");
+  });
 });
 
 describe("end-to-end org mode (stubbed GitHub App + reports)", () => {

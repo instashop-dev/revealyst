@@ -716,7 +716,7 @@ describe("deriveAttention", () => {
     expect(items[0].body).toContain("GitHub Copilot");
   });
 
-  it("a paused connection renders as an info item, not action, and links to /connections", () => {
+  it("a paused connection renders as an info item, not action, and links to /settings/devices", () => {
     const items = deriveAttention({
       connections: [{ label: "Cursor", status: "paused" }],
       gaps: [],
@@ -725,7 +725,7 @@ describe("deriveAttention", () => {
     });
     expect(items).toHaveLength(1);
     expect(items[0].severity).toBe("info");
-    expect(items[0].href).toBe("/connections");
+    expect(items[0].href).toBe("/settings/devices");
     expect(items[0].body).toMatch(/Syncing is paused for Cursor/);
   });
 
