@@ -12,6 +12,10 @@ const snapshot: AgentSnapshot = {
   platform: "windows",
   autostart: false,
   logDir: "C:\\Users\\me\\AppData\\Local\\com.revealyst.desktop\\logs",
+  signedIn: false,
+  paused: false,
+  lastSyncAt: null,
+  pendingCount: 0,
 };
 
 describe("DiagnosticsScreen", () => {

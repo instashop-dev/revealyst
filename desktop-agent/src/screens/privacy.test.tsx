@@ -70,6 +70,10 @@ const snapshot: AgentSnapshot = {
   platform: "windows",
   autostart: false,
   logDir: "C:\\logs",
+  signedIn: false,
+  paused: false,
+  lastSyncAt: null,
+  pendingCount: 0,
 };
 
 describe("PrivacyScreen", () => {

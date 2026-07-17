@@ -23,15 +23,16 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::connectors::claude_code::ClaudeCodeConnector;
 use crate::connectors::{collect_and_enqueue, ConnectorContext, DEFAULT_POLL_INTERVAL_SECS};
 use crate::privacy::{resolve, PolicyInputs};
+use crate::state::StateInputs;
 use crate::store::queue::now_ms;
 use crate::store::Store;
-use crate::sync::{ReqwestTransport, SyncEngine};
+use crate::sync::{ReqwestTransport, SyncEngine, SyncOutcome};
 
 /// Live-collection control shared between the loop and the command surface.
 /// Phase 1 exposes a pause switch and a mandatory-update block; the loop reads
@@ -65,6 +66,42 @@ impl CollectionControl {
     pub fn set_update_required(&self, update_required: bool) {
         self.update_required
             .store(update_required, Ordering::Release);
+    }
+}
+
+/// The sync-owned condition flags from the most recent sync cycle, shared with
+/// the command surface so the status UI reflects REAL sync outcomes instead of
+/// the hardwired M1 default (`StateInputs::default()` → always `Onboarding`).
+///
+/// Only the sync-derived flags actually set by [`SyncOutcome::apply`] —
+/// `offline`, `degraded` (sticky), and `authentication_required` — are
+/// accumulated here. Enrollment, pause, and mandatory-update are NOT stored
+/// here: they have their own live authorities (the keychain token and
+/// [`CollectionControl`]) and are merged in at snapshot time, so a stale copy
+/// can never contradict them.
+///
+/// This lives in memory: after a restart it starts clean and re-derives on the
+/// first cycle (which runs within seconds of launch). A `degraded` flag that
+/// flagged an already-drained drop is therefore not carried across a restart —
+/// persisting drop history is a separate follow-up.
+#[derive(Debug, Default)]
+pub struct SyncStatus {
+    inputs: Mutex<StateInputs>,
+}
+
+impl SyncStatus {
+    /// Fold the latest sync outcome into the sticky flags (called once per
+    /// cycle by [`run_cycle`]).
+    pub fn record(&self, outcome: SyncOutcome) {
+        let mut guard = self.inputs.lock().expect("sync-status mutex poisoned");
+        outcome.apply(&mut guard);
+    }
+
+    /// A copy of the current sync-derived flags. The caller overwrites
+    /// `enrolled`/`paused`/`update_required` from their live authorities before
+    /// resolving the agent state.
+    pub fn current(&self) -> StateInputs {
+        *self.inputs.lock().expect("sync-status mutex poisoned")
     }
 }
 
@@ -151,14 +188,18 @@ pub fn collection_allowed(control: &CollectionControl) -> bool {
 /// Claude Code source into the queue (crash-safe, privacy-gated) then drains the
 /// queue to the server. Errors are logged with content-free codes, never
 /// propagated to a panic.
+/// Returns the sync outcome so a caller (the "Sync now" command) can report an
+/// honest result. `None` means no sync was attempted (collection not allowed)
+/// or the drain hit a local store error — never conflate either with success.
 pub async fn run_cycle(
     store: &Store,
     engine: &SyncEngine<ReqwestTransport>,
     control: &CollectionControl,
     cfg: &CollectConfig,
-) {
+    status: &SyncStatus,
+) -> Option<SyncOutcome> {
     if !collection_allowed(control) {
-        return;
+        return None;
     }
 
     let ctx = build_context(now_ms(), cfg);
@@ -172,18 +213,41 @@ pub async fn run_cycle(
     }
 
     // Drain the queue. `sync` reads the device token from the keychain and
-    // returns AuthenticationRequired if it has since been revoked.
+    // returns AuthenticationRequired if it has since been revoked. The outcome
+    // is folded into the shared status so the tray/window reflect it (a real
+    // 2xx clears the sticky `degraded`; a failure sets the matching flag).
     match engine.sync(store).await {
-        Ok(outcome) => tracing::info!(
-            component = "runtime",
-            outcome = ?outcome,
-            "sync cycle complete"
-        ),
-        Err(err) => tracing::warn!(
-            component = "runtime",
-            error_code = err.code(),
-            "sync cycle failed"
-        ),
+        Ok(outcome) => {
+            status.record(outcome);
+            tracing::info!(
+                component = "runtime",
+                outcome = ?outcome,
+                "sync cycle complete"
+            );
+            Some(outcome)
+        }
+        Err(err) => {
+            tracing::warn!(
+                component = "runtime",
+                error_code = err.code(),
+                "sync cycle failed"
+            );
+            None
+        }
+    }
+}
+
+/// A short, honest plain-English result for a manual "Sync now" click, from the
+/// cycle's outcome. Never claims success for a `Busy`/`Idle`/failure outcome.
+pub fn sync_now_message(outcome: Option<SyncOutcome>) -> &'static str {
+    match outcome {
+        Some(SyncOutcome::Healthy) => "Sync finished.",
+        Some(SyncOutcome::Idle) => "Nothing new to send.",
+        Some(SyncOutcome::Busy) => "A sync is already running.",
+        Some(SyncOutcome::Offline) => "Can't reach Revealyst right now — will retry.",
+        Some(SyncOutcome::AuthenticationRequired) => "Please sign in again.",
+        Some(SyncOutcome::Degraded) => "Synced, but some items had problems.",
+        None => "Couldn't complete the sync. Please try again.",
     }
 }
 
@@ -191,10 +255,14 @@ pub async fn run_cycle(
 /// a fixed poll interval, single connector, and the three gates enforced every
 /// tick. The manual "Sync now" trigger ([`crate::commands::sync_now`]) shares the
 /// same [`run_cycle`].
-pub fn spawn_loop(store: Arc<Store>, control: Arc<CollectionControl>) {
+pub fn spawn_loop(
+    store: Arc<Store>,
+    control: Arc<CollectionControl>,
+    status: Arc<SyncStatus>,
+    engine: Arc<SyncEngine<ReqwestTransport>>,
+) {
     tauri::async_runtime::spawn(async move {
         let cfg = CollectConfig::from_env();
-        let engine = SyncEngine::new();
         let interval = Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS);
         tracing::info!(
             component = "runtime",
@@ -202,7 +270,11 @@ pub fn spawn_loop(store: Arc<Store>, control: Arc<CollectionControl>) {
             "collection loop started (idle until enrolled)"
         );
         loop {
-            run_cycle(&store, &engine, &control, &cfg).await;
+            // The engine is SHARED with the "Sync now" command so its
+            // single-in-flight guard actually serializes the two paths (a
+            // per-call engine would let a manual sync race the loop and
+            // double-upload the same events).
+            run_cycle(&store, &engine, &control, &cfg, &status).await;
             tokio::time::sleep(interval).await;
         }
     });
@@ -237,6 +309,52 @@ mod tests {
         // point proven is that update_required no longer contributes a block.)
         control.set_update_required(false);
         assert!(!control.is_update_required());
+    }
+
+    #[test]
+    fn sync_status_records_and_clears_sticky_flags() {
+        let status = SyncStatus::default();
+        assert!(!status.current().degraded, "fresh status has no problems");
+
+        // A degraded cycle sets the sticky flag the UI reads.
+        status.record(SyncOutcome::Degraded);
+        assert!(status.current().degraded);
+        assert!(!status.current().offline);
+
+        // An Idle cycle (empty queue) must NOT clear the sticky degraded flag.
+        status.record(SyncOutcome::Idle);
+        assert!(status.current().degraded, "Idle keeps the standing signal");
+
+        // Only a genuine Healthy sync clears it.
+        status.record(SyncOutcome::Healthy);
+        assert!(!status.current().degraded, "a real 2xx clears the signal");
+    }
+
+    #[test]
+    fn sync_now_message_never_fakes_success() {
+        // Only a genuine Healthy sync says "finished"; every other outcome is
+        // honest about what happened (invariant b).
+        assert_eq!(sync_now_message(Some(SyncOutcome::Healthy)), "Sync finished.");
+        assert_eq!(
+            sync_now_message(Some(SyncOutcome::Idle)),
+            "Nothing new to send."
+        );
+        assert_eq!(
+            sync_now_message(Some(SyncOutcome::Busy)),
+            "A sync is already running."
+        );
+        for other in [
+            SyncOutcome::Offline,
+            SyncOutcome::AuthenticationRequired,
+            SyncOutcome::Degraded,
+        ] {
+            assert_ne!(
+                sync_now_message(Some(other)),
+                "Sync finished.",
+                "{other:?} must not claim success"
+            );
+        }
+        assert_ne!(sync_now_message(None), "Sync finished.");
     }
 
     #[test]

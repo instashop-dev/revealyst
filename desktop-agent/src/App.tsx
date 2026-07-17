@@ -2,7 +2,7 @@
 // State arrives via ONE narrow Tauri command (get_agent_snapshot); tray menu
 // items switch screens via the Rust-emitted `navigate` event.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 import { getAgentSnapshot, type AgentSnapshot } from "./lib/agent";
@@ -24,19 +24,25 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("onboarding");
   const [snapshot, setSnapshot] = useState<AgentSnapshot | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    getAgentSnapshot()
-      .then((snap) => {
-        if (!cancelled) setSnapshot(snap);
-      })
+  // One refresh function, reused by the initial load, the background poll, and
+  // the status screen's "Sync now" button — so the UI reflects a completed
+  // sync (last-sync time, pending count, overall status) without a restart.
+  const refreshSnapshot = useCallback(() => {
+    return getAgentSnapshot()
+      .then((snap) => setSnapshot(snap))
       .catch(() => {
         // Outside Tauri (tests, plain browser dev): keep honest placeholders.
       });
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => {
+    refreshSnapshot();
+    // Poll so a background sync cycle (every ~15 min, or a manual Sync now)
+    // shows up while the window is open. Cheap: one in-process command, no
+    // network. Cleared on unmount.
+    const timer = setInterval(refreshSnapshot, 4000);
+    return () => clearInterval(timer);
+  }, [refreshSnapshot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,7 +83,9 @@ export default function App() {
       </nav>
       <main className="content">
         {screen === "onboarding" && <OnboardingScreen />}
-        {screen === "status" && <StatusScreen snapshot={snapshot} />}
+        {screen === "status" && (
+          <StatusScreen snapshot={snapshot} onRefresh={refreshSnapshot} />
+        )}
         {screen === "privacy" && <PrivacyScreen snapshot={snapshot} />}
         {screen === "diagnostics" && <DiagnosticsScreen snapshot={snapshot} />}
       </main>

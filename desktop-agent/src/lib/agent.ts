@@ -14,10 +14,28 @@ export type AgentSnapshot = {
   platform: string;
   autostart: boolean;
   logDir: string;
+  /** Keychain-token presence only — never the token itself. */
+  signedIn: boolean;
+  /** Whether background collection is currently paused. */
+  paused: boolean;
+  /** Unix-ms of the most recent successful upload, or null if never synced. */
+  lastSyncAt: number | null;
+  /** Analytics events still waiting locally to be sent. */
+  pendingCount: number;
 };
 
 export function getAgentSnapshot(): Promise<AgentSnapshot> {
   return invoke<AgentSnapshot>("get_agent_snapshot");
+}
+
+/**
+ * Trigger one collect→sync cycle immediately ("Sync now"). Respects the same
+ * enrollment/pause gates as the periodic loop, so it is a safe no-op when not
+ * signed in or paused. Resolves with a short plain-English result string;
+ * errors arrive as plain-English strings, never a token.
+ */
+export function syncNow(): Promise<string> {
+  return invoke<string>("sync_now");
 }
 
 export function getAutostart(): Promise<boolean> {
