@@ -107,6 +107,43 @@ export const TEAM_COST_VISIBILITY_SETTINGS_COPY = {
   note: "Individual costs are operational context for a manager, never a measure of anyone's skill — and they're only ever shown when your workspace shows real names.",
 } as const;
 
+// D-TCI-7 manager NOTES section copy (ADR 0053). Plain English (CLAUDE.md
+// writing rule); every string is a claim surface (invariant b). Coaching
+// vocabulary only — no comparison, verdict, or scoring language. The note BODY a
+// manager types is USER content and is exempt from the copy sweep; only these
+// fixed strings are swept.
+export const MANAGER_NOTES_COPY = {
+  /** Section heading. */
+  heading: "Your notes",
+  /** What this is — and honestly what it is not. States EXACTLY what is
+   * enforced (W3-N: no universal "never shown to the person" promise — an
+   * unlinked player-manager can't be structurally excluded, ADR 0053). */
+  description:
+    "Private notes to help you support this person. Visible only to managers of this person's teams, and each note shows who wrote it. Notes never change anyone's capability read.",
+  /** Placeholder in the add-note box. */
+  placeholder: "Jot down something to remember for your next chat…",
+  /** Label for the optional follow-up date field. */
+  followUpLabel: "Remind me to follow up on",
+  /** Button that saves a new note. */
+  addAction: "Save note",
+  /** Shown while there are no notes yet (the add box still shows). */
+  empty: "No notes yet. Add one to keep track of your coaching over time.",
+  /** Chip on a note that has a follow-up date. */
+  followUpChip: (date: string) => `Follow up ${date}`,
+  /** Byline under a note: who wrote it and how long ago. */
+  byline: (author: string, when: string) => `${author} · ${when}`,
+  /** Delete affordance (author-only). */
+  deleteAction: "Delete",
+  /** Accessible label for a note's delete button. */
+  deleteLabel: "Delete this note",
+  /** Confirm before deleting (append-only — there is no undo). */
+  deleteConfirm: "Delete this note? You can't undo this.",
+  /** Toast on a failed save. */
+  saveError: "Could not save your note. Please try again.",
+  /** Toast on a failed delete. */
+  deleteError: "Could not delete the note. Please try again.",
+} as const;
+
 export const MANAGER_DRILL_IN_COPY = {
   /** Small lead above the person's name on the drill-in header. */
   eyebrow: "Team member",

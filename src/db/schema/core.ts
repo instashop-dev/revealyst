@@ -1,6 +1,7 @@
 import { isNotNull, sql } from "drizzle-orm";
 import {
   boolean,
+  date,
   foreignKey,
   index,
   integer,
@@ -308,5 +309,60 @@ export const invites = pgTable(
       .on(t.orgId, t.email)
       .where(sql`${t.acceptedAt} is null and ${t.revokedAt} is null`),
     index("invites_org_idx").on(t.orgId),
+  ],
+);
+
+// Manager notes on a tracked person (D-TCI-7, ADR 0053). A private,
+// author-attributed coaching observation a MANAGER writes about a member of a
+// team they manage — the qualitative complement to the capability + spend
+// drill-ins on /team/[personId]. Read visibility is ANY current manager of the
+// subject's team(s) (ADR 0045 minimal-surface scoping — author-attributed, not
+// author-private); WRITE and DELETE are author-only.
+//
+// APPEND-ONLY: there is no `updated_at` and no edit flow. A note is created once
+// and later deleted by its author — the two mutations. This keeps the surface a
+// factual log of who-observed-what-when rather than a mutable record.
+//
+// This table NEVER feeds scoring, deriveAttention, or capability state — it is
+// pure human coaching content, structurally isolated from every metric path
+// (proven by tests/manager-notes-scoring-isolation.test.ts). It holds no
+// prompt-content or per-user fabricated numbers (invariant b); the body is
+// free-text a manager typed.
+//
+// Two ON DELETE CASCADE edges:
+//   1. Composite tenant FK (org_id, person_id) → people — a person's deletion
+//      (and org account deletion, which purges people) tears their notes down;
+//      a cross-org note is unrepresentable at the DB level (D1a).
+//   2. author_user_id → user.id — a note is the AUTHOR'S OWN observation, so it
+//      dies with the author's account (there is no orphaned/anonymized note).
+export const managerNotes = pgTable(
+  "manager_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").notNull(),
+    personId: uuid("person_id").notNull(),
+    // The signed-in manager who wrote the note. CASCADE: dies with the author.
+    authorUserId: text("author_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    // Free-text coaching observation the manager typed. NEVER a metric input.
+    body: text("body").notNull(),
+    // Optional reminder date (YYYY-MM-DD) — "follow up with this person on".
+    // Display-only; drives no automation or scoring.
+    followUpOn: date("follow_up_on"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Composite tenant FK: the person must belong to the SAME org (D1a). A person
+    // delete (or org purge) cascades their notes.
+    foreignKey({
+      name: "manager_notes_org_person_fk",
+      columns: [t.orgId, t.personId],
+      foreignColumns: [people.orgId, people.id],
+    }).onDelete("cascade"),
+    // "All notes about this person" — the drill-in read.
+    index("manager_notes_org_person_idx").on(t.orgId, t.personId),
   ],
 );

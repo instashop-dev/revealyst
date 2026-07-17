@@ -191,6 +191,20 @@ const SCOPED_READS: Array<{
     tables: ["team_insights"],
     run: (s) => s.teamInsights.list(),
   },
+  // Manager notes (ADR 0053): org-scoped author-attributed coaching notes
+  // (org, person). Both orgs seed a note about their own alice below. The
+  // probe keys `listForPerson` on B's alice AND B's core team — the sharpest
+  // cross-org shape: the membership row EXISTS in org B, so only the org
+  // filter in the authz join stands between org A's scope and B's note (a
+  // dropped filter would pass authz and a dropped filter on the notes read
+  // would surface B's note uuid; non-vacuous by construction). The correct
+  // result is `null` (unauthorized indistinguishable from missing) — pinned
+  // by the dedicated cross-org test below.
+  {
+    name: "managerNotes.listForPerson(B)",
+    tables: ["manager_notes"],
+    run: (s, c) => s.managerNotes.listForPerson(c.B.people.alice, [c.B.teams.core]),
+  },
   // Mission progress (ADR 0037): org-scoped opt-in rows (org, person, mission).
   // Both orgs seed a started mission for their own alice below, so B's row
   // carries a B personId — org A's progressForOrg must surface only A's rows.
@@ -383,6 +397,17 @@ beforeAll(async () => {
         components: { active_days: { kind: "component", input: 50, contribution: 0.5 } },
       },
     ]);
+    // A manager note per org (ADR 0053) about this org's alice, authored by
+    // this org's inviter (who manages the core team per the grant above), so
+    // the B-side row carries B person/note uuids and the managerNotes sweep +
+    // the dedicated cross-org test below are non-vacuous.
+    await scoped.managerNotes.create(
+      loaded.people.alice,
+      [loaded.teams.core],
+      inviter.id,
+      `coaching note for ${orgId}`,
+      null,
+    );
     // A started mission per org (ADR 0037) keyed on this org's alice, so the
     // B-side row carries a B personId and the missions.progressForOrg sweep is
     // non-vacuous (the mission slug is seeded globally by the migration).
@@ -607,6 +632,24 @@ describe("registry-driven cross-org read sweep", () => {
         async (p) => p,
       ),
     ).rejects.toThrow(/no api_key credential stored/);
+  });
+
+  it("managerNotes.listForPerson returns null for org B's person under org A's scope", async () => {
+    // The sharpest cross-org probe (ADR 0053): B's alice IS a member of B's
+    // core team, and B seeded a real note about her — so only the org filter
+    // in the membership-JOIN authz stands between org A's scope and that note.
+    const seen = await forOrg(db, orgA).managerNotes.listForPerson(
+      B.people.alice,
+      [B.teams.core],
+    );
+    expect(seen).toBeNull();
+    // And B reads its own note — proving the seed is real, not absent.
+    const bOwn = await forOrg(db, orgB).managerNotes.listForPerson(
+      B.people.alice,
+      [B.teams.core],
+    );
+    expect(bOwn).not.toBeNull();
+    expect(bOwn!.length).toBe(1);
   });
 
   it("teamSettings.get returns defaults for org B's team under org A's scope", async () => {

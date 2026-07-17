@@ -8,6 +8,7 @@ import {
   connections,
   connectorRuns,
   identities,
+  managerNotes,
   metricRecords,
   missionProgress,
   orgMembers,
@@ -80,6 +81,12 @@ export const PURGE_TABLES = [
   // W7-7 (ADR 0038): per-person recommendation exposures, FK'd to people —
   // deleted BEFORE people. Account deletion erases the person's exposure log.
   recommendationExposure,
+  // D-TCI-7 (ADR 0053): manager coaching notes, FK'd to people — deleted BEFORE
+  // people (its composite tenant FK is ON DELETE CASCADE, but an explicit
+  // org-scoped delete matches every sibling and keeps ordering independent of
+  // cascade). The author-side FK (author_user_id → user) is handled by Better
+  // Auth's user delete cascade, not here.
+  managerNotes,
   shareLinks,
   subjects,
   rawPayloads,
