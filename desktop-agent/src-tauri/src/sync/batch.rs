@@ -615,7 +615,7 @@ mod tests {
         // Same event_ids in either row order → same id (survives a restart that
         // reorders rows), and different from a different set.
         let id_ab = deterministic_batch_id(&[a.clone(), b.clone()]);
-        let id_ba = deterministic_batch_id(&[b, a]);
+        let id_ba = deterministic_batch_id(&[b.clone(), a.clone()]);
         assert_eq!(id_ab, id_ba);
         let id_a = deterministic_batch_id(&[a]);
         assert_ne!(id_ab, id_a);

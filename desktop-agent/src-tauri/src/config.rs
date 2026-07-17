@@ -176,6 +176,7 @@ pub struct DesktopConfig {
 /// canonical bytes (what the signature covers), the detached signature, and the
 /// typed view. Constructed by [`SignedConfig::parse`] (from the wire form) or
 /// [`SignedConfig::from_body_and_signature`] (from cache).
+#[derive(Debug)]
 pub struct SignedConfig {
     body: Value,
     signature_b64: String,

@@ -1045,8 +1045,8 @@ mod tests {
         };
 
         // Cycle 1: the single day is rejected (422) → quarantined → Degraded.
-        let engine = engine(MockTransport::new(vec![status(422)]), 3);
-        let first = engine.sync_once(&store, "rva1.tok").await.unwrap();
+        let engine1 = engine(MockTransport::new(vec![status(422)]), 3);
+        let first = engine1.sync_once(&store, "rva1.tok").await.unwrap();
         assert_eq!(first, SyncOutcome::Degraded);
         first.apply(&mut inputs);
         assert!(inputs.degraded);
