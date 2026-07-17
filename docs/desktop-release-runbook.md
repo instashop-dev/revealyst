@@ -48,10 +48,20 @@ Enforced structurally, not by convention:
 
 ## Cutting a release
 
-- **Unsigned dry run (works today):** Actions → *Release Desktop* →
-  *Run workflow* → `dry_run: true`. Runs test → build → checksums → publishes a
-  clearly-marked **UNSIGNED prerelease** (`desktop-dryrun-<run id>`). Never
-  distribute these — the manifest is written non-installable on purpose.
+- **Unsigned internal test build (works today):** Actions → *Release Desktop* →
+  *Run workflow* → `dry_run: true`. Runs test → build → checksums, then the
+  `publish-unsigned` job (NO protected environment — it references no signing
+  secret, only `github.token`, so §25.2 secret-safety is preserved) publishes a
+  clearly-marked **UNSIGNED prerelease** to the FIXED, clobbered tag
+  **`desktop-internal-latest`**, so the internal test build always has one
+  stable Release URL. That URL is surfaced ONLY on the signed-in
+  Settings → Devices page (`INTERNAL_TEST_BUILD_URL`), clearly labeled unsigned;
+  the public `/download` page stays "coming soon". These artifacts are unsigned
+  (Gatekeeper / SmartScreen will warn) — for internal testing only, do not
+  distribute publicly.
+- **Real signed release (after D-DA-7):** the `publish-signed` job
+  (`environment: desktop-release`, required-reviewer + signing secrets) runs on a
+  `desktop-v*` tag push or a non-dry-run dispatch — see below.
 - **Real signed release (after D-DA-7):** bump `desktop-agent/package.json` +
   `src-tauri/{Cargo.toml,tauri.conf.json}` versions; tag `git tag desktop-v0.1.0
   && git push --tags`. The tag runs test → build → **sign+notarize** (protected)

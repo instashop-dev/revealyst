@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { requireAppContext } from "@/lib/api-context";
+import { INTERNAL_TEST_BUILD_URL } from "@/lib/desktop-releases";
 import { ownDevices, toDeviceView } from "@/lib/desktop-devices";
 import { formatRelativeTime } from "@/lib/format";
 
@@ -82,6 +83,39 @@ export default async function SettingsDevicesPage() {
               </a>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Internal test build — a signed-in-only affordance while the signed,
+          notarized installers aren't published yet (D-DA-7). The public
+          /download page stays "coming soon"; this is clearly labeled UNSIGNED
+          so no one mistakes a test build for the shipped product. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Internal test build</CardTitle>
+          <CardDescription>
+            An early, <strong>unsigned</strong> build for testing before the
+            signed version ships. Because it isn&apos;t signed yet, your computer
+            will warn that it&apos;s from an unidentified developer &mdash; that&apos;s
+            expected. On macOS, right-click the app and choose <em>Open</em>; on
+            Windows, click <em>More info</em> then <em>Run anyway</em>. Please
+            don&apos;t share it outside the team.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            nativeButton={false}
+            render={
+              <a
+                href={INTERNAL_TEST_BUILD_URL}
+                target="_blank"
+                rel="noreferrer"
+              />
+            }
+          >
+            <Download aria-hidden />
+            Get the internal test build
+          </Button>
         </CardContent>
       </Card>
     </div>
