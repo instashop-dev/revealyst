@@ -82,9 +82,11 @@ export default function StatusScreen({ snapshot }: { snapshot: AgentSnapshot | n
 
         <dt>Connected sources</dt>
         <dd>
-          {signedIn
-            ? "Claude Code on this computer (reads local logs)"
-            : "None yet"}
+          {!signedIn
+            ? "None yet"
+            : paused
+              ? "Claude Code (collection paused)"
+              : "Claude Code — if installed, this computer reads its local logs"}
         </dd>
 
         <dt>Unsupported sources</dt>

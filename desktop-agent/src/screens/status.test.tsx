@@ -84,7 +84,25 @@ describe("StatusScreen", () => {
       expect(screen.getByText("Yes — this computer is signed in")).toBeTruthy();
     });
     expect(screen.getByText("Analytics Only (collection paused)")).toBeTruthy();
+    // Connected sources must NOT claim active reading while paused (it would
+    // contradict the paused mode). No present-tense "is reading" from auth.
+    expect(screen.getByText("Claude Code (collection paused)")).toBeTruthy();
     expect(screen.getByText("2 items")).toBeTruthy();
+  });
+
+  it("never asserts active reading from sign-in alone — hedges 'if installed'", async () => {
+    // Signed in + not paused: the strongest honest claim is still conditional,
+    // because sign-in doesn't prove Claude Code is installed or running.
+    backend.signedIn = true;
+    backend.paused = false;
+    render(<StatusScreen snapshot={snapshot} />);
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Claude Code — if installed, this computer reads its local logs",
+        ),
+      ).toBeTruthy();
+    });
   });
 
   it("shows the real app version from the snapshot", () => {

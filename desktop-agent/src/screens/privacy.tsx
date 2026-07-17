@@ -122,7 +122,7 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
       await disconnectDevice();
       setSignedIn(false);
       setNotice(
-        "This computer is disconnected. Its saved sign-in was removed and any data still waiting to send can no longer be read.",
+        "This computer is disconnected. Its saved sign-in was removed and any waiting activity contents can no longer be read.",
       );
     } catch {
       setNotice("Could not fully disconnect this computer. Please try again.");
@@ -140,8 +140,8 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
         <h2>Current mode</h2>
         <p>
           <strong>Analytics Only</strong> — the default and only mode. Counts,
-          timing, and model names are collected; your prompt text and AI
-          responses never are.
+          coarse timing buckets, and model names are collected; your prompt text
+          and AI responses never are.
         </p>
         <p className="muted">
           Background collection is currently{" "}
@@ -273,8 +273,8 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
           {confirmDisconnect ? (
             <>
               <span>
-                Disconnect this computer? It will stop syncing and any waiting
-                data becomes unreadable.
+                Disconnect this computer? It will stop syncing and its waiting
+                activity contents can no longer be read.
               </span>
               <button type="button" className="danger" onClick={() => void onDisconnect()}>
                 Yes, disconnect
