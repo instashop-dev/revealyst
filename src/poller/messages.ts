@@ -83,14 +83,6 @@ export type PollMessage =
       kind: "flywheel-report";
     }
   | {
-      // W6-G: scans one org's connections for user-entered renewal dates that
-      // are exactly 30 or 7 days out and emails admins. Sent daily (one message
-      // per org). Idempotent: renewal_reminder_state CAS-claims each
-      // (connection, date, threshold) once, so a redelivery re-sends nothing.
-      kind: "renewal-reminder-scan";
-      orgId: string;
-    }
-  | {
       // W6-F: composes and sends one org's monthly executive memo. Sent
       // monthly (one message per org, 1st of month), reporting the month that
       // just ended. Idempotent on exec_report_state's month CAS, so an
