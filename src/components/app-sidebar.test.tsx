@@ -67,8 +67,8 @@ describe("AppSidebar — nav landmark + aria-current (T2.6 item 2)", () => {
     const teamLink = screen.getByRole("link", { name: /Team/i });
     expect(teamLink).toHaveAttribute("aria-current", "page");
 
-    const connectionsLink = screen.getByRole("link", { name: /Connections/i });
-    expect(connectionsLink).not.toHaveAttribute("aria-current");
+    const otherLink = screen.getByRole("link", { name: /AI maturity/i });
+    expect(otherLink).not.toHaveAttribute("aria-current");
   });
 });
 

@@ -9,13 +9,18 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 vi.mock("@/hooks/use-mobile", () => ({ useIsMobile: () => false }));
-// A connect succeeds without a backend — the flow only needs the ok:true
-// signal to mark the vendor connected for the session (Fix 1).
-vi.mock("@/lib/connect-vendor", () => ({
-  connectApiKeyVendor: vi.fn(async () => ({
+// The agent device-token mint succeeds without a backend — the flow only needs
+// the connection id + token so SyncAgentCard flips to "Paired" and fires
+// onConnected, marking the source connected for the session (Fix 1). One mock
+// covers both calls (create reads payload.connection.id; token reads
+// payload.token).
+vi.mock("@/lib/client-fetch", () => ({
+  postJson: vi.fn(async () => ({
     ok: true,
-    connectionId: "new-conn-1",
+    status: 200,
+    payload: { connection: { id: "new-conn-1" }, token: "rva1.test-token" },
   })),
+  errorText: (_payload: unknown, fallback: string) => fallback,
 }));
 
 import { OnboardingFlow } from "./onboarding-flow";
@@ -29,7 +34,6 @@ function flow(overrides: Partial<Parameters<typeof OnboardingFlow>[0]> = {}) {
       orgKind="team"
       isAdmin
       visibilityMode="private"
-      copilotAvailable={false}
       initialConnections={[]}
       initialStepIndex={0}
       privacyResolved={false}
@@ -97,18 +101,19 @@ describe("OnboardingFlow (U4.2)", () => {
     const connectBtn = within(nav).getByRole("button", { name: /connect a source/i });
     await userEvent.click(connectBtn);
     // The connect wizard heading appears.
-    expect(screen.getByText(/Connect your AI tools/i)).toBeTruthy();
+    expect(screen.getByText(/Bring in your Claude Code usage/i)).toBeTruthy();
   });
 });
 
 // Fix 1 — same-session connect state must survive the wizard's remount and
 // feed the review step, since `initialConnections` is only the SSR snapshot.
 describe("OnboardingFlow — same-session connect (Fix 1)", () => {
-  async function connectAnthropic(user: ReturnType<typeof userEvent.setup>) {
-    await user.type(screen.getByPlaceholderText("sk-ant-…"), "sk-ant-test-key");
-    await user.click(screen.getByRole("button", { name: /Connect Anthropic/i }));
-    // The card flips to a Connected badge once the mocked connect resolves.
-    await screen.findByText("Connected");
+  async function connectAgent(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(
+      screen.getByRole("button", { name: /Generate device token/i }),
+    );
+    // The card flips to a Paired badge once the mocked mint resolves.
+    await screen.findByText("Paired");
   }
 
   it("reaching review after a same-session connect shows no 'haven't connected' copy", async () => {
@@ -116,7 +121,7 @@ describe("OnboardingFlow — same-session connect (Fix 1)", () => {
     render(
       flow({ orgKind: "personal", initialConnections: [], initialStepIndex: 1 }),
     );
-    await connectAnthropic(user);
+    await connectAgent(user);
     // Advance to the review step.
     await user.click(
       screen.getByRole("button", { name: /Next: what you'll see/i }),
@@ -132,7 +137,7 @@ describe("OnboardingFlow — same-session connect (Fix 1)", () => {
     render(
       flow({ orgKind: "personal", initialConnections: [], initialStepIndex: 1 }),
     );
-    await connectAnthropic(user);
+    await connectAgent(user);
     // Forward to review, then back to connect via the stepper nav — this
     // REMOUNTS the wizard from the (empty) SSR snapshot.
     await user.click(
@@ -142,12 +147,12 @@ describe("OnboardingFlow — same-session connect (Fix 1)", () => {
     await user.click(
       within(nav).getByRole("button", { name: /connect a source/i }),
     );
-    // The session connect survived the remount: Anthropic still reads
-    // Connected, and the end CTA is the advance button — never the disabled
-    // "connect a source to continue".
-    expect(await screen.findByText("Connected")).toBeTruthy();
+    // The session connect survived the remount: the agent still reads Paired,
+    // and the end CTA is the advance button — never the disabled
+    // "set up the agent to continue".
+    expect(await screen.findByText("Paired")).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: /Connect a source to continue/i }),
+      screen.queryByRole("button", { name: /Set up the agent to continue/i }),
     ).toBeNull();
   });
 });

@@ -1,10 +1,6 @@
 import { OnboardingFlow } from "@/components/onboarding-flow";
 import { invitesForOrg, orgMembersList } from "@/db/invites";
 import { requireAppContext } from "@/lib/api-context";
-import {
-  type CopilotAppEnv,
-  readCopilotAppConfig,
-} from "@/lib/github-app-config";
 import { isUsableConnection } from "@/lib/onboarding-guide";
 import {
   deriveInitialStepIndex,
@@ -62,11 +58,6 @@ export default async function OnboardingPage() {
         orgKind={orgKind}
         isAdmin={isAdmin}
         visibilityMode={ctx.org.visibilityMode}
-        copilotAvailable={
-          // Render-time env gate (ADR 0022): Copilot's GitHub App connect is
-          // offered only when the App secrets exist on this deployment.
-          readCopilotAppConfig(ctx.env as unknown as CopilotAppEnv) !== null
-        }
         initialConnections={connections.map((c) => ({
           id: c.id,
           vendor: c.vendor,

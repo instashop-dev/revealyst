@@ -48,7 +48,6 @@ export function OnboardingFlow({
   orgKind,
   isAdmin,
   visibilityMode,
-  copilotAvailable,
   initialConnections,
   initialStepIndex,
   privacyResolved,
@@ -56,7 +55,6 @@ export function OnboardingFlow({
   orgKind: OrgKindFlavor;
   isAdmin: boolean;
   visibilityMode: VisibilityMode;
-  copilotAvailable: boolean;
   initialConnections: InitialConnection[];
   initialStepIndex: number;
   privacyResolved: boolean;
@@ -106,7 +104,6 @@ export function OnboardingFlow({
       {stepKey === "connect" ? (
         <OnboardingWizard
           initialConnections={initialConnections}
-          copilotAvailable={copilotAvailable}
           sessionConnectedVendors={sessionConnectedVendors}
           onConnected={markConnected}
           continueTo={{

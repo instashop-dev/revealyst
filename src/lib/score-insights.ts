@@ -799,7 +799,7 @@ export function deriveAttention(input: {
         severity: "action",
         title: `${connection.label} connection needs attention`,
         body: `The ${connection.label} connection has been failing to sync — its numbers may be stale until it's reconnected.`,
-        href: "/connections",
+        href: "/settings/devices",
         impact: 100,
       });
     } else {
@@ -807,7 +807,7 @@ export function deriveAttention(input: {
         severity: "info",
         title: `${connection.label} connection paused`,
         body: `Syncing is paused for ${connection.label} — data stops updating until it's resumed.`,
-        href: "/connections",
+        href: "/settings/devices",
         impact: 6,
       });
     }

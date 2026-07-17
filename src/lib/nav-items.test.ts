@@ -5,7 +5,7 @@ const titles = (groups: ReturnType<typeof navFor>) =>
   groups.flatMap((g) => g.items.map((i) => i.title));
 
 describe("navFor — U0.1 nav IA", () => {
-  it("personal org: Today + Growth + Connections + Settings, no AI maturity", () => {
+  it("personal org: Today + Growth + Settings, no AI maturity, no Connections", () => {
     const groups = navFor({
       orgKind: "personal",
       role: "member",
@@ -16,14 +16,12 @@ describe("navFor — U0.1 nav IA", () => {
     // U1 added Growth (personal-only surface); U3 replaced "Account" with
     // "Settings" (Settings is for everyone — members reach profile +
     // notifications there). AI maturity stays demoted for personal orgs.
-    expect(titles(groups)).toEqual([
-      "Today",
-      "Growth",
-      "Connections",
-      "Settings",
-    ]);
+    // ADR 0054 removed the "Connections" nav item with the pivot to the
+    // desktop-agent model — device pairing lives under Settings → Devices.
+    expect(titles(groups)).toEqual(["Today", "Growth", "Settings"]);
     expect(titles(groups)).not.toContain("Account");
     expect(titles(groups)).not.toContain("AI maturity");
+    expect(titles(groups)).not.toContain("Connections");
   });
 
   it("team org (member): no Growth item (personal-only until T5.1 clears)", () => {
@@ -37,7 +35,7 @@ describe("navFor — U0.1 nav IA", () => {
     expect(titles(groups)).not.toContain("Growth");
   });
 
-  it("team org (member): Team + AI maturity + Connections + Settings, no admin group", () => {
+  it("team org (member): Team + AI maturity + Settings, no admin group, no Connections", () => {
     const groups = navFor({
       orgKind: "team",
       role: "member",
@@ -46,13 +44,10 @@ describe("navFor — U0.1 nav IA", () => {
     expect(groups.map((g) => g.id)).toEqual(["primary"]);
     expect(groups[0].label).toBe("Workspace");
     // A member gets the Settings item (U3) so they can reach their own profile
-    // and notification preferences — no admin group.
-    expect(titles(groups)).toEqual([
-      "Team",
-      "AI maturity",
-      "Connections",
-      "Settings",
-    ]);
+    // and notification preferences — no admin group. Connections removed (ADR
+    // 0054); device pairing lives under Settings → Devices.
+    expect(titles(groups)).toEqual(["Team", "AI maturity", "Settings"]);
+    expect(titles(groups)).not.toContain("Connections");
   });
 
   it("system org kind falls through to the team IA (labels + item set), not personal", () => {
@@ -65,12 +60,7 @@ describe("navFor — U0.1 nav IA", () => {
       isPlatformAdmin: false,
     });
     expect(groups[0].label).toBe("Workspace");
-    expect(titles(groups)).toEqual([
-      "Team",
-      "AI maturity",
-      "Connections",
-      "Settings",
-    ]);
+    expect(titles(groups)).toEqual(["Team", "AI maturity", "Settings"]);
   });
 
   it("team org (admin): Administration group drops Members/Billing/Settings (now in /settings/*)", () => {

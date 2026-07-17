@@ -178,13 +178,13 @@ describe("CoachingCard — dedicated coaching home (W5-C)", () => {
     render(
       <CoachingCard
         recommendations={[
-          { ...NEXT_STEP, href: "/connections", suggestedActionType: "in-product-setting" },
+          { ...NEXT_STEP, href: "/settings/devices", suggestedActionType: "in-product-setting" },
         ]}
       />,
     );
     // base-nova Button renders the anchor with role="button".
     const link = screen.getByRole("button", { name: "Take a look" });
-    expect(link.getAttribute("href")).toBe("/connections");
+    expect(link.getAttribute("href")).toBe("/settings/devices");
     // In-app navigation — never a new tab.
     expect(link.getAttribute("target")).toBeNull();
   });

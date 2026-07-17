@@ -10,9 +10,6 @@ import {
   ShieldCheck,
   Unplug,
 } from "lucide-react";
-import "@/connectors";
-import { registeredVendors } from "@/connectors/registry";
-import type { VendorId } from "@/contracts/attribution";
 import { FREE_TRACKED_USER_LIMIT } from "@/lib/entitlements";
 import { founderPricingFootnote } from "@/lib/pricing";
 import { BrandMark } from "@/components/brand-mark";
@@ -33,8 +30,6 @@ import {
   MATURITY_LEVELS,
   MATURITY_NOT_SCORED,
 } from "@/lib/maturity-glossary";
-import { NLV_PENDING_VENDORS } from "@/lib/vendor-connect-meta";
-import { VENDOR_LABELS, vendorLabel } from "@/lib/vendor-labels";
 
 // Build-time prerendered (no `dynamic` export): everything on this page
 // derives from static sources — the connector registry, product constants —
@@ -72,30 +67,14 @@ export const metadata: Metadata = {
   },
 };
 
-// The "Connects" strip derives from the live connector registry so marketing
-// can never advertise a connector that doesn't exist (plus the Claude Code
-// local agent, which ingests when the user runs the Revealyst Agent sync on
-// their own machine — a manual, on-demand push, not a resident companion or
-// server polling).
-// Everything else in the frozen vendor enum is shown honestly as "soon" —
-// including NLV_PENDING_VENDORS: connectors that are code-complete and
-// registered but whose live integration is still founder-gated (NLV run +
-// deploy secrets). Statically held in "Soon" here — the marketing page stays
-// statically renderable, so no runtime env check; the founder flip after NLV
-// is one line in src/lib/vendor-connect-meta.ts (ADR 0022).
-const CONNECTED_TOOLS = [
-  ...registeredVendors()
-    .filter((v) => !NLV_PENDING_VENDORS.includes(v))
-    .map(vendorLabel),
-  VENDOR_LABELS.claude_code_local,
-];
-const COMING_TOOLS = (Object.keys(VENDOR_LABELS) as VendorId[])
-  .filter(
-    (v) =>
-      v !== "claude_code_local" &&
-      (!registeredVendors().includes(v) || NLV_PENDING_VENDORS.includes(v)),
-  )
-  .map(vendorLabel);
+// The "Connects" strip reflects what the Revealyst desktop agent reads today.
+// ADR 0054 removed the polled admin-API connectors — usage now comes from the
+// agent's on-device capture (the user runs it on their machine; it reads local
+// Claude Code sessions and pushes only aggregates, never prompt content), not
+// from vendor APIs. Kept static (the marketing page stays statically
+// renderable) and honest: no not-yet-built source is listed here (invariant b /
+// W3-N — never present-tense an unshipped connector).
+const CONNECTED_TOOLS = ["Claude Code"];
 
 const SCORES = [
   {
@@ -311,8 +290,9 @@ export default function Home() {
               </div>
               <p className="text-sm text-muted-foreground">
                 Free for individuals — and for teams up to{" "}
-                {FREE_TRACKED_USER_LIMIT} tracked users. Sign up, connect a key,
-                see your first insight in minutes. No sales call.
+                {FREE_TRACKED_USER_LIMIT} tracked users. Sign up, run the
+                Revealyst Agent, see your first insight in minutes. No sales
+                call.
               </p>
             </div>
 
@@ -339,14 +319,6 @@ export default function Home() {
             </span>
             {CONNECTED_TOOLS.map((tool) => (
               <span key={tool}>{tool}</span>
-            ))}
-            <span className="font-mono text-xs tracking-widest uppercase opacity-70">
-              Soon
-            </span>
-            {COMING_TOOLS.map((tool) => (
-              <span key={tool} className="opacity-70">
-                {tool}
-              </span>
             ))}
           </div>
         </div>
@@ -397,16 +369,16 @@ export default function Home() {
         <ol className="grid gap-6 md:grid-cols-3">
           {[
             {
-              step: "Connect",
+              step: "Install the agent",
               icon: KeyRound,
               detail:
-                "Point Revealyst at the admin APIs and keys you already control — we only ever read, and credentials are envelope-encrypted at rest. Individuals connect their own keys or Claude Code logs.",
+                "Run the Revealyst Agent on your machine. It reads your local Claude Code sessions and pushes only aggregates with a device token — never prompt content. Nothing runs in the background.",
             },
             {
-              step: "Backfill",
+              step: "Summarize",
               icon: FileSearch,
               detail:
-                "History is pulled and normalized onto one metrics model, with an attribution-confidence tag on every record telling you exactly what the data supports.",
+                "Your usage is normalized on-device onto one metrics model, with an attribution-confidence tag on every record telling you exactly what the data supports.",
             },
             {
               step: "Score",

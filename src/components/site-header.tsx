@@ -6,9 +6,10 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 
 const TITLES: Record<string, string> = {
   "/dashboard": "Overview",
-  "/connections": "Connections",
   // /account, /billing, /members, /teams, /people consolidated under /settings
-  // (U3); the prefix match makes every /settings/* tab read "Settings".
+  // (U3); the prefix match makes every /settings/* tab read "Settings". Device
+  // pairing + local sync live under /settings/devices (ADR 0054, replacing the
+  // retired /connections page).
   "/settings": "Settings",
 };
 

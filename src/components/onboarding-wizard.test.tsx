@@ -44,31 +44,18 @@ describe("OnboardingWizard end-state timing copy", () => {
     expect(screen.getByText(/nightly run/i)).toBeInTheDocument();
   });
 
-  it("shows the same-day copy for a poll-connector org", () => {
-    render(
-      <OnboardingWizard
-        initialConnections={[
-          { id: "c1", vendor: "anthropic_console", status: "active" },
-        ]}
-      />,
-    );
-
-    expect(
-      screen.getByText(SCORE_TIMING_COPY.same_day.headline),
-    ).toBeInTheDocument();
-    expect(screen.getByText(SCORE_TIMING_COPY.same_day.detail)).toBeInTheDocument();
-  });
-
   it("shows no timing line when nothing is connected", () => {
     render(<OnboardingWizard initialConnections={[]} />);
 
     expect(
-      screen.queryByText(SCORE_TIMING_COPY.same_day.headline),
+      screen.queryByText(SCORE_TIMING_COPY.overnight.headline),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByText(SCORE_TIMING_COPY.awaiting_agent.headline),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Connect a source to continue")).toBeInTheDocument();
+    expect(
+      screen.getByText("Set up the agent to continue"),
+    ).toBeInTheDocument();
   });
 });
 
@@ -80,7 +67,7 @@ describe("OnboardingWizard — stepper continueTo", () => {
     render(
       <OnboardingWizard
         initialConnections={[
-          { id: "c1", vendor: "anthropic_console", status: "active" },
+          { id: "c1", vendor: "claude_code_local", status: "active" },
         ]}
         continueTo={{ label: "Next: privacy & people", onContinue }}
       />,
@@ -95,10 +82,12 @@ describe("OnboardingWizard — stepper continueTo", () => {
 
   it("renders the per-connector scope explainer lines (sourced claim surface)", () => {
     render(<OnboardingWizard initialConnections={[]} />);
-    // The agent's schema-verified standing privacy line appears beside its card.
+    // The agent's schema-verified standing privacy line appears beside its card
+    // (and the wizard header repeats the "never your prompts" promise), so at
+    // least one such line renders.
     expect(
-      screen.getByText(/never your prompts/i),
-    ).toBeInTheDocument();
+      screen.getAllByText(/never your prompts/i).length,
+    ).toBeGreaterThan(0);
   });
 });
 
