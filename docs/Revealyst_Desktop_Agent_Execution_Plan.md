@@ -526,12 +526,19 @@ Effort: S ≤ half day · M ≈ 1 day · L ≈ 2–3 days (one agent-session eac
   `agent_ingest` runs with honest gaps.
 
 **T5.2 — Feature-signal contract ADR (gated on D-DA-5)** *(M)*
-- **Objective:** the new `CANONICAL_METRICS` keys + allowlist rows for
-  taskCategory/workflowType/complexityBand/prompt-structure daily counts.
+- **ADR written: `docs/decisions/0055-desktop-feature-signals.md` (D-DA-9,
+  2026-07-17)** — the contract + an honest viability assessment are recorded
+  ADR-first; the keys below are ratified there (superseding the tentative
+  `workflowType`/`complexityBand` names). What remains under T5.2 is the BUILD
+  (metrics.ts + seed + allowlist rows, all in one PR to keep the bidirectional
+  drift test green) and the Rust classifier — NOT this ADR.
+- **Objective:** the new `CANONICAL_METRICS` keys + allowlist rows for the
+  ADR-0055 signal set (`ai_tool_used`, `task_category`, `iteration_depth`,
+  `verification_behavior`) as daily counts / bounded enums.
 - **Files:** `src/contracts/metrics.ts` (+ seed migration, next number at PR
   time); `src/lib/agent-collection-schema.ts` (new rows, honest wording);
   `packages/revealyst-agent/src/allowlist.ts` (kept byte-identical);
-  `docs/decisions/00XX-desktop-feature-signals.md`;
+  `docs/decisions/0055-desktop-feature-signals.md`;
   `src/connectors/scope-claims.ts` update.
 - **Output:** keys seeded + constant-drift-tested; `/legal/what-we-collect`
   reflects new rows automatically.
