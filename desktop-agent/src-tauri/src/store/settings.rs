@@ -146,17 +146,17 @@ mod tests {
             std::env::temp_dir().join(format!("revealyst-settings-pause-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join(crate::store::DB_FILE_NAME);
-        let key = DbKey::from_bytes([8u8; KEY_LEN]);
+        let key_bytes = [8u8; KEY_LEN];
 
         {
-            let store = Store::open_with_key(&path, key).unwrap();
+            let store = Store::open_with_key(&path, DbKey::from_bytes(key_bytes)).unwrap();
             store.set_paused_setting(true, 100).unwrap();
             assert!(store.read_local_settings().unwrap().paused);
         }
         // Reopen the SAME file with the SAME key: the pause flag is still set —
         // a reboot must not silently resume collection.
         {
-            let store = Store::open_with_key(&path, key).unwrap();
+            let store = Store::open_with_key(&path, DbKey::from_bytes(key_bytes)).unwrap();
             assert!(store.read_local_settings().unwrap().paused);
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -168,10 +168,10 @@ mod tests {
             std::env::temp_dir().join(format!("revealyst-settings-restore-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join(crate::store::DB_FILE_NAME);
-        let key = DbKey::from_bytes([9u8; KEY_LEN]);
+        let key_bytes = [9u8; KEY_LEN];
 
         {
-            let store = Store::open_with_key(&path, key).unwrap();
+            let store = Store::open_with_key(&path, DbKey::from_bytes(key_bytes)).unwrap();
             store.set_identity_only_you(Some(false), 100).unwrap();
             store.set_degraded_setting(true, 100).unwrap();
         }
@@ -179,7 +179,7 @@ mod tests {
         // signal are both still there — the restart-restore path this feature
         // depends on.
         {
-            let store = Store::open_with_key(&path, key).unwrap();
+            let store = Store::open_with_key(&path, DbKey::from_bytes(key_bytes)).unwrap();
             let settings = store.read_local_settings().unwrap();
             assert_eq!(settings.identity_only_you, Some(false));
             assert!(settings.degraded);

@@ -353,10 +353,7 @@ pub fn set_collection_paused<R: Runtime>(app: AppHandle<R>, paused: bool) -> Res
 /// isn't ready — never a fabricated answer.
 #[tauri::command]
 pub fn get_device_used_only_by_me<R: Runtime>(app: AppHandle<R>) -> Option<bool> {
-    let store = match app.try_state::<Arc<Store>>() {
-        Some(store) => store.inner().clone(),
-        None => return None,
-    };
+    let store = app.try_state::<Arc<Store>>()?.inner().clone();
     store
         .read_local_settings()
         .map(|s| s.identity_only_you)
