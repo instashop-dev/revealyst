@@ -4,9 +4,9 @@ import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "../src/db/client";
-import { platformStats } from "../src/db/admin";
+import { createTeamWorkspace, platformStats } from "../src/db/admin";
 import { createFixtureOrg } from "../src/db/fixtures";
-import { forOrg } from "../src/db/org-scope";
+import { ensureOrgOfOne, forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
 import { ensureSystemOrg } from "../src/db/system";
 import { applyPaddleSubscriptionEvent } from "../src/db/subscriptions";
@@ -219,5 +219,75 @@ describe("platformStats", () => {
     expect(stats.subscriptionsByStatus.active).toBeGreaterThanOrEqual(1);
     expect(stats.subscriptionsByStatus.past_due).toBeGreaterThanOrEqual(1);
     expect(stats.subscriptionsByStatus.canceled).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("createTeamWorkspace (platform-admin unblock)", () => {
+  it("creates a kind='team' org with the admin as member + a default team + audit row", async () => {
+    const [admin] = await db
+      .insert(schema.user)
+      .values({ id: "ws-admin", name: "WS Admin", email: "ws@example.com" })
+      .returning();
+
+    const { orgId, teamId } = await createTeamWorkspace(db, {
+      name: "Acme Team",
+      adminUserId: admin.id,
+    });
+
+    // The org is a TEAM org (the whole point — nothing else sets this).
+    const [org] = await db
+      .select()
+      .from(schema.orgs)
+      .where(eq(schema.orgs.id, orgId));
+    expect(org.kind).toBe("team");
+    expect(org.name).toBe("Acme Team");
+    // A team workspace must NOT claim the admin's unique bootstrap-user marker
+    // (that belongs to their personal org).
+    expect(org.bootstrapUserId).toBeNull();
+
+    // The admin is enrolled as an ORG ADMIN member.
+    const [member] = await db
+      .select()
+      .from(schema.orgMembers)
+      .where(eq(schema.orgMembers.orgId, orgId));
+    expect(member.userId).toBe(admin.id);
+    expect(member.role).toBe("admin");
+
+    // A default team named after the workspace exists (so manager assignment
+    // works immediately in Settings → People).
+    const teamsList = await forOrg(db, orgId).teams.list();
+    expect(teamsList).toHaveLength(1);
+    expect(teamsList[0].id).toBe(teamId);
+    expect(teamsList[0].name).toBe("Acme Team");
+
+    // The genesis event is audited in the new org's trail.
+    const audit = await forOrg(db, orgId).auditLog.list();
+    const created = audit.find((a) => a.action === "org.create");
+    expect(created).toBeDefined();
+    expect(created?.actorUserId).toBe(admin.id);
+    expect(created?.targetId).toBe(orgId);
+    expect(created?.metadata).toMatchObject({ kind: "team", name: "Acme Team" });
+  });
+
+  it("does not touch the admin's existing personal org (dogfood org untouched)", async () => {
+    const [admin] = await db
+      .insert(schema.user)
+      .values({ id: "ws-admin-2", name: "WS Admin 2", email: "ws2@example.com" })
+      .returning();
+    const personal = await ensureOrgOfOne(db, admin);
+
+    await createTeamWorkspace(db, {
+      name: "Second Workspace",
+      adminUserId: admin.id,
+    });
+
+    // The personal org still exists, still personal, still owns the bootstrap
+    // marker — creating a team workspace never converts it.
+    const [org] = await db
+      .select()
+      .from(schema.orgs)
+      .where(eq(schema.orgs.id, personal.orgId));
+    expect(org.kind).toBe("personal");
+    expect(org.bootstrapUserId).toBe(admin.id);
   });
 });

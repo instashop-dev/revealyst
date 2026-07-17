@@ -14,6 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { CreateTeamWorkspaceDialog } from "@/components/admin/create-team-workspace-dialog";
 import { platformStats } from "@/db/admin";
 import { requireAdminContext } from "@/lib/admin-context";
 import { formatRelativeTime } from "@/lib/format";
@@ -86,6 +87,20 @@ export default async function AdminDashboardPage() {
             .join(" · ") || "No connections yet"}
         />
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-start justify-between gap-3">
+          <div className="flex flex-col gap-1.5">
+            <CardTitle>Team workspaces</CardTitle>
+            <CardDescription>
+              Create a separate team workspace and add yourself as its admin.
+              Your personal workspace is left untouched — switch between them
+              from the sidebar.
+            </CardDescription>
+          </div>
+          <CreateTeamWorkspaceDialog />
+        </CardHeader>
+      </Card>
 
       <Card>
         <CardHeader>

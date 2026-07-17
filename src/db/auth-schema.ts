@@ -125,9 +125,17 @@ export const orgMembers = pgTable(
     role: text("role", { enum: ["admin", "member"] })
       .notNull()
       .default("admin"),
+    // Immutable join date — rendered as "Joined" in Settings → People, so it
+    // must never be rewritten (invariant b: a rendered date is a claim).
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    // When the user last ACTIVATED this workspace via the switcher (ADR 0051,
+    // amending ADR 0004). NULL until the first explicit switch; active-org
+    // resolution orders by coalesce(last_active_at, created_at) desc, so
+    // invite-acceptance (a fresh created_at) still lands the user in the
+    // inviting org without any write here.
+    lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   },
   (table) => [
     // Composite PK: a person joins an org once; makes membership writes
