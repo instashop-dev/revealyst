@@ -1,14 +1,8 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The status screen makes a few narrow live reads (signed-in, paused, pending
-// count). jsdom has no Tauri bridge, so invoke is mocked.
-const backend = vi.hoisted(() => ({
-  signedIn: false,
-  paused: false,
-  pending: 0,
-}));
-
+// The status screen renders from the snapshot prop; "Sync now" calls the
+// sync_now command. jsdom has no Tauri bridge, so invoke is mocked.
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
 }));
@@ -19,52 +13,45 @@ import type { AgentSnapshot } from "../lib/agent";
 import { UNSUPPORTED_SOURCES } from "../lib/collection-disclosure";
 import StatusScreen from "./status";
 
-function fakeBackend(command: string): Promise<unknown> {
-  switch (command) {
-    case "is_signed_in":
-      return Promise.resolve(backend.signedIn);
-    case "get_collection_paused":
-      return Promise.resolve(backend.paused);
-    case "get_pending_count":
-      return Promise.resolve(backend.pending);
-    default:
-      return Promise.resolve(undefined);
-  }
-}
-
 afterEach(cleanup);
 beforeEach(() => {
-  backend.signedIn = false;
-  backend.paused = false;
-  backend.pending = 0;
   vi.mocked(invoke).mockReset();
-  vi.mocked(invoke).mockImplementation(fakeBackend as unknown as typeof invoke);
+  vi.mocked(invoke).mockResolvedValue("Sync finished.");
 });
 
-const snapshot: AgentSnapshot = {
-  state: "onboarding",
-  version: "0.1.0",
-  platform: "windows",
-  autostart: false,
-  logDir: "C:\\Users\\me\\AppData\\Local\\com.revealyst.desktop\\logs",
-};
+/** A signed-in, healthy snapshot; override per test. */
+function snap(overrides: Partial<AgentSnapshot> = {}): AgentSnapshot {
+  return {
+    state: "healthy",
+    version: "0.1.0",
+    platform: "windows",
+    autostart: false,
+    logDir: "C:\\Users\\me\\AppData\\Local\\com.revealyst.desktop\\logs",
+    signedIn: true,
+    paused: false,
+    lastSyncAt: null,
+    pendingCount: 0,
+    ...overrides,
+  };
+}
+
+const notSignedIn = snap({ state: "onboarding", signedIn: false });
 
 describe("StatusScreen", () => {
-  it("shows honest not-signed-in placeholders — never fake data", async () => {
-    render(<StatusScreen snapshot={snapshot} />);
-    // Overall status comes from the snapshot's honest state label.
+  it("shows honest not-signed-in placeholders — never fake data", () => {
+    render(<StatusScreen snapshot={notSignedIn} />);
     expect(screen.getByText("Setup needed")).toBeTruthy();
-    await waitFor(() => {
-      expect(screen.getByText("Not signed in yet")).toBeTruthy();
-    });
+    expect(screen.getByText("Not signed in yet")).toBeTruthy();
     expect(screen.getByText("Never — not signed in yet")).toBeTruthy();
     expect(screen.getByText("None yet")).toBeTruthy();
     expect(screen.getByText("Nothing waiting")).toBeTruthy();
     expect(screen.getByText("Automatic updates aren't available yet")).toBeTruthy();
+    // No Sync now button while signed out.
+    expect(screen.queryByRole("button", { name: /sync now/i })).toBeNull();
   });
 
   it("surfaces the Claude Desktop Phase-1 limitation from the disclosure registry", () => {
-    render(<StatusScreen snapshot={snapshot} />);
+    render(<StatusScreen snapshot={notSignedIn} />);
     for (const line of UNSUPPORTED_SOURCES) {
       expect(screen.getByText(line)).toBeTruthy();
     }
@@ -75,38 +62,69 @@ describe("StatusScreen", () => {
     ).toBeTruthy();
   });
 
-  it("reflects a signed-in, paused device honestly", async () => {
-    backend.signedIn = true;
-    backend.paused = true;
-    backend.pending = 2;
-    render(<StatusScreen snapshot={snapshot} />);
-    await waitFor(() => {
-      expect(screen.getByText("Yes — this computer is signed in")).toBeTruthy();
-    });
+  it("reflects a signed-in, paused device honestly and disables Sync now", () => {
+    render(
+      <StatusScreen
+        snapshot={snap({ state: "paused", paused: true, pendingCount: 2 })}
+      />,
+    );
+    expect(screen.getByText("Yes — this computer is signed in")).toBeTruthy();
     expect(screen.getByText("Analytics Only (collection paused)")).toBeTruthy();
-    // Connected sources must NOT claim active reading while paused (it would
-    // contradict the paused mode). No present-tense "is reading" from auth.
     expect(screen.getByText("Claude Code (collection paused)")).toBeTruthy();
     expect(screen.getByText("2 items")).toBeTruthy();
+    const button = screen.getByRole("button", { name: /sync now/i }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText("Resume collection to sync.")).toBeTruthy();
   });
 
-  it("never asserts active reading from sign-in alone — hedges 'if installed'", async () => {
-    // Signed in + not paused: the strongest honest claim is still conditional,
-    // because sign-in doesn't prove Claude Code is installed or running.
-    backend.signedIn = true;
-    backend.paused = false;
-    render(<StatusScreen snapshot={snapshot} />);
+  it("never asserts active reading from sign-in alone — hedges 'if installed'", () => {
+    render(<StatusScreen snapshot={snap()} />);
+    expect(
+      screen.getByText(
+        "Claude Code — if installed, this computer reads its local logs",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("shows the real overall status label from the snapshot state", () => {
+    render(<StatusScreen snapshot={snap({ state: "degraded" })} />);
+    // The status is now LIVE — a degraded sync shows the problem, not "Setup needed".
+    expect(screen.getByText("Running with problems")).toBeTruthy();
+  });
+
+  it("renders a real last-sync time when present", () => {
+    render(<StatusScreen snapshot={snap({ lastSyncAt: Date.now() })} />);
+    expect(screen.getByText("just now")).toBeTruthy();
+  });
+
+  it("does not claim 'Syncing normally' before the first sync has completed", () => {
+    // Signed in + healthy flags but never synced (lastSyncAt null): an honest
+    // "getting ready", not a false-positive "Syncing normally".
+    render(<StatusScreen snapshot={snap({ state: "healthy", lastSyncAt: null })} />);
+    expect(screen.getByText("Getting ready — first sync hasn't run yet")).toBeTruthy();
+    expect(screen.queryByText("Syncing normally")).toBeNull();
+  });
+
+  it("shows 'Syncing normally' only once a sync has actually landed", () => {
+    render(<StatusScreen snapshot={snap({ state: "healthy", lastSyncAt: Date.now() })} />);
+    expect(screen.getByText("Syncing normally")).toBeTruthy();
+  });
+
+  it("Sync now triggers the sync_now command and refreshes", async () => {
+    const onRefresh = vi.fn();
+    render(<StatusScreen snapshot={snap()} onRefresh={onRefresh} />);
+    fireEvent.click(screen.getByRole("button", { name: /sync now/i }));
     await waitFor(() => {
-      expect(
-        screen.getByText(
-          "Claude Code — if installed, this computer reads its local logs",
-        ),
-      ).toBeTruthy();
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("sync_now");
     });
+    await waitFor(() => {
+      expect(onRefresh).toHaveBeenCalled();
+    });
+    expect(screen.getByText("Sync finished.")).toBeTruthy();
   });
 
   it("shows the real app version from the snapshot", () => {
-    render(<StatusScreen snapshot={snapshot} />);
+    render(<StatusScreen snapshot={snap()} />);
     expect(screen.getByText("0.1.0")).toBeTruthy();
   });
 

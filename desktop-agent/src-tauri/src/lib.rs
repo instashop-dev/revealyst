@@ -162,8 +162,18 @@ pub fn run() {
                         Ok(store) => {
                             let store = Arc::new(store);
                             let control = Arc::new(runtime::CollectionControl::default());
+                            // Shared live sync status: each cycle folds its
+                            // outcome in here so the tray/window status +
+                            // last-sync reflect reality (not the M1 default).
+                            let sync_status = Arc::new(runtime::SyncStatus::default());
+                            // ONE sync engine shared by the loop and "Sync now"
+                            // so their single-in-flight guard actually
+                            // serializes the two paths.
+                            let engine = Arc::new(crate::sync::SyncEngine::new());
                             app.manage(store.clone());
                             app.manage(control.clone());
+                            app.manage(sync_status.clone());
+                            app.manage(engine.clone());
                             // Signed auto-update: startup + 6-hourly check (spec
                             // §18.3). Shares the same store + control as the
                             // collection loop so a mandatory update can block
@@ -173,7 +183,7 @@ pub fn run() {
                                 store.clone(),
                                 control.clone(),
                             );
-                            runtime::spawn_loop(store, control);
+                            runtime::spawn_loop(store, control, sync_status, engine);
                         }
                         Err(error) => tracing::error!(
                             component = "runtime",

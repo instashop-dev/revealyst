@@ -12,6 +12,10 @@ vi.mock("@tauri-apps/api/core", () => ({
         platform: "windows",
         autostart: false,
         logDir: "C:\\logs",
+        signedIn: false,
+        paused: false,
+        lastSyncAt: null,
+        pendingCount: 0,
       });
     }
     if (command === "get_autostart") {

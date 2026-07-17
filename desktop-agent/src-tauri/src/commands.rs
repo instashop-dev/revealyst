@@ -18,20 +18,40 @@ use tauri_plugin_autostart::ManagerExt;
 use crate::runtime::{self, CollectionControl};
 use crate::state::{resolve_state, AgentState, StateInputs};
 use crate::store::Store;
-use crate::sync::SyncEngine;
+use crate::sync::{ReqwestTransport, SyncEngine};
 
-/// The agent's current state. Wave M1 has no enrollment (M2) and no
-/// collection (M3/M5), so the inputs are the honest defaults: not enrolled →
-/// `Onboarding`. Later waves feed real signals in here.
+/// The default (pre-enrollment) agent state: not enrolled → `Onboarding`. Used
+/// for the tray's initial render before any managed state exists. The LIVE
+/// state (once the store/control/sync-status are managed) is
+/// [`resolve_live_state`], which the frontend snapshot uses.
 pub fn current_state() -> AgentState {
     resolve_state(&StateInputs::default())
+}
+
+/// Resolve the agent's CURRENT state from live signals: enrollment (keychain
+/// token), pause + mandatory-update ([`CollectionControl`]), and the sticky
+/// sync-outcome flags ([`runtime::SyncStatus`], set by each sync cycle). Falls
+/// back to the honest default (`Onboarding`) when the managed state isn't ready
+/// yet. This is what makes "Syncing normally" / "Running with problems" etc.
+/// reflect reality instead of the frozen M1 placeholder.
+fn resolve_live_state<R: Runtime>(app: &AppHandle<R>) -> AgentState {
+    let mut inputs = app
+        .try_state::<Arc<runtime::SyncStatus>>()
+        .map(|s| s.current())
+        .unwrap_or_default();
+    inputs.enrolled = crate::secrets::has_token();
+    if let Some(control) = app.try_state::<Arc<CollectionControl>>() {
+        inputs.paused = control.is_paused();
+        inputs.update_required = control.is_update_required();
+    }
+    resolve_state(&inputs)
 }
 
 /// Everything the frontend is allowed to know, in one serializable snapshot.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSnapshot {
-    /// Spec §20 state string (e.g. "onboarding").
+    /// Spec §20 state string (e.g. "onboarding"), resolved live.
     pub state: AgentState,
     /// App version from Cargo.toml.
     pub version: String,
@@ -41,12 +61,34 @@ pub struct AgentSnapshot {
     pub autostart: bool,
     /// Where the log files live (shown on the diagnostics screen).
     pub log_dir: String,
+    /// Whether this computer holds a device token (keychain presence only).
+    pub signed_in: bool,
+    /// Whether background collection is currently paused.
+    pub paused: bool,
+    /// Unix-ms of the most recent SUCCESSFUL upload, or `None` if never synced.
+    /// Persisted in the store (`latest_upload_at`), so it survives a restart.
+    pub last_sync_at: Option<i64>,
+    /// How many analytics events are still waiting locally to be sent.
+    pub pending_count: i64,
 }
 
 #[tauri::command]
 pub fn get_agent_snapshot<R: Runtime>(app: AppHandle<R>) -> AgentSnapshot {
+    let store = app.try_state::<Arc<Store>>().map(|s| s.inner().clone());
+    let pending_count = store
+        .as_ref()
+        .map(|s| s.pending_count().unwrap_or(0))
+        .unwrap_or(0);
+    let last_sync_at = store
+        .as_ref()
+        .and_then(|s| s.latest_upload_at().ok().flatten());
+    let paused = app
+        .try_state::<Arc<CollectionControl>>()
+        .map(|c| c.is_paused())
+        .unwrap_or(false);
+
     AgentSnapshot {
-        state: current_state(),
+        state: resolve_live_state(&app),
         version: crate::agent_version().to_string(),
         platform: std::env::consts::OS.to_string(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
@@ -55,6 +97,10 @@ pub fn get_agent_snapshot<R: Runtime>(app: AppHandle<R>) -> AgentSnapshot {
             .app_log_dir()
             .map(|p| p.display().to_string())
             .unwrap_or_default(),
+        signed_in: crate::secrets::has_token(),
+        paused,
+        last_sync_at,
+        pending_count,
     }
 }
 
@@ -104,15 +150,25 @@ pub async fn sync_now<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
         Some(control) => control.inner().clone(),
         None => return Err("Collection isn't ready yet.".to_string()),
     };
+    let status = match app.try_state::<Arc<runtime::SyncStatus>>() {
+        Some(status) => status.inner().clone(),
+        None => return Err("Collection isn't ready yet.".to_string()),
+    };
+    // Reuse the SHARED engine (managed in lib.rs) so the single-in-flight guard
+    // serializes this manual sync against the background loop — a fresh engine
+    // per click would let the two race and double-upload the same events.
+    let engine = match app.try_state::<Arc<SyncEngine<ReqwestTransport>>>() {
+        Some(engine) => engine.inner().clone(),
+        None => return Err("Collection isn't ready yet.".to_string()),
+    };
     if !runtime::collection_allowed(&control) {
         return Ok(
             "Nothing to sync yet — sign in first (and make sure sync isn't paused).".to_string(),
         );
     }
-    let engine = SyncEngine::new();
     let cfg = runtime::CollectConfig::from_env();
-    runtime::run_cycle(&store, &engine, &control, &cfg).await;
-    Ok("Sync finished.".to_string())
+    let outcome = runtime::run_cycle(&store, &engine, &control, &cfg, &status).await;
+    Ok(runtime::sync_now_message(outcome).to_string())
 }
 
 /// The `{imported, skipped, failed}` counts one export import produced, for the
@@ -294,6 +350,10 @@ mod tests {
             platform: "windows".into(),
             autostart: false,
             log_dir: "C:\\logs".into(),
+            signed_in: true,
+            paused: false,
+            last_sync_at: Some(1_767_000_000_000),
+            pending_count: 3,
         };
         let json = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(json["state"], "onboarding");
@@ -301,5 +361,27 @@ mod tests {
         assert_eq!(json["platform"], "windows");
         assert_eq!(json["autostart"], false);
         assert_eq!(json["logDir"], "C:\\logs");
+        // New live-status fields (camelCase serde) the status screen renders.
+        assert_eq!(json["signedIn"], true);
+        assert_eq!(json["paused"], false);
+        assert_eq!(json["lastSyncAt"], 1_767_000_000_000i64);
+        assert_eq!(json["pendingCount"], 3);
+    }
+
+    #[test]
+    fn snapshot_serializes_never_synced_as_null_last_sync() {
+        let snapshot = AgentSnapshot {
+            state: current_state(),
+            version: "0.1.0".into(),
+            platform: "macos".into(),
+            autostart: false,
+            log_dir: String::new(),
+            signed_in: false,
+            paused: false,
+            last_sync_at: None,
+            pending_count: 0,
+        };
+        let json = serde_json::to_value(&snapshot).unwrap();
+        assert!(json["lastSyncAt"].is_null(), "never-synced → null, not 0");
     }
 }
