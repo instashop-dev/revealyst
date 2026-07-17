@@ -25,6 +25,15 @@ tauri-plugin-opener = "2"
 # URL is parsed and validated ONLY on the Rust side (deeplink.rs) — the
 # frontend has no deep-link capability and can never read the raw URL/code.
 tauri-plugin-deep-link = "2"
+# Signed auto-update (update.rs, spec §18). The official Tauri updater: it
+# fetches our dynamic manifest, downloads the artifact in the background, and
+# VERIFIES the artifact's minisign signature against the baked-in public key
+# (tauri.conf.json `plugins.updater.pubkey`) before installing — spec §29
+# "signed updates only, no remote script loading". rustls (no OpenSSL system
+# dep), matching the tree's posture.
+tauri-plugin-updater = { version = "2", default-features = false, features = [
+  "rustls-tls",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tracing = "0.1"

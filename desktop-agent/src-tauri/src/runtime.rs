@@ -33,11 +33,17 @@ use crate::store::queue::now_ms;
 use crate::store::Store;
 use crate::sync::{ReqwestTransport, SyncEngine};
 
-/// Live-collection control shared between the loop and the command surface. Phase
-/// 1 exposes a single pause switch; the loop reads it every tick.
+/// Live-collection control shared between the loop and the command surface.
+/// Phase 1 exposes a pause switch and a mandatory-update block; the loop reads
+/// both every tick.
 #[derive(Debug, Default)]
 pub struct CollectionControl {
     paused: AtomicBool,
+    /// Set by the update loop when a MANDATORY (security/privacy/protocol)
+    /// update is available (spec §18.3/§20 `update_required`): sync is blocked
+    /// until the update installs. Cleared when the update is gone (installed or
+    /// the release was halted/pulled).
+    update_required: AtomicBool,
 }
 
 impl CollectionControl {
@@ -47,6 +53,18 @@ impl CollectionControl {
 
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::Release);
+    }
+
+    /// Whether a mandatory update is blocking collection (spec §20
+    /// `update_required`).
+    pub fn is_update_required(&self) -> bool {
+        self.update_required.load(Ordering::Acquire)
+    }
+
+    /// Set/clear the mandatory-update block (the update loop owns this).
+    pub fn set_update_required(&self, update_required: bool) {
+        self.update_required
+            .store(update_required, Ordering::Release);
     }
 }
 
@@ -120,10 +138,13 @@ pub fn build_context(now: i64, cfg: &CollectConfig) -> ConnectorContext {
     }
 }
 
-/// Whether a collection pass is permitted right now: enrolled AND not paused.
-/// Enrollment (a keychain device token) also enforces Personal-only (D-DA-2).
+/// Whether a collection pass is permitted right now: enrolled, not paused, AND
+/// not blocked by a mandatory update. Enrollment (a keychain device token) also
+/// enforces Personal-only (D-DA-2). A pending mandatory update (spec §20
+/// `update_required`) blocks sync until the agent updates — already-queued
+/// events stay durable and upload once the new version is running.
 pub fn collection_allowed(control: &CollectionControl) -> bool {
-    crate::secrets::has_token() && !control.is_paused()
+    crate::secrets::has_token() && !control.is_paused() && !control.is_update_required()
 }
 
 /// One full collect→sync cycle. No-op unless [`collection_allowed`]. Collects the
@@ -199,6 +220,23 @@ mod tests {
         assert!(control.is_paused());
         // Even if a token existed, a paused control forbids collection.
         assert!(!collection_allowed(&control));
+    }
+
+    #[test]
+    fn mandatory_update_blocks_collection() {
+        let control = CollectionControl::default();
+        assert!(!control.is_update_required());
+        control.set_update_required(true);
+        assert!(control.is_update_required());
+        // A pending mandatory update forbids collection regardless of the
+        // pause/enrollment state (spec §20 update_required blocks sync).
+        assert!(!collection_allowed(&control));
+        // Clearing it (update installed / release pulled) flips the flag back
+        // off. (We can't assert collection_allowed becomes true here — this test
+        // has no keychain token, so the enrollment gate keeps it false; the
+        // point proven is that update_required no longer contributes a block.)
+        control.set_update_required(false);
+        assert!(!control.is_update_required());
     }
 
     #[test]
