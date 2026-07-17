@@ -1,6 +1,7 @@
-import { MonitorSmartphone } from "lucide-react";
+import { Download, MonitorSmartphone } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { DeviceRow } from "@/components/settings/device-row";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -51,7 +52,14 @@ export default async function SettingsDevicesPage() {
               icon={MonitorSmartphone}
               title="No devices yet"
               description="Install the Revealyst desktop app on your computer and sign in to add it here."
-            />
+            >
+              {/* Relative link: the worker 308s app.revealyst.com/download to
+                  the marketing host (/download classifies as marketing). */}
+              <Button nativeButton={false} render={<a href="/download" />}>
+                <Download aria-hidden />
+                Get the desktop app
+              </Button>
+            </EmptyState>
           ) : (
             <div className="flex flex-col gap-4">
               {devices.map(({ device, lastHeartbeatLabel, enrolledLabel }) => (
@@ -66,6 +74,12 @@ export default async function SettingsDevicesPage() {
                   revoked={device.revoked}
                 />
               ))}
+              <a
+                href="/download"
+                className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+              >
+                Add another computer
+              </a>
             </div>
           )}
         </CardContent>
