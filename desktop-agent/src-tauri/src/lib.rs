@@ -11,16 +11,20 @@ pub mod allowlist;
 pub mod auth;
 pub mod commands;
 pub mod config;
+pub mod connectors;
 pub mod deeplink;
 pub mod extract;
 pub mod lifecycle;
 pub mod logging;
 pub mod privacy;
+pub mod runtime;
 pub mod secrets;
 pub mod state;
 pub mod store;
 pub mod sync;
 pub mod tray;
+
+use std::sync::Arc;
 
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -93,6 +97,8 @@ pub fn run() {
             commands::set_autostart,
             commands::begin_sign_in,
             commands::is_signed_in,
+            commands::sync_now,
+            commands::set_collection_paused,
         ])
         .setup(|app| {
             if let Ok(log_dir) = app.path().app_log_dir() {
@@ -130,6 +136,38 @@ pub fn run() {
                     dispatch_deep_link(&handle, url.as_str());
                 }
             });
+
+            // Open the encrypted local store and start the live collection loop
+            // (Wave M5). The loop is idle until the device is enrolled AND not
+            // paused (runtime::collection_allowed), so opening the store here only
+            // creates the empty encrypted queue + its keychain key — never any
+            // user activity before sign-in. A store-open failure disables
+            // collection but never crashes the tray app.
+            match app.path().app_data_dir() {
+                Ok(data_dir) => {
+                    let db_path = data_dir.join(store::DB_FILE_NAME);
+                    match store::Store::open(&db_path) {
+                        Ok(store) => {
+                            let store = Arc::new(store);
+                            let control = Arc::new(runtime::CollectionControl::default());
+                            app.manage(store.clone());
+                            app.manage(control.clone());
+                            runtime::spawn_loop(store, control);
+                        }
+                        Err(error) => tracing::error!(
+                            component = "runtime",
+                            error_code = error.code(),
+                            "could not open the local store; collection disabled"
+                        ),
+                    }
+                }
+                Err(error) => tracing::error!(
+                    component = "runtime",
+                    error_code = "app_data_dir_unavailable",
+                    error = %error,
+                    "no app data dir; collection disabled"
+                ),
+            }
 
             tray::setup_tray(app.handle())?;
             lifecycle::apply_startup_visibility(app.handle());
