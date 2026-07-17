@@ -6,7 +6,9 @@ import type { Db } from "../src/db/client";
 import { createFixtureOrg } from "../src/db/fixtures";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
+import { applyPaddleSubscriptionEvent } from "../src/db/subscriptions";
 import {
+  cachedAccessDecision,
   cachedCapabilityGraph,
   cachedMissionCatalog,
   cachedRecommendationCatalog,
@@ -80,6 +82,83 @@ describe("reference cache", () => {
     const second = await cachedMissionCatalog(scope);
     expect(queryCount).toBe(warmStart);
     expect(second).toEqual(first);
+  });
+
+  it("access decision: caches UNBLOCKED only — an upgrade unblocks on the very next call", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    // An org OVER the free band: one connection, six identity-resolved people
+    // with an active day TODAY (tracked_user counts resolved identities with
+    // a metric record in the trailing-30d entitlement period).
+    const org = await createFixtureOrg(db, "reference-cache-access", "team");
+    const scope = forOrg(db, org.id);
+    const [conn] = await db
+      .insert(schema.connections)
+      .values({
+        orgId: org.id,
+        vendor: "cursor",
+        displayName: "Cursor",
+        status: "active",
+        authKind: "api_key",
+      })
+      .returning();
+    const today = new Date().toISOString().slice(0, 10);
+    for (let i = 0; i < 6; i++) {
+      const [person] = await db
+        .insert(schema.people)
+        .values({ orgId: org.id, pseudonym: `rc-person-${i}` })
+        .returning();
+      const [subject] = await db
+        .insert(schema.subjects)
+        .values({
+          orgId: org.id,
+          connectionId: conn.id,
+          kind: "person",
+          externalId: `rc-ext-${i}`,
+        })
+        .returning();
+      await db.insert(schema.identities).values({
+        orgId: org.id,
+        subjectId: subject.id,
+        personId: person.id,
+        method: "manual",
+      });
+      await db.insert(schema.metricRecords).values({
+        orgId: org.id,
+        subjectId: subject.id,
+        metricKey: "active_day",
+        day: today,
+        connectionId: conn.id,
+        value: 1,
+        attribution: "person",
+        sourceConnector: "test@1",
+      });
+    }
+
+    // 6 tracked > FREE_TRACKED_USER_LIMIT (5), no subscription → BLOCKED —
+    // and a blocked decision must NOT be stored (re-derived every call).
+    const orgShape = { id: org.id, kind: "team" as const };
+    expect((await cachedAccessDecision(db, scope, orgShape)).blocked).toBe(true);
+    const afterBlocked = queryCount;
+    expect((await cachedAccessDecision(db, scope, orgShape)).blocked).toBe(true);
+    expect(queryCount).toBeGreaterThan(afterBlocked); // re-queried, not cached
+
+    // The org upgrades → the VERY NEXT call unblocks (nothing stale pinned).
+    await applyPaddleSubscriptionEvent(db, {
+      orgId: org.id,
+      paddleSubscriptionId: "sub_rc_access",
+      occurredAt: new Date(),
+      status: "active",
+      priceId: "pri_rc",
+      quantity: 6,
+    });
+    expect((await cachedAccessDecision(db, scope, orgShape)).blocked).toBe(false);
+
+    // ...and the unblocked decision IS cached: the repeat call issues no
+    // queries and returns the same decision.
+    const warmStart = queryCount;
+    const warm = await cachedAccessDecision(db, scope, orgShape);
+    expect(queryCount).toBe(warmStart);
+    expect(warm.blocked).toBe(false);
   });
 
   it("keys the recommendation catalog by org — org rows never cross tenants", async () => {

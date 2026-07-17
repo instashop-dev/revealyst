@@ -473,6 +473,37 @@ describe("budgets repo + read layer", () => {
     await scope.budgets.clear();
   });
 
+  it("prefetched spend rows produce IDENTICAL output to the direct reads", async () => {
+    // The shared-read seam (perf: every page ≤3s): the Today page hands
+    // readBudgetAlert month-to-date slices of its own wider spend fetches.
+    // This is the equivalence pin — a slice that drifts from the direct
+    // reads' window changes the alert (an invariant-(b) fabrication), so it
+    // must fail here, not on a dashboard.
+    const today = "2026-07-15";
+    await scope.budgets.set({ monthlyLimitCents: 10_000 });
+    const direct = await readBudgetAlert(scope, today);
+    expect(direct).not.toBeNull(); // non-vacuous: a real alert on both paths
+
+    const window = monthToDateWindow(today);
+    const slice = <T extends { day: string }>(rows: T[]) =>
+      rows.filter((r) => r.day >= window.from && r.day <= window.to);
+    // Deliberately WIDER fetches than the reader needs, mirroring the page.
+    const prefetched = await readBudgetAlert(scope, today, {
+      reportedRows: scope.metrics
+        .records({ metricKey: "spend_cents", from: "2025-01-01", to: "2026-12-31" })
+        .then(slice),
+      estimatedRows: scope.metrics
+        .records({
+          metricKey: "spend_cents_estimated",
+          from: "2025-01-01",
+          to: "2026-12-31",
+        })
+        .then(slice),
+    });
+    expect(prefetched).toEqual(direct);
+    await scope.budgets.clear();
+  });
+
   it("readBudgetAlertForRole skips the read for members — personal orgs included", async () => {
     // A budget + spend that WOULD alert for an admin (6_000 / 10_000 = 60%).
     await scope.budgets.set({ monthlyLimitCents: 10_000 });

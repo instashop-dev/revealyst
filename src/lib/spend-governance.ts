@@ -105,12 +105,32 @@ export function priorMonthWindow(today: string): { from: string; to: string } {
  * added to the threshold (invariant b). The raw rows are returned so the
  * drill-down can group them without re-querying. One Promise.all (depth 1).
  */
-export async function readMonthToDateSpend(scope: OrgScope, today: string) {
+/**
+ * Optional pre-fetched spend rows (the dashboardSummary/readMaturityView
+ * prefetched pattern): the Today page already fetches both spend metric
+ * families for its own cards, so it hands the in-flight promises here instead
+ * of paying two duplicate Neon round trips. Each promise must resolve to rows
+ * sliced EXACTLY as the direct read would return them — the caller slices its
+ * wider fetch to `monthToDateWindow(today)` by day before passing it in
+ * (pinned by the equivalence test in tests/spend-governance.test.ts).
+ */
+export type MonthToDateSpendPrefetched = {
+  reportedRows?: Promise<Awaited<ReturnType<OrgScope["metrics"]["records"]>>>;
+  estimatedRows?: Promise<Awaited<ReturnType<OrgScope["metrics"]["records"]>>>;
+};
+
+export async function readMonthToDateSpend(
+  scope: OrgScope,
+  today: string,
+  prefetched?: MonthToDateSpendPrefetched,
+) {
   const window = monthToDateWindow(today);
   const [budget, reportedRows, estimatedRows] = await Promise.all([
     scope.budgets.get(),
-    scope.metrics.records({ metricKey: "spend_cents", ...window }),
-    scope.metrics.records({ metricKey: "spend_cents_estimated", ...window }),
+    prefetched?.reportedRows ??
+      scope.metrics.records({ metricKey: "spend_cents", ...window }),
+    prefetched?.estimatedRows ??
+      scope.metrics.records({ metricKey: "spend_cents_estimated", ...window }),
   ]);
   return {
     budget,
@@ -538,8 +558,13 @@ export type BudgetAlertSummary = {
 export async function readBudgetAlert(
   scope: OrgScope,
   today: string,
+  prefetched?: MonthToDateSpendPrefetched,
 ): Promise<BudgetAlertSummary | null> {
-  const { budget, reportedCents } = await readMonthToDateSpend(scope, today);
+  const { budget, reportedCents } = await readMonthToDateSpend(
+    scope,
+    today,
+    prefetched,
+  );
   const alert = budgetAlertFor(budget, reportedCents);
   if (!budget || !alert) return null;
   return { alert, reportedCents, monthlyLimitCents: budget.monthlyLimitCents };
@@ -558,7 +583,8 @@ export async function readBudgetAlertForRole(
   scope: OrgScope,
   role: "admin" | "member",
   today: string,
+  prefetched?: MonthToDateSpendPrefetched,
 ): Promise<BudgetAlertSummary | null> {
   if (role !== "admin") return null;
-  return readBudgetAlert(scope, today);
+  return readBudgetAlert(scope, today, prefetched);
 }

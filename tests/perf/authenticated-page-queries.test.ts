@@ -17,7 +17,10 @@ import {
   cachedVerifiedOverallBenchmarks,
   clearReferenceCache,
 } from "../../src/lib/reference-cache";
-import { readBudgetAlertForRole } from "../../src/lib/spend-governance";
+import {
+  monthToDateWindow,
+  readBudgetAlertForRole,
+} from "../../src/lib/spend-governance";
 import { readDashboardView } from "../../src/lib/dashboard-view";
 import {
   readMaturityView,
@@ -263,6 +266,16 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
       from: spans.spendFrom,
       to: spans.spendTo,
     });
+    const estimatedSpendPromise = scope.metrics.records({
+      metricKey: "spend_cents_estimated",
+      from: period.periodStart,
+      to: period.periodEnd,
+    });
+    const monthToDate = monthToDateWindow(anchor);
+    const sliceToMonthToDate = (
+      rows: Awaited<ReturnType<typeof scope.metrics.records>>,
+    ) =>
+      rows.filter((r) => r.day >= monthToDate.from && r.day <= monthToDate.to);
     const scoreRowsPromise = scope.scores.results({
       from: spans.scoreFrom,
       to: spans.scoreTo,
@@ -297,6 +310,7 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
               (r) => r.day >= period.periodStart && r.day <= period.periodEnd,
             ),
           ),
+          estimatedRows: estimatedSpendPromise,
         },
       ),
       cachedVerifiedOverallBenchmarks(db),
@@ -308,7 +322,10 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
           subjectLevel: "person",
         }),
       ),
-      readBudgetAlertForRole(scope, "admin", anchor),
+      readBudgetAlertForRole(scope, "admin", anchor, {
+        reportedRows: spendPromise.then(sliceToMonthToDate),
+        estimatedRows: estimatedSpendPromise.then(sliceToMonthToDate),
+      }),
       activeDayPromise,
       agentActivePromise,
       identitiesPromise,
@@ -345,8 +362,11 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     results.push(result);
     expect(placed).toBe(true);
 
-    // Measured after the shared-read pass (this fixture): total 29 cold /
-    // 22 warm (was 39), depth 1. Generous ceiling catches a real regression
+    // Measured after the shared-read pass + the spend/budget sharing pass
+    // (this fixture): total 27 cold / 20 warm (was 39), depth 1 — and the
+    // shell's access decision is additionally cached per-org in production
+    // (cachedAccessDecision), so the warm full-request query count is the
+    // Today number alone. Generous ceiling catches a real regression
     // (an accidental N+1 or a re-duplicated read) without being brittle to a
     // one-query change. Depth is pinned EXACT.
     expect(result.total).toBeGreaterThan(0);

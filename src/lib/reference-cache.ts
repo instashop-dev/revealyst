@@ -1,6 +1,7 @@
 import type { Db } from "../db/client";
 import { listBenchmarks } from "../db/benchmarks";
 import type { forOrg } from "../db/org-scope";
+import { computeAccess } from "./access";
 
 type OrgScope = ReturnType<typeof forOrg>;
 
@@ -69,7 +70,17 @@ export function clearReferenceCache(): void {
   cacheStore().clear();
 }
 
-async function cachedReference<T>(key: string, load: () => Promise<T>): Promise<T> {
+async function cachedReference<T>(
+  key: string,
+  load: () => Promise<T>,
+  opts?: {
+    ttlMs?: number;
+    /** Return false to serve this result WITHOUT storing it — for decisions
+     * whose negative case must always be re-derived fresh (see
+     * cachedAccessDecision). Defaults to storing everything. */
+    shouldStore?: (value: T) => boolean;
+  },
+): Promise<T> {
   if (!cacheEnabled()) {
     return load();
   }
@@ -80,10 +91,12 @@ async function cachedReference<T>(key: string, load: () => Promise<T>): Promise<
     return structuredClone(hit.value) as T;
   }
   const value = await load();
-  store.set(key, {
-    value: structuredClone(value),
-    expiresAt: now + REFERENCE_CACHE_TTL_MS,
-  });
+  if (opts?.shouldStore === undefined || opts.shouldStore(value)) {
+    store.set(key, {
+      value: structuredClone(value),
+      expiresAt: now + (opts?.ttlMs ?? REFERENCE_CACHE_TTL_MS),
+    });
+  }
   return value;
 }
 
@@ -127,5 +140,46 @@ export function cachedVerifiedOverallBenchmarks(
 ): ReturnType<typeof listBenchmarks> {
   return cachedReference("benchmarks:verified:overall", () =>
     listBenchmarks(db, { status: "verified", segment: "overall" }),
+  );
+}
+
+/** The free-band paywall decision's own short TTL — see cachedAccessDecision. */
+export const ACCESS_CACHE_TTL_MS = 60 * 1000;
+
+/**
+ * The free-band access decision (computeAccess), cached per-ORG for 60s.
+ * computeAccess runs on EVERY authenticated page render (the app shell) and
+ * every handleApi call — 3 Neon round trips each time — yet its inputs
+ * (subscription row, tracked-user count) change on billing events, not per
+ * request.
+ *
+ * The asymmetry is the safety property: ONLY `blocked: false` results are
+ * stored. A BLOCKED decision is re-derived fresh on every request, so the
+ * moment an org upgrades (Paddle webhook lands), the very next request
+ * unblocks — the cache can never pin a paying customer behind the paywall.
+ * The inverse staleness is a 60s grace window: an org that crosses the free
+ * band keeps a cached `blocked: false` for up to a minute before the gate
+ * drops, which under-enforces briefly (safe direction) and never over-blocks.
+ * Keyed by org id (org-scoped decision — invariant a).
+ */
+export function cachedAccessDecision(
+  db: Db,
+  scope: OrgScope,
+  org: { id: string; kind: "personal" | "team" | "system" },
+): ReturnType<typeof computeAccess> {
+  // The key derives from scope.orgId (the org the queries actually run as),
+  // never from the separate org shape — same hard rule as the rec-catalog
+  // helper. computeAccess blends both inputs, so a caller holding a
+  // mismatched pair would cache a blended decision; fail loudly instead.
+  if (scope.orgId !== org.id) {
+    throw new Error("cachedAccessDecision: scope and org disagree");
+  }
+  return cachedReference(
+    `access:${scope.orgId}`,
+    () => computeAccess(db, scope, org),
+    {
+      ttlMs: ACCESS_CACHE_TTL_MS,
+      shouldStore: (access) => !access.blocked,
+    },
   );
 }
