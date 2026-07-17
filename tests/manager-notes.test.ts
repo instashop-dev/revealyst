@@ -6,6 +6,7 @@ import type { Db } from "../src/db/client";
 import { createFixtureOrg } from "../src/db/fixtures";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
+import { createManagerNote } from "../src/lib/api-impl";
 import { MANAGER_NOTES_COPY } from "../src/lib/manager-capability-copy";
 import { loadManagerNotes } from "../src/lib/manager-notes-view";
 
@@ -295,6 +296,130 @@ describe("managerNotes.deleteByAuthor — author-only delete", () => {
   });
 });
 
+describe("player-manager edge — self-exclusion (ADR 0053)", () => {
+  // A manager who is ALSO a tracked member of a team they manage. The
+  // person∈managed-team join alone would let them read co-managers' notes
+  // about themselves; the loader/impl seam excludes them whenever the
+  // person↔account link identifies the caller as the subject
+  // (resolveSelfPersonId semantics: people.auth_user_id, or org-of-one).
+  const PM_USER = "mn-pm"; // LINKED player-manager
+  const UM_USER = "mn-um"; // UNLINKED player-manager
+  let teamPId: string;
+  let teamUId: string;
+  let pmPersonId: string; // authUserId = PM_USER
+  let umPersonId: string; // no auth link
+
+  beforeAll(async () => {
+    const scope = forOrg(db, orgId);
+    await db.insert(schema.user).values([
+      { id: PM_USER, name: "Pia", email: "pia@fixture.example" },
+      { id: UM_USER, name: "Uma", email: "uma@fixture.example" },
+    ]);
+    await db.insert(schema.orgMembers).values([
+      { orgId, userId: PM_USER, role: "member" },
+      { orgId, userId: UM_USER, role: "member" },
+    ]);
+    teamPId = (await scope.teams.create("Team P")).id;
+    teamUId = (await scope.teams.create("Team U")).id;
+    pmPersonId = (
+      await scope.people.create({
+        displayName: "Pia",
+        email: "pia@fixture.example",
+        authUserId: PM_USER,
+      })
+    ).id;
+    umPersonId = (
+      await scope.people.create({
+        displayName: "Uma",
+        email: "uma@fixture.example",
+        // NO authUserId — the unlinked case (the prod-flow linking gap).
+      })
+    ).id;
+    await scope.teams.addMember(teamPId, pmPersonId);
+    await scope.teams.addMember(teamUId, umPersonId);
+    // Each is a MANAGER of their own team; MANAGER_A co-manages both and
+    // writes the notes the subjects must (not) see.
+    await scope.teamManagers.assign(teamPId, PM_USER);
+    await scope.teamManagers.assign(teamUId, UM_USER);
+    await scope.teamManagers.assign(teamPId, MANAGER_A);
+    await scope.teamManagers.assign(teamUId, MANAGER_A);
+    const managedA = await scope.teamManagers.managedTeamIds(MANAGER_A);
+    await scope.managerNotes.create(
+      pmPersonId,
+      managedA,
+      MANAGER_A,
+      "co-manager note about Pia",
+      null,
+    );
+    await scope.managerNotes.create(
+      umPersonId,
+      managedA,
+      MANAGER_A,
+      "co-manager note about Uma",
+      null,
+    );
+  });
+
+  it("LINKED player-manager: reading notes about themselves → forbidden", async () => {
+    const r = await load(PM_USER, pmPersonId);
+    expect(r.status).toBe("forbidden");
+  });
+
+  it("LINKED player-manager: writing a note about themselves → 404", async () => {
+    await expect(
+      createManagerNote(
+        { scope: forOrg(db, orgId) },
+        {
+          callerUserId: PM_USER,
+          personId: pmPersonId,
+          visibilityMode: "managed",
+          body: "note to self",
+          followUpOn: null,
+        },
+      ),
+    ).rejects.toMatchObject({ status: 404 });
+    // Nothing was written.
+    const seen = await listAs(MANAGER_A, pmPersonId);
+    expect(seen!.some((n) => n.body === "note to self")).toBe(false);
+  });
+
+  it("LINKED player-manager still reads notes about OTHER managed people", async () => {
+    // The exclusion is subject-specific, never a blanket manager demotion:
+    // grant Pia team U and she reads Uma's notes like any manager.
+    const scope = forOrg(db, orgId);
+    await scope.teamManagers.assign(teamUId, PM_USER);
+    const r = await load(PM_USER, umPersonId);
+    expect(r.status).toBe("ok");
+  });
+
+  it("co-managers of the player-manager's team still read notes about them", async () => {
+    const r = await load(MANAGER_A, pmPersonId);
+    expect(r.status).toBe("ok");
+    if (r.status !== "ok") return;
+    expect(r.notes.some((n) => n.body === "co-manager note about Pia")).toBe(
+      true,
+    );
+  });
+
+  it("UNLINKED player-manager: NOT structurally excluded — the ADR's recorded residual risk", async () => {
+    // Uma's tracked person row carries no auth link (people.auth_user_id is
+    // rarely set by prod flows — the known linking gap), and the org has many
+    // people, so resolveSelfPersonId(caller) is null and the self-exclusion
+    // CANNOT fire: she reads the co-manager's note about herself. This pin
+    // documents CURRENT behavior as ADR 0053's explicit residual risk (the
+    // rendered copy deliberately claims only "visible to managers of this
+    // person's teams" for exactly this reason). If this test ever flips to
+    // forbidden, the exclusion got stronger — update the ADR's residual-risk
+    // paragraph, don't just re-pin.
+    const r = await load(UM_USER, umPersonId);
+    expect(r.status).toBe("ok");
+    if (r.status !== "ok") return;
+    expect(r.notes.some((n) => n.body === "co-manager note about Uma")).toBe(
+      true,
+    );
+  });
+});
+
 describe("manager-notes copy — plain-English sweep (D-TCI-7)", () => {
   const collectStrings = (v: unknown): string[] => {
     if (typeof v === "string") return [v];
@@ -335,14 +460,16 @@ describe("manager-notes copy — plain-English sweep (D-TCI-7)", () => {
     }
   });
 
-  it("states on the surface that co-managers can see notes and the person never does", () => {
+  it("claims exactly the enforced visibility scope — and never the unenforceable universal promise", () => {
     // The candid-visibility disclosure (ADR 0053 consequences): an author must
-    // never be surprised by who reads their note.
+    // never be surprised by who reads their note…
     expect(MANAGER_NOTES_COPY.description).toContain(
-      "Anyone who manages their team can see these",
+      "Visible only to managers of this person's teams",
     );
-    expect(MANAGER_NOTES_COPY.description).toContain(
-      "never shown to the person",
-    );
+    // …and the copy must NOT promise "the person never sees these" (W3-N
+    // overclaim): an UNLINKED player-manager can't be structurally excluded —
+    // the ADR's recorded residual risk.
+    expect(allCopy).not.toContain("never shown to the person");
+    expect(allCopy).not.toContain("never sees");
   });
 });

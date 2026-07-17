@@ -115,9 +115,11 @@ export const TEAM_COST_VISIBILITY_SETTINGS_COPY = {
 export const MANAGER_NOTES_COPY = {
   /** Section heading. */
   heading: "Your notes",
-  /** What this is — and honestly what it is not. */
+  /** What this is — and honestly what it is not. States EXACTLY what is
+   * enforced (W3-N: no universal "never shown to the person" promise — an
+   * unlinked player-manager can't be structurally excluded, ADR 0053). */
   description:
-    "Private notes to help you support this person. Anyone who manages their team can see these, and each note shows who wrote it. Notes are never shown to the person and never change their capability read.",
+    "Private notes to help you support this person. Visible only to managers of this person's teams, and each note shows who wrote it. Notes never change anyone's capability read.",
   /** Placeholder in the add-note box. */
   placeholder: "Jot down something to remember for your next chat…",
   /** Label for the optional follow-up date field. */

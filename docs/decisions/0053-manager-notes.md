@@ -54,10 +54,46 @@ byline keeps accountability explicit. WRITE stamps the session user as author
 The visibility-mode rule is shared with the whole manager drill-in: in
 `private` mode the surface is UNAVAILABLE (absent, not pseudonymized) — the
 loader short-circuits via `managerSurfaceAvailable`, and both write routes
-re-check it. The SUBJECT person never sees notes about them: there is no
-self-view read path at all (the only read is the manager loader), which is the
-honest shape for a manager's private working notes — the alternative (subject-
-visible notes) is a different product (feedback), not this decision.
+re-check it. There is no self-view read surface (the only read is the manager
+loader) — subject-visible notes would be a different product (feedback), not
+this decision.
+
+### Player-manager self-exclusion — the precise guarantee and its honest limit
+
+The person∈managed-team derivation alone has a hole: a manager who is ALSO a
+tracked member of a team they manage would read co-managers' notes about
+THEMSELVES. So the read loader AND the create impl add a self-exclusion check:
+**whenever the person↔account link identifies the caller as the subject, the
+self-read and the self-write are `forbidden`** (collapsed to the same 404 as
+every other unauthorized outcome). "Identifies" reuses the app's ONE
+session-user→tracked-person resolution rule, `resolveSelfPersonId`
+(`src/lib/score-insights.ts`, PR #249): a `people.auth_user_id` match, or the
+org's only person when no link exists. The org-of-one fallback can FAIL CLOSED
+here: in a team org whose only tracked person is not the caller, a legitimate
+manager read of that sole person is suppressed until a second person exists or
+the link is set — accepted deliberately (privacy defaults outrank convenience,
+and reusing the shared rule verbatim beats forking it). The check lives at the
+LOADER/IMPL seam
+(`callerIsNoteSubject`, `src/lib/manager-notes-view.ts`), not in the org-scope
+namespace — the namespace only sees ids, while this seam holds session context,
+and reusing the shared resolver there keeps the notes surface from growing a
+private identity heuristic that could drift from the self-view's.
+
+**Create-about-self is also forbidden** (not just read): a self-note would
+re-open the self-read the read path just closed (its author byline is the
+caller's own), and it muddies the surface's meaning — observations about a
+managed person, by someone else. Deleting one's own note stays allowed
+regardless (delete is already author-scoped; removing data is never a leak).
+
+**Residual risk (recorded):** an UNLINKED player-manager cannot be structurally
+excluded. `people.auth_user_id` is rarely set by production flows today (the
+known account-linking gap — see the PR #249 follow-up), and in a multi-person
+org an unlinked caller resolves to `null`, so a manager whose tracked person
+row carries no link to their login still reads notes about themselves. The
+rendered copy therefore claims ONLY what is enforced ("Visible only to managers
+of this person's teams" — never a universal "the person never sees these").
+Mitigation is account linking: as the person↔account link lands for real
+users, the exclusion hardens automatically, with no schema or ADR change.
 
 ### Author cascade: a note dies with its author's account
 
@@ -129,5 +165,8 @@ missions-isolation pattern). The schema comment states it; the test enforces it.
 - Co-manager read visibility means a manager's candid note is visible to peers
   who share the team — stated plainly in the section's on-surface copy
   (`MANAGER_NOTES_COPY.description`), so an author is never surprised.
+- The self-exclusion is only as strong as the person↔account link (see the
+  residual-risk paragraph above); the copy promises exactly the enforced scope
+  and nothing more.
 - Notes are free text; they are deliberately NOT swept by the banned-phrasing
   copy tests (user content), only the fixed UI strings are.

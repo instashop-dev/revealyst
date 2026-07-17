@@ -26,6 +26,7 @@ let db: Db;
 let orgId: string;
 let teamAId: string;
 let personAId: string;
+let selfPersonId: string; // tracked person LINKED to MANAGER_A (player-manager)
 
 const MANAGER_A = "mnapi-mgr-a";
 const COMANAGER_A = "mnapi-mgr-a2";
@@ -93,6 +94,17 @@ beforeAll(async () => {
     await scope.people.create({ displayName: "Ada", email: "ada@mnapi.example" })
   ).id;
   await scope.teams.addMember(teamAId, personAId);
+  // MANAGER_A is ALSO tracked (auth-linked) — the player-manager route probe.
+  // This second person also keeps the org out of resolveSelfPersonId's
+  // org-of-one fallback, so Ada is never mistaken for the caller.
+  selfPersonId = (
+    await scope.people.create({
+      displayName: "Manager A",
+      email: "a@mnapi.example",
+      authUserId: MANAGER_A,
+    })
+  ).id;
+  await scope.teams.addMember(teamAId, selfPersonId);
   await scope.teamManagers.assign(teamAId, MANAGER_A);
   await scope.teamManagers.assign(teamAId, COMANAGER_A);
 });
@@ -127,6 +139,26 @@ describe("POST /api/team/:personId/notes", () => {
         )
       ).status,
     ).toBe(400);
+  });
+
+  it("400s an impossible calendar date the shape regex admits (2026-13-45)", async () => {
+    // Without the round-trip refine this reaches Postgres's `date` column and
+    // 500s instead of failing the schema.
+    for (const bad of ["2026-13-45", "2026-02-30"]) {
+      const res = await notesPOST(
+        postReq({ body: "ok", followUpOn: bad }),
+        postParams(personAId),
+      );
+      expect(res.status, `followUpOn ${bad}`).toBe(400);
+    }
+  });
+
+  it("player-manager (auth-linked): writing a note about THEMSELVES → 404 (ADR 0053 self-exclusion)", async () => {
+    const res = await notesPOST(
+      postReq({ body: "note to self" }),
+      postParams(selfPersonId),
+    );
+    expect(res.status).toBe(404);
   });
 
   it("a manager of the person's team creates a note; author is the SESSION user, never the body", async () => {

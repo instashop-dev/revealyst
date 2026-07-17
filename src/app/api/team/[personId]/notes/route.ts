@@ -21,10 +21,20 @@ export const dynamic = "force-dynamic";
 
 const createSchema = z.object({
   body: z.string().trim().min(1).max(4000),
-  // Optional reminder date (YYYY-MM-DD). Absent/empty → no follow-up.
+  // Optional reminder date (YYYY-MM-DD). Absent/empty → no follow-up. The
+  // round-trip refine rejects impossible dates the shape regex admits
+  // (2026-13-45, 2026-02-30) — Postgres would otherwise 500 on the `date`
+  // column instead of this clean 400.
   followUpOn: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((s) => {
+      const parsed = new Date(`${s}T00:00:00Z`);
+      return (
+        !Number.isNaN(parsed.getTime()) &&
+        parsed.toISOString().slice(0, 10) === s
+      );
+    }, "not a real calendar date")
     .nullish(),
 });
 

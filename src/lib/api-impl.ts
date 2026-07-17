@@ -30,6 +30,7 @@ import type { PollMessage } from "../poller/messages";
 import type { DefinitionRow } from "./dashboard-read";
 import { collectGaps } from "./honesty-gaps";
 import { managerSurfaceAvailable } from "./manager-capability-view";
+import { callerIsNoteSubject } from "./manager-notes-view";
 import { budgetAlertFor, readMonthToDateSpend } from "./spend-governance";
 
 type OrgScope = ReturnType<typeof forOrg>;
@@ -566,6 +567,13 @@ export async function createManagerNote(
     input.callerUserId,
   );
   if (managedTeamIds.length === 0) {
+    throw new ApiError(404, "not found");
+  }
+  // Player-manager self-exclusion (ADR 0053): a manager must not author notes
+  // about THEMSELVES either — self-notes would re-open the self-read the read
+  // path just closed (the author byline is theirs) and muddy the surface's
+  // "observations about a managed person" meaning. Same 404 collapse.
+  if (await callerIsNoteSubject(scope, input.callerUserId, input.personId)) {
     throw new ApiError(404, "not found");
   }
   const note = await scope.managerNotes.create(
