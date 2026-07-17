@@ -44,7 +44,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SYNC_STALE_AFTER_DAYS } from "@/lib/agent-sync";
-import { type AppContext } from "@/lib/api-context";
+import { requireAppContext } from "@/lib/api-context";
 import { latestTeamScoresBySlug } from "@/lib/dashboard-read";
 import { readDashboardView } from "@/lib/dashboard-view";
 import { readMaturityView } from "@/lib/maturity";
@@ -75,7 +75,15 @@ import {
   SpendGovernanceLine,
 } from "./shared";
 
-export async function TeamOverview({ ctx }: { ctx: AppContext }) {
+export async function TeamOverview() {
+  // Fetched here, NOT passed as a prop from page.tsx: React's `cache()`
+  // dedupes appContext within the request (zero extra queries), and a
+  // server-component PROP carrying the AppContext poisons `next dev` — the
+  // dev flight stream serializes element props as debug info, introspecting
+  // ctx.env (the miniflare magic proxy) RPCs into workerd ("Failed to get
+  // handler to worker") and the whole route falls to its error boundary.
+  // Production is indifferent; local dev is not.
+  const ctx = await requireAppContext();
   // The composed view and the month-to-date budget alert are independent reads,
   // gathered together so the banner adds no sequential round-trip to the hot
   // dashboard path (the alert's MTD window differs from the view's 180d window,

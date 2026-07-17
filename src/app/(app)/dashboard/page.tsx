@@ -7,23 +7,19 @@ export const dynamic = "force-dynamic";
 export default async function DashboardPage() {
   const ctx = await requireAppContext();
 
-  // Neither branch stacks a separate `connections.list()` round trip ahead of
-  // its data read. The team path: `readDashboardView` already fetches
-  // connections inside its depth-1 Promise.all and returns them, so
-  // TeamOverview renders its Connections panel + attention strip from
-  // `view.connections`. The personal path: the connections read is started
-  // here (in flight) and FOLDED into PersonalSelfView's depth-1 Promise.all,
-  // where the onboarding gate is evaluated once it resolves — so the gate no
-  // longer costs a serial Workers→Hyperdrive→Neon hop (~250–500ms of
-  // authenticated TTFB) ahead of the page's other reads on the common
-  // already-connected login that lands here.
+  // ctx is used ONLY to pick the branch — never passed as a prop. Each view
+  // re-calls requireAppContext() itself: React's `cache()` dedupes it within
+  // the request (zero extra queries), and a server-component prop carrying
+  // the AppContext breaks `next dev` — the dev flight stream serializes
+  // element props as debug info, and introspecting ctx.env (the miniflare
+  // magic proxy) RPCs into workerd ("Failed to get handler to worker"),
+  // felling the whole route to its error boundary. Neither branch stacks a
+  // separate `connections.list()` round trip ahead of its data read: the
+  // team path reads connections inside readDashboardView's depth-1
+  // Promise.all; the personal path kicks the read off (in flight) as its
+  // first statement and folds it into its own depth-1 batch.
   if (ctx.org.kind === "personal") {
-    return (
-      <PersonalSelfView
-        ctx={ctx}
-        connectionsPromise={ctx.scope.connections.list()}
-      />
-    );
+    return <PersonalSelfView />;
   }
-  return <TeamOverview ctx={ctx} />;
+  return <TeamOverview />;
 }
