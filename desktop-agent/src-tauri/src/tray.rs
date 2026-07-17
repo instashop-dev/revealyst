@@ -86,7 +86,11 @@ impl MenuEntry {
 pub fn menu_model(state: &AgentState, last_sync: Option<&str>, paused: bool) -> Vec<MenuEntry> {
     // Pausing when collecting, resuming when paused — the label reflects the
     // live pause state so it never lies about what the click will do.
-    let pause_label = if paused { "Resume collection" } else { "Pause collection" };
+    let pause_label = if paused {
+        "Resume collection"
+    } else {
+        "Pause collection"
+    };
     vec![
         MenuEntry::Info {
             id: ids::STATUS,

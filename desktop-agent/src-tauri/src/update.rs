@@ -487,7 +487,11 @@ mod tests {
         let mut messages: Vec<&str> = all.iter().map(|o| o.message()).collect();
         messages.sort_unstable();
         messages.dedup();
-        assert_eq!(messages.len(), all.len(), "outcome messages must be distinct");
+        assert_eq!(
+            messages.len(),
+            all.len(),
+            "outcome messages must be distinct"
+        );
     }
 
     #[test]
