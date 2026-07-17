@@ -108,6 +108,50 @@ export type DesktopRelease = {
  */
 export const DESKTOP_RELEASES: readonly DesktopRelease[] = [];
 
+/** Human labels for the known desktop download targets (spec §3.3). */
+const DOWNLOAD_TARGET_LABELS: Record<string, string> = {
+  "darwin-aarch64": "macOS (Apple Silicon)",
+  "darwin-x86_64": "macOS (Intel)",
+  "windows-x86_64": "Windows",
+};
+
+/** One user-facing installer download. */
+export type DesktopDownload = { key: string; label: string; url: string };
+
+/** The latest generally-available stable release's downloads, or null. */
+export type DesktopDownloadSet = {
+  version: string;
+  pubDate: string;
+  downloads: DesktopDownload[];
+};
+
+/**
+ * The download list for the public /download page: the newest generally-
+ * available STABLE release's signed per-target artifacts (halted releases —
+ * `rolloutPct: 0` — are excluded). Returns `null` until the first signed stable
+ * release is published (T6.2 / gated on D-DA-7) so the page renders an honest
+ * "coming soon" state instead of a dead link. Derived from `DESKTOP_RELEASES`,
+ * so the page can never advertise a download that does not exist (invariant b).
+ * `releases` is injectable for tests.
+ */
+export function latestStableDownloads(
+  releases: readonly DesktopRelease[] = DESKTOP_RELEASES,
+): DesktopDownloadSet | null {
+  const latest = releases
+    .filter((r) => r.channel === "stable" && r.rolloutPct > 0)
+    .sort((a, b) => compareVersions(b.version, a.version))[0];
+  if (!latest) return null;
+  const downloads = Object.entries(latest.targets)
+    .map(([key, target]) => ({
+      key,
+      label: DOWNLOAD_TARGET_LABELS[key] ?? key,
+      url: target.url,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  if (downloads.length === 0) return null;
+  return { version: latest.version, pubDate: latest.pubDate, downloads };
+}
+
 /** The Tauri dynamic-update manifest shape (spec §18.1). The agent's updater
  * consumes exactly this on a 200; a 204 means "no update". */
 export type TauriUpdateManifest = {

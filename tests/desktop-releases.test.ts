@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   compareVersions,
+  DESKTOP_RELEASES,
   isInRollout,
+  latestStableDownloads,
   selectUpdate,
   updateCohort,
   type DesktopRelease,
@@ -284,5 +286,61 @@ describe("GET /api/desktop/updates route — with a published release (mocked re
     expect(body.mandatory).toBe(true);
     vi.doUnmock("../src/lib/desktop-releases");
     vi.resetModules();
+  });
+});
+
+describe("latestStableDownloads", () => {
+  const target = { url: "https://x/a", signature: "sig" };
+  const stable = (
+    id: string,
+    version: string,
+    rolloutPct: number,
+    targets: Record<string, typeof target> = {
+      "darwin-aarch64": target,
+      "windows-x86_64": target,
+    },
+  ): DesktopRelease => ({
+    id,
+    channel: "stable",
+    version,
+    notes: "",
+    pubDate: "2026-07-17T00:00:00Z",
+    rolloutPct,
+    mandatory: false,
+    targets,
+  });
+
+  it("returns null when the registry is empty (no signed release yet)", () => {
+    expect(latestStableDownloads([])).toBeNull();
+    // The real registry is empty at launch — the /download page shows the
+    // honest "coming soon" state.
+    expect(latestStableDownloads(DESKTOP_RELEASES)).toBeNull();
+  });
+
+  it("picks the newest generally-available stable release, labelled + sorted", () => {
+    const set = latestStableDownloads([
+      stable("r1", "0.1.0", 100),
+      stable("r2", "0.2.0", 100),
+    ]);
+    expect(set?.version).toBe("0.2.0");
+    expect(set?.downloads.map((d) => d.label)).toEqual([
+      "macOS (Apple Silicon)",
+      "Windows",
+    ]);
+    expect(set?.downloads.every((d) => d.url === "https://x/a")).toBe(true);
+  });
+
+  it("excludes non-stable channels and halted (rolloutPct 0) releases", () => {
+    const beta: DesktopRelease = { ...stable("b", "9.9.9", 100), channel: "beta" };
+    const set = latestStableDownloads([
+      beta,
+      stable("halted", "0.3.0", 0),
+      stable("live", "0.2.0", 25),
+    ]);
+    expect(set?.version).toBe("0.2.0");
+  });
+
+  it("returns null for a stable release with no targets", () => {
+    expect(latestStableDownloads([stable("empty", "1.0.0", 100, {})])).toBeNull();
   });
 });

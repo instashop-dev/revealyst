@@ -96,6 +96,7 @@ export function classifyPath(pathname: string): Surface {
   if (matchesAppPrefix(pathname)) return "app";
   if (
     pathname === "/" ||
+    pathname === "/download" ||
     pathname === "/legal" ||
     pathname.startsWith("/legal/") ||
     pathname.startsWith("/s/")

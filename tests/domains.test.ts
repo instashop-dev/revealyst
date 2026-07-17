@@ -43,6 +43,7 @@ describe("classifyPath", () => {
 
   it("classifies landing, legal, and share cards as marketing", () => {
     expect(classifyPath("/")).toBe("marketing");
+    expect(classifyPath("/download")).toBe("marketing");
     expect(classifyPath("/legal")).toBe("marketing");
     expect(classifyPath("/legal/terms")).toBe("marketing");
     expect(classifyPath("/legal/privacy")).toBe("marketing");
