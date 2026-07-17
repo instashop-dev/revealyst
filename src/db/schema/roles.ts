@@ -10,6 +10,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "../auth-schema";
+import { domains } from "./capability-graph";
 import { people } from "./core";
 
 // Engineering roles (W6-B, ADR 0030) — a seeded reference table, deliberately
@@ -23,8 +24,21 @@ import { people } from "./core";
 export const roles = pgTable("roles", {
   slug: text("slug").primaryKey(),
   label: text("label").notNull(),
+  // The capability domain this role is evaluated against (P8-NE, ADR 0054) — the
+  // role → domain → capabilities link that makes the capability read role-aware.
+  // A person assigned this role is scored against `domains.slug`'s capabilities,
+  // not the whole global graph. Nullable (older rows predate the column); the
+  // engineering roles backfill to 'engineering'. A simple lazy `.references`
+  // thunk (NOT a composite FK), so it imposes no schema-barrel ordering even
+  // though `domains` is re-exported after `roles`.
+  domainSlug: text("domain_slug").references(() => domains.slug),
   // Presentation order in pickers (ascending); ties break on slug.
   sort: integer("sort").notNull().default(0),
+  // Live roles appear in the assignment picker (roles.list() filters this).
+  // Non-engineering role packs seed is_active=false ("registered, not yet live"
+  // — the Copilot/`NLV_PENDING_VENDORS` precedent): assignable-ready in the
+  // schema, but off the live picker until the desktop agent emits a role's
+  // signals (D-DA-5) and a founder flips it on. Never a fabricated-score path.
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

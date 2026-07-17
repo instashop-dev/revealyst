@@ -32,7 +32,13 @@ beforeAll(async () => {
   const pgliteDb = drizzle(new PGlite(), { schema });
   await migrate(pgliteDb, { migrationsFolder: "./drizzle" });
   db = pgliteDb as unknown as Db;
-  const caps = await db.select().from(schema.capabilities);
+  // The LIVE graph invariants (every binding resolves, every rec/edge end
+  // resolves, the DAG) apply to the ACTIVE capability set — the reference data
+  // every consumer sees. The pending P8-NE non-eng definitions (is_active=false)
+  // are asserted separately below.
+  const caps = (await db.select().from(schema.capabilities)).filter(
+    (c) => c.isActive,
+  );
   capabilitySlugs = new Set(caps.map((c) => c.slug));
   metricKeys = new Set(
     (await db.select().from(schema.metricCatalog)).map((m) => m.key),
@@ -43,15 +49,30 @@ beforeAll(async () => {
 });
 
 describe("capability graph seed (drizzle/0030)", () => {
-  it("seeds the exact v0 Engineering row counts", async () => {
-    expect(await db.select().from(schema.domains)).toHaveLength(1);
-    expect(await db.select().from(schema.capabilities)).toHaveLength(9);
+  it("seeds the exact v0 Engineering row counts (the LIVE, active graph)", async () => {
+    // The LIVE graph is the ACTIVE reference data — what every consumer
+    // (list()/graph()/labels()/coverage) sees. P8-NE (ADR 0054) adds pending,
+    // is_active=false non-engineering definitions that must NOT change the live
+    // engineering surface, so these invariants are scoped to is_active=true.
+    const activeDomains = (await db.select().from(schema.domains)).filter(
+      (d) => d.isActive,
+    );
+    const activeCaps = (await db.select().from(schema.capabilities)).filter(
+      (c) => c.isActive,
+    );
+    expect(activeDomains).toHaveLength(1);
+    expect(activeDomains[0].slug).toBe("engineering");
+    expect(activeCaps).toHaveLength(9);
+    // Signals and dependencies are unchanged — the non-eng packs bind NEITHER
+    // (an unbound capability is the honest not-measured state, by design).
     expect(await db.select().from(schema.capabilitySignals)).toHaveLength(30); // 23 (0030) + 6 OTel marker bindings (0034) + 1 context_tokens binding (0035)
     expect(await db.select().from(schema.capabilityDependencies)).toHaveLength(8);
   });
 
   it("preserves the stable capability slugs", async () => {
-    const rows = await db.select().from(schema.capabilities);
+    const rows = (await db.select().from(schema.capabilities)).filter(
+      (c) => c.isActive,
+    );
     expect(rows.map((r) => r.slug).sort()).toEqual(
       [
         "agentic-delivery",
@@ -65,7 +86,7 @@ describe("capability graph seed (drizzle/0030)", () => {
         "ship-with-ai",
       ].sort(),
     );
-    // Every capability sits under the one seeded domain.
+    // Every ACTIVE (live) capability sits under the one active seeded domain.
     expect(rows.every((r) => r.domainSlug === "engineering")).toBe(true);
     // Plain-English, beginner-friendly summaries — never empty.
     expect(rows.every((r) => r.summary.trim().length > 0)).toBe(true);
@@ -73,7 +94,11 @@ describe("capability graph seed (drizzle/0030)", () => {
 
   it("the idempotent seed is a no-op on replay (ON CONFLICT DO NOTHING)", async () => {
     await migrate(db as never, { migrationsFolder: "./drizzle" });
-    expect(await db.select().from(schema.capabilities)).toHaveLength(9);
+    // 9 active engineering + 7 pending marketing definitions (P8-NE) = 16 total.
+    expect(await db.select().from(schema.capabilities)).toHaveLength(16);
+    expect(
+      (await db.select().from(schema.capabilities)).filter((c) => c.isActive),
+    ).toHaveLength(9);
     expect(await db.select().from(schema.capabilitySignals)).toHaveLength(30); // 23 (0030) + 6 OTel marker bindings (0034) + 1 context_tokens binding (0035)
     expect(await db.select().from(schema.capabilityDependencies)).toHaveLength(8);
   });
@@ -166,5 +191,113 @@ describe("capability graph seed (drizzle/0030)", () => {
     expect(graph.signals).toHaveLength(30); // +6 OTel markers (0034) +1 context_tokens (0035)
     const labels = await scoped.capabilities.labels();
     expect(labels.get("ai-coding-foundations")).toBe("Make AI part of daily work");
+    // The pending non-eng definitions are EXCLUDED from the live graph and
+    // labels by the is_active gate — the engineering surface is unchanged.
+    expect(graph.capabilities.some((c) => c.slug.startsWith("mkt-"))).toBe(false);
+    expect(labels.has("mkt-audience-research")).toBe(false);
+  });
+});
+
+// ─── P8-NE: pending non-engineering role-pack groundwork (drizzle/0044,
+// ADR 0054) ───
+// These packs are DEFINITIONS only: product-defined (never agent-invented),
+// is_active=false ("registered, not yet live"), and — the honesty core — bound
+// to ZERO live signals so they never render a fabricated score. The mastery
+// engine's "no evidence → no row" rule turns an unbound capability into the
+// honest not-measured state (asserted in tests/capability-noneng-honesty).
+describe("non-engineering role packs seed (drizzle/0044)", () => {
+  const NON_ENG_DOMAINS = [
+    "product",
+    "marketing",
+    "sales",
+    "customer-success",
+    "hr",
+    "finance",
+    "operations",
+  ];
+
+  it("seeds the seven non-engineering domains as pending (is_active=false)", async () => {
+    const rows = await db.select().from(schema.domains);
+    for (const slug of NON_ENG_DOMAINS) {
+      const d = rows.find((r) => r.slug === slug);
+      expect(d, `domain ${slug}`).toBeDefined();
+      expect(d!.isActive, `${slug} must be pending`).toBe(false);
+    }
+    // Engineering stays the ONLY active domain (the live surface is unchanged).
+    expect(rows.filter((r) => r.isActive).map((r) => r.slug)).toEqual([
+      "engineering",
+    ]);
+  });
+
+  it("seeds one assignable, pending role per pack, linked to its domain", async () => {
+    const rows = await db.select().from(schema.roles);
+    for (const slug of NON_ENG_DOMAINS) {
+      const role = rows.find((r) => r.slug === slug);
+      expect(role, `role ${slug}`).toBeDefined();
+      expect(role!.isActive, `${slug} role must be pending`).toBe(false);
+      // The role → domain link (person → role → domain → capabilities).
+      expect(role!.domainSlug).toBe(slug);
+    }
+    // The engineering roles were backfilled to the engineering domain.
+    for (const slug of ["backend", "frontend", "ml", "sre"]) {
+      expect(rows.find((r) => r.slug === slug)?.domainSlug).toBe("engineering");
+    }
+  });
+
+  it("the Marketing proof pack is pending and bound to ZERO signals (honest not-measured)", async () => {
+    const caps = (await db.select().from(schema.capabilities)).filter(
+      (c) => c.domainSlug === "marketing",
+    );
+    expect(caps.length).toBe(7);
+    // Every proof-pack capability is pending, plain-English, and unbound.
+    expect(caps.every((c) => !c.isActive)).toBe(true);
+    expect(caps.every((c) => c.summary.trim().length > 0)).toBe(true);
+    // Banned-phrasing sweep on the new pack copy (the labels + summaries are a
+    // claim surface if ever activated): no gamification/LMS/anti-deficiency
+    // vocabulary, no invented benchmark claims (mirrors the growth-cards sweep).
+    const packCopy = caps
+      .flatMap((c) => [c.label, c.summary])
+      .join(" ")
+      .toLowerCase();
+    for (const banned of [
+      "xp",
+      "streak",
+      "league",
+      "leaderboard",
+      "points",
+      "badge",
+      "level up",
+      "level-up",
+      "course",
+      "lesson",
+      "certification",
+      "beginner",
+      "novice",
+      "inactive",
+      "deficien", // stem: deficiency/deficient
+      "percentile",
+      "benchmark",
+    ]) {
+      // Word-boundary match so a token like "xp" doesn't false-positive inside
+      // "explore"/"experience" — we ban the STANDALONE gamification/LMS term.
+      const re = new RegExp(`\\b${banned}`, "i");
+      expect(re.test(packCopy), `banned word "${banned}"`).toBe(false);
+    }
+    const bindings = await db.select().from(schema.capabilitySignals);
+    const deps = await db.select().from(schema.capabilityDependencies);
+    for (const c of caps) {
+      // The honesty guarantee at the DATA layer: no signal, no prereq edge —
+      // so nothing the mastery engine can turn into a number.
+      expect(
+        bindings.some((b) => b.capabilitySlug === c.slug),
+        `${c.slug} must have NO signal binding`,
+      ).toBe(false);
+      expect(
+        deps.some(
+          (d) => d.capabilitySlug === c.slug || d.requiresSlug === c.slug,
+        ),
+        `${c.slug} must have NO dependency edge`,
+      ).toBe(false);
+    }
   });
 });
