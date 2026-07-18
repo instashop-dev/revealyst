@@ -228,6 +228,24 @@ export const apiRoutes = {
       signals: z.number().int(),
     }),
   },
+  /** ADR 0058 (Desktop Agent M7 / T7.2). Token rotation: the agent presents
+   * its long-lived `rva1.` DEVICE token here (Bearer, no session, no body) and
+   * receives a SHORT-LIVED signed access token to use on its ordinary calls.
+   * The device token becomes a REFRESH credential only. `expiresIn` is seconds
+   * so the agent can refresh early without decoding the (opaque-to-it) token.
+   * 503 with no token when access-token signing is not configured — the agent
+   * safely falls back to its device token (backward-compatible rollout). */
+  desktopAuthRefresh: {
+    method: "POST",
+    path: "/api/desktop/auth/refresh",
+    request: null,
+    response: z.object({
+      accessToken: z.string(),
+      tokenType: z.literal("Bearer"),
+      expiresIn: z.number().int(),
+      audience: z.string(),
+    }),
+  },
   connectionsPoll: {
     method: "POST",
     path: "/api/connections/:id/poll",

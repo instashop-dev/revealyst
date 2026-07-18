@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { Db } from "../db/client";
 import type { CredentialEnv } from "./credentials";
-import { authenticateDeviceToken } from "./device-token";
+import type { DesktopAccessTokenEnv } from "./desktop-access-token";
+import { authenticateDesktopBearer } from "./device-token";
 import { DEVICE_VENDOR } from "./desktop-devices";
 
 // Core of POST /api/desktop/heartbeat (Desktop Agent plan T2.4), kept out of
@@ -44,13 +45,14 @@ export type DesktopHeartbeatOutcome = {
  */
 export async function recordDesktopHeartbeat(
   db: Db,
-  env: CredentialEnv,
+  env: CredentialEnv & DesktopAccessTokenEnv,
   bearerToken: string,
   rawBody: unknown,
   now?: Date,
 ): Promise<DesktopHeartbeatOutcome> {
   // --- 1. Authenticate (cheap, before touching the body) ---------------
-  const auth = await authenticateDeviceToken(db, env, bearerToken);
+  // Accepts EITHER the short-lived access token OR the device token (ADR 0058).
+  const auth = await authenticateDesktopBearer(db, env, bearerToken);
   if (!auth.ok) {
     return { status: auth.status, body: auth.body };
   }

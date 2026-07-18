@@ -95,3 +95,46 @@ node scripts/desktop-artifact-size-gate.mjs desktop-agent/src-tauri/target/relea
 - Harness + documented on-hardware procedure: **done**.
 - Six runtime rows measured on hardware: **pending** (M7, on real machines);
   any miss is fixed or founder-accepted in `docs/product-signoffs.md`.
+
+## Security test matrix (T7.2, spec §26.4)
+
+Same honesty rule as the perf table: a row that a CI runner cannot exercise
+deterministically stays **manual, not yet run** — we never mark it green from a
+desk. T7.2 (token rotation, ADR 0058) added the deterministic checks below and
+records the rest for a human pass on real machines.
+
+### Automated (run in CI, every relevant PR)
+
+| Check | Where it runs | What it proves |
+|-------|---------------|----------------|
+| Access-token forge / replay / tamper | `tests/desktop-access-token.test.ts` (server vitest) | A wrong-key, tampered-payload, or `alg:none` token is rejected; only a genuinely signed, unexpired, correct-audience token verifies. |
+| Access-token expiry | `tests/desktop-access-token.test.ts` | A token past its 15-minute TTL is rejected. |
+| Key-rotation window | `tests/desktop-access-token.test.ts` | A token minted under the previous key still verifies during rotation; a fully-retired key is rejected. |
+| Backward-compatible acceptance | `tests/desktop-token-rotation.test.ts` (PGlite) | Both the legacy device token AND a short-lived access token authenticate; a paused connection is 403 even with a valid access token; an access token for an unknown connection is 401. |
+| Refresh route behavior | `tests/desktop-token-rotation.test.ts` | `/refresh` mints a working token from a device token; rejects an access token (only the device token may refresh); 401 on a bad token; 403 when paused; benign 503 (never a fake token) when the signing key is absent. |
+| Agent fallback + caching logic | `desktop-agent/src-tauri/src/token.rs` (Rust unit tests) | The agent uses the access token when available, caches it across calls, and falls back to the device token on any refresh failure (404/503/auth/network); the access token is never persisted. |
+| Tauri command authorization surface | `scripts/desktop-capability-audit.mjs` (desktop CI) + `commands.rs`/`lib.rs` tests | No command returns a token; the frontend only sees the `is_signed_in` boolean; CSP pinned; `withGlobalTauri` off. |
+| Local DB tamper → safe reset | `desktop-agent/src-tauri/src/store/` tests (existing) | A corrupt/incompatible local store resets safely rather than trusting bad data. |
+| Frontend-injection / CSP | `scripts/desktop-capability-audit.mjs` (CSP pinned assertion) | The webview CSP is locked; the frontend cannot reach a token or an arbitrary origin. |
+
+### Manual, not yet run (need real hardware / an installed build)
+
+These require the packaged app on real macOS and Windows machines and are **not
+yet run**. Record the machine + date when performed; a miss is fixed or
+founder-accepted in `docs/product-signoffs.md`.
+
+- **Keychain-at-rest inspection** — confirm on macOS Keychain and Windows
+  Credential Manager that the DEVICE token is present but the ACCESS token is
+  NOT (it is memory-only) after a live sync.
+- **On-the-wire capture** — with a local proxy, confirm ordinary calls (ingest,
+  diagnostics) carry the short-lived access token and only `/refresh` carries
+  the device token.
+- **Live rotation drill** — flip `DESKTOP_ACCESS_TOKEN_SIGNING_KEY` (with
+  `_PREVIOUS` set) on a staging Worker and confirm no agent sees a rejected
+  call across the window.
+- **Revocation latency** — pause a connection and confirm the agent's next call
+  fails within one access-token TTL (the 403 is immediate on the server; the
+  agent surface reflects it on its next attempt).
+- **Log-leak sweep** — inspect agent logs during sync/refresh/diagnostics and
+  confirm neither token appears (the wire structs are non-`Debug`; this verifies
+  it end-to-end on a real run).

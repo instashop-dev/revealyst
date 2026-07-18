@@ -1,5 +1,5 @@
 import { getApiContext } from "@/lib/api-context";
-import { authenticateDeviceToken } from "@/lib/otel-receiver";
+import { authenticateDesktopBearer } from "@/lib/otel-receiver";
 
 // POST /v1/logs (W7-8, ADR 0039) — the Claude Code OTLP/HTTP-JSON LOGS endpoint.
 // The Claude Code exporter sends both metrics and logs; this endpoint ACCEPTS
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     : "";
 
   const { db, env } = getApiContext();
-  const auth = await authenticateDeviceToken(db, env, bearer);
+  const auth = await authenticateDesktopBearer(db, env, bearer);
   if (!auth.ok) {
     return Response.json(auth.body, { status: auth.status });
   }

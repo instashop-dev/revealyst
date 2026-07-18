@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { Db } from "../db/client";
 import type { CredentialEnv } from "./credentials";
+import type { DesktopAccessTokenEnv } from "./desktop-access-token";
 import {
-  authenticateDeviceToken,
+  authenticateDesktopBearer,
   type DeviceTokenAuthSuccess,
 } from "./device-token";
 import { DEVICE_VENDOR } from "./desktop-devices";
@@ -324,12 +325,12 @@ export function recordDesktopDiagnosticsAuthed(
  */
 export async function recordDesktopDiagnostics(
   db: Db,
-  env: CredentialEnv,
+  env: CredentialEnv & DesktopAccessTokenEnv,
   bearerToken: string,
   rawBody: unknown,
   emit: DiagnosticsEmit = defaultEmit,
 ): Promise<DiagnosticsOutcome> {
-  const auth = await authenticateDeviceToken(db, env, bearerToken);
+  const auth = await authenticateDesktopBearer(db, env, bearerToken);
   if (!auth.ok) {
     return { status: auth.status, body: auth.body };
   }

@@ -627,10 +627,22 @@ async fn post_bundle(url: &str, bearer: &str, bundle: &DiagnosticBundle) -> Send
 /// says "diagnostics failed").
 pub async fn send_diagnostics(store_path: &Path, log_dir: Option<&Path>) -> SendOutcome {
     // Not signed in → nothing to authorize the POST with.
-    let bearer = match crate::secrets::get_token() {
+    let device_token = match crate::secrets::get_token() {
         Ok(Some(token)) => token,
         _ => return SendOutcome::NotSignedIn,
     };
+    // Token rotation (T7.2, ADR 0058): mint a short-lived access token for this
+    // send, falling back to the device token if `/refresh` is unavailable. A
+    // fresh cache per send is fine — diagnostics is a rare manual action.
+    let origin = crate::auth::app_origin();
+    let bearer = crate::token::bearer_for(
+        &crate::token::AccessTokenCache::new(),
+        &crate::token::ReqwestRefreshTransport,
+        &format!("{origin}/api/desktop/auth/refresh"),
+        &device_token,
+        crate::store::queue::now_ms(),
+    )
+    .await;
 
     // Build the bundle in a scope so the SQLite connection is dropped BEFORE
     // the network POST — never hold a DB connection open across a 10s upload.
@@ -645,7 +657,7 @@ pub async fn send_diagnostics(store_path: &Path, log_dir: Option<&Path>) -> Send
         }
     };
 
-    let url = format!("{}/api/desktop/diagnostics", crate::auth::app_origin());
+    let url = format!("{origin}/api/desktop/diagnostics");
     let outcome = post_bundle(&url, &bearer, &bundle).await;
     tracing::info!(
         component = "diagnostics",

@@ -1,16 +1,20 @@
 import type { Db } from "../db/client";
 import type { CredentialEnv } from "./credentials";
+import type { DesktopAccessTokenEnv } from "./desktop-access-token";
 import {
-  authenticateDeviceToken,
+  authenticateDesktopBearer,
   type DeviceTokenAuthSuccess,
 } from "./device-token";
 import { decodeOtelMetrics } from "./otel-ingest";
 
 // Device-token auth moved to src/lib/device-token.ts (T2.1) so agent-ingest,
-// /v1/metrics, and /v1/logs share one verifier. Re-exported here because the
-// /v1/* routes and tests historically import it from this module.
+// /v1/metrics, and /v1/logs share one verifier. `authenticateDesktopBearer`
+// (T7.2, ADR 0058) accepts EITHER the short-lived access token OR the legacy
+// device token. Both re-exported here because the /v1/* routes and tests
+// historically import from this module.
 export {
   authenticateDeviceToken,
+  authenticateDesktopBearer,
   type DeviceTokenAuthResult,
   type DeviceTokenAuthSuccess,
 } from "./device-token";
@@ -47,13 +51,14 @@ export type OtelReceiverOutcome = {
  */
 export async function ingestOtelMetrics(
   db: Db,
-  env: CredentialEnv,
+  env: CredentialEnv & DesktopAccessTokenEnv,
   bearerToken: string,
   rawBody: unknown,
 ): Promise<OtelReceiverOutcome> {
   // 1. Authenticate (cheap, before touching the body) — identical to
-  //    agent-ingest: parse the token, verify the connection + its device secret.
-  const auth = await authenticateDeviceToken(db, env, bearerToken);
+  //    agent-ingest: accept the access token or the device token, verify the
+  //    connection.
+  const auth = await authenticateDesktopBearer(db, env, bearerToken);
   if (!auth.ok) return { ok: false, status: auth.status, body: auth.body };
   return ingestOtelMetricsAuthed(auth, rawBody);
 }

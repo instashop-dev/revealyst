@@ -8,7 +8,8 @@ import { forOrg } from "../db/org-scope";
 import type { PollMessage } from "../poller/messages";
 import { previousDay } from "../scoring";
 import type { CredentialEnv } from "./credentials";
-import { authenticateDeviceToken } from "./device-token";
+import type { DesktopAccessTokenEnv } from "./desktop-access-token";
+import { authenticateDesktopBearer } from "./device-token";
 
 // Core of POST /api/agent/ingest (ADR 0002), kept out of the Next route
 // handler so it is unit-testable against PGlite. Auth and tenancy both
@@ -47,7 +48,7 @@ export type AgentIngestDeps = {
 
 export async function ingestAgentBatch(
   db: Db,
-  env: CredentialEnv,
+  env: CredentialEnv & DesktopAccessTokenEnv,
   bearerToken: string,
   rawBody: unknown,
   deps: AgentIngestDeps = {},
@@ -60,7 +61,10 @@ export async function ingestAgentBatch(
   // operator's revocation gesture — ingest never re-activates it), all
   // BEFORE the body is parsed. The success carries the connection row the
   // verifier already fetched, so adoption added no DB round-trip.
-  const auth = await authenticateDeviceToken(db, env, bearerToken);
+  // Accepts EITHER the short-lived access token OR the legacy device token
+  // (T7.2, ADR 0058) — semantics otherwise identical to the device-token-only
+  // check this replaced.
+  const auth = await authenticateDesktopBearer(db, env, bearerToken);
   if (!auth.ok) {
     return { ok: false, status: auth.status, body: auth.body };
   }

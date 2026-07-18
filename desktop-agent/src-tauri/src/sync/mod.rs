@@ -254,19 +254,27 @@ pub struct SyncEngine<T: IngestTransport> {
     ingest_url: String,
     agent_version: String,
     in_flight: AtomicBool,
+    /// Token rotation (T7.2, ADR 0058). `refresh_url` empty → rotation disabled
+    /// (the test/injection path), so `sync()` sends the device token directly.
+    refresh_url: String,
+    /// In-memory access-token cache (never persisted, never logged).
+    access_cache: crate::token::AccessTokenCache,
 }
 
 impl SyncEngine<ReqwestTransport> {
-    /// Production engine: reqwest transport, shipped retry policy, ingest URL
-    /// derived from the configured app origin (env override, else the shipped
-    /// default — see [`crate::auth::app_origin`]).
+    /// Production engine: reqwest transport, shipped retry policy, ingest +
+    /// refresh URLs derived from the configured app origin (env override, else
+    /// the shipped default — see [`crate::auth::app_origin`]).
     pub fn new() -> Self {
+        let origin = crate::auth::app_origin();
         SyncEngine {
             transport: ReqwestTransport::new(),
             retry: RetryPolicy::production(),
-            ingest_url: format!("{}/api/agent/ingest", crate::auth::app_origin()),
+            ingest_url: format!("{origin}/api/agent/ingest"),
             agent_version: crate::agent_version().to_string(),
             in_flight: AtomicBool::new(false),
+            refresh_url: format!("{origin}/api/desktop/auth/refresh"),
+            access_cache: crate::token::AccessTokenCache::new(),
         }
     }
 }
@@ -292,6 +300,10 @@ impl<T: IngestTransport> SyncEngine<T> {
             ingest_url,
             agent_version,
             in_flight: AtomicBool::new(false),
+            // Tests drive `sync_once` with an explicit bearer and never exercise
+            // refresh; an empty refresh_url keeps rotation out of their path.
+            refresh_url: String::new(),
+            access_cache: crate::token::AccessTokenCache::new(),
         }
     }
 
@@ -299,12 +311,24 @@ impl<T: IngestTransport> SyncEngine<T> {
     /// one flush cycle. No token stored → `authentication_required` (not signed
     /// in). The token is read here and passed by reference; it is never logged.
     pub async fn sync(&self, store: &Store) -> Result<SyncOutcome, StoreError> {
-        let token = match crate::secrets::get_token() {
+        let device_token = match crate::secrets::get_token() {
             Ok(Some(token)) => token,
             Ok(None) => return Ok(SyncOutcome::AuthenticationRequired),
             Err(_) => return Ok(SyncOutcome::AuthenticationRequired),
         };
-        self.sync_once(store, &token).await
+        // Token rotation (T7.2, ADR 0058): send a short-lived access token when
+        // we can mint one, falling back to the device token if `/refresh` is
+        // unavailable (old/not-configured server, or offline). The device token
+        // itself never leaves the keychain except to hit `/refresh`.
+        let bearer = crate::token::bearer_for(
+            &self.access_cache,
+            &crate::token::ReqwestRefreshTransport,
+            &self.refresh_url,
+            &device_token,
+            crate::store::queue::now_ms(),
+        )
+        .await;
+        self.sync_once(store, &bearer).await
     }
 
     /// Drain one flush cycle: dequeue up to [`MAX_EVENTS_PER_BATCH`], build a

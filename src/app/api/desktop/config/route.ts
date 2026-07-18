@@ -1,9 +1,9 @@
 import { getApiContext } from "@/lib/api-context";
-import { authenticateDeviceToken } from "@/lib/device-token";
 import {
   composeAndSignDesktopConfig,
   type DesktopConfigSigningEnv,
 } from "@/lib/desktop-config";
+import { authenticateDesktopBearer } from "@/lib/device-token";
 
 // GET /api/desktop/config (Desktop Agent plan T4.2, spec §17) — the signed
 // remote configuration the agent fetches. Bearer-authenticated by the device
@@ -26,7 +26,7 @@ export async function GET(req: Request) {
     : "";
 
   const { db, env } = getApiContext();
-  const auth = await authenticateDeviceToken(db, env, bearer);
+  const auth = await authenticateDesktopBearer(db, env, bearer);
   if (!auth.ok) {
     return Response.json(auth.body, { status: auth.status });
   }

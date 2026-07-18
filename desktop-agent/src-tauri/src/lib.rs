@@ -23,6 +23,7 @@ pub mod secrets;
 pub mod state;
 pub mod store;
 pub mod sync;
+pub mod token;
 pub mod tray;
 pub mod update;
 
