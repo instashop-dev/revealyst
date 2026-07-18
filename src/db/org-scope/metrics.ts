@@ -1,6 +1,75 @@
 import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { lowestAttribution } from "../../contracts/attribution";
 import type { Db } from "../client";
 import { metricRecords, subjectDaySignals, subjects } from "../schema";
+
+type MetricRecordRow = typeof metricRecords.$inferSelect;
+
+/**
+ * Collapse rows that share the same (subject, day, dim) but come from two
+ * different `source_connector`s down to ONE row per key, keeping the MAX
+ * value — the dual-source dedup (ADR 0060), applied at the single read
+ * boundary so no downstream SUM double-counts.
+ *
+ * Since `source_connector` joined the natural key (mig 0047), one subject can
+ * hold the same (day, metric, dim) from e.g. `claude-code-local@1` AND
+ * `claude_export@1`. MAX (never SUM) matches the frozen P0 convention: when
+ * two sources report the same day the larger is the authoritative superset,
+ * so MAX collapses the double-count to the true figure and never exceeds the
+ * sum (it can under- but never over-count — invariant b). The survivor carries
+ * the LOWEST attribution of the collapsed group (a degraded input is surfaced,
+ * never laundered up — the frozen propagation rule). Ties on value break on the
+ * lexicographically smallest `source_connector` so the result is deterministic
+ * regardless of DB row order.
+ *
+ * For the common SINGLE-source org every key has exactly one row, so this is a
+ * strict no-op that returns the input array UNTOUCHED (same order, same
+ * objects) — byte-identical to pre-0060 reads (proven by the
+ * migration-equivalence test).
+ */
+export function collapseSourcesToMax(
+  rows: MetricRecordRow[],
+): MetricRecordRow[] {
+  // Fast path: no two rows share a (subject, day, dim) key ⇒ nothing to
+  // collapse ⇒ return the exact same array (preserves order + identity).
+  const seen = new Set<string>();
+  let hasDuplicate = false;
+  for (const r of rows) {
+    const key = `${r.subjectId}|${r.day}|${r.dim}`;
+    if (seen.has(key)) {
+      hasDuplicate = true;
+      break;
+    }
+    seen.add(key);
+  }
+  if (!hasDuplicate) return rows;
+
+  const survivors = new Map<string, MetricRecordRow>();
+  const groupAttributions = new Map<string, MetricRecordRow["attribution"][]>();
+  const order: string[] = [];
+  for (const r of rows) {
+    const key = `${r.subjectId}|${r.day}|${r.dim}`;
+    const attrs = groupAttributions.get(key);
+    if (attrs) {
+      attrs.push(r.attribution);
+    } else {
+      groupAttributions.set(key, [r.attribution]);
+      order.push(key);
+    }
+    const existing = survivors.get(key);
+    const wins =
+      !existing ||
+      r.value > existing.value ||
+      (r.value === existing.value &&
+        r.sourceConnector < existing.sourceConnector);
+    if (wins) survivors.set(key, r);
+  }
+  // Re-emit in first-occurrence order to keep the shape stable for callers.
+  return order.map((key) => ({
+    ...survivors.get(key)!,
+    attribution: lowestAttribution(groupAttributions.get(key)!),
+  }));
+}
 
 /** What Connector.normalize() emits — upserted on the metric_records PK. */
 export type MetricRecordUpsert = {
@@ -42,7 +111,7 @@ export function metricsNamespace(db: Db, orgId: string) {
       const byPk = new Map<string, MetricRecordUpsert>();
       for (const r of records) {
         byPk.set(
-          `${r.subjectId}|${r.metricKey}|${r.day}|${r.dim ?? ""}`,
+          `${r.subjectId}|${r.metricKey}|${r.day}|${r.dim ?? ""}|${r.sourceConnector}`,
           r,
         );
       }
@@ -66,18 +135,23 @@ export function metricsNamespace(db: Db, orgId: string) {
             })),
           )
           .onConflictDoUpdate({
+            // `source_connector` joined the natural key (ADR 0060, mig 0047),
+            // so it is part of the conflict target now — a restatement from a
+            // DIFFERENT source is a different key (its own row), never an
+            // update of a sibling source's row. It is therefore no longer in
+            // the SET (a conflict-target column cannot change on update).
             target: [
               metricRecords.orgId,
               metricRecords.subjectId,
               metricRecords.metricKey,
               metricRecords.day,
               metricRecords.dim,
+              metricRecords.sourceConnector,
             ],
             set: {
               value: sql`excluded.value`,
               attribution: sql`excluded.attribution`,
               connectionId: sql`excluded.connection_id`,
-              sourceConnector: sql`excluded.source_connector`,
               rawPayloadId: sql`excluded.raw_payload_id`,
               updatedAt: new Date(),
             },
@@ -86,27 +160,59 @@ export function metricsNamespace(db: Db, orgId: string) {
     },
 
     /**
-     * Makes a re-push authoritative for its window (ADR 0002, additive):
-     * deletes this connection's records — and its subjects' signals —
-     * inside the inclusive day window, so stale natural keys (e.g. a
-     * model dim that disappeared from a corrected batch) cannot survive
-     * a restatement. Other connections' rows are untouched.
+     * Makes a re-push authoritative for its window (ADR 0002/0060): deletes
+     * this connection's records for ONE source FAMILY — and, by default, its
+     * subjects' sub-daily signals — inside the inclusive day window, so stale
+     * natural keys (e.g. a model dim that disappeared from a corrected batch)
+     * cannot survive a restatement.
+     *
+     * SCOPED TO THE SOURCE FAMILY (ADR 0060, D-DA-8): the device connection
+     * carries several sources (`claude-code-local@N`, `claude_export@1`,
+     * `ai-tools@1`, `claude-code-otel@1`). Before 0060 this delete was
+     * connection-wide and would clobber a SIBLING source's overlapping days on
+     * every re-push; now one source's restatement replaces ONLY its own rows.
+     *
+     * The scope is the source FAMILY (the module id BEFORE the `@version`), not
+     * the exact versioned string: a `sourceConnector` embeds a bumpable version
+     * (`claude-code-local@1` → `@2`), and a re-push after a version bump must
+     * still restate the older version's stale keys in its window — otherwise a
+     * dropped dim from `@1` survives and inflates a distinct-dims score. Family
+     * scoping restores the pre-0060 stale-key cleanup while keeping DIFFERENT
+     * families isolated (their module ids differ, so no family is a prefix of
+     * another). For a single-source, single-version connection (every admin-API
+     * connector) this matches exactly the same rows as the old connection-wide
+     * delete — byte-identical behavior.
+     *
+     * `deleteSignals` (default true) controls the sub-daily-signal sweep.
+     * `subject_day_signals` has NO source column (its key is subject+day), so
+     * it cannot be scoped per source. On the shared device connection the live
+     * `claude-code-local` source is the SOLE signal author; a source that does
+     * not own signals (the `claude_export` import) passes `false`, so it
+     * neither writes nor deletes signals and can never clobber the live
+     * connector's histograms. Every existing caller keeps the default true.
      */
     async deleteWindowForConnection(
       connectionId: string,
+      sourceConnector: string,
       from: string,
       to: string,
+      opts: { deleteSignals?: boolean } = {},
     ) {
+      // The source family = the module id before the first `@` (version). A
+      // re-push restates its whole family's window regardless of version bump.
+      const family = sourceConnector.split("@")[0];
       await db
         .delete(metricRecords)
         .where(
           and(
             eq(metricRecords.orgId, orgId),
             eq(metricRecords.connectionId, connectionId),
+            sql`split_part(${metricRecords.sourceConnector}, '@', 1) = ${family}`,
             gte(metricRecords.day, from),
             lte(metricRecords.day, to),
           ),
         );
+      if (opts.deleteSignals === false) return;
       const subjectRows = await db
         .select({ id: subjects.id })
         .from(subjects)
@@ -183,11 +289,17 @@ export function metricsNamespace(db: Db, orgId: string) {
       if (filter.dim !== undefined) {
         conditions.push(eq(metricRecords.dim, filter.dim));
       }
-      return db
+      const rows = await db
         .select()
         .from(metricRecords)
         .where(and(...conditions))
         .orderBy(metricRecords.day);
+      // Collapse same-(subject, day, dim) rows from two sources to MAX (ADR
+      // 0060). THE single dedup boundary: every scoring/maturity/capability/
+      // spend reader loads through here, so no downstream `.value` SUM can
+      // double-count a person whose day is reported by two sources. A no-op
+      // (returns `rows` untouched) for any single-source org.
+      return collapseSourcesToMax(rows);
     },
 
     async signals(filter: { subjectId: string; from: string; to: string }) {

@@ -330,6 +330,13 @@
       "when": 1784381207657,
       "tag": "0046_seed-worktype-metrics",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1784386483740,
+      "tag": "0047_connector-scoped-ingest",
+      "breakpoints": true
     }
   ]
 }

@@ -74,6 +74,44 @@ pub const SUMMARIZER_VERSION: i64 = 1;
 /// unknown shape — honesty over guessing).
 pub const USAGE_SUMMARY_EVENT_TYPE: &str = "usage_summary";
 
+/// The default `source` (ADR 0060): the live Claude Code connector. Matches the
+/// frozen schema default, so an omitted field means the live connector — the
+/// pre-0060 behavior.
+pub const DEFAULT_INGEST_SOURCE: &str = "claude-code-local";
+
+/// The local queue `connector_id` of the Claude data-export importer, whose
+/// batches upload under the `claude-export` wire source (ADR 0060 / D-DA-8).
+pub const CLAUDE_EXPORT_CONNECTOR_ID: &str = "claude_export";
+
+/// The local queue `connector_id` of the AI-app presence connector (#7). It is
+/// a SEPARATE on-device connector that shares the device subject, so it MUST
+/// upload under its own `ai-tools` wire source — otherwise its window-delete
+/// would erase the live `claude_code` connector's overlapping day (D-DA-8). Its
+/// LIVE emission stays gated on the #7 activation gate; this mapping only
+/// removes its D-DA-8 blocker so a future activation is safe.
+pub const AI_TOOLS_CONNECTOR_ID: &str = "ai_tools";
+
+/// Map a local queue `connector_id` to the closed wire `source` the server
+/// accepts (ADR 0060 `AGENT_INGEST_SOURCES`). The desktop groups a flush cycle
+/// by `connector_id` so every uploaded batch is single-source; the server
+/// composes the actual `source_connector` string from this. `claude_code` (and
+/// the worktype signals that ride inside its batch) upload as the live
+/// connector; the export and app-presence connectors get their own distinct
+/// families. An unrecognized connector uploads as the live connector (the safe
+/// default) — a new SEPARATE connector must be added here AND to
+/// `AGENT_INGEST_SOURCES` before it can share the device connection safely.
+pub fn wire_source_for_connector(connector_id: &str) -> &'static str {
+    match connector_id {
+        CLAUDE_EXPORT_CONNECTOR_ID => "claude-export",
+        AI_TOOLS_CONNECTOR_ID => "ai-tools",
+        _ => DEFAULT_INGEST_SOURCE,
+    }
+}
+
+fn default_ingest_source() -> String {
+    DEFAULT_INGEST_SOURCE.to_string()
+}
+
 // --- Wire structs (mirror agentIngestRequestSchema) ------------------------
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -81,6 +119,12 @@ pub const USAGE_SUMMARY_EVENT_TYPE: &str = "usage_summary";
 pub struct IngestRequest {
     pub agent_version: String,
     pub summarizer_version: i64,
+    /// Which on-device source produced this batch (ADR 0060). A closed enum on
+    /// the server (`AGENT_INGEST_SOURCES`); the server composes the actual
+    /// `source_connector` from it. Defaulted for an older server/fixture that
+    /// omits it → the live connector, the pre-0060 behavior.
+    #[serde(default = "default_ingest_source")]
+    pub source: String,
     pub window: Window,
     pub subjects: Vec<SubjectDescriptor>,
     pub records: Vec<MetricRecord>,
@@ -218,6 +262,7 @@ pub struct PreparedBatch {
 pub fn build_request(
     agent_version: &str,
     summarizer_version: i64,
+    source: &str,
     events: &[PendingEvent],
 ) -> IngestRequest {
     let mut subjects: Vec<SubjectDescriptor> = Vec::new();
@@ -305,6 +350,7 @@ pub fn build_request(
     IngestRequest {
         agent_version: agent_version.to_string(),
         summarizer_version,
+        source: source.to_string(),
         window: Window { start, end },
         subjects,
         records,
@@ -559,7 +605,7 @@ mod tests {
             ),
         ];
 
-        let request = build_request("0.1.0", SUMMARIZER_VERSION, &events);
+        let request = build_request("0.1.0", SUMMARIZER_VERSION, DEFAULT_INGEST_SOURCE, &events);
         let built = serde_json::to_value(&request).unwrap();
         let fixture_value: serde_json::Value = serde_json::from_str(FIXTURE).unwrap();
         assert_eq!(normalize_numbers(built), normalize_numbers(fixture_value));
@@ -587,11 +633,38 @@ mod tests {
                 json!({ "subject": { "kind": "person", "externalId": "u" }, "day": "2026-03-20", "records": [] }),
             ),
         ];
-        let request = build_request("0.1.0", 1, &events);
+        let request = build_request("0.1.0", 1, DEFAULT_INGEST_SOURCE, &events);
         assert_eq!(request.window.start, "2026-03-02");
         assert_eq!(request.window.end, "2026-03-20");
         // One subject (deduped across the three events).
         assert_eq!(request.subjects.len(), 1);
+    }
+
+    /// ADR 0060: the wire `source` defaults to the live connector, and the
+    /// export connector maps to the `claude-export` source, so the server
+    /// composes a distinct `source_connector` and scopes its window-delete.
+    #[test]
+    fn source_defaults_to_live_and_maps_the_separate_connectors() {
+        assert_eq!(
+            wire_source_for_connector("claude_code"),
+            "claude-code-local"
+        );
+        assert_eq!(
+            wire_source_for_connector(CLAUDE_EXPORT_CONNECTOR_ID),
+            "claude-export"
+        );
+        // The AI-app presence connector gets its OWN source (D-DA-8): sharing
+        // `claude-code-local` would let its window-delete erase the live
+        // connector's day.
+        assert_eq!(wire_source_for_connector(AI_TOOLS_CONNECTOR_ID), "ai-tools");
+        // An unknown connector uploads as the live connector (safe default).
+        assert_eq!(wire_source_for_connector("mystery"), "claude-code-local");
+
+        let events = vec![day_event(1, "P", "2026-01-01")];
+        let live = build_request("0.1.0", 1, DEFAULT_INGEST_SOURCE, &events);
+        assert_eq!(live.source, "claude-code-local");
+        let export = build_request("0.1.0", 1, "claude-export", &events);
+        assert_eq!(export.source, "claude-export");
     }
 
     #[test]
@@ -602,7 +675,7 @@ mod tests {
             "some_future_type",
             json!({ "anything": true }),
         )];
-        let request = build_request("0.1.0", 1, &events);
+        let request = build_request("0.1.0", 1, DEFAULT_INGEST_SOURCE, &events);
         assert!(request.records.is_empty());
         assert_eq!(request.gaps.len(), 1);
         assert_eq!(request.gaps[0].kind, "other");
@@ -701,7 +774,7 @@ mod tests {
                 json!({ "subject": { "kind": "person", "externalId": "Q" }, "day": "07/15", "records": [ { "metricKey": "prompts", "value": 9, "attribution": "person" } ] }),
             ),
         ];
-        let request = build_request("0.1.0", 1, &events);
+        let request = build_request("0.1.0", 1, DEFAULT_INGEST_SOURCE, &events);
         // Only the valid-day record survives; the malformed day never reaches
         // the window (which would 400 the whole batch).
         assert_eq!(request.records.len(), 1);
@@ -715,6 +788,7 @@ mod tests {
         let request = build_request(
             "0.1.0",
             1,
+            DEFAULT_INGEST_SOURCE,
             &[event(
                 1,
                 "e",

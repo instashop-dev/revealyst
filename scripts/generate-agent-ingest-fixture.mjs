@@ -48,6 +48,10 @@ export const INGEST_FIXTURE_RELATIVE_PATH = path.join(
 const EXAMPLE = {
   agentVersion: "0.1.0",
   summarizerVersion: 1,
+  // ADR 0060: the on-device source (the live Claude Code connector here). The
+  // Rust `IngestRequest` mirror always serializes `source`, so the fixture pins
+  // it explicitly (an omitted `source` is server-defaulted to this value).
+  source: "claude-code-local",
   window: { start: "2026-07-15", end: "2026-07-16" },
   subjects: [
     {

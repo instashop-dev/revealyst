@@ -89,6 +89,7 @@
       }
     }
   ],
+  "source": "claude-code-local",
   "subjects": [
     {
       "displayName": null,

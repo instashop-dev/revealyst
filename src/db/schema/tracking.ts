@@ -177,6 +177,22 @@ export const rawPayloads = pgTable(
 // different key by construction — the ON CONFLICT update path cannot cross
 // tenants (unlike keys that omit org_id, which need explicit guards).
 // `dim` = '' for dimensionless metrics, else 'model=…' / 'feature=…'.
+//
+// `source_connector` is part of the natural key (ADR 0060, mig 0047): the
+// desktop agent uploads several distinct sources through ONE device
+// connection (the live `claude-code-local` connector, the `claude_export`
+// import, the OTel receiver), and each restates its own window. Keying on
+// the source lets one source's delete-then-upsert restatement replace ONLY
+// its own rows and never clobber a sibling source's overlapping days
+// (D-DA-8). For every existing row the column is already populated (it has
+// been NOT NULL since day one), and the OLD key
+// (org, subject, metric, day, dim) was already UNIQUE, so widening it to
+// include `source_connector` can only make keys MORE unique — no existing
+// row collides and no data is merged or lost. A single subject can now hold
+// the same (day, metric, dim) from two sources; the read boundary
+// (`metrics.records`) collapses those to MAX per (subject, day, dim) so no
+// downstream SUM double-counts (the P0 dual-source convention, applied one
+// level lower).
 export const metricRecords = pgTable(
   "metric_records",
   {
@@ -212,7 +228,14 @@ export const metricRecords = pgTable(
   },
   (t) => [
     primaryKey({
-      columns: [t.orgId, t.subjectId, t.metricKey, t.day, t.dim],
+      columns: [
+        t.orgId,
+        t.subjectId,
+        t.metricKey,
+        t.day,
+        t.dim,
+        t.sourceConnector,
+      ],
     }),
     foreignKey({
       name: "metric_records_org_subject_fk",

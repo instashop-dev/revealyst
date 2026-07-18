@@ -17,8 +17,8 @@
 //!     that becomes the session id) never reaches a projected payload.
 //! 10. **End-to-end** — a mixed synthetic export yields correct counts + sane
 //!     day-aggregates that decode into a valid `IngestRequest`.
-//! 11. **No shared-queue enqueue** — the importer projects but never writes to the
-//!     sync queue (the connection-scoped window-delete data-loss guard).
+//! 11. **Enqueue for sync** — a successful import enqueues its day-aggregates
+//!     under `claude_export` (ADR 0060); a blocked policy enqueues nothing.
 
 use super::*;
 
@@ -36,8 +36,8 @@ use crate::store::Store;
 use crate::sync::batch::build_request;
 
 /// Project the importer's `NewEvent`s into `PendingEvent`s (as the sync engine
-/// would after a dequeue) so a test can build an `IngestRequest` WITHOUT ever
-/// enqueuing into the shared connection — the whole point of the gating.
+/// would after a dequeue) so a test can build an `IngestRequest` from the
+/// import's output shape directly.
 fn as_pending(events: &[NewEvent]) -> Vec<PendingEvent> {
     events
         .iter()
@@ -520,17 +520,23 @@ fn mixed_export_produces_sane_day_aggregates() {
     assert!(!outcome.halted);
     // Two days present ⇒ two projected day-aggregate events.
     assert_eq!(outcome.projected_events.len(), 2);
-    // The projection was NOT written to the shared sync queue (data-loss guard).
-    assert_eq!(store.pending_count().unwrap(), 0);
+    // ADR 0060: the events ARE now enqueued for sync (was projection-only).
+    assert_eq!(store.pending_count().unwrap(), 2);
 
-    // The projected events decode into a valid IngestRequest without ever touching
-    // the shared connection — proving the shape a connector-scoped-ingest path
-    // WOULD sync.
+    // The enqueued events decode into a valid single-source IngestRequest tagged
+    // with the `claude-export` wire source — the server scopes its window-delete
+    // to `claude_export@1` and never clobbers the live connector's days.
     let queued = as_pending(&outcome.projected_events);
-    let request = build_request("0.1.0", 1, &queued);
+    let source = crate::sync::batch::wire_source_for_connector(&queued[0].connector_id);
+    assert_eq!(source, "claude-export");
+    let request = build_request("0.1.0", 1, source, &queued);
+    assert_eq!(request.source, "claude-export");
     assert_eq!(request.window.start, "2026-07-15");
     assert_eq!(request.window.end, "2026-07-16");
     assert_eq!(request.subjects.len(), 1, "one device subject");
+    // The import contributes DAY-LEVEL records only — no sub-daily signals
+    // (the live connector is the signal authority; ADR 0060).
+    assert!(request.signals.is_empty(), "export emits no signals");
 
     let has = |key: &str| request.records.iter().any(|r| r.metric_key == key);
     assert!(has("active_day"));
@@ -545,6 +551,17 @@ fn mixed_export_produces_sane_day_aggregates() {
         .map(|r| r.value)
         .sum();
     assert_eq!(prompt_total as i64, 2, "two human prompts, one per day");
+}
+
+/// ADR 0060: the importer's connector id must equal the sync layer's export
+/// connector id, so its batches upload under the `claude-export` wire source.
+#[test]
+fn connector_id_maps_to_the_export_wire_source() {
+    assert_eq!(CONNECTOR_ID, crate::sync::batch::CLAUDE_EXPORT_CONNECTOR_ID);
+    assert_eq!(
+        crate::sync::batch::wire_source_for_connector(CONNECTOR_ID),
+        "claude-export"
+    );
 }
 
 #[test]

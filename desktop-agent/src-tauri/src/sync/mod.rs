@@ -47,8 +47,8 @@ use crate::store::queue::now_ms;
 use crate::store::{Store, StoreError};
 
 use batch::{
-    build_request, distinct_day_count, prepare_batch, split_events_by_day, MAX_COMPRESSED_BYTES,
-    MAX_EVENTS_PER_BATCH, SUMMARIZER_VERSION,
+    build_request, distinct_day_count, prepare_batch, split_events_by_day,
+    wire_source_for_connector, MAX_COMPRESSED_BYTES, MAX_EVENTS_PER_BATCH, SUMMARIZER_VERSION,
 };
 use retry::{classify_status, HttpDisposition, RetryPolicy};
 
@@ -345,13 +345,38 @@ impl<T: IngestTransport> SyncEngine<T> {
             return Ok(SyncOutcome::Idle);
         }
 
-        let outcome = self.flush(store, bearer, events).await?;
+        // Group the drained events by their local `connector_id` so every
+        // uploaded batch is SINGLE-SOURCE (ADR 0060). The server composes one
+        // `source_connector` per batch and window-deletes only that source's
+        // rows, so a `claude_export` import can no longer clobber the live
+        // `claude_code` connector's overlapping days (D-DA-8). Groups are
+        // formed in first-seen order for a deterministic upload sequence; each
+        // group carries a disjoint set of events (a day may appear in two
+        // groups from two sources — that is exactly the point, and the two
+        // land as distinct source rows).
+        // Seed at Healthy: every group is non-empty (one per connector_id with
+        // ≥1 event), so `flush` never returns Idle here — it returns Healthy on
+        // a clean upload and worsens only on a real problem.
+        let mut worst = SyncOutcome::Healthy;
+        for (connector_id, group) in group_by_connector(events) {
+            let source = wire_source_for_connector(&connector_id);
+            let outcome = self.flush(store, bearer, source, group).await?;
+            worst = worst.worsen(outcome);
+            // A revoked/paused device or a dead network stops the whole cycle;
+            // the remaining groups stay queued for the next attempt.
+            if matches!(
+                outcome,
+                SyncOutcome::AuthenticationRequired | SyncOutcome::Offline
+            ) {
+                break;
+            }
+        }
         tracing::info!(
             component = "sync",
-            outcome = outcome_code(outcome),
+            outcome = outcome_code(worst),
             "flush cycle complete"
         );
-        Ok(outcome)
+        Ok(worst)
     }
 
     /// Upload `events`, DAY-splitting on oversize / 413 / 422 so every sub-batch
@@ -363,6 +388,7 @@ impl<T: IngestTransport> SyncEngine<T> {
         &self,
         store: &Store,
         bearer: &str,
+        source: &str,
         events: Vec<crate::store::queue::PendingEvent>,
     ) -> Result<SyncOutcome, StoreError> {
         let mut worst = SyncOutcome::Healthy;
@@ -373,7 +399,7 @@ impl<T: IngestTransport> SyncEngine<T> {
                 continue;
             }
 
-            let request = build_request(&self.agent_version, SUMMARIZER_VERSION, &chunk);
+            let request = build_request(&self.agent_version, SUMMARIZER_VERSION, source, &chunk);
 
             // M2: never upload a batch with nothing to persist. Such a body would
             // either delete-then-upsert-nothing (an empty summary with a real
@@ -540,6 +566,33 @@ fn rand01() -> f64 {
     ((value >> 11) as f64) / ((1u64 << 53) as f64)
 }
 
+/// Partition drained events into single-source groups by their local
+/// `connector_id`, preserving both first-seen group order AND FIFO event order
+/// within each group (ADR 0060). Every uploaded batch must be single-source so
+/// the server can scope its window-delete to that source; mixing two sources in
+/// one batch would let one source's restatement delete the other's rows.
+fn group_by_connector(
+    events: Vec<crate::store::queue::PendingEvent>,
+) -> Vec<(String, Vec<crate::store::queue::PendingEvent>)> {
+    let mut order: Vec<String> = Vec::new();
+    let mut groups: std::collections::HashMap<String, Vec<crate::store::queue::PendingEvent>> =
+        std::collections::HashMap::new();
+    for event in events {
+        let key = event.connector_id.clone();
+        if !groups.contains_key(&key) {
+            order.push(key.clone());
+        }
+        groups.entry(key).or_default().push(event);
+    }
+    order
+        .into_iter()
+        .map(|key| {
+            let group = groups.remove(&key).unwrap_or_default();
+            (key, group)
+        })
+        .collect()
+}
+
 /// Stable, non-secret log code for an outcome.
 fn outcome_code(outcome: SyncOutcome) -> &'static str {
     match outcome {
@@ -588,9 +641,16 @@ mod tests {
 
     /// A `usage_summary` queue event carrying one person-day of records.
     fn summary_event(event_id: &str, day: &str, prompts: i64) -> NewEvent {
+        summary_event_src(event_id, "claude_code", day, prompts)
+    }
+
+    /// Like [`summary_event`] but with an explicit local `connector_id`, so a test
+    /// can stage events from more than one source (the export connector stamps its
+    /// own id in production) and exercise the per-source batch split (ADR 0060).
+    fn summary_event_src(event_id: &str, connector_id: &str, day: &str, prompts: i64) -> NewEvent {
         NewEvent::analytics_only(
             event_id,
-            "claude_code",
+            connector_id,
             batch::USAGE_SUMMARY_EVENT_TYPE,
             0,
             json!({
@@ -808,6 +868,54 @@ mod tests {
         };
         outcome.apply(&mut inputs);
         resolve_state(&inputs)
+    }
+
+    /// ADR 0060 / D-DA-8: a flush cycle carrying events from TWO local
+    /// connectors uploads TWO single-source batches — one tagged
+    /// `claude-code-local`, one tagged `claude-export` — so the server scopes
+    /// each window-delete to its own source and the export cannot clobber the
+    /// live connector's overlapping days.
+    #[tokio::test]
+    async fn mixed_sources_upload_as_separate_single_source_batches() {
+        let store = Store::open_in_memory(key()).unwrap();
+        store
+            .enqueue_and_checkpoint(
+                "claude_code",
+                &[summary_event("live-1", "2026-07-15", 3)],
+                "cp-live",
+            )
+            .unwrap();
+        store
+            .enqueue_and_checkpoint(
+                "claude_export",
+                &[summary_event_src("exp-1", "claude_export", "2026-07-15", 9)],
+                "cp-export",
+            )
+            .unwrap();
+
+        let engine = engine(MockTransport::new(vec![accepted(1), accepted(1)]), 3);
+        let outcome = engine.sync_once(&store, "rva1.tok").await.unwrap();
+
+        assert_eq!(outcome, SyncOutcome::Healthy);
+        assert_eq!(store.pending_count().unwrap(), 0, "both batches purged");
+        assert_eq!(engine.transport.calls(), 2, "one batch per source");
+
+        // The two bodies carry DISTINCT sources (order = first-seen connector).
+        let sources: std::collections::BTreeSet<String> = (0..2)
+            .map(|i| {
+                engine.transport.body(i)["source"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(
+            sources,
+            ["claude-code-local", "claude-export"]
+                .into_iter()
+                .map(String::from)
+                .collect()
+        );
     }
 
     #[tokio::test]

@@ -288,12 +288,11 @@ pub struct ImportSummary {
 /// as plain-English strings, never a path or content. Reading the file uses
 /// `std::fs` on the Rust side — the frontend has no `fs:` capability.
 ///
-/// NOTE: the projected events are computed + validated but NOT enqueued into the
-/// shared sync queue. Live import→sync is gated on a connector-scoped-ingest ADR
-/// (the server's window-delete is connection-scoped, so enqueuing an import that
-/// overlaps the live connector's days would clobber those rows — see
-/// `connectors::claude_export`). This command therefore reports what WOULD import
-/// without yet persisting it.
+/// The parsed day-aggregates are ENQUEUED for sync under the `claude_export`
+/// connector id (ADR 0060 / D-DA-8): the server ingest is now connector-scoped,
+/// so an import that overlaps the live connector's days no longer clobbers those
+/// rows (the window-delete is scoped to `source_connector`). This command reports
+/// the import counts; the enqueued events sync on the next flush cycle.
 #[tauri::command]
 pub fn import_claude_export<R: Runtime>(
     app: AppHandle<R>,

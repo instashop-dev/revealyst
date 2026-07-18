@@ -201,6 +201,16 @@ export function memberSpendNamespace(db: Db, orgId: string) {
 
       // (4) Spend + token rows for ALL linked subjects across the contiguous
       // [prior.from, mtd.to] range, then classify in JS. One query.
+      //
+      // Source-dedup (ADR 0060): this direct read bypasses `metrics.records`'s
+      // MAX-collapse, but it is safe by construction — it reads ONLY
+      // spend_cents / spend_cents_estimated / model_tokens, and every producer
+      // of those keys is an admin-API connector (one connection = one
+      // `source_connector`). No path emits them for the same subject/day/dim
+      // from two sources (the desktop `claude_export` import and the OTel
+      // receiver emit neither), so no same-subject duplicate can reach this
+      // sum. (Cross-SUBJECT spend for a person linked to two accounts is a
+      // different dimension, handled by the exclusive/shared split above.)
       const rows = await db
         .select({
           subjectId: metricRecords.subjectId,
