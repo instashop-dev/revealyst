@@ -599,12 +599,7 @@ fn rich_prompt_classifies_without_leaking_any_substring() {
         "Please refactor the {} module for {}, then verify the {} and make it handle {} correctly.",
         secret_words[0], secret_words[1], secret_words[2], secret_words[3]
     );
-    let records = vec![prompt(
-        "sess-rich",
-        ms(2026, 7, 3, 10, 0, 0),
-        false,
-        &rich,
-    )];
+    let records = vec![prompt("sess-rich", ms(2026, 7, 3, 10, 0, 0), false, &rich)];
     let out = extract(&records, &opts());
 
     // It WAS classified (coding, with refinement + verification detected).
