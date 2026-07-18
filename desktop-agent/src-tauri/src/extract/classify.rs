@@ -378,8 +378,10 @@ mod tests {
     #[test]
     fn unclassifiable_prompt_falls_to_other_never_text() {
         // A content-rich prompt with no keyword match classifies to `other` — the
-        // label is the fixed enum string, NOT any part of the input.
-        let secret = "zzqwx blarf yonk the confidential launch codename";
+        // label is the fixed enum string, NOT any part of the input. (The phrase
+        // is deliberately free of every CATEGORY_TABLE needle — e.g. "moniker"
+        // rather than "codename", which would incidentally contain "code".)
+        let secret = "zzqwx blarf yonk the confidential launch moniker";
         let category = classify_prompt(secret);
         assert_eq!(category, TaskCategory::Other);
         // The only thing that leaves is the enum label, which shares no substring
