@@ -1,4 +1,4 @@
-import { ArrowDown, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { ONBOARDING_PITCH_COPY } from "@/lib/companion-glossary";
 
@@ -42,11 +42,6 @@ export function OnboardingCompanionPitch() {
           </ul>
         </CardContent>
       </Card>
-
-      <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-        <ArrowDown className="size-4" aria-hidden="true" />
-        {ONBOARDING_PITCH_COPY.continueLabel}
-      </div>
     </div>
   );
 }

@@ -122,15 +122,21 @@ const MATURITY_NOT_MEASURED = MATURITY_NOT_SCORED.map((item) => ({
   what: item.what,
 }));
 
+// The attribution ladder describes how Revealyst handles each *kind* of source,
+// not which vendors are live today. ADR 0056 removed the polled connectors, so
+// naming Cursor/OpenAI/Anthropic here as current sources was a stale overclaim
+// (invariant b / W3-N). Person-level names the one live source (Claude Code via
+// the agent); the other rungs describe source *types* the honesty machinery
+// still handles, without present-tensing an unshipped connector.
 const ATTRIBUTION_LADDER = [
   {
     level: "Person-level",
-    sources: "Cursor · Claude Code",
-    note: "Full per-person truth: the vendor reports real individuals.",
+    sources: "Claude Code",
+    note: "Full per-person truth: the source reports real individuals.",
   },
   {
     level: "Key / project-level",
-    sources: "OpenAI · Anthropic API",
+    sources: "Per-user API keys",
     note: "Truth per key or project. Per-person only when you issue per-user keys — and we tell you so.",
   },
   {
@@ -197,7 +203,7 @@ const TIERS: {
     badge: `Free ≤ ${FREE_TRACKED_USER_LIMIT} tracked users`,
     highlight: true,
     features: [
-      "All connectors, full history",
+      "Connect your whole team's sources",
       "All three scores + team benchmarks",
       "Shared-account detection",
       "Privacy modes, pseudonymized default",
@@ -577,7 +583,7 @@ export default function Home() {
         index="07"
         eyebrow="Personal mode"
         title="Start with your own score."
-        lead="Revealyst is free forever for individuals. Connect your own API keys or Claude Code, get your own Adoption and Fluency scores, and — if you choose — share the card."
+        lead="Revealyst is free forever for individuals. Connect your own Claude Code usage, get your own Adoption and Fluency scores, and — if you choose — share the card."
       >
         <div className="flex flex-col items-start gap-8 md:flex-row md:items-center md:gap-14">
           <ScoreCardMock

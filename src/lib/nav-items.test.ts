@@ -94,6 +94,21 @@ describe("navFor — U0.1 nav IA", () => {
     expect(groups.map((g) => g.id)).toEqual(["primary", "admin"]);
   });
 
+  it("personal admin group is trimmed to Spend (no Match accounts / Compliance)", () => {
+    // Match accounts and Compliance don't apply to an org of one — the pages
+    // themselves say so — so the personal admin group carries only Spend.
+    const groups = navFor({
+      orgKind: "personal",
+      role: "admin",
+      isPlatformAdmin: false,
+    });
+    const admin = groups.find((g) => g.id === "admin");
+    expect(admin?.items.map((i) => i.title)).toEqual(["Spend"]);
+    const adminHrefs = admin?.items.map((i) => i.href) ?? [];
+    expect(adminHrefs).not.toContain("/reconcile");
+    expect(adminHrefs).not.toContain("/compliance");
+  });
+
   it("platform admin: appends the Platform group after any admin group", () => {
     const groups = navFor({
       orgKind: "team",

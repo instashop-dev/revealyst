@@ -82,7 +82,7 @@ export function ReconcileSubjectDialog({
               displayName: displayName.trim(),
             });
       if (!res.ok) {
-        toast.error(`Could not resolve identity (${res.status})`);
+        toast.error(`Couldn't match this account (${res.status})`);
         return;
       }
       const resolvedPersonId =
@@ -213,7 +213,7 @@ export function ReconcileSubjectDialog({
           <DialogFooter>
             <Button type="submit" disabled={busy || !canSubmit}>
               {busy && <Spinner data-icon="inline-start" />}
-              Resolve
+              Match
             </Button>
           </DialogFooter>
         </form>

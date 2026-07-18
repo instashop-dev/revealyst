@@ -706,7 +706,10 @@ export async function PersonalSelfView() {
            * cap only — selection/order stay deriveAttention's, pinned by the
            * digest-parity test). This route logs NO exposures (only the digest
            * does, keyed to what IT shows), so the display cap can't desync any
-           * exposure log. The hero already surfaces rec #1 as the next step. */}
+           * exposure log. The hero surfaces rec #1 as the read-only next step;
+           * the card keeps it too so its snooze/dismiss/mark-tried controls stay
+           * reachable (dropping it hero-only would soft-lock the top rec — see
+           * the deferred follow-up to make the hero rec itself actionable). */}
           <CoachingCard
             recommendations={coachingRecs.slice(0, 2)}
             personId={personId}

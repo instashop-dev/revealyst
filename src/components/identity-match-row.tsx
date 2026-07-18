@@ -185,11 +185,9 @@ export function IdentityMatchRow({
                   unresolved — a no-op that just confirms the choice, never
                   invents a person (invariant b). */}
               <DropdownMenuItem
-                onClick={() =>
-                  toast.success("Left unresolved — we never invent a person.")
-                }
+                onClick={() => toast.success("Left as unmatched.")}
               >
-                Leave unresolved (default)
+                Leave unmatched (default)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

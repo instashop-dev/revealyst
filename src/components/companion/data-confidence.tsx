@@ -68,7 +68,7 @@ const STATE_STYLE: Record<
     iconClass: "text-amber-600 dark:text-amber-500",
     badgeVariant: "outline",
     badgeClass:
-      "border-amber-500/40 text-amber-700 dark:text-amber-400",
+      "border-amber-500/60 text-amber-700 dark:text-amber-400",
   },
   "sync-failed": {
     icon: TriangleAlert,
