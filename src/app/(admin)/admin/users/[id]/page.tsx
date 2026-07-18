@@ -24,7 +24,7 @@ import { userDetailForAdmin } from "@/db/admin";
 import { requireAdminContext } from "@/lib/admin-context";
 import { SYNC_STALE_AFTER_DAYS } from "@/lib/agent-sync";
 import { formatRelativeTime } from "@/lib/format";
-import { vendorLabel } from "@/lib/vendor-labels";
+import { isLegacyConnectorVendor, vendorLabel } from "@/lib/vendor-labels";
 
 export const dynamic = "force-dynamic";
 
@@ -215,10 +215,13 @@ export default async function AdminUserDetailPage({
                         status={toSyncStatus(c.status)}
                         lastSuccessAt={c.lastSuccessAt}
                         lastError={c.lastError}
-                        // Same staleness treatment the user sees on their own
-                        // Connections page/dashboard — an admin investigating
-                        // freshness must not get a rosier badge (sibling-guard
-                        // rule; push-ingest vendor only, polled rows unchanged).
+                        // Same treatment the user sees on their own dashboard: a
+                        // retired polled connector (ADR 0056) shows "No longer
+                        // syncing" — an admin investigating must not get a rosier
+                        // badge than the truth (sibling-guard rule).
+                        legacy={isLegacyConnectorVendor(c.vendor)}
+                        // Staleness applies to the live agent only (push-ingest
+                        // vendor); polled rows are covered by `legacy` above.
                         staleAfterDays={
                           c.vendor === "claude_code_local"
                             ? SYNC_STALE_AFTER_DAYS

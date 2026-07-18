@@ -24,7 +24,7 @@ import {
   type HonestyGapKind,
   type ScoreSlug,
 } from "./metrics-glossary";
-import { vendorLabel } from "./vendor-labels";
+import { isLegacyConnectorVendor, vendorLabel } from "./vendor-labels";
 
 // Pure derivation helpers for the metrics-UX redesign (score deltas,
 // per-person deltas, reading bands, component-detail rows, and the
@@ -685,12 +685,19 @@ export type AttentionConnection = { label: string; status: "error" | "paused" };
  * both dashboard/page.tsx call sites (personal self-view and team overview)
  * used to repeat verbatim. `id` is dropped from the output shape: neither
  * this function nor `deriveAttention` ever read it, only `label`/`status`.
+ *
+ * A retired polled connector (ADR 0056) is filtered out here, so its frozen
+ * error/paused state never becomes a "needs attention" item. Those items point
+ * at Settings → Devices, which only manages the live local agent — a legacy
+ * connector can't be reconnected there, so the alert would be a permanent,
+ * un-actionable dead-end. Its retired state shows on the source badge instead.
  */
 export function connectionAttentionInputs(
   connections: { vendor: string; status: string; id: string }[],
 ): AttentionConnection[] {
   return connections
     .filter((c) => c.status === "error" || c.status === "paused")
+    .filter((c) => !isLegacyConnectorVendor(c.vendor))
     .map((c) => ({
       label: vendorLabel(c.vendor),
       status: c.status as "error" | "paused",

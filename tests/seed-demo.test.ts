@@ -202,7 +202,18 @@ describe("dashboard view (Acme Robotics)", () => {
 // ─────────────────────────────────────────────────────────────────────────
 
 describe("score insights / attention (Acme Robotics)", () => {
-  it("includes a connection-error attention item", () => {
+  it("does NOT surface retired polled connectors as needs-attention (ADR 0056)", () => {
+    // The seed's only error/paused connections are the legacy polled
+    // connectors openai_legacy (error) and cursor_sandbox (paused). Polling is
+    // gone, so they're frozen history with no place to reconnect them — a
+    // "needs attention" item pointing at Settings → Devices would be a
+    // permanent dead-end. Confirm the seed still plants those states, then that
+    // deriveAttention produces no connection-attention item for them.
+    expect(
+      view.connections.some(
+        (c) => c.status === "error" || c.status === "paused",
+      ),
+    ).toBe(true);
     const attentionItems = deriveAttention({
       connections: connectionAttentionInputs(view.connections),
       gaps: view.gaps,
@@ -211,9 +222,11 @@ describe("score insights / attention (Acme Robotics)", () => {
     });
     expect(
       attentionItems.some(
-        (i) => i.severity === "action" && /connection needs attention/.test(i.title),
+        (i) =>
+          /connection needs attention/.test(i.title) ||
+          /connection paused/.test(i.title),
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("dedupes the exact-duplicate honesty-gap pair (oauth_actors_missing) to one entry", () => {

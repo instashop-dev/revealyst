@@ -25,7 +25,7 @@ import {
   cachedMissionCatalog,
 } from "@/lib/reference-cache";
 import { timeStage } from "@/lib/request-timing";
-import { vendorLabel } from "@/lib/vendor-labels";
+import { isLegacyConnectorVendor, vendorLabel } from "@/lib/vendor-labels";
 import { periodFor, previousDay } from "@/scoring";
 import { deriveMissionRows } from "@/scoring/mission-progress";
 
@@ -220,11 +220,14 @@ export default async function GrowthPage() {
 
   // Honest empty state (no capability evidence yet): name whether the person has
   // connected sources at all, so the guidance is real (connect a tool, or wait
-  // for signal) — never a fabricated capability bar.
+  // for signal) — never a fabricated capability bar. Retired polled connectors
+  // (ADR 0056) are excluded: they no longer sync, so listing a frozen "Cursor"
+  // as a currently-connected source would be dishonest (invariant b). With none
+  // left, the empty state correctly falls back to the "connect a tool" prompt.
   const activeVendors = [
     ...new Set(
       connections
-        .filter((c) => c.status === "active")
+        .filter((c) => c.status === "active" && !isLegacyConnectorVendor(c.vendor))
         .map((c) => vendorLabel(c.vendor)),
     ),
   ].sort();

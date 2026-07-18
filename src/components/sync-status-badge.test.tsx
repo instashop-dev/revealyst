@@ -72,6 +72,43 @@ describe("SyncStatusBadge staleness", () => {
   });
 });
 
+describe("SyncStatusBadge legacy (retired polled connector, ADR 0056)", () => {
+  it("says 'No longer syncing' instead of a fresh Synced badge", () => {
+    render(
+      <SyncStatusBadge status="active" lastSuccessAt={daysAgo(90)} legacy />,
+    );
+    expect(screen.getByText("No longer syncing")).toBeInTheDocument();
+    expect(screen.queryByText(/Synced/)).not.toBeInTheDocument();
+  });
+
+  it("overrides an error state (frozen error is not fixable, so not alarming)", () => {
+    render(
+      <SyncStatusBadge
+        status="error"
+        lastSuccessAt={daysAgo(90)}
+        lastError="invalid_api_key: key revoked"
+        legacy
+      />,
+    );
+    expect(screen.getByText("No longer syncing")).toBeInTheDocument();
+    expect(screen.queryByText("Sync error")).not.toBeInTheDocument();
+  });
+
+  it("overrides a paused state", () => {
+    render(
+      <SyncStatusBadge status="paused" lastSuccessAt={daysAgo(90)} legacy />,
+    );
+    expect(screen.getByText("No longer syncing")).toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+  });
+
+  it("is opt-in: without the prop a live connection is unchanged", () => {
+    render(<SyncStatusBadge status="active" lastSuccessAt={hoursAgo(2)} />);
+    expect(screen.getByText(/Synced 2h ago/)).toBeInTheDocument();
+    expect(screen.queryByText("No longer syncing")).not.toBeInTheDocument();
+  });
+});
+
 describe("SyncStatusBadge limited coverage (honesty gaps)", () => {
   it("shows 'Working — can't see everything' when the latest run reports gaps", () => {
     render(
