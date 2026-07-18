@@ -35,6 +35,14 @@ export type CollectionField = {
    * anything) leaves. User-facing copy — kept byte-identical in the app
    * mirror by the contract test. */
   readonly purpose: string;
+  /** For a `sent: true` field, the SHAPE of the value that leaves the device: a
+   * token/count number, the model id, or a bounded closed-enum label. Its
+   * PRESENCE is the structural proof that a sent value is bounded — NOT free
+   * text. The app-side onboarding standing-privacy gate reads this to decide
+   * whether to show the "never your prompts" line (fail-closed: a future
+   * free-text sent field would omit it). Omitted on `sent: false` fields.
+   * Kept byte-identical in the app mirror by the contract test. */
+  readonly sentValueShape?: "count" | "model_id" | "closed_enum";
 };
 
 /** Everything the parser reads from a Claude Code session line, in the order
@@ -109,6 +117,7 @@ export const AGENT_COLLECTION_FIELDS: readonly CollectionField[] = [
     label: "Model id",
     sourceToken: "message?.model",
     sent: true,
+    sentValueShape: "model_id",
     purpose:
       "The model id (e.g. claude-…) is sent as a metric label, sanitized to a safe charset and length.",
   },
@@ -117,6 +126,7 @@ export const AGENT_COLLECTION_FIELDS: readonly CollectionField[] = [
     label: "Input tokens",
     sourceToken: "input_tokens",
     sent: true,
+    sentValueShape: "count",
     purpose: "The input-token count is summed per day and sent as a number.",
   },
   {
@@ -124,6 +134,7 @@ export const AGENT_COLLECTION_FIELDS: readonly CollectionField[] = [
     label: "Output tokens",
     sourceToken: "output_tokens",
     sent: true,
+    sentValueShape: "count",
     purpose: "The output-token count is summed per day and sent as a number.",
   },
   {
@@ -131,6 +142,7 @@ export const AGENT_COLLECTION_FIELDS: readonly CollectionField[] = [
     label: "Cache-read tokens",
     sourceToken: "cache_read_input_tokens",
     sent: true,
+    sentValueShape: "count",
     purpose: "The cache-read-token count is summed per day and sent as a number.",
   },
   {
@@ -138,6 +150,7 @@ export const AGENT_COLLECTION_FIELDS: readonly CollectionField[] = [
     label: "Cache-write tokens",
     sourceToken: "cache_creation_input_tokens",
     sent: true,
+    sentValueShape: "count",
     purpose: "The cache-write-token count is summed per day and sent as a number.",
   },
   {
@@ -145,6 +158,7 @@ export const AGENT_COLLECTION_FIELDS: readonly CollectionField[] = [
     label: "AI app in use",
     sourceToken: "detect_present",
     sent: true,
+    sentValueShape: "closed_enum",
     purpose:
       "The desktop app checks which known AI desktop apps are open (from a fixed list) and sends only each app's name as a label — never its windows, files, or anything you type in it.",
   },
