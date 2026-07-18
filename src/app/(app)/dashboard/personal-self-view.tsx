@@ -695,6 +695,12 @@ export async function PersonalSelfView() {
         // capability state is directional, so this stays null and the modeled
         // maturity level remains the headline.
         capabilityBand={overallCapabilityBand(capabilityStates)}
+        // The hero's next step (the top rec) now carries the same
+        // snooze/dismiss/mark-tried controls the CoachingCard rows do, so the
+        // most important rec is actionable in place — no longer duplicated
+        // below just to stay dismissable. Self-view only.
+        personId={personId}
+        triedRecIds={[...triedRecIds]}
       />
 
       {/* 12-col split (U1.1): the daily ACTIONS (coaching + the active-mission
@@ -702,19 +708,23 @@ export async function PersonalSelfView() {
        * sits alongside on desktop and stacks under the actions on mobile. */}
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="flex flex-col gap-4 lg:col-span-7">
-          {/* Next best actions: the two weakest-first coaching recs (display
-           * cap only — selection/order stay deriveAttention's, pinned by the
-           * digest-parity test). This route logs NO exposures (only the digest
-           * does, keyed to what IT shows), so the display cap can't desync any
-           * exposure log. The hero surfaces rec #1 as the read-only next step;
-           * the card keeps it too so its snooze/dismiss/mark-tried controls stay
-           * reachable (dropping it hero-only would soft-lock the top rec — see
-           * the deferred follow-up to make the hero rec itself actionable). */}
-          <CoachingCard
-            recommendations={coachingRecs.slice(0, 2)}
-            personId={personId}
-            triedRecIds={[...triedRecIds]}
-          />
+          {/* Next best actions (display cap only — selection/order stay
+           * deriveAttention's, pinned by the digest-parity test). The hero
+           * above now surfaces the TOP rec (#0) with its own
+           * snooze/dismiss/mark-tried controls, so this card starts at #1 — no
+           * rec appears twice, and none is dropped from view. This route logs
+           * NO exposures (only the digest does, keyed to what IT shows), so the
+           * display cap can't desync any exposure log. Rendered only when there
+           * is a rec beyond the hero's — with ≤1 rec the hero covers it fully,
+           * so we skip the card rather than show an empty "No coaching" shell
+           * directly under a hero that IS showing a rec. */}
+          {coachingRecs.length > 1 ? (
+            <CoachingCard
+              recommendations={coachingRecs.slice(1, 3)}
+              personId={personId}
+              triedRecIds={[...triedRecIds]}
+            />
+          ) : null}
 
           {/* Active-mission STRIP: in-progress missions only — a one-glance
            * nudge to keep going. The full catalog + completed timeline live on

@@ -12,6 +12,7 @@ import {
 import type { CapabilityBand } from "@/lib/capability-glossary";
 import type { MaturityLevelValue } from "@/lib/maturity-glossary";
 import type { AttentionItem } from "@/lib/score-insights";
+import { RecInteractionActions } from "./rec-interaction-actions";
 
 /**
  * The companion surface's HEADLINE card (W5-C deliverable 1). Leads with the
@@ -29,6 +30,8 @@ export function GrowthJourneyCard({
   nextStep,
   capabilityBand = null,
   variant = "companion",
+  personId,
+  triedRecIds,
 }: {
   level: MaturityLevelValue | null;
   stale: boolean;
@@ -45,6 +48,16 @@ export function GrowthJourneyCard({
    * decomposition of the one level, never a new ladder. `"companion"` (default)
    * keeps the compact Today headline byte-identical. */
   variant?: "companion" | "growth";
+  /** The signed-in person (personal self-view only). Present alongside the
+   * next-step rec's `recId` → the hero's next step carries the SAME
+   * snooze/dismiss/mark-tried controls the CoachingCard rows do, so the top rec
+   * is never a read-only dead end. Absent (manager view / Growth variant) →
+   * read-only next step. Mirrors CoachingCard/RecommendationCard's props. */
+  personId?: string | null;
+  /** Rec ids the person has marked "tried" — the hero's next step shows a
+   * static "tried" indicator instead of the mark-tried button when its id is in
+   * this set. */
+  triedRecIds?: readonly string[];
 }) {
   const copy = companionLevelCopy(level, stale);
   // When a measured capability band exists, it leads; otherwise the modeled
@@ -105,7 +118,16 @@ export function GrowthJourneyCard({
             duplicate coaching affordance, no contradictory "nothing to fix"
             copy next to a full list of things to grow). */}
         {variant === "companion" ? (
-          <NextStep item={nextStep} placed={placed} />
+          <NextStep
+            item={nextStep}
+            placed={placed}
+            personId={personId}
+            tried={
+              nextStep?.recId
+                ? new Set(triedRecIds ?? []).has(nextStep.recId)
+                : false
+            }
+          />
         ) : null}
       </CardContent>
     </Card>
@@ -115,9 +137,16 @@ export function GrowthJourneyCard({
 function NextStep({
   item,
   placed,
+  personId,
+  tried,
 }: {
   item: AttentionItem | null;
   placed: boolean;
+  /** The signed-in person (self-view only) — present alongside `item.recId`
+   * turns on the interaction controls. */
+  personId?: string | null;
+  /** Whether this next-step rec is already marked "tried". */
+  tried?: boolean;
 }) {
   // Only offer a "next step" once a level is placed — a next step without a
   // starting point is noise. When placed but no recommendation fires, say so
@@ -151,6 +180,18 @@ function NextStep({
         >
           Take a look
         </Button>
+      ) : null}
+      {/* Make the hero's top rec actionable: the SAME snooze/dismiss/mark-tried
+       * controls each CoachingCard row carries (W5-D, ADR 0028), so the most
+       * important rec is never a read-only dead end. Self-view only — rendered
+       * only when both a personId and the rec's stable id are present (a manager
+       * surface passes no personId), exactly like RecommendationCard. */}
+      {personId && item.recId ? (
+        <RecInteractionActions
+          personId={personId}
+          recId={item.recId}
+          tried={tried}
+        />
       ) : null}
     </div>
   );
