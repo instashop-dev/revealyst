@@ -21,10 +21,18 @@ export function SyncStatusBadge({
   lastError,
   staleAfterDays,
   gapKinds,
+  legacy,
 }: {
   status: SyncStatus;
   lastSuccessAt: Date | string | null;
   lastError?: string | null;
+  /** A retired polled connector (ADR 0056): polling was removed, so this
+   * source's rows are frozen history and there is no place to reconnect it.
+   * When set, the badge says "No longer syncing" plainly instead of a green
+   * "Synced …" (which would imply it's still current) or an "error"/"paused"
+   * badge (which would imply a transient, fixable state) — invariant b. Takes
+   * precedence over every status-based rendering below. */
+  legacy?: boolean;
   /** Opt-in staleness flag: when set and the last successful sync is older
    * than this many days, an active connection paints an amber "may be
    * incomplete" badge instead of the plain "Synced" one. Supplied ONLY for
@@ -39,6 +47,34 @@ export function SyncStatusBadge({
    * Empty/absent → unchanged behavior. */
   gapKinds?: HonestyGapKind[];
 }) {
+  // A retired connector's frozen status ("active"/"error"/"paused") is
+  // misleading now that it never syncs — say what's actually true. Neutral,
+  // not alarming: this is a settled state, not a problem to fix.
+  if (legacy) {
+    const badge = (
+      <Badge variant="outline" className="text-muted-foreground">
+        No longer syncing
+      </Badge>
+    );
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              className="inline-flex rounded-full focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            />
+          }
+        >
+          {badge}
+        </TooltipTrigger>
+        <TooltipContent>
+          This source stopped updating when Revealyst moved to the desktop
+          agent. Its past numbers stay; nothing new comes in.
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
   if (status === "error") {
     const badge = <Badge variant="destructive">Sync error</Badge>;
     if (!lastError) return badge;

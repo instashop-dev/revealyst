@@ -842,17 +842,29 @@ describe("deriveAttention", () => {
 });
 
 describe("connectionAttentionInputs", () => {
-  it("keeps only error/paused connections, maps to a vendor label, and drops id", () => {
+  it("keeps only error/paused LIVE-agent connections, maps to a label, and drops id", () => {
     const result = connectionAttentionInputs([
-      { id: "c1", vendor: "cursor", status: "error" },
-      { id: "c2", vendor: "github_copilot", status: "active" },
-      { id: "c3", vendor: "openai", status: "paused" },
+      { id: "c1", vendor: "claude_code_local", status: "error" },
+      { id: "c2", vendor: "claude_code_local", status: "active" },
+      { id: "c3", vendor: "claude_code_local", status: "paused" },
     ]);
     expect(result).toEqual([
-      { label: "Cursor", status: "error" },
-      { label: "OpenAI", status: "paused" },
+      { label: "Claude Code (local agent)", status: "error" },
+      { label: "Claude Code (local agent)", status: "paused" },
     ]);
     expect(result.every((c) => !("id" in c))).toBe(true);
+  });
+
+  it("drops retired polled connectors (ADR 0056) — their error/paused state has no fixable CTA", () => {
+    // Every non-agent vendor is a frozen legacy connector: surfacing "needs
+    // attention" with a Settings → Devices CTA it can't act on is a permanent
+    // dead-end, so it produces no attention item.
+    const result = connectionAttentionInputs([
+      { id: "c1", vendor: "cursor", status: "error" },
+      { id: "c2", vendor: "github_copilot", status: "paused" },
+      { id: "c3", vendor: "openai", status: "error" },
+    ]);
+    expect(result).toEqual([]);
   });
 
   it("empty input → []", () => {

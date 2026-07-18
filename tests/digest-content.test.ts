@@ -422,15 +422,17 @@ describe("reserved coaching slot (errata §1.2(7))", () => {
     // Three errored connections (impact 100 each) would fill all 3 slots under
     // the old flat slice, burying coaching (impact 1). The reserve guarantees
     // guidance still gets through. A fresh active connection keeps the digest
-    // from staleness-suppressing.
+    // from staleness-suppressing. All are `claude_code_local`: post-ADR-0056
+    // only the live agent yields connection-attention items (each paired device
+    // is its own connections row), and a retired polled connector is filtered.
     const content = assembleDigest({
       now: NOW,
       lane: "personal",
       connections: [
-        conn("openai", "active", fresh),
-        conn("cursor", "error", fresh),
-        conn("copilot", "error", fresh),
-        conn("gemini", "error", fresh),
+        conn("claude_code_local", "active", fresh),
+        conn("claude_code_local", "error", fresh),
+        conn("claude_code_local", "error", fresh),
+        conn("claude_code_local", "error", fresh),
       ],
       movement: emptyMovement(),
       trends: [],
@@ -452,7 +454,13 @@ describe("reserved coaching slot (errata §1.2(7))", () => {
     const content = assembleDigest({
       now: NOW,
       lane: "personal",
-      connections: [conn("openai", "active", fresh), conn("cursor", "error", fresh)],
+      // The live agent (claude_code_local) is the only vendor that still yields
+      // a connection-attention item post-ADR-0056; a retired polled connector
+      // is filtered out (no fixable CTA).
+      connections: [
+        conn("claude_code_local", "active", fresh),
+        conn("claude_code_local", "error", fresh),
+      ],
       movement: emptyMovement(),
       trends: [],
       scoreComponents: [weakActiveDays()],

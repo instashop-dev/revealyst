@@ -67,7 +67,7 @@ import {
   teamScoreDropAttribution,
   type DeltaResult,
 } from "@/lib/score-insights";
-import { vendorLabel } from "@/lib/vendor-labels";
+import { isLegacyConnectorVendor, vendorLabel } from "@/lib/vendor-labels";
 import { VISIBILITY_MODE_INFO } from "@/lib/visibility-playbook";
 import {
   AttentionSection,
@@ -601,6 +601,11 @@ export async function TeamOverview() {
                       status={connection.status}
                       lastSuccessAt={connection.lastSuccessAt}
                       lastError={connection.lastError}
+                      // A retired polled connector (ADR 0056) is frozen history,
+                      // not a fresh/fixable source — the badge says "No longer
+                      // syncing" instead of a green "Synced …". The live agent
+                      // keeps its staleness treatment.
+                      legacy={isLegacyConnectorVendor(connection.vendor)}
                       staleAfterDays={
                         connection.vendor === "claude_code_local"
                           ? SYNC_STALE_AFTER_DAYS
