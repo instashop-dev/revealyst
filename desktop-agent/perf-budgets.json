@@ -1,0 +1,55 @@
+{
+  "_comment": "Single source of truth for the desktop-agent performance budgets (Desktop Agent plan T7.1; spec docs/product/desktop-agent-spec.md section 21). The evidence doc, the CI artifact-size gate (scripts/desktop-artifact-size-gate.mjs), and the harness (scripts/desktop-perf-harness.mjs) ALL read these numbers so they can never drift. Numbers are copied verbatim from the spec section 21 table. `measuredBy` says HOW each budget is checked today: `ci-artifact-size` runs automatically on every desktop PR; `on-hardware` still needs a human to run the documented procedure on real macOS/Windows hardware (not yet automated, not yet measured).",
+  "specSection": "21",
+  "budgets": {
+    "installedSize": {
+      "label": "Installed size (per architecture)",
+      "budget": 40,
+      "unit": "MB",
+      "measuredBy": "ci-artifact-size",
+      "note": "The CI gate applies this budget to the produced installer/bundle file(s) (.dmg / .msi / .exe) on each build runner. Installers are compressed, so an installer over 40 MB proves the installed app is over budget; an installer under 40 MB is a necessary-but-not-sufficient signal. The true unpacked installed size still needs the on-hardware step below."
+    },
+    "idleMemory": {
+      "label": "Idle memory (resident set)",
+      "budget": 80,
+      "unit": "MB",
+      "measuredBy": "on-hardware",
+      "note": "Resident memory of the tray process after 10 minutes idle, no window open."
+    },
+    "idleCpu": {
+      "label": "Idle CPU, averaged over 10 minutes",
+      "budget": 0.5,
+      "unit": "%",
+      "measuredBy": "on-hardware",
+      "note": "Average CPU of the agent process over a 10-minute idle window."
+    },
+    "activeCpu": {
+      "label": "Active CPU, averaged over 1 minute",
+      "budget": 3,
+      "unit": "%",
+      "measuredBy": "on-hardware",
+      "note": "Average CPU over a 1-minute window while a sync is running."
+    },
+    "startupToTray": {
+      "label": "Startup to tray ready",
+      "budget": 3,
+      "unit": "s",
+      "measuredBy": "on-hardware",
+      "note": "Time from launching the app to the tray icon being interactive."
+    },
+    "warmWindowOpen": {
+      "label": "Warm status-window open",
+      "budget": 500,
+      "unit": "ms",
+      "measuredBy": "on-hardware",
+      "note": "Time to show the status window on a second/warm open (app already resident)."
+    },
+    "idleNetwork": {
+      "label": "Idle network use (excluding updates)",
+      "budget": 1,
+      "unit": "MB/day",
+      "measuredBy": "on-hardware",
+      "note": "Total bytes sent+received over 24 hours idle, not counting update downloads."
+    }
+  }
+}

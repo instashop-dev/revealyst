@@ -11,8 +11,11 @@ on:
       - "desktop-agent/**"
       - ".github/workflows/desktop-ci.yml"
       # The audit must re-run when someone edits the audit itself — otherwise
-      # a PR that only weakens the script gets no desktop checks at all.
+      # a PR that only weakens the script gets no desktop checks at all. Same
+      # reasoning for the artifact-size gate and its harness.
       - "scripts/desktop-capability-audit.mjs"
+      - "scripts/desktop-artifact-size-gate.mjs"
+      - "scripts/desktop-perf-harness.mjs"
 
 concurrency:
   group: desktop-ci-${{ github.ref }}
@@ -121,6 +124,14 @@ jobs:
       - name: Unsigned Tauri build
         working-directory: desktop-agent
         run: npm run tauri build -- --bundles ${{ matrix.bundles }}
+      # Spec section 21 "Installed size" budget — the one performance target a
+      # CI runner can measure deterministically (T7.1). This build job runs the
+      # bundler WITHOUT --target, so the installers land in the default output
+      # dir below. The gate reads the budget from desktop-agent/perf-budgets.json
+      # and FAILS this job if any installer exceeds it. It only measures file
+      # sizes; it does not touch or change anything the steps above produced.
+      - name: Installer size budget (spec section 21)
+        run: node scripts/desktop-artifact-size-gate.mjs desktop-agent/src-tauri/target/release/bundle
 
   capability-audit:
     # Spec §22.2/§22.3: capabilities stay minimal (no fs/shell/http grants,
