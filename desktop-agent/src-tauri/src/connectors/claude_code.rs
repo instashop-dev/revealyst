@@ -99,6 +99,56 @@ impl ClaudeCodeConnector {
     pub fn new() -> Self {
         ClaudeCodeConnector
     }
+
+    /// Count the distinct calendar days (UTC) with any Claude Code activity in
+    /// the trailing window for `ctx` — the real, local number behind the Privacy
+    /// screen's "what we've collected" summary.
+    ///
+    /// It reuses the SAME discovery + parse + windowed extract the live collect
+    /// path uses, but deliberately:
+    ///   - has NO checkpoint short-circuit, so the count reflects reality on
+    ///     every call (not only when the file manifest changed), and
+    ///   - enqueues nothing and uploads nothing — it is a pure read.
+    ///
+    /// It reads only counts/structure, never prompt or response CONTENT (§29),
+    /// exactly like the collector. Returns the number of active days (0 when the
+    /// logs are empty — an honest zero, never a fabricated one).
+    pub fn active_days_in_window(ctx: &ConnectorContext) -> usize {
+        let dirs = config_dirs(&ctx.home_dir, ctx.config_dir_override.as_deref());
+        let files = list_session_files(&dirs);
+        let mut records: Vec<SourceRecord> = Vec::new();
+        for f in &files {
+            match parse_file(&f.path) {
+                Ok(fp) => {
+                    // Same unsupported-format rule as the collector: never a
+                    // partial parse of a shape we don't recognize.
+                    if fp.max_major.is_some_and(|m| m > MAX_SUPPORTED_MAJOR) {
+                        continue;
+                    }
+                    records.extend(fp.records);
+                }
+                Err(_) => continue,
+            }
+        }
+        let identity = resolve_local_identity(ctx);
+        let (window_start, window_end) = trailing_window(ctx.now_ms, ctx.window_days);
+        let out = extract(
+            &records,
+            &ExtractOptions {
+                subject_external_id: identity.external_id,
+                connector_id: CONNECTOR_ID.to_string(),
+                window_start,
+                window_end,
+            },
+        );
+        // `extract` already clips records to the window, so the distinct day set
+        // is exactly the active days in the last `window_days`.
+        out.records
+            .iter()
+            .map(|r| r.day.as_str())
+            .collect::<BTreeSet<&str>>()
+            .len()
+    }
 }
 
 // ---- Discovery (port of discover.ts) ---------------------------------------

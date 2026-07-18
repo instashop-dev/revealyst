@@ -152,6 +152,27 @@ export function getPendingCount(): Promise<number> {
   return invoke<number>("get_pending_count");
 }
 
+/** A local, read-only "what we've collected" summary for the Privacy screen.
+ * Presence/counts only — never content. */
+export type CollectionSummary = {
+  /** Distinct days with Claude Code activity on this computer in the last
+   * `windowDays`. `null` when the local scan couldn't run (show "—"); a real
+   * zero is `0` ("nothing yet"). */
+  activeDays: number | null;
+  /** The lookback window, in days (30). */
+  windowDays: number;
+};
+
+/**
+ * Read the local "what we've collected" summary (Privacy screen). Computed on
+ * this computer from your own Claude Code logs — it sends nothing and reads no
+ * prompt text. Resolves with the number of active days seen in the last 30 days
+ * (or `null` if it couldn't be worked out).
+ */
+export function getCollectionSummary(): Promise<CollectionSummary> {
+  return invoke<CollectionSummary>("get_collection_summary");
+}
+
 /** Delete every analytics event still waiting in the local queue (privacy
  * screen "Delete pending local data"). Resolves with the number removed. Only
  * the local outbox is touched — never already-uploaded data. */

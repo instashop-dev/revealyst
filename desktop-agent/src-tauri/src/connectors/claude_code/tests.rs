@@ -513,6 +513,49 @@ fn incremental_no_reemit_then_picks_up_new_file() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
+// ---- 9. Proof-panel active-day count ---------------------------------------
+
+/// The Privacy screen's "what we've collected" active-day count
+/// (`active_days_in_window`) must equal the number of days the LIVE collector
+/// would emit for the SAME logs (one `usage_summary` event per active day). This
+/// pins the proof number to reality: it can never drift from what actually gets
+/// summarized, and it reads no content (it reuses the same windowed extract).
+#[test]
+fn active_days_in_window_matches_the_collector_day_count() {
+    let home = temp_home("active-days");
+    // MAIN spans two days (2026-07-01/02); STREAMED adds more activity — so the
+    // day count is non-trivial (a vacuous 0/1 wouldn't prove agreement).
+    write_session(&home, "proj-a", "main.jsonl", MAIN);
+    write_session(&home, "proj-b", "stream.jsonl", STREAMED);
+    let ctx = ctx(home.clone());
+
+    // What the live collector would emit: exactly one event per active day.
+    let files = list_session_files(&config_dirs(&home, None));
+    let collector_days = collect_from_files(&ctx, &files, None).usage_events.len();
+
+    // The read-only summary scan must agree — and be non-vacuous.
+    let summary_days = ClaudeCodeConnector::active_days_in_window(&ctx);
+    assert!(collector_days > 1, "fixtures must span multiple days");
+    assert_eq!(
+        summary_days, collector_days,
+        "proof active-day count must match the collector's emitted day count"
+    );
+
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// An empty machine (no Claude Code logs) yields an honest zero, never a
+/// fabricated count — the "nothing yet" state the Privacy screen renders as
+/// "0 days".
+#[test]
+fn active_days_in_window_is_zero_on_an_empty_machine() {
+    let home = temp_home("active-days-empty");
+    std::fs::create_dir_all(&home).unwrap();
+    let ctx = ctx(home.clone());
+    assert_eq!(ClaudeCodeConnector::active_days_in_window(&ctx), 0);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
 /// Crash-safety via `enqueue_and_checkpoint` (R1): re-running collect with the
 /// PRE-enqueue checkpoint (crash between event commit and checkpoint commit)
 /// re-emits identical, content-addressed event ids — a duplicate the store's

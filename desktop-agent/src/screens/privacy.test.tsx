@@ -10,6 +10,7 @@ const backend = vi.hoisted(() => ({
   signedIn: true,
   pending: 3,
   onlyYou: null as boolean | null,
+  summary: { activeDays: 4 as number | null, windowDays: 30 },
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -50,6 +51,8 @@ function fakeBackend(command: string, args?: unknown): Promise<unknown> {
     case "disconnect_device":
       backend.signedIn = false;
       return Promise.resolve(undefined);
+    case "get_collection_summary":
+      return Promise.resolve(backend.summary);
     case "get_device_used_only_by_me":
       return Promise.resolve(backend.onlyYou);
     case "set_device_used_only_by_me":
@@ -67,6 +70,7 @@ beforeEach(() => {
   backend.signedIn = true;
   backend.pending = 3;
   backend.onlyYou = null;
+  backend.summary = { activeDays: 4, windowDays: 30 };
   vi.mocked(invoke).mockReset();
   vi.mocked(invoke).mockImplementation(fakeBackend as unknown as typeof invoke);
 });
@@ -131,6 +135,50 @@ describe("PrivacyScreen", () => {
     // The delta must name what is NOT hidden — not claim whole-file encryption.
     expect(ENCRYPTION_DISCLOSURE).toMatch(/AES-256-GCM/);
     expect(ENCRYPTION_DISCLOSURE).toMatch(/can be read if someone copies the file/);
+  });
+
+  it("shows the real active-day count from the local summary", async () => {
+    backend.summary = { activeDays: 4, windowDays: 30 };
+    render(<PrivacyScreen snapshot={snapshot} />);
+    const proof = await screen.findByTestId("collection-proof");
+    await waitFor(() => {
+      expect(proof.textContent).toContain("4 days");
+    });
+    expect(proof.textContent).toContain("last 30 days");
+    expect(invoke).toHaveBeenCalledWith("get_collection_summary");
+  });
+
+  it("renders a genuine zero as '0 days', never hidden (honest empty state)", async () => {
+    backend.summary = { activeDays: 0, windowDays: 30 };
+    render(<PrivacyScreen snapshot={snapshot} />);
+    const proof = await screen.findByTestId("collection-proof");
+    await waitFor(() => {
+      expect(proof.textContent).toContain("0 days");
+    });
+  });
+
+  it("falls back to an honest '—' when the local count can't be read", async () => {
+    backend.summary = { activeDays: null, windowDays: 30 };
+    render(<PrivacyScreen snapshot={snapshot} />);
+    const proof = await screen.findByTestId("collection-proof");
+    // The active-day line shows the placeholder, not an invented count.
+    await waitFor(() => {
+      expect(proof.textContent).toContain("— with Claude Code activity");
+    });
+    // Never invents an active-day number in the unknown state.
+    expect(proof.textContent).not.toMatch(/\d+ days? with Claude Code activity/);
+  });
+
+  it("always states the 0-prompts / 0-text guarantee, whatever the count", async () => {
+    // The guarantee is structural (a consequence of the allowlist), so it must
+    // show regardless of the active-day number — never a computed counter.
+    backend.summary = { activeDays: 12, windowDays: 30 };
+    render(<PrivacyScreen snapshot={snapshot} />);
+    const proof = await screen.findByTestId("collection-proof");
+    expect(proof.textContent).toContain("prompts or AI replies read");
+    expect(proof.textContent).toContain("words of your text sent");
+    // Worded as a permanent guarantee, not a maybe-nonzero measurement.
+    expect(screen.getByText(/always zero, by design/i)).toBeTruthy();
   });
 
   it("shows 'who uses this computer' with neither option pre-selected before an answer", async () => {
