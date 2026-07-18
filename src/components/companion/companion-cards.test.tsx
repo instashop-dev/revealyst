@@ -120,6 +120,65 @@ describe("GrowthJourneyCard — level-forward headline (W5-C)", () => {
     // A stale surface offers no next step (it isn't placed).
     expect(screen.queryByText(/Your next step/i)).toBeNull();
   });
+
+  // The hero's next-step rec is itself actionable now: the SAME
+  // snooze/dismiss/mark-tried controls the CoachingCard rows carry (so the top
+  // rec is no longer a read-only dead end that had to be duplicated below just
+  // to stay dismissable).
+  it("hero next step renders the interaction controls when personId + recId are present", () => {
+    render(
+      <GrowthJourneyCard
+        level={1}
+        stale={false}
+        nextStep={REC_WITH_ID}
+        personId="p-1"
+      />,
+    );
+    expect(screen.getByText(REC_WITH_ID.title)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Mark as tried/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Snooze/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Dismiss/i })).toBeTruthy();
+  });
+
+  it("hero next step stays READ-ONLY without a personId (manager view / no linked person)", () => {
+    render(
+      <GrowthJourneyCard level={1} stale={false} nextStep={REC_WITH_ID} />,
+    );
+    expect(screen.getByText(REC_WITH_ID.title)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Snooze/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Dismiss/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Mark as tried/i })).toBeNull();
+  });
+
+  it("hero next step marked 'tried' shows the static indicator, not the mark-tried button", () => {
+    render(
+      <GrowthJourneyCard
+        level={1}
+        stale={false}
+        nextStep={REC_WITH_ID}
+        personId="p-1"
+        triedRecIds={[REC_WITH_ID.recId!]}
+      />,
+    );
+    expect(screen.getByText(/Marked as tried/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Mark as tried/i })).toBeNull();
+    // Snooze/dismiss stay reachable on a tried rec.
+    expect(screen.getByRole("button", { name: /Snooze/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Dismiss/i })).toBeTruthy();
+  });
+
+  it("a next step WITHOUT a recId (no stable id) renders no controls even with a personId", () => {
+    render(
+      <GrowthJourneyCard
+        level={1}
+        stale={false}
+        nextStep={NEXT_STEP}
+        personId="p-1"
+      />,
+    );
+    expect(screen.getByText(NEXT_STEP.title)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Snooze/i })).toBeNull();
+  });
 });
 
 describe("CoachingCard — dedicated coaching home (W5-C)", () => {

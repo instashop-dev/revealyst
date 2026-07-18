@@ -37,6 +37,13 @@ const NEXT_STEP: AttentionItem = {
   body: "body",
 };
 
+// The same rec carrying its stable id — the shape the interaction controls
+// key on.
+const NEXT_STEP_WITH_ID: AttentionItem = {
+  ...NEXT_STEP,
+  recId: "adoption-active-days",
+};
+
 describe("GrowthJourneyCard — growth variant (U1.3)", () => {
   it("expands the level MEANING into a narrative paragraph (from maturity-glossary)", () => {
     render(
@@ -61,6 +68,25 @@ describe("GrowthJourneyCard — growth variant (U1.3)", () => {
     expect(screen.queryByText(MATURITY_LEVEL_COPY[2].description)).toBeNull();
     expect(screen.getByText(/Your next step/i)).toBeTruthy();
     expect(screen.getByText(NEXT_STEP.title)).toBeTruthy();
+  });
+
+  it("growth variant renders NO next-step block or controls, even with a personId", () => {
+    // The Growth hero omits the coaching next step entirely (the capability
+    // decomposition + curriculum below is its "what's next"), so passing a
+    // personId + an id-bearing rec must not surface interaction controls here.
+    render(
+      <GrowthJourneyCard
+        level={2}
+        stale={false}
+        nextStep={NEXT_STEP_WITH_ID}
+        variant="growth"
+        personId="p-1"
+      />,
+    );
+    expect(screen.queryByText(/Your next step/i)).toBeNull();
+    expect(screen.queryByText(NEXT_STEP_WITH_ID.title)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Snooze/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Dismiss/i })).toBeNull();
   });
 });
 
