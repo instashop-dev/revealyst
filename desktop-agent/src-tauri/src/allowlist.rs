@@ -265,6 +265,40 @@ mod tests {
         }
     }
 
+    /// ADR 0059: `task_category` is the second closed-enum field — its enum is
+    /// the frozen TASK_CATEGORY_IDS, crossed through the SAME generated artifact,
+    /// so the device validates against the exact contract set. The two other
+    /// worktype outputs are plain `sent` counts (no enum restriction).
+    #[test]
+    fn task_category_is_a_closed_enum_field() {
+        assert!(is_closed_enum_field("task_category"));
+        assert!(is_allowed("task_category"));
+        assert!(
+            is_sent("task_category"),
+            "task_category value (a closed-enum label) leaves the device"
+        );
+        let values = closed_enum_values("task_category").expect("closed enum present");
+        assert!(!values.is_empty());
+        // Known work types are accepted…
+        assert!(is_allowed_enum_value("task_category", "coding"));
+        assert!(is_allowed_enum_value("task_category", "research"));
+        // …the mandatory catch-all is present…
+        assert!(is_allowed_enum_value("task_category", "other"));
+        // …and anything off the list is not (a smuggled snippet).
+        assert!(!is_allowed_enum_value("task_category", "secret-memo"));
+        assert!(!is_allowed_enum_value("task_category", ""));
+        // Every label is a short, safe ASCII string (well within MAX_ENUM_LEN).
+        for v in values {
+            assert!(v.is_ascii() && v.chars().count() <= 64);
+        }
+        // The two count outputs are sent but carry no enum restriction.
+        for count_field in ["iteration_depth", "verification_behavior"] {
+            assert!(is_allowed(count_field));
+            assert!(is_sent(count_field));
+            assert!(!is_closed_enum_field(count_field));
+        }
+    }
+
     /// A field with no declared enum has no enum restriction — the closed-enum
     /// gate applies ONLY to fields that opt in via `closedEnums`.
     #[test]

@@ -29,12 +29,15 @@ export default function WhatWeCollectPage() {
         The optional <strong>Revealyst Agent</strong> summarizes your local
         Claude Code sessions <strong>on your machine</strong>, and the desktop
         app can also check which known AI desktop apps are open (their names
-        only, from a fixed list), and pushes only aggregates. This page is
-        generated directly from the agent&rsquo;s field allowlist — the same list
-        the code enforces — so it can never describe reading less, or more, than
-        the agent actually reads. The two categories below are the whole story: a
-        small set of values that leave your machine, and a larger set read only
-        on-device and reduced to counts before anything is sent.
+        only, from a fixed list) and, on your computer only, read your prompts to
+        guess the <strong>kind of task</strong> you&rsquo;re doing (from a fixed
+        list like research, drafting, or coding). It pushes only aggregates. This
+        page is generated directly from the agent&rsquo;s field allowlist — the
+        same list the code enforces — so it can never describe sending less, or
+        more, than the agent actually sends. The categories below are the whole
+        story: a small set of values that leave your machine, and a larger set
+        read only on-device and reduced to counts or labels before anything is
+        sent. The words you type are never among the values that leave.
       </p>
 
       <h2>Values that leave your machine</h2>
@@ -62,12 +65,20 @@ export default function WhatWeCollectPage() {
           </li>
         ))}
       </ul>
-
-      <h2>Never read at all</h2>
       <p>
-        The agent&rsquo;s parser never reads these fields — they are not filtered
-        out after the fact, they are never accessed. There is no content field
-        anywhere in the Revealyst data model.
+        The words you type in a prompt are also read on your computer only — used
+        to count them and to guess the kind of task (from the fixed list above) —
+        and then dropped. The prompt text itself is never stored, never copied,
+        and never sent. Only the counts and the task label leave.
+      </p>
+
+      <h2>Never leaves your computer</h2>
+      <p>
+        None of the following is ever uploaded, stored, or sent. Most of these
+        the agent never even reads; the words you type it reads only on your
+        computer (to work out the counts and task label above) and then drops —
+        the text never leaves. There is no content field anywhere in the
+        Revealyst data model.
       </p>
       <ul>
         {AGENT_NEVER_COLLECTED.map((item) => (

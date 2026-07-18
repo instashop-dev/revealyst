@@ -83,10 +83,11 @@ describe("OnboardingWizard — stepper continueTo", () => {
   it("renders the per-connector scope explainer lines (sourced claim surface)", () => {
     render(<OnboardingWizard initialConnections={[]} />);
     // The agent's schema-verified standing privacy line appears beside its card
-    // (and the wizard header repeats the "never your prompts" promise), so at
-    // least one such line renders.
+    // (and the wizard header repeats the "prompts never leave your computer"
+    // promise — ADR 0059: the honest guarantee is about leaving/uploading, not
+    // "never read"), so at least one such line renders.
     expect(
-      screen.getAllByText(/never your prompts/i).length,
+      screen.getAllByText(/prompts never leave/i).length,
     ).toBeGreaterThan(0);
   });
 });

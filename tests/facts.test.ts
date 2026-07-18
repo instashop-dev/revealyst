@@ -53,6 +53,14 @@ const CANONICAL_KEYS = [
   // desktop app is in use" flag from the resident desktop agent (dim = tool, a
   // closed AI-app enum). Live emitter is D-DA-8-gated, so no rows today.
   "ai_tool_used",
+  // Recommendation #9 (ADR 0055 / 0059 / migration 0046): the on-device
+  // work-type classifier's three content-free outputs — task_category (dim =
+  // task_category, a closed work-type enum) + two counts. Reads prompt text
+  // ON-DEVICE only; the words never leave. Live emission is rule-2-fixture-gated,
+  // so no rows today.
+  "task_category",
+  "iteration_depth",
+  "verification_behavior",
 ];
 
 let db: Db;

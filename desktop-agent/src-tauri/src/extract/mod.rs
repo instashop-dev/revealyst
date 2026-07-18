@@ -14,30 +14,50 @@
 //!    and pass the validator **by construction** — every key is `is_allowed &&
 //!    is_sent`, every value a bounded scalar.
 //!
-//! ## D-DA-5 boundary (shape + counts only)
+//! ## D-DA-5 boundary (on-device classification, metadata only)
 //!
-//! This is the FIRST slice of spec §7 built *without* prompt-text
-//! classification. The `LocalPromptFeatures` classifier half —
-//! `taskCategory` / `workflowType` / `complexityBand` and the prompt-structure
-//! booleans (`hasContext`, …) — is **absent**: no field of the extractor's
-//! output carries them, and no code path reads prompt text to infer them. That
-//! half is BLOCKED pending decision D-DA-5 (task T5.2). The extractor may
-//! briefly hold prompt-like content in-process to derive char/word COUNTS
-//! ([`counts::count_text`]), but the content is dropped the instant it is
-//! counted — it is never stored in any output type and never enqueued
-//! (spec §7.2). No output type has a content/text/prompt field, so a leak is
-//! structurally impossible.
+//! Under **D-DA-5** (ratified 2026-07-17) the extractor may read prompt TEXT
+//! on-device and emit ONLY bounded metadata. This module does two content-free
+//! things with the prompt-like text it briefly holds:
+//!
+//! 1. **Char/word COUNTS** ([`counts::count_text`]) — length measurement only.
+//! 2. **Work-type CLASSIFICATION** ([`classify`], ADR 0055 / 0059) — the prompt
+//!    is scanned against a fixed keyword table and reduced to a closed-enum
+//!    [`classify::TaskCategory`] plus two booleans (refinement / verification).
+//!
+//! Both are **borrow-and-drop**: the content is read, measured/classified, and
+//! dropped the instant it is used. No output type has a content/text/prompt
+//! field — the classifier returns a closed Rust enum, never a `String` — so a
+//! leak of prompt text is **structurally impossible**. The words never leave the
+//! machine; only counts and closed-enum labels do.
+//!
+//! ## `worktype` is computed but wired-NOT-live (rule 2 + the ai_tools precedent)
+//!
+//! The classifier's output ([`ExtractOutput::worktype`],
+//! [`ExtractOutput::worktype_records`], and
+//! [`ExtractOutput::worktype_candidate_events`]) is produced here and its
+//! candidate events pass the T3.3 privacy validator **by construction** (proven
+//! in `tests`). But ADR 0055's build sequence requires **capturing a real
+//! fixture on a founder device (rule 2) before any live emission**, and the
+//! pack-activation binding is a separate gated PR. So the live `claude_code`
+//! connector does NOT yet forward `worktype` to its `CollectionBatch` — the
+//! mechanism is complete and privacy-validated but held out of the live wire,
+//! exactly as the `ai_tools` connector (ADR 0057) is complete but held out of
+//! `run_cycle`.
 //!
 //! ## Allowlist-first (law 3)
 //!
 //! The char/word counts and the shape counts ([`DayCounts`]) are derived and
 //! returned for future use, but they are NOT enqueued: `promptCharacterCount`
-//! and friends are not yet on `src/lib/agent-collection-schema.ts`. Only the
-//! model + token-count keys are `sent: true` today, so only those become
-//! candidate events. Adding a new sent key is T5.2 (gated on D-DA-5), out of
-//! scope here — the extractor never invents a wire field.
+//! and friends are not on `src/lib/agent-collection-schema.ts`. The `worktype`
+//! fields (`task_category` / `iteration_depth` / `verification_behavior`) ARE on
+//! the allowlist (ADR 0059), so the worktype candidate events are `sent: true`
+//! by construction and validate.
 
+pub mod classify;
 pub mod counts;
+
+use classify::TaskCategory;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -127,11 +147,18 @@ pub enum MetricKey {
     SpendCentsEstimated,
     ModelRequests,
     ModelTokens,
+    // ADR 0055 / 0059 (D-DA-5): the on-device work-type classifier's three
+    // outputs. NOT part of CLI-summarizer parity — they ride the separate
+    // `worktype_records` vec, never `records`, so the CLI golden-parity aggregate
+    // is byte-identical with or without the classifier.
+    TaskCategory,
+    IterationDepth,
+    VerificationBehavior,
 }
 
 impl MetricKey {
     /// The canonical snake_case wire key (same string as the serde form and the
-    /// CLI's `AgentMetricKey`).
+    /// CLI's `AgentMetricKey`; the worktype keys mirror `CANONICAL_METRICS`).
     pub fn as_str(&self) -> &'static str {
         match self {
             MetricKey::ActiveDay => "active_day",
@@ -144,6 +171,9 @@ impl MetricKey {
             MetricKey::SpendCentsEstimated => "spend_cents_estimated",
             MetricKey::ModelRequests => "model_requests",
             MetricKey::ModelTokens => "model_tokens",
+            MetricKey::TaskCategory => "task_category",
+            MetricKey::IterationDepth => "iteration_depth",
+            MetricKey::VerificationBehavior => "verification_behavior",
         }
     }
 }
@@ -191,6 +221,23 @@ pub struct DayCounts {
     pub tool_activity_count: u64,
 }
 
+/// One day's on-device work-type classification aggregate (ADR 0055 / 0059).
+/// Content-free by construction: `category_counts` maps a CLOSED-enum
+/// [`TaskCategory`] to a per-day count; the two other fields are plain counts.
+/// Nothing here is or contains prompt text. Derived from HUMAN prompts only
+/// (sidechain/subagent prompts are excluded — they are not the person's work).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DayWorktype {
+    pub day: String,
+    /// Per-category prompt counts this day, category → count. Only categories
+    /// with a non-zero count are present (no zero-fill).
+    pub category_counts: BTreeMap<TaskCategory, u64>,
+    /// Prompts this day detected as refinement/follow-up turns.
+    pub iteration_depth: u64,
+    /// Prompts this day detected as verification actions.
+    pub verification_behavior: u64,
+}
+
 /// The kind of an honesty gap — the same closed set the CLI emits (mirrors the
 /// frozen `HonestyGap["kind"]` union in `packages/revealyst-agent/src/types.ts`
 /// / `src/contracts`). Serializes to the same snake_case wire strings so T5.1
@@ -227,11 +274,25 @@ pub struct ExtractOutput {
     pub records: Vec<MetricRecord>,
     /// Per-day sub-daily signals.
     pub signals: Vec<DaySignal>,
-    /// Per-day shape + counts features (classifier fields absent — D-DA-5).
+    /// Per-day shape + counts features (length only — no classification).
     pub counts: Vec<DayCounts>,
+    /// Per-day on-device work-type classification (ADR 0059). Content-free:
+    /// closed-enum category counts + two count fields. Computed but wired-not-live
+    /// (see the module docs) — the live connector does not yet forward these.
+    pub worktype: Vec<DayWorktype>,
+    /// The `worktype` day-aggregate as wire metric records (metricKey +
+    /// `task_category=<cat>` dim + value). SEPARATE from `records` so CLI golden
+    /// parity holds. The activation PR forwards these into the wire payload.
+    pub worktype_records: Vec<MetricRecord>,
     /// Candidate queue events: payloads restricted to allowlisted `sent: true`
     /// keys. Pass `validate_and_enqueue` by construction.
     pub candidate_events: Vec<NewEvent>,
+    /// The `worktype` field-level candidate events (the closed-enum
+    /// `task_category` label + the two counts). Pass the T3.3 validator by
+    /// construction — the closed-enum backstop rejects any out-of-enum label.
+    /// SEPARATE from `candidate_events` so they are not forwarded to the live gate
+    /// until the activation PR (rule 2 fixture capture first).
+    pub worktype_candidate_events: Vec<NewEvent>,
     /// Honesty disclosures for the aggregate (mirrors the CLI `summarize` gaps).
     /// T5.1 routes these into `AgentIngestRequest.gaps[]` — the spend-estimate
     /// disclosure must never be dropped between the extractor and the wire, or
@@ -362,6 +423,11 @@ struct DayAgg {
     /// Per-model summed usage — feeds the allowlisted candidate payloads.
     model_usage: BTreeMap<String, UsageNumbers>,
     hours: [u32; 24],
+    /// On-device work-type classification (ADR 0059), from HUMAN prompts only.
+    /// Content-free: closed-enum category → count, plus two counts.
+    task_categories: BTreeMap<TaskCategory, u64>,
+    iteration_depth: u64,
+    verification_behavior: u64,
 }
 
 /// Peak simultaneous sessions: the max number of inclusive `[min,max]`
@@ -422,6 +488,22 @@ fn accumulate(
                 let tc = counts::count_text(text);
                 agg.prompt_chars += tc.character_count;
                 agg.prompt_words += tc.word_count;
+                // ADR 0055 / 0059 (D-DA-5): on-device work-type classification of
+                // the HUMAN's prompt only (subagent/sidechain prompts are not the
+                // person's work). Borrow-and-drop: `text` is scanned and dropped;
+                // only the closed-enum category + two booleans survive — never a
+                // substring. The classifier returns a closed Rust enum, so no free
+                // string can become the emitted label.
+                if !event.is_sidechain {
+                    let category = classify::classify_prompt(text);
+                    *agg.task_categories.entry(category).or_insert(0) += 1;
+                    if classify::is_refinement_turn(text) {
+                        agg.iteration_depth += 1;
+                    }
+                    if classify::is_verification_action(text) {
+                        agg.verification_behavior += 1;
+                    }
+                }
             }
         }
         RecordKind::Activity => {
@@ -565,6 +647,90 @@ pub fn extract(records: &[SourceRecord], opts: &ExtractOptions) -> ExtractOutput
                 payload,
             ));
         }
+
+        // ---- worktype (ADR 0055 / 0059) — computed, wired-not-live ----------
+        // Emit ONLY closed-enum labels + counts. The wire records ride the
+        // SEPARATE `worktype_records` vec (CLI parity preserved); each candidate
+        // event is a field-level privacy witness that passes T3.3 by construction
+        // — `task_category` carries a value from the closed enum, the two counts
+        // are numbers. Only categories/counts > 0 are emitted (no zero-fill).
+        for (category, count) in &agg.task_categories {
+            let label = category.as_str();
+            out.worktype_records.push(MetricRecord {
+                metric_key: MetricKey::TaskCategory,
+                day: day.clone(),
+                dim: format!("task_category={label}"),
+                value: *count as f64,
+            });
+            let event_id = format!(
+                "{}|{}|{}|worktype|task_category={}",
+                opts.connector_id, opts.subject_external_id, day, label
+            );
+            out.worktype_candidate_events.push(NewEvent::analytics_only(
+                event_id,
+                opts.connector_id.clone(),
+                "usage_summary",
+                agg.day_start_ms,
+                json!({
+                    "task_category": label,
+                    "rawPromptIncluded": false,
+                    "rawResponseIncluded": false,
+                }),
+            ));
+        }
+        // The two dimensionless worktype counts. Each carries a LITERAL payload
+        // key (not a dynamic one), so the validator sees exactly the allowlisted
+        // field name; only counts > 0 are emitted (no zero-fill).
+        if agg.iteration_depth > 0 {
+            out.worktype_records.push(MetricRecord {
+                metric_key: MetricKey::IterationDepth,
+                day: day.clone(),
+                dim: String::new(),
+                value: agg.iteration_depth as f64,
+            });
+            out.worktype_candidate_events.push(NewEvent::analytics_only(
+                format!(
+                    "{}|{}|{}|worktype|iteration_depth",
+                    opts.connector_id, opts.subject_external_id, day
+                ),
+                opts.connector_id.clone(),
+                "usage_summary",
+                agg.day_start_ms,
+                json!({
+                    "iteration_depth": agg.iteration_depth,
+                    "rawPromptIncluded": false,
+                    "rawResponseIncluded": false,
+                }),
+            ));
+        }
+        if agg.verification_behavior > 0 {
+            out.worktype_records.push(MetricRecord {
+                metric_key: MetricKey::VerificationBehavior,
+                day: day.clone(),
+                dim: String::new(),
+                value: agg.verification_behavior as f64,
+            });
+            out.worktype_candidate_events.push(NewEvent::analytics_only(
+                format!(
+                    "{}|{}|{}|worktype|verification_behavior",
+                    opts.connector_id, opts.subject_external_id, day
+                ),
+                opts.connector_id.clone(),
+                "usage_summary",
+                agg.day_start_ms,
+                json!({
+                    "verification_behavior": agg.verification_behavior,
+                    "rawPromptIncluded": false,
+                    "rawResponseIncluded": false,
+                }),
+            ));
+        }
+        out.worktype.push(DayWorktype {
+            day: day.clone(),
+            category_counts: agg.task_categories.clone(),
+            iteration_depth: agg.iteration_depth,
+            verification_behavior: agg.verification_behavior,
+        });
     }
 
     // Honesty gaps (mirror `summarize.ts`): whenever a `spend_cents_estimated`

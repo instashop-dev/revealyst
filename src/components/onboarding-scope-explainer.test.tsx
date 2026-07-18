@@ -6,7 +6,7 @@ import { axe } from "vitest-axe";
 import {
   OnboardingScopeExplainer,
   STANDING_PRIVACY_LINE,
-  agentNeverReadsPrompts,
+  agentNeverUploadsPrompts,
 } from "./onboarding-scope-explainer";
 import { scopeClaimsFor } from "@/connectors/scope-claims";
 import {
@@ -54,30 +54,38 @@ describe("OnboardingScopeExplainer — vendor claims sourced from scope-claims",
 describe("OnboardingScopeExplainer — agent claims sourced from the collection schema", () => {
   it("shows the schema-verified standing line and never-collected items", () => {
     render(<OnboardingScopeExplainer vendor="claude_code_local" />);
-    // Standing line is only shown because the schema PROVES it.
-    expect(agentNeverReadsPrompts()).toBe(true);
+    // Standing line is only shown because the schema PROVES it (only bounded
+    // values leave the device — the words are never uploaded).
+    expect(agentNeverUploadsPrompts()).toBe(true);
     expect(screen.getByText(STANDING_PRIVACY_LINE)).toBeTruthy();
-    // The never-read bullets come straight from AGENT_NEVER_COLLECTED.
+    // The never-leaves bullets come straight from AGENT_NEVER_COLLECTED.
     expect(screen.getByText(AGENT_NEVER_COLLECTED[0])).toBeTruthy();
   });
 
-  it("the standing line names counts/timing/model names/apps and prompts — matching the schema", () => {
-    // The claim the schema licenses.
-    expect(STANDING_PRIVACY_LINE.toLowerCase()).toMatch(/prompt/);
+  it("the standing line promises prompts never LEAVE (not never read) and names every sent shape — matching the schema", () => {
+    // The claim the schema licenses is about LEAVING/uploading, never "never
+    // read" — the agent now reads prompt text on-device to classify it (ADR
+    // 0059), so the line must not claim it never reads them.
+    const line = STANDING_PRIVACY_LINE.toLowerCase();
+    expect(line).toMatch(/prompt/);
+    expect(line).toMatch(/never leave|never.*upload/);
+    // Guard against a regression back to the false "never read" wording.
+    expect(line).not.toMatch(/never (?:your )?(?:read|reads)|read.*never/);
     // Completeness: model ids DO leave the device (AGENT_SENT_FIELDS), so the
     // line must own that alongside counts/timing — not imply prompts-only.
-    expect(STANDING_PRIVACY_LINE.toLowerCase()).toMatch(/model/);
+    expect(line).toMatch(/model/);
     expect(AGENT_SENT_FIELDS.some((f) => f.sentValueShape === "model_id")).toBe(
       true,
     );
-    // Completeness (invariant b): a closed-enum app label ALSO leaves the device
-    // (ai_tool_used), so the line must own "which AI apps are open" too — a
-    // sent value the line may not silently omit.
+    // Completeness (invariant b): closed-enum labels ALSO leave the device — the
+    // AI-app label (ai_tool_used) and the kind-of-task label (task_category) —
+    // so the line must own "which AI apps" and "the kind of task" too.
     expect(
       AGENT_SENT_FIELDS.some((f) => f.sentValueShape === "closed_enum"),
     ).toBe(true);
-    expect(STANDING_PRIVACY_LINE.toLowerCase()).toMatch(/app/);
-    // And the schema really does list prompt text as never-collected.
+    expect(line).toMatch(/app/);
+    expect(line).toMatch(/task/);
+    // And the schema really does list prompt text as never-leaving.
     expect(AGENT_NEVER_COLLECTED.some((s) => /prompt/i.test(s))).toBe(true);
   });
 });

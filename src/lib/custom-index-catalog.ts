@@ -14,9 +14,9 @@ export type MetricOption = {
   key: string;
   name: string;
   plain: string;
-  /** "model"/"feature"/"tool" metrics carry a dim — the only ones distinct_dims
-   * is meaningful for. null = no dimension. */
-  dimKind: "model" | "feature" | "tool" | null;
+  /** "model"/"feature"/"tool"/"task_category" metrics carry a dim — the only ones
+   * distinct_dims is meaningful for. null = no dimension. */
+  dimKind: "model" | "feature" | "tool" | "task_category" | null;
 };
 
 /** Every catalog metric as a picker option, alphabetized by display name. */

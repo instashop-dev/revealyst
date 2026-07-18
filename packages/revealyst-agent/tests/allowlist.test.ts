@@ -23,8 +23,16 @@ const parseSource = readFileSync(
 // collector, not parse.ts, and is verified by the desktop agent's own tests
 // (the collector's Rust unit tests + the root desktop-allowlist-drift suite),
 // not here. Kept as an explicit, documented set so a typo can't silently
-// exempt a CLI field (anti-vacuity below). Added by ADR 0057 (ai_tool_used).
-const DESKTOP_COLLECTED_FIELDS = new Set(["ai_tool_used"]);
+// exempt a CLI field (anti-vacuity below). Added by ADR 0057 (ai_tool_used) and
+// ADR 0059 (the on-device work-type classifier's three outputs — task_category,
+// iteration_depth, verification_behavior — produced by the Rust classifier, not
+// this CLI parser).
+const DESKTOP_COLLECTED_FIELDS = new Set([
+  "ai_tool_used",
+  "task_category",
+  "iteration_depth",
+  "verification_behavior",
+]);
 
 describe("collection allowlist ↔ parse.ts", () => {
   it("every CLI-collected field is actually read by the parser", () => {
@@ -60,22 +68,29 @@ describe("collection allowlist ↔ parse.ts", () => {
     expect(AGENT_NEVER_COLLECTED.length).toBeGreaterThan(0);
   });
 
-  it("exactly the model id, the four token counts, and the AI-app label leave the device", () => {
+  it("exactly the model id, the four token counts, the AI-app label, and the three work-type signals leave the device", () => {
     // `ai_tool_used` (ADR 0057) is the desktop agent's closed-enum AI-app label —
     // a value that legitimately leaves the device, so it joins the sent set. It
-    // is the only sent string besides `model`, and (unlike `model`, vendor free
-    // text) it is confined to a CLOSED enum on both the device and the server.
+    // is confined to a CLOSED enum on both the device and the server. ADR 0059
+    // adds the work-type classifier's three OUTPUT signals: `task_category` (a
+    // value from a CLOSED task-category enum) and two plain per-day counts,
+    // `iteration_depth` / `verification_behavior`. The classifier reads prompt
+    // text on-device to derive these; only the bounded label + counts leave — the
+    // words never do (proven on the device by the Rust classifier's own tests).
     const sent = AGENT_COLLECTION_FIELDS.filter((f) => f.sent).map(
       (f) => f.field,
     );
     expect(sent.sort()).toEqual(
       [
         "ai_tool_used",
+        "iteration_depth",
         "model",
+        "task_category",
         "usage.cache_creation_input_tokens",
         "usage.cache_read_input_tokens",
         "usage.input_tokens",
         "usage.output_tokens",
+        "verification_behavior",
       ].sort(),
     );
   });

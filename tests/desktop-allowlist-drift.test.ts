@@ -8,7 +8,7 @@ import {
   AGENT_COLLECTION_FIELDS,
   AGENT_NEVER_COLLECTED,
 } from "../src/lib/agent-collection-schema";
-import { AI_TOOL_IDS } from "../src/contracts/metrics";
+import { AI_TOOL_IDS, TASK_CATEGORY_IDS } from "../src/contracts/metrics";
 
 // Desktop Agent plan T3.1 (law 3): the Rust desktop agent embeds
 // `desktop-agent/src-tauri/generated/allowlist.json` at compile time; the
@@ -76,5 +76,27 @@ describe("desktop allowlist artifact drift (T3.1)", () => {
     );
     const field = doc.fields.find((f) => f.field === "ai_tool_used");
     expect(field?.sent, "ai_tool_used must be a sent field").toBe(true);
+  });
+
+  it("crosses the closed task-category enum to the Rust validator (ADR 0059)", () => {
+    // The device validator reads the CLOSED value set for `task_category` from
+    // this same generated artifact (plan law 5) — so the on-device classifier's
+    // output is checked against the exact frozen TASK_CATEGORY_IDS set, and an
+    // out-of-enum label (a smuggled prompt snippet) quarantines. `task_category`
+    // must be a sent field.
+    const doc = JSON.parse(renderDesktopAllowlistJson()) as {
+      fields: { field: string; sent: boolean }[];
+      closedEnums: Record<string, string[]>;
+    };
+    expect(doc.closedEnums.task_category).toEqual([...TASK_CATEGORY_IDS]);
+    // Determinism: the enum is sorted (the byte comparison relies on it).
+    expect(doc.closedEnums.task_category).toEqual(
+      [...doc.closedEnums.task_category].sort(),
+    );
+    // `other` is the mandatory catch-all so the classifier never needs a
+    // free-string escape hatch (ADR 0055 §2.2).
+    expect(doc.closedEnums.task_category).toContain("other");
+    const field = doc.fields.find((f) => f.field === "task_category");
+    expect(field?.sent, "task_category must be a sent field").toBe(true);
   });
 });
