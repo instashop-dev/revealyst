@@ -116,12 +116,49 @@ export const honestyGapSchema = z.object({
   detail: z.string().max(500).optional(),
 });
 
+/** The closed set of sources that ride the ONE shared device connection (ADR
+ * 0060 / D-DA-8). The client names a source; the SERVER composes the actual
+ * `source_connector` string (`agentSourceConnector` below), so no free-form
+ * client value can ever pollute the frozen metric_records natural key. Extended
+ * only by a future ADR. `claude-code-local` is the live Claude Code connector;
+ * `claude-export` is the user-initiated Claude data-export import. */
+export const AGENT_INGEST_SOURCES = [
+  "claude-code-local",
+  "claude-export",
+] as const;
+export type AgentIngestSource = (typeof AGENT_INGEST_SOURCES)[number];
+
+/** The `source_connector` version for a `claude-export` import. Bump only via
+ * an ADR when the export projection's semantics change. */
+export const CLAUDE_EXPORT_SOURCE_VERSION = 1;
+
+/** Compose the metric_records `source_connector` an agent-ingest push stamps on
+ * every row (ADR 0060). The SINGLE source of truth: `claude-code-local` keeps
+ * its version-suffixed id (unchanged from before 0060), and `claude-export` is
+ * a fixed, versioned import source distinct from the live connector — so the
+ * server-side window-delete scopes each source's restatement to its own rows. */
+export function agentSourceConnector(
+  source: AgentIngestSource,
+  summarizerVersion: number,
+): string {
+  return source === "claude-export"
+    ? `claude_export@${CLAUDE_EXPORT_SOURCE_VERSION}`
+    : `claude-code-local@${summarizerVersion}`;
+}
+
 export const agentIngestRequestSchema = z.object({
   /** CLI package version, informational (e.g. "0.1.0"). */
   agentVersion: z.string().min(1).max(64),
   /** Version of the local summarizer's semantics; the server composes
-   * source_connector as `claude-code-local@<summarizerVersion>`. */
+   * source_connector as `claude-code-local@<summarizerVersion>` for the live
+   * connector (see `agentSourceConnector`). */
   summarizerVersion: z.number().int().min(1),
+  /** Which on-device source produced this batch (ADR 0060). Optional: an older
+   * agent that omits it is treated as the live Claude Code connector exactly as
+   * before (the server defaults it — see `agentSourceConnector`). A batch is
+   * single-source; the desktop splits its upload by source so each
+   * window-delete restates only its own rows. */
+  source: z.enum(AGENT_INGEST_SOURCES).optional(),
   window: z.object({ start: day, end: day }),
   /** Every record/signal must reference one of these by (kind, externalId). */
   subjects: z.array(subjectDescriptorSchema).min(1).max(1_000),

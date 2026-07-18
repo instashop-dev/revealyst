@@ -406,6 +406,7 @@ async function executeRun(
       const txScoped = forOrg(tx as unknown as Db, message.orgId);
       await txScoped.metrics.deleteWindowForConnection(
         connection.id,
+        entry.sourceConnector,
         window.start,
         window.end,
       );
