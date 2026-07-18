@@ -1,6 +1,6 @@
 import { getApiContext } from "@/lib/api-context";
-import { authenticateDeviceToken } from "@/lib/device-token";
 import { recordDesktopDiagnosticsAuthed } from "@/lib/desktop-diagnostics";
+import { authenticateDesktopBearer } from "@/lib/device-token";
 
 // POST /api/desktop/diagnostics (Desktop Agent plan T4.3, spec §23.2) —
 // Bearer-authenticated by the device token itself; no web session (the
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
   // --- 1. Authenticate BEFORE reading the body (F3, sibling of /v1/metrics) --
   const { db, env } = getApiContext();
-  const auth = await authenticateDeviceToken(db, env, bearer);
+  const auth = await authenticateDesktopBearer(db, env, bearer);
   if (!auth.ok) {
     return Response.json(auth.body, { status: auth.status });
   }

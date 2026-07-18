@@ -1,6 +1,6 @@
 import { getApiContext } from "@/lib/api-context";
 import {
-  authenticateDeviceToken,
+  authenticateDesktopBearer,
   ingestOtelMetricsAuthed,
 } from "@/lib/otel-receiver";
 
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     : "";
 
   const { db, env } = getApiContext();
-  const auth = await authenticateDeviceToken(db, env, bearer);
+  const auth = await authenticateDesktopBearer(db, env, bearer);
   if (!auth.ok) {
     return Response.json(auth.body, { status: auth.status });
   }
