@@ -245,7 +245,10 @@ mod tests {
     fn ai_tool_used_is_a_closed_enum_field() {
         assert!(is_closed_enum_field("ai_tool_used"));
         assert!(is_allowed("ai_tool_used"));
-        assert!(is_sent("ai_tool_used"), "ai_tool_used value leaves the device");
+        assert!(
+            is_sent("ai_tool_used"),
+            "ai_tool_used value leaves the device"
+        );
 
         let values = closed_enum_values("ai_tool_used").expect("closed enum present");
         assert!(!values.is_empty(), "closed enum must be non-empty");

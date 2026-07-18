@@ -113,7 +113,11 @@ fn every_candidate_event_passes_the_privacy_validator() {
     let ctx = analytics_ctx();
     let batch = collect_presence(
         &ctx,
-        &["Claude".to_string(), "Perplexity".to_string(), "Copilot.exe".to_string()],
+        &[
+            "Claude".to_string(),
+            "Perplexity".to_string(),
+            "Copilot.exe".to_string(),
+        ],
     );
     assert_eq!(batch.candidate_events.len(), 3);
     let policy = PolicyResolution::Allow(ContentMode::AnalyticsOnly);
@@ -142,7 +146,11 @@ fn only_closed_enum_app_ids_ever_appear_in_the_payload() {
     );
 
     let mut serialized = String::new();
-    for event in batch.usage_events.iter().chain(batch.candidate_events.iter()) {
+    for event in batch
+        .usage_events
+        .iter()
+        .chain(batch.candidate_events.iter())
+    {
         serialized.push_str(&event.payload.to_string());
     }
     assert!(serialized.contains("claude-desktop"));

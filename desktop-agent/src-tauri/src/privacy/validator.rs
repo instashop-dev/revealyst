@@ -493,7 +493,13 @@ mod tests {
         // An out-of-enum label — short, clean ASCII, so the free-text bound does
         // NOT catch it — must quarantine on the closed-enum backstop. This is
         // the smuggled-snippet vector ADR 0057 §closed-enum enforcement names.
-        for smuggled in ["some-secret-note", "unknown-app", "claude", "", "hello world!"] {
+        for smuggled in [
+            "some-secret-note",
+            "unknown-app",
+            "claude",
+            "",
+            "hello world!",
+        ] {
             let payload = json!({ "ai_tool_used": smuggled });
             assert_eq!(
                 validate(&payload, &allow()),
