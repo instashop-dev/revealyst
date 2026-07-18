@@ -53,6 +53,17 @@
 //! was already charset-clamped in the extractor
 //! ([`counts::sanitize_model`](crate::extract::counts)).
 
+// The AI-app presence connector (Recommendation #7 / ADR 0057) is COMPLETE and
+// fully tested, but is deliberately NOT called by `runtime::run_cycle` yet: a
+// second local source pushing its own narrow window through the shared
+// device-token connection would let the connection-scoped server window-delete
+// clobber the Claude Code connector's overlapping-day metrics (the D-DA-8
+// hazard, same reason `claude_export` ships projection-only). `#[allow(dead_code)]`
+// keeps the dormant collector from tripping a `-D warnings` build until the
+// D-DA-8 server-side change (a source-connector-scoped window delete) lands and
+// it is wired live. Its behavior is proven by its own unit tests.
+#[allow(dead_code)]
+pub mod ai_tools;
 pub mod claude_code;
 pub mod claude_export;
 

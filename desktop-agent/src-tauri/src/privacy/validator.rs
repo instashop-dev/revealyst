@@ -187,6 +187,21 @@ pub fn validate(
         if !is_scalar_analytics_value(value) {
             return Err(QuarantineReason::FreeTextValue);
         }
+        // Closed-enum backstop (ADR 0057). A field that declares a closed value
+        // set (today only `ai_tool_used`, whose enum is AI_TOOL_IDS, crossed via
+        // the generated allowlist artifact) must carry a value IN that set. An
+        // in-length-range, control-char-free, ASCII label still quarantines if it
+        // is not a known enum member — that shape is exactly how a snippet would
+        // try to smuggle through the free-text bound. Non-enum fields are
+        // unaffected (`is_allowed_enum_value` returns true for them).
+        if allowlist::is_closed_enum_field(key) {
+            let in_enum = value
+                .as_str()
+                .is_some_and(|s| allowlist::is_allowed_enum_value(key, s));
+            if !in_enum {
+                return Err(QuarantineReason::OutOfEnumValue);
+            }
+        }
     }
 
     Ok(CleanPayload(map.clone()))
@@ -456,6 +471,64 @@ mod tests {
                 "a {ctrl:?} control char must be rejected"
             );
         }
+    }
+
+    /// ADR 0057: a closed-enum field (`ai_tool_used`) accepts ONLY a value in
+    /// the closed AI-app enum. A known app id passes; an out-of-set label —
+    /// even one that is short, ASCII, and control-char-free (so it clears the
+    /// free-text bound) — quarantines as `out_of_enum_value`, never enqueued.
+    #[test]
+    fn closed_enum_field_accepts_only_known_values() {
+        // A valid app id passes (it is allowlisted + sent + in-enum).
+        let ok = json!({
+            "ai_tool_used": "claude-desktop",
+            "rawPromptIncluded": false,
+            "rawResponseIncluded": false,
+        });
+        assert!(
+            validate(&ok, &allow()).is_ok(),
+            "a known AI app id must pass the closed-enum gate"
+        );
+
+        // An out-of-enum label — short, clean ASCII, so the free-text bound does
+        // NOT catch it — must quarantine on the closed-enum backstop. This is
+        // the smuggled-snippet vector ADR 0057 §closed-enum enforcement names.
+        for smuggled in ["some-secret-note", "unknown-app", "claude", "", "hello world!"] {
+            let payload = json!({ "ai_tool_used": smuggled });
+            assert_eq!(
+                validate(&payload, &allow()),
+                Err(QuarantineReason::OutOfEnumValue),
+                "out-of-enum `ai_tool_used` value ({smuggled:?}) must quarantine"
+            );
+        }
+
+        // A non-string value on the closed-enum field is likewise rejected (a
+        // number can never be a valid app id).
+        assert_eq!(
+            validate(&json!({ "ai_tool_used": 1 }), &allow()),
+            Err(QuarantineReason::OutOfEnumValue)
+        );
+    }
+
+    /// Belt-and-braces: even a long, content-rich value on the closed-enum field
+    /// never survives — the free-text bound catches the length, and the
+    /// closed-enum gate catches anything shorter. Nothing content-shaped leaves.
+    #[test]
+    fn closed_enum_field_never_leaks_rich_content() {
+        let rich = "the user asked me to summarize a confidential document about ";
+        let payload = json!({ "ai_tool_used": format!("{rich}{}", "x".repeat(200)) });
+        // Over the length bound → FreeTextValue (caught before the enum gate).
+        assert_eq!(
+            validate(&payload, &allow()),
+            Err(QuarantineReason::FreeTextValue)
+        );
+        // A short rich phrase → OutOfEnumValue. Either way it is quarantined and
+        // never becomes a CleanPayload key.
+        let short = json!({ "ai_tool_used": "summarize this note" });
+        assert_eq!(
+            validate(&short, &allow()),
+            Err(QuarantineReason::OutOfEnumValue)
+        );
     }
 
     /// Numbers (int + float) pass on `sent:true` keys; the reserved flags carry

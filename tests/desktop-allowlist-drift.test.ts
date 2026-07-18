@@ -8,6 +8,7 @@ import {
   AGENT_COLLECTION_FIELDS,
   AGENT_NEVER_COLLECTED,
 } from "../src/lib/agent-collection-schema";
+import { AI_TOOL_IDS } from "../src/contracts/metrics";
 
 // Desktop Agent plan T3.1 (law 3): the Rust desktop agent embeds
 // `desktop-agent/src-tauri/generated/allowlist.json` at compile time; the
@@ -38,6 +39,7 @@ describe("desktop allowlist artifact drift (T3.1)", () => {
         sourceToken: string;
       }[];
       neverCollected: string[];
+      closedEnums: Record<string, string[]>;
     };
     // Every schema field appears exactly once, with identical wording —
     // the desktop trust surface renders the same claims as the app panel.
@@ -57,5 +59,22 @@ describe("desktop allowlist artifact drift (T3.1)", () => {
     const names = doc.fields.map((f) => f.field);
     expect(names).toEqual([...names].sort());
     expect(renderDesktopAllowlistJson()).not.toContain("\r");
+  });
+
+  it("crosses the closed AI-app enum to the Rust validator (ADR 0057)", () => {
+    // The device validator reads the CLOSED value set for `ai_tool_used` from
+    // this same generated artifact (plan law 5) — so it must carry the frozen
+    // contract's AI_TOOL_IDS verbatim, and `ai_tool_used` must be a sent field.
+    const doc = JSON.parse(renderDesktopAllowlistJson()) as {
+      fields: { field: string; sent: boolean }[];
+      closedEnums: Record<string, string[]>;
+    };
+    expect(doc.closedEnums.ai_tool_used).toEqual([...AI_TOOL_IDS]);
+    // Determinism: the enum is sorted (the byte comparison relies on it).
+    expect(doc.closedEnums.ai_tool_used).toEqual(
+      [...doc.closedEnums.ai_tool_used].sort(),
+    );
+    const field = doc.fields.find((f) => f.field === "ai_tool_used");
+    expect(field?.sent, "ai_tool_used must be a sent field").toBe(true);
   });
 });

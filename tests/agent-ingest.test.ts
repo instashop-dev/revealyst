@@ -426,6 +426,84 @@ describe("agent ingest — body validation (400 before any write)", () => {
     }
   });
 
+  it("accepts a valid ai_tool_used flag with a closed-enum tool dim (ADR 0057)", async () => {
+    const batch = makeBatch({
+      records: [
+        {
+          subject: DEV_SUBJECT,
+          metricKey: "ai_tool_used",
+          day: "2026-07-01",
+          dim: "tool=claude-desktop",
+          value: 1,
+          attribution: "person",
+        },
+      ],
+      signals: [],
+    });
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, batch);
+    expect(outcome).toMatchObject({ ok: true, status: 200 });
+    const rows = await forOrg(db, orgA).metrics.records({
+      metricKey: "ai_tool_used",
+      from: "2026-07-01",
+      to: "2026-07-02",
+      dim: "tool=claude-desktop",
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].value).toBe(1);
+  });
+
+  it("rejects an out-of-enum ai_tool_used dim (smuggled label, in-range length)", async () => {
+    // The length/charset bound alone would pass this — it's short and clean —
+    // so the closed-enum backstop must catch it (a smuggled snippet). Nothing
+    // is written (400 before the transaction).
+    const batch = makeBatch({
+      records: [
+        {
+          subject: DEV_SUBJECT,
+          metricKey: "ai_tool_used",
+          day: "2026-07-01",
+          dim: "tool=some-secret-note",
+          value: 1,
+          attribution: "person",
+        },
+      ],
+      signals: [],
+    });
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, batch);
+    expect(outcome).toMatchObject({ ok: false, status: 400 });
+    if (!outcome.ok) {
+      expect(outcome.body.error).toMatch(/ai_tool_used dim must be/);
+    }
+    expect(
+      await forOrg(db, orgA).metrics.records({
+        metricKey: "ai_tool_used",
+        from: "2026-07-01",
+        to: "2026-07-02",
+        dim: "tool=some-secret-note",
+      }),
+    ).toHaveLength(0);
+  });
+
+  it("rejects an ai_tool_used dim missing the tool= prefix", async () => {
+    const batch = makeBatch({
+      records: [
+        {
+          subject: DEV_SUBJECT,
+          metricKey: "ai_tool_used",
+          day: "2026-07-01",
+          dim: "claude-desktop", // no `tool=` prefix
+          value: 1,
+          attribution: "person",
+        },
+      ],
+      signals: [],
+    });
+    expect(await ingestAgentBatch(db, ENV, tokenA, batch)).toMatchObject({
+      ok: false,
+      status: 400,
+    });
+  });
+
   it("rejects malformed signal hours (not 24 slots)", async () => {
     const batch = makeBatch();
     batch.signals[0].hours = [1, 2, 3];

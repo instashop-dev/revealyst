@@ -319,8 +319,10 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 }
 
 /// Epoch ms → `YYYY-MM-DD` (UTC). One formatter, so day-window pinning and
-/// aggregation bucket identically (mirrors the CLI's `utcDay`).
-fn utc_day(ms: i64) -> String {
+/// aggregation bucket identically (mirrors the CLI's `utcDay`). Pub so sibling
+/// collectors (e.g. the ADR-0057 app-presence collector) bucket "today"
+/// identically instead of re-porting the civil-calendar math.
+pub fn utc_day(ms: i64) -> String {
     let days = ms.div_euclid(86_400_000);
     let (y, m, d) = civil_from_days(days);
     format!("{y:04}-{m:02}-{d:02}")
@@ -333,8 +335,8 @@ fn utc_hour(ms: i64) -> usize {
 }
 
 /// Epoch ms floored to UTC midnight — the representative instant for a
-/// day-aggregate event's `occurred_at`.
-fn day_start_ms(ms: i64) -> i64 {
+/// day-aggregate event's `occurred_at`. Pub for sibling collectors (ADR 0057).
+pub fn day_start_ms(ms: i64) -> i64 {
     ms.div_euclid(86_400_000) * 86_400_000
 }
 

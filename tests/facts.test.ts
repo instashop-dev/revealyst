@@ -49,6 +49,10 @@ const CANONICAL_KEYS = [
   // context per request. Additive; no emitter yet (Anthropic context_window
   // harvest is fixture-gated), so no rows are written today.
   "context_tokens",
+  // Recommendation #7 (ADR 0057 / migration 0045): content-free "which known AI
+  // desktop app is in use" flag from the resident desktop agent (dim = tool, a
+  // closed AI-app enum). Live emitter is D-DA-8-gated, so no rows today.
+  "ai_tool_used",
 ];
 
 let db: Db;

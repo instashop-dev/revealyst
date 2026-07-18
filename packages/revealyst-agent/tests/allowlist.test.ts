@@ -18,13 +18,35 @@ const parseSource = readFileSync(
   "utf8",
 );
 
+// Fields collected by the RESIDENT DESKTOP AGENT (Rust) rather than by this
+// CLI's Claude Code log parser — so their `sourceToken` points at the Rust
+// collector, not parse.ts, and is verified by the desktop agent's own tests
+// (the collector's Rust unit tests + the root desktop-allowlist-drift suite),
+// not here. Kept as an explicit, documented set so a typo can't silently
+// exempt a CLI field (anti-vacuity below). Added by ADR 0057 (ai_tool_used).
+const DESKTOP_COLLECTED_FIELDS = new Set(["ai_tool_used"]);
+
 describe("collection allowlist ↔ parse.ts", () => {
-  it("every allowlisted field is actually read by the parser", () => {
+  it("every CLI-collected field is actually read by the parser", () => {
+    let checked = 0;
     for (const field of AGENT_COLLECTION_FIELDS) {
+      if (DESKTOP_COLLECTED_FIELDS.has(field.field)) continue;
+      checked += 1;
       expect(
         parseSource.includes(field.sourceToken),
         `parse.ts does not read "${field.sourceToken}" (field ${field.field})`,
       ).toBe(true);
+    }
+    // Anti-vacuity: the exemption never swallows the whole list.
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it("every exempted field is a real allowlist field (no stale exemptions)", () => {
+    const names = new Set(AGENT_COLLECTION_FIELDS.map((f) => f.field));
+    for (const field of DESKTOP_COLLECTED_FIELDS) {
+      expect(names.has(field), `stale desktop-collected exemption: ${field}`).toBe(
+        true,
+      );
     }
   });
 
@@ -38,12 +60,17 @@ describe("collection allowlist ↔ parse.ts", () => {
     expect(AGENT_NEVER_COLLECTED.length).toBeGreaterThan(0);
   });
 
-  it("exactly the model id and the four token counts leave the device", () => {
+  it("exactly the model id, the four token counts, and the AI-app label leave the device", () => {
+    // `ai_tool_used` (ADR 0057) is the desktop agent's closed-enum AI-app label —
+    // a value that legitimately leaves the device, so it joins the sent set. It
+    // is the only sent string besides `model`, and (unlike `model`, vendor free
+    // text) it is confined to a CLOSED enum on both the device and the server.
     const sent = AGENT_COLLECTION_FIELDS.filter((f) => f.sent).map(
       (f) => f.field,
     );
     expect(sent.sort()).toEqual(
       [
+        "ai_tool_used",
         "model",
         "usage.cache_creation_input_tokens",
         "usage.cache_read_input_tokens",

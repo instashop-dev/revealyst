@@ -1,6 +1,21 @@
 {
-  "//": "GENERATED from src/lib/agent-collection-schema.ts — do not edit; run npm run generate:desktop-allowlist",
+  "//": "GENERATED from src/lib/agent-collection-schema.ts + src/contracts/metrics.ts — do not edit; run npm run generate:desktop-allowlist",
+  "closedEnums": {
+    "ai_tool_used": [
+      "chatgpt-desktop",
+      "claude-desktop",
+      "copilot-desktop",
+      "perplexity-desktop"
+    ]
+  },
   "fields": [
+    {
+      "field": "ai_tool_used",
+      "label": "AI app in use",
+      "purpose": "The desktop app checks which known AI desktop apps are open (from a fixed list) and sends only each app's name as a label — never its windows, files, or anything you type in it.",
+      "sent": true,
+      "sourceToken": "detect_present"
+    },
     {
       "field": "content_block_type",
       "label": "Content block type",

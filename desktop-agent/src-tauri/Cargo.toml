@@ -85,6 +85,13 @@ flate2 = "1"
 # The importer NEVER extracts to disk (in-memory streaming), so no `walkdir`/fs
 # extraction surface is pulled in.
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# OS process enumeration for the AI-app presence collector (connectors/ai_tools.rs,
+# Recommendation #7 / ADR 0057). `default-features = false` + only `system` drops
+# the disk / network / component-temperature probes we never touch — the collector
+# reads ONLY each process's executable NAME (`process.name()`), never its command
+# line, path, window title, or any other detail. Pure Rust (no C system dep),
+# matching the tree's no-OpenSSL posture.
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 # The sync-engine unit tests drive the async upload orchestration against a

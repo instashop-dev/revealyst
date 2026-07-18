@@ -121,6 +121,14 @@ export const AGENT_COLLECTION_FIELDS: readonly CollectionField[] = [
     sent: true,
     purpose: "The cache-write-token count is summed per day and sent as a number.",
   },
+  {
+    field: "ai_tool_used",
+    label: "AI app in use",
+    sourceToken: "detect_present",
+    sent: true,
+    purpose:
+      "The desktop app checks which known AI desktop apps are open (from a fixed list) and sends only each app's name as a label — never its windows, files, or anything you type in it.",
+  },
 ];
 
 export const AGENT_NEVER_COLLECTED: readonly string[] = [

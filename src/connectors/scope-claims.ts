@@ -97,12 +97,15 @@ export const SCOPE_CLAIMS: Record<string, ScopeClaims> = {
       "Your own Claude Code sessions, tokens, and which AI models you used — read from local log files",
       "Activity down to the minute",
       "Estimated spend, worked out from token counts",
+      "Which known AI desktop apps are open on your computer — only the app's name, from a fixed list (for example Claude, ChatGPT)",
     ],
     cannotMeasure: [
       "Anything older than about 30 days — older local logs are deleted automatically",
       "The content of your prompts or code — only counts and structure are ever read",
       "Whether you accepted or rejected each suggestion exactly (only rough signals)",
       "Claude Desktop chats — detailed conversation sync from the Claude Desktop app is not available in Phase 1",
+      "What you do inside an AI app — for app presence we can tell an app was open when we checked, never its windows, files, or anything you type in it",
+      "AI you use in a web browser (for example ChatGPT or Claude in a browser tab) — the desktop app only sees separate desktop apps, not browser tabs",
     ],
   },
 };
