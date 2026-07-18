@@ -153,17 +153,19 @@ export async function ingestAgentBatch(
   // --- 3. Write (transactional: a re-push replaces the window) ----------
   // The server composes the source_connector from the batch's declared source
   // (ADR 0060) — `claude-code-local@<v>` for the live connector (unchanged
-  // default), `claude_export@1` for an export import. The window-delete is
-  // scoped to THIS source, so an export re-push never clobbers the live
-  // connector's overlapping days (D-DA-8), and vice versa.
+  // default), `claude_export@1` for an export import, `ai-tools@1` for the
+  // app-presence connector. The window-delete is scoped to THIS source's
+  // family, so one source's re-push never clobbers a sibling's overlapping
+  // days (D-DA-8).
   const source = body.source ?? "claude-code-local";
   const sourceConnector = agentSourceConnector(source, body.summarizerVersion);
-  // The shared device connection's sub-daily signals are owned solely by the
+  // The shared device connection's sub-daily signals are owned SOLELY by the
   // live `claude-code-local` source (subject_day_signals has no source column,
-  // so it cannot be scoped per source). The `claude-export` import contributes
-  // day-level records only — it must neither delete nor upsert signals, or it
-  // would wipe the live connector's histograms. So skip the signal sweep for it.
-  const isExportSource = source === "claude-export";
+  // so it cannot be scoped per source). Every other source (`claude-export`,
+  // `ai-tools`) contributes day-level records only — it must neither delete nor
+  // upsert signals, or it would wipe the live connector's histograms. So only
+  // the live source sweeps signals.
+  const ownsSignals = source === "claude-code-local";
   const counts = await db.transaction(async (tx) => {
     const txScoped = forOrg(tx as unknown as Db, orgId);
 
@@ -189,13 +191,13 @@ export async function ingestAgentBatch(
 
     // Delete-then-upsert: stale natural keys (a model dim that vanished
     // from a corrected batch) must not survive a restatement. Scoped to this
-    // source (ADR 0060); the export source leaves signals untouched.
+    // source's family (ADR 0060); only the live source touches signals.
     await txScoped.metrics.deleteWindowForConnection(
       connection.id,
       sourceConnector,
       body.window.start,
       body.window.end,
-      { deleteSignals: !isExportSource },
+      { deleteSignals: ownsSignals },
     );
     await txScoped.metrics.upsertRecords(
       body.records.map((r) => ({

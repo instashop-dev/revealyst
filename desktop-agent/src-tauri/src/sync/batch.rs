@@ -83,14 +83,27 @@ pub const DEFAULT_INGEST_SOURCE: &str = "claude-code-local";
 /// batches upload under the `claude-export` wire source (ADR 0060 / D-DA-8).
 pub const CLAUDE_EXPORT_CONNECTOR_ID: &str = "claude_export";
 
+/// The local queue `connector_id` of the AI-app presence connector (#7). It is
+/// a SEPARATE on-device connector that shares the device subject, so it MUST
+/// upload under its own `ai-tools` wire source — otherwise its window-delete
+/// would erase the live `claude_code` connector's overlapping day (D-DA-8). Its
+/// LIVE emission stays gated on the #7 activation gate; this mapping only
+/// removes its D-DA-8 blocker so a future activation is safe.
+pub const AI_TOOLS_CONNECTOR_ID: &str = "ai_tools";
+
 /// Map a local queue `connector_id` to the closed wire `source` the server
 /// accepts (ADR 0060 `AGENT_INGEST_SOURCES`). The desktop groups a flush cycle
 /// by `connector_id` so every uploaded batch is single-source; the server
-/// composes the actual `source_connector` string from this. Anything other than
-/// the export connector uploads as the live connector (the safe default).
+/// composes the actual `source_connector` string from this. `claude_code` (and
+/// the worktype signals that ride inside its batch) upload as the live
+/// connector; the export and app-presence connectors get their own distinct
+/// families. An unrecognized connector uploads as the live connector (the safe
+/// default) — a new SEPARATE connector must be added here AND to
+/// `AGENT_INGEST_SOURCES` before it can share the device connection safely.
 pub fn wire_source_for_connector(connector_id: &str) -> &'static str {
     match connector_id {
         CLAUDE_EXPORT_CONNECTOR_ID => "claude-export",
+        AI_TOOLS_CONNECTOR_ID => "ai-tools",
         _ => DEFAULT_INGEST_SOURCE,
     }
 }
@@ -631,11 +644,18 @@ mod tests {
     /// export connector maps to the `claude-export` source, so the server
     /// composes a distinct `source_connector` and scopes its window-delete.
     #[test]
-    fn source_defaults_to_live_and_maps_the_export_connector() {
+    fn source_defaults_to_live_and_maps_the_separate_connectors() {
         assert_eq!(wire_source_for_connector("claude_code"), "claude-code-local");
         assert_eq!(
             wire_source_for_connector(CLAUDE_EXPORT_CONNECTOR_ID),
             "claude-export"
+        );
+        // The AI-app presence connector gets its OWN source (D-DA-8): sharing
+        // `claude-code-local` would let its window-delete erase the live
+        // connector's day.
+        assert_eq!(
+            wire_source_for_connector(AI_TOOLS_CONNECTOR_ID),
+            "ai-tools"
         );
         // An unknown connector uploads as the live connector (safe default).
         assert_eq!(wire_source_for_connector("mystery"), "claude-code-local");

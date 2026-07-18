@@ -120,11 +120,19 @@ export const honestyGapSchema = z.object({
  * 0060 / D-DA-8). The client names a source; the SERVER composes the actual
  * `source_connector` string (`agentSourceConnector` below), so no free-form
  * client value can ever pollute the frozen metric_records natural key. Extended
- * only by a future ADR. `claude-code-local` is the live Claude Code connector;
- * `claude-export` is the user-initiated Claude data-export import. */
+ * only by a future ADR. Each maps to a DISTINCT `source_connector` family so one
+ * source's window-delete never clobbers another's overlapping days:
+ * `claude-code-local` is the live Claude Code connector (it also carries the
+ * worktype signals, which ride inside its batch); `claude-export` is the
+ * user-initiated Claude data-export import; `ai-tools` is the resident AI-app
+ * presence connector (a SEPARATE on-device connector that shares the device
+ * subject — it MUST have its own source or its push would erase the live
+ * connector's day. Its LIVE emission stays gated on its own #7 activation gate;
+ * this lane just removes its D-DA-8 blocker). */
 export const AGENT_INGEST_SOURCES = [
   "claude-code-local",
   "claude-export",
+  "ai-tools",
 ] as const;
 export type AgentIngestSource = (typeof AGENT_INGEST_SOURCES)[number];
 
@@ -132,18 +140,26 @@ export type AgentIngestSource = (typeof AGENT_INGEST_SOURCES)[number];
  * an ADR when the export projection's semantics change. */
 export const CLAUDE_EXPORT_SOURCE_VERSION = 1;
 
+/** The `source_connector` version for the `ai-tools` app-presence connector. */
+export const AI_TOOLS_SOURCE_VERSION = 1;
+
 /** Compose the metric_records `source_connector` an agent-ingest push stamps on
  * every row (ADR 0060). The SINGLE source of truth: `claude-code-local` keeps
- * its version-suffixed id (unchanged from before 0060), and `claude-export` is
- * a fixed, versioned import source distinct from the live connector — so the
+ * its version-suffixed id (unchanged from before 0060); `claude-export` and
+ * `ai-tools` are fixed, versioned sources with DISTINCT families — so the
  * server-side window-delete scopes each source's restatement to its own rows. */
 export function agentSourceConnector(
   source: AgentIngestSource,
   summarizerVersion: number,
 ): string {
-  return source === "claude-export"
-    ? `claude_export@${CLAUDE_EXPORT_SOURCE_VERSION}`
-    : `claude-code-local@${summarizerVersion}`;
+  switch (source) {
+    case "claude-export":
+      return `claude_export@${CLAUDE_EXPORT_SOURCE_VERSION}`;
+    case "ai-tools":
+      return `ai-tools@${AI_TOOLS_SOURCE_VERSION}`;
+    default:
+      return `claude-code-local@${summarizerVersion}`;
+  }
 }
 
 export const agentIngestRequestSchema = z.object({

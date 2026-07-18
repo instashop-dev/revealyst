@@ -161,18 +161,27 @@ export function metricsNamespace(db: Db, orgId: string) {
 
     /**
      * Makes a re-push authoritative for its window (ADR 0002/0060): deletes
-     * this connection's records for ONE `sourceConnector` — and, by default,
-     * its subjects' sub-daily signals — inside the inclusive day window, so
-     * stale natural keys (e.g. a model dim that disappeared from a corrected
-     * batch) cannot survive a restatement.
+     * this connection's records for ONE source FAMILY — and, by default, its
+     * subjects' sub-daily signals — inside the inclusive day window, so stale
+     * natural keys (e.g. a model dim that disappeared from a corrected batch)
+     * cannot survive a restatement.
      *
-     * SCOPED TO `sourceConnector` (ADR 0060, D-DA-8): the device connection
+     * SCOPED TO THE SOURCE FAMILY (ADR 0060, D-DA-8): the device connection
      * carries several sources (`claude-code-local@N`, `claude_export@1`,
-     * `claude-code-otel@1`). Before 0060 this delete was connection-wide and
-     * would clobber a sibling source's overlapping days on every re-push;
-     * now one source's restatement replaces ONLY its own rows. For a
-     * single-source connection (every admin-API connector) the added filter
-     * matches exactly the same rows as before — byte-identical behavior.
+     * `ai-tools@1`, `claude-code-otel@1`). Before 0060 this delete was
+     * connection-wide and would clobber a SIBLING source's overlapping days on
+     * every re-push; now one source's restatement replaces ONLY its own rows.
+     *
+     * The scope is the source FAMILY (the module id BEFORE the `@version`), not
+     * the exact versioned string: a `sourceConnector` embeds a bumpable version
+     * (`claude-code-local@1` → `@2`), and a re-push after a version bump must
+     * still restate the older version's stale keys in its window — otherwise a
+     * dropped dim from `@1` survives and inflates a distinct-dims score. Family
+     * scoping restores the pre-0060 stale-key cleanup while keeping DIFFERENT
+     * families isolated (their module ids differ, so no family is a prefix of
+     * another). For a single-source, single-version connection (every admin-API
+     * connector) this matches exactly the same rows as the old connection-wide
+     * delete — byte-identical behavior.
      *
      * `deleteSignals` (default true) controls the sub-daily-signal sweep.
      * `subject_day_signals` has NO source column (its key is subject+day), so
@@ -189,13 +198,16 @@ export function metricsNamespace(db: Db, orgId: string) {
       to: string,
       opts: { deleteSignals?: boolean } = {},
     ) {
+      // The source family = the module id before the first `@` (version). A
+      // re-push restates its whole family's window regardless of version bump.
+      const family = sourceConnector.split("@")[0];
       await db
         .delete(metricRecords)
         .where(
           and(
             eq(metricRecords.orgId, orgId),
             eq(metricRecords.connectionId, connectionId),
-            eq(metricRecords.sourceConnector, sourceConnector),
+            sql`split_part(${metricRecords.sourceConnector}, '@', 1) = ${family}`,
             gte(metricRecords.day, from),
             lte(metricRecords.day, to),
           ),

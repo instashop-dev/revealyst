@@ -40,12 +40,19 @@ connector-scoped end to end.
    UNIQUE, so widening it can only make keys MORE unique — no existing row
    collides, nothing is merged or lost. A pure PK-index rebuild.
 
-2. **Connector-scoped window-delete.** `deleteWindowForConnection` takes a
-   `sourceConnector` argument and filters the delete on it, so one source's
-   restatement replaces ONLY its own rows. For every single-source connection
-   (all admin-API connectors) the added filter matches exactly the same rows as
-   before — **byte-identical behavior** (the poller passes `entry.sourceConnector`;
-   the connection has one source).
+2. **Family-scoped window-delete.** `deleteWindowForConnection` takes a
+   `sourceConnector` and filters the delete on its **family** — the module id
+   BEFORE the `@version` (`split_part(source_connector, '@', 1)`). One source's
+   restatement replaces ONLY its own family's rows. Family (not exact-version)
+   scoping is deliberate: `source_connector` embeds a bumpable version
+   (`claude-code-local@1` → `@2`), and a re-push after a version bump must still
+   restate the older version's stale keys in its window — otherwise a dropped
+   dim from `@1` survives and inflates a distinct-dims score (the pre-0060
+   connection-wide delete removed these; exact-version scoping would regress it).
+   Families are distinct module ids, so no family is a prefix of another and
+   cross-source isolation holds. For every single-source, single-version
+   connection (all admin-API connectors) the filter matches exactly the same
+   rows as the old connection-wide delete — **byte-identical behavior**.
 
 3. **Read-boundary MAX collapse (the double-count guard).** With the key
    widened, one subject can now hold the same `(day, metric, dim)` from two
@@ -62,8 +69,9 @@ connector-scoped end to end.
    the migration-equivalence test.
 
 4. **Client contract (`agentIngestRequestSchema`).** A new **closed, optional**
-   `source` discriminator (`claude-code-local` | `claude-export`), server-defaulted
-   to `claude-code-local` when omitted.
+   `source` discriminator (`claude-code-local` | `claude-export` | `ai-tools`),
+   server-defaulted to `claude-code-local` when omitted. Each maps to a DISTINCT
+   `source_connector` family.
    The client names a source; the SERVER composes the actual `source_connector`
    string (`agentSourceConnector`), so no free-form client value can pollute the
    key. Omitting `source` (an older agent) defaults to `claude-code-local` —
@@ -95,10 +103,16 @@ connector-scoped end to end.
 
 ## Non-goals / what stays gated
 
-- **#7 `ai_tools` and #9 `worktype` LIVE emission stay DORMANT.** This PR
-  removes their shared D-DA-8 window-delete blocker only. Each still has its own
-  separate activation gate (real captured fixtures per rule 2 + per-pack
-  sign-off). No fixtures are fabricated here.
+- **#7 `ai_tools` and #9 `worktype` LIVE emission stay DORMANT.** This PR removes
+  their shared D-DA-8 window-delete blocker only; each still has its own separate
+  activation gate (real captured fixtures per rule 2 + per-pack sign-off). No
+  fixtures are fabricated here. Note the two differ structurally: `worktype`
+  rides INSIDE the `claude_code` connector's batch (same `source`, one delete +
+  upsert — no clobber), so the mechanism alone unblocks it. `ai_tools` is a
+  SEPARATE on-device connector that shares the device subject, so it also needs
+  its own `source` family — this PR adds the `ai-tools` lane
+  (`AGENT_INGEST_SOURCES` + `wire_source_for_connector`) so its future activation
+  is safe, WITHOUT wiring its live emission (`run_cycle` still never calls it).
 - Non-eng role expansion, Team-org enrollment (D-DA-2), and prompt-feature
   extraction (D-DA-5) are untouched.
 

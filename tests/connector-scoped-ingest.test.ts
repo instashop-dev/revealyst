@@ -232,6 +232,79 @@ describe("agentSourceConnector (server-composed, closed set)", () => {
     expect(agentSourceConnector("claude-export", 1)).toBe("claude_export@1");
     expect(agentSourceConnector("claude-export", 9)).toBe("claude_export@1");
   });
+  it("composes a distinct family for the ai-tools connector (D-DA-8)", () => {
+    // ai-tools shares the device subject, so it MUST have its own family or its
+    // window-delete would erase the live connector's day.
+    expect(agentSourceConnector("ai-tools", 1)).toBe("ai-tools@1");
+    expect(agentSourceConnector("ai-tools", 1).split("@")[0]).not.toBe(
+      agentSourceConnector("claude-code-local", 1).split("@")[0],
+    );
+  });
+});
+
+describe("family-scoped restatement (a version bump still restates stale keys)", () => {
+  it("a @2 re-push deletes stale @1 dims in the window (no distinct-dims inflation)", async () => {
+    // Fresh org so this doesn't disturb the shared fixtures above.
+    const [org] = await db
+      .insert(schema.orgs)
+      .values({ name: "cs-version-org", kind: "personal" })
+      .returning();
+    const scoped = forOrg(db, org.id);
+    const conn = (
+      await scoped.connections.create({
+        vendor: "claude_code_local",
+        displayName: "Device",
+        authKind: "device_token",
+      })
+    ).id;
+    const [subj] = await scoped.subjects.upsertMany(conn, [
+      { kind: "person", externalId: "dev@example.com" },
+    ]);
+
+    // @1 reports model_requests for model=X on Jul 1.
+    await scoped.metrics.upsertRecords([
+      {
+        subjectId: subj.id,
+        metricKey: "model_requests",
+        day: "2026-07-01",
+        dim: "model=X",
+        connectionId: conn,
+        value: 4,
+        attribution: "person",
+        sourceConnector: "claude-code-local@1",
+      },
+    ]);
+
+    // The agent upgrades (summarizerVersion 1→2) and re-pushes Jul 1, but model
+    // X is gone (only model=Y now). The window-delete is FAMILY-scoped, so the
+    // stale @1 (model=X) row is removed — not orphaned into a distinct-dims count.
+    await scoped.metrics.deleteWindowForConnection(
+      conn,
+      "claude-code-local@2",
+      "2026-07-01",
+      "2026-07-01",
+    );
+    await scoped.metrics.upsertRecords([
+      {
+        subjectId: subj.id,
+        metricKey: "model_requests",
+        day: "2026-07-01",
+        dim: "model=Y",
+        connectionId: conn,
+        value: 6,
+        attribution: "person",
+        sourceConnector: "claude-code-local@2",
+      },
+    ]);
+
+    const rows = await scoped.metrics.records({
+      metricKey: "model_requests",
+      from: "2026-07-01",
+      to: "2026-07-01",
+    });
+    // Only model=Y survives — the stale @1 model=X dim is gone.
+    expect(rows.map((r) => r.dim)).toEqual(["model=Y"]);
+  });
 });
 
 describe("agent ingest end-to-end: export source can't clobber the live source", () => {
