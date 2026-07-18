@@ -168,8 +168,10 @@ export default function DownloadPage() {
             </CardTitle>
             <CardDescription className="text-pretty">
               The app runs in Analytics Only mode: it uploads counts, timing
-              buckets, and model names &mdash; never your prompts, responses,
-              files, or credentials.{" "}
+              buckets, model names, which AI apps you use, and the kind of task
+              (guessed on your computer) &mdash; the words you type never leave
+              your computer, and neither do your responses, files, or
+              credentials.{" "}
               <Link
                 href="/legal/what-we-collect"
                 className="font-medium text-foreground underline underline-offset-4"

@@ -39,9 +39,10 @@ export type CollectionField = {
    * token/count number, the model id, or a bounded closed-enum label. Its
    * PRESENCE is the structural proof that a sent value is bounded — NOT free
    * text. The app-side onboarding standing-privacy gate reads this to decide
-   * whether to show the "never your prompts" line (fail-closed: a future
-   * free-text sent field would omit it). Omitted on `sent: false` fields.
-   * Kept byte-identical in the app mirror by the contract test. */
+   * whether to show the "your prompts never leave this computer" line
+   * (fail-closed: a future free-text sent field would omit it). Omitted on
+   * `sent: false` fields. Kept byte-identical in the app mirror by the contract
+   * test. */
   readonly sentValueShape?: "count" | "model_id" | "closed_enum";
 };
 
@@ -161,6 +162,33 @@ export const AGENT_COLLECTION_FIELDS: readonly CollectionField[] = [
     sentValueShape: "closed_enum",
     purpose:
       "The desktop app checks which known AI desktop apps are open (from a fixed list) and sends only each app's name as a label — never its windows, files, or anything you type in it.",
+  },
+  {
+    field: "task_category",
+    label: "Kind of task",
+    sourceToken: "classify_prompt",
+    sent: true,
+    sentValueShape: "closed_enum",
+    purpose:
+      "The desktop app reads your prompt on your computer to guess the kind of task (from a fixed list like research, drafting, or coding), and sends only that one label plus a daily count — never the words you typed.",
+  },
+  {
+    field: "iteration_depth",
+    label: "Refinement turns",
+    sourceToken: "is_refinement_turn",
+    sent: true,
+    sentValueShape: "count",
+    purpose:
+      "How many of your prompts that day were follow-ups that refine an earlier answer, worked out on your computer and sent as a plain number — never the words you typed.",
+  },
+  {
+    field: "verification_behavior",
+    label: "Checking AI output",
+    sourceToken: "is_verification_action",
+    sent: true,
+    sentValueShape: "count",
+    purpose:
+      "How many of your prompts that day asked to check the AI's work (for example verify, cite a source, or test it), worked out on your computer and sent as a plain number — never the words you typed.",
   },
 ];
 

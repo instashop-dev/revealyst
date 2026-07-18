@@ -504,6 +504,124 @@ describe("agent ingest — body validation (400 before any write)", () => {
     });
   });
 
+  it("accepts a valid task_category count with a closed-enum dim (ADR 0059)", async () => {
+    const batch = makeBatch({
+      records: [
+        {
+          subject: DEV_SUBJECT,
+          metricKey: "task_category",
+          day: "2026-07-01",
+          dim: "task_category=drafting",
+          value: 3,
+          attribution: "person",
+        },
+        // The two dimensionless worktype counts ride alongside, empty dim.
+        {
+          subject: DEV_SUBJECT,
+          metricKey: "iteration_depth",
+          day: "2026-07-01",
+          dim: "",
+          value: 2,
+          attribution: "person",
+        },
+        {
+          subject: DEV_SUBJECT,
+          metricKey: "verification_behavior",
+          day: "2026-07-01",
+          dim: "",
+          value: 1,
+          attribution: "person",
+        },
+      ],
+      signals: [],
+    });
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, batch);
+    expect(outcome).toMatchObject({ ok: true, status: 200 });
+    const rows = await forOrg(db, orgA).metrics.records({
+      metricKey: "task_category",
+      from: "2026-07-01",
+      to: "2026-07-02",
+      dim: "task_category=drafting",
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].value).toBe(3);
+  });
+
+  it("accepts task_category=other (the mandatory catch-all)", async () => {
+    const batch = makeBatch({
+      records: [
+        {
+          subject: DEV_SUBJECT,
+          metricKey: "task_category",
+          day: "2026-07-01",
+          dim: "task_category=other",
+          value: 1,
+          attribution: "person",
+        },
+      ],
+      signals: [],
+    });
+    expect(await ingestAgentBatch(db, ENV, tokenA, batch)).toMatchObject({
+      ok: true,
+      status: 200,
+    });
+  });
+
+  it("rejects an out-of-enum task_category dim (smuggled prompt snippet, in-range length)", async () => {
+    // Short, clean ASCII with NO whitespace/control chars — the generic
+    // length/charset bound passes it — so the closed-enum backstop (ADR 0059)
+    // must be what catches it. This is the exact smuggled-snippet vector the
+    // classifier's closed Rust enum prevents on the device; here is the
+    // server-side twin. Nothing is written (400 before the transaction).
+    const smuggled = "task_category=secret-memo-contents";
+    const batch = makeBatch({
+      records: [
+        {
+          subject: DEV_SUBJECT,
+          metricKey: "task_category",
+          day: "2026-07-01",
+          dim: smuggled,
+          value: 1,
+          attribution: "person",
+        },
+      ],
+      signals: [],
+    });
+    const outcome = await ingestAgentBatch(db, ENV, tokenA, batch);
+    expect(outcome).toMatchObject({ ok: false, status: 400 });
+    if (!outcome.ok) {
+      expect(outcome.body.error).toMatch(/task_category dim must be/);
+    }
+    expect(
+      await forOrg(db, orgA).metrics.records({
+        metricKey: "task_category",
+        from: "2026-07-01",
+        to: "2026-07-02",
+        dim: smuggled,
+      }),
+    ).toHaveLength(0);
+  });
+
+  it("rejects a task_category dim missing the task_category= prefix", async () => {
+    const batch = makeBatch({
+      records: [
+        {
+          subject: DEV_SUBJECT,
+          metricKey: "task_category",
+          day: "2026-07-01",
+          dim: "drafting", // no `task_category=` prefix
+          value: 1,
+          attribution: "person",
+        },
+      ],
+      signals: [],
+    });
+    expect(await ingestAgentBatch(db, ENV, tokenA, batch)).toMatchObject({
+      ok: false,
+      status: 400,
+    });
+  });
+
   it("rejects malformed signal hours (not 24 slots)", async () => {
     const batch = makeBatch();
     batch.signals[0].hours = [1, 2, 3];

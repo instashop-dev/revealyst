@@ -119,10 +119,13 @@ export const metricCatalog = pgTable("metric_catalog", {
   }).notNull(),
   // Which dimension the `dim` column carries for this metric; null = none.
   // `tool` added by ADR 0057 for `ai_tool_used` (the dim carries a closed
-  // AI-app enum id). Plain-text column (drizzle text-enum is TS-only), so the
-  // new value needs no DDL — only the seed row + this type widening, exactly
-  // like the `credits`/`seconds` unit additions above.
-  dimKind: text("dim_kind", { enum: ["model", "feature", "tool"] }),
+  // AI-app enum id); `task_category` added by ADR 0055/0059 for `task_category`
+  // (the dim carries a closed work-type enum id). Plain-text column (drizzle
+  // text-enum is TS-only), so a new value needs no DDL — only the seed row + this
+  // type widening, exactly like the `credits`/`seconds` unit additions above.
+  dimKind: text("dim_kind", {
+    enum: ["model", "feature", "tool", "task_category"],
+  }),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

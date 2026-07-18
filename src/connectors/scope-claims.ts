@@ -101,7 +101,7 @@ export const SCOPE_CLAIMS: Record<string, ScopeClaims> = {
     ],
     cannotMeasure: [
       "Anything older than about 30 days — older local logs are deleted automatically",
-      "The content of your prompts or code — only counts and structure are ever read",
+      "The words in your prompts or code — these are read on your computer only, to work out counts and the kind of task, then dropped; they never leave your device or reach us",
       "Whether you accepted or rejected each suggestion exactly (only rough signals)",
       "Claude Desktop chats — detailed conversation sync from the Claude Desktop app is not available in Phase 1",
       "What you do inside an AI app — for app presence we can tell an app was open when we checked, never its windows, files, or anything you type in it",

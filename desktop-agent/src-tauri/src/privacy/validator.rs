@@ -516,6 +516,43 @@ mod tests {
         );
     }
 
+    /// ADR 0059: `task_category` is ALSO a closed-enum field (its enum is the
+    /// frozen TASK_CATEGORY_IDS, crossed via the generated artifact). A known
+    /// work-type label passes; an out-of-enum label — short, clean ASCII, so it
+    /// clears the free-text bound — quarantines as `out_of_enum_value`. This is
+    /// the smuggled-prompt-snippet vector; the on-device classifier's closed Rust
+    /// enum prevents it upstream, and this validator is the fail-closed backstop.
+    #[test]
+    fn task_category_closed_enum_accepts_only_known_work_types() {
+        // The two dimensionless worktype counts are plain numbers → pass.
+        assert!(validate(
+            &json!({
+                "task_category": "drafting",
+                "iteration_depth": 3,
+                "verification_behavior": 1,
+                "rawPromptIncluded": false,
+                "rawResponseIncluded": false,
+            }),
+            &allow()
+        )
+        .is_ok());
+        // `other` (the mandatory catch-all) is a valid label.
+        assert!(validate(&json!({ "task_category": "other" }), &allow()).is_ok());
+        // Out-of-enum labels — a smuggled prompt snippet — quarantine.
+        for smuggled in ["secret-memo", "drafting the merger", "", "coding!"] {
+            assert_eq!(
+                validate(&json!({ "task_category": smuggled }), &allow()),
+                Err(QuarantineReason::OutOfEnumValue),
+                "out-of-enum task_category `{smuggled:?}` must quarantine"
+            );
+        }
+        // A number on the closed-enum field is likewise rejected.
+        assert_eq!(
+            validate(&json!({ "task_category": 2 }), &allow()),
+            Err(QuarantineReason::OutOfEnumValue)
+        );
+    }
+
     /// Belt-and-braces: even a long, content-rich value on the closed-enum field
     /// never survives — the free-text bound catches the length, and the
     /// closed-enum gate catches anything shorter. Nothing content-shaped leaves.

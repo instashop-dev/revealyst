@@ -8,12 +8,16 @@
 //! 2. **Counts only, no leak** — the serialized output's sent scalar strings are
 //!    bounded (<= 64) and NOTHING in the output contains the counted prompt
 //!    text; the char/word-count path measured the content, then dropped it.
-//! 3. **Classifier absent (D-DA-5)** — no `taskCategory` / `workflowType` /
-//!    `complexityBand` / `has*` / classifier-version fields are emitted.
-//! 4. **Validator pass by construction** — every candidate event flows through
-//!    T3.3's `validate_and_enqueue` clean (zero quarantined) and lands in the
-//!    queue.
+//! 3. **Classifier present, content-free (D-DA-5 / ADR 0059)** — the work-type
+//!    classifier emits ONLY closed-enum `task_category` labels + `iteration_depth`
+//!    / `verification_behavior` counts; the fields we deliberately did NOT build
+//!    (`workflowType` / `complexityBand` / `has*` / classifier-version) stay
+//!    absent, and no prompt substring leaks through classification.
+//! 4. **Validator pass by construction** — every candidate event (usage AND
+//!    worktype) flows through T3.3's `validate`/`validate_and_enqueue` clean (zero
+//!    quarantined), and an out-of-enum `task_category` label quarantines.
 
+use super::classify::TaskCategory;
 use super::*;
 use crate::privacy::{validate, validate_and_enqueue, ContentMode, PolicyResolution};
 use crate::store::crypto::{DbKey, KEY_LEN};
@@ -384,7 +388,23 @@ fn output_dump(out: &ExtractOutput) -> String {
     s.push_str(&serde_json::to_string(&out.records).unwrap());
     s.push_str(&serde_json::to_string(&out.signals).unwrap());
     s.push_str(&serde_json::to_string(&out.counts).unwrap());
-    for ev in &out.candidate_events {
+    // Worktype surfaces (ADR 0059) are part of the leak-check too: a classifier
+    // that echoed prompt text would surface here.
+    s.push_str(&serde_json::to_string(&out.worktype_records).unwrap());
+    for wt in &out.worktype {
+        s.push_str(&wt.day);
+        for (category, count) in &wt.category_counts {
+            s.push_str(category.as_str());
+            s.push_str(&count.to_string());
+        }
+        s.push_str(&wt.iteration_depth.to_string());
+        s.push_str(&wt.verification_behavior.to_string());
+    }
+    for ev in out
+        .candidate_events
+        .iter()
+        .chain(out.worktype_candidate_events.iter())
+    {
         s.push_str(&ev.event_id);
         s.push_str(&ev.event_type);
         s.push_str(&ev.payload.to_string());
@@ -453,19 +473,19 @@ fn candidate_payload_strings_are_bounded_labels() {
     }
 }
 
-// ---- 3. Classifier absent (D-DA-5) ------------------------------------------
+// ---- 3. Classifier present, content-free (D-DA-5 / ADR 0059) ----------------
 
-/// The classifier half of `LocalPromptFeatures` is NOT emitted — no
-/// `taskCategory` / `workflowType` / `complexityBand` / prompt-structure boolean
-/// / classifier-version field appears anywhere in the output. This is the
-/// D-DA-5 default: shape + counts only, classifier fields blocked pending T5.2.
+/// The fields we deliberately did NOT build under ADR 0059 stay absent — only
+/// `task_category` / `iteration_depth` / `verification_behavior` are the
+/// classifier's outputs. `workflowType` / `complexityBand` / the prompt-structure
+/// booleans (`hasContext`, …) / classifier-version fields are the separately-
+/// deferred `LocalPromptFeatures` half and must never surface.
 #[test]
-fn classifier_fields_are_absent() {
+fn unbuilt_classifier_fields_stay_absent() {
     let out = extract(&fixture_records(), &opts());
     let dump = output_dump(&out);
     for banned in [
         // camelCase (spec `LocalPromptFeatures`)…
-        "taskCategory",
         "workflowType",
         "complexityBand",
         "hasContext",
@@ -479,8 +499,7 @@ fn classifier_fields_are_absent() {
         "localClassifierVersion",
         "localClassifierConfidence",
         // …and snake_case — our structs serde-serialize snake_case, so a
-        // classifier field would surface in these forms, not the camelCase ones.
-        "task_category",
+        // deferred field would surface in these forms, not the camelCase ones.
         "workflow_type",
         "complexity_band",
         "has_context",
@@ -496,9 +515,208 @@ fn classifier_fields_are_absent() {
     ] {
         assert!(
             !dump.contains(banned),
-            "classifier field `{banned}` must not be emitted (D-DA-5)"
+            "deferred classifier field `{banned}` must not be emitted (ADR 0059)"
         );
     }
+}
+
+/// The work-type classifier IS present now (ADR 0059): the fixture prompts are
+/// classified into closed-enum `task_category` records + candidate events, and
+/// EVERY emitted `task_category` dim/label is a value from the closed enum — so
+/// no free string (a smuggled snippet) can ever be the label. The two fixture
+/// prompts ("SENTINEL_PROMPT_*") carry no keyword, so they classify to `other`.
+#[test]
+fn worktype_is_emitted_as_closed_enum_labels_only() {
+    let out = extract(&fixture_records(), &opts());
+
+    // task_category records exist and land on the SEPARATE worktype_records vec,
+    // NOT on the CLI-parity `records` vec.
+    assert!(
+        !out.worktype_records.is_empty(),
+        "the classifier must emit worktype records for the fixture prompts"
+    );
+    assert!(
+        out.records
+            .iter()
+            .all(|r| r.metric_key != MetricKey::TaskCategory),
+        "worktype records must not pollute the CLI-parity `records` vec"
+    );
+
+    // Both fixture days classify their one human prompt to `other` (no keyword).
+    for day in ["2026-07-01", "2026-07-02"] {
+        let count = out
+            .worktype_records
+            .iter()
+            .find(|r| {
+                r.metric_key == MetricKey::TaskCategory
+                    && r.day == day
+                    && r.dim == "task_category=other"
+            })
+            .map(|r| r.value);
+        assert_eq!(count, Some(1.0), "day {day} should have 1 `other` prompt");
+    }
+
+    // EVERY task_category dim is `task_category=<known label>` — the closed set.
+    let known: std::collections::BTreeSet<&str> = [
+        "analysis",
+        "coding",
+        "drafting",
+        "ideation",
+        "other",
+        "planning",
+        "research",
+        "review",
+        "summarization",
+    ]
+    .into_iter()
+    .collect();
+    for r in &out.worktype_records {
+        if r.metric_key == MetricKey::TaskCategory {
+            let label = r.dim.strip_prefix("task_category=").expect("dim prefix");
+            assert!(
+                known.contains(label),
+                "task_category label `{label}` is not in the closed enum"
+            );
+        }
+    }
+}
+
+/// A long, content-rich prompt is classified to a closed-enum label + counts and
+/// NOTHING of its content survives — the borrow-and-drop guarantee, extended from
+/// counting (`count_text`) to classification (spec §16.3 / ADR 0055 §2.4).
+#[test]
+fn rich_prompt_classifies_without_leaking_any_substring() {
+    // A verbose, secret-bearing prompt with distinctive tokens. It DOES classify
+    // (it contains "refactor"→coding, "verify"→verification, "make it"→refinement)
+    // but none of the secret words may appear in any output surface.
+    let secret_words = [
+        "ZZQCONFIDENTIAL",
+        "projectbluefalcon",
+        "acquisitiontarget",
+        "salaryfigures",
+    ];
+    let rich = format!(
+        "Please refactor the {} module for {}, then verify the {} and make it handle {} correctly.",
+        secret_words[0], secret_words[1], secret_words[2], secret_words[3]
+    );
+    let records = vec![prompt("sess-rich", ms(2026, 7, 3, 10, 0, 0), false, &rich)];
+    let out = extract(&records, &opts());
+
+    // It WAS classified (coding, with refinement + verification detected).
+    let wt = out
+        .worktype
+        .iter()
+        .find(|w| w.day == "2026-07-03")
+        .expect("worktype for the rich day");
+    assert_eq!(wt.category_counts.get(&TaskCategory::Coding), Some(&1));
+    assert_eq!(wt.iteration_depth, 1);
+    assert_eq!(wt.verification_behavior, 1);
+
+    // …yet NONE of the secret content leaked anywhere in the output.
+    let dump = output_dump(&out);
+    for secret in secret_words {
+        assert!(
+            !dump.contains(secret),
+            "classified content `{secret}` leaked into the output"
+        );
+    }
+    // The only strings in the worktype candidate payloads are closed-enum labels.
+    for ev in &out.worktype_candidate_events {
+        let mut strings = Vec::new();
+        collect_strings(&ev.payload, &mut strings);
+        for s in strings {
+            assert!(
+                s.chars().count() <= counts::MAX_MODEL_LEN,
+                "worktype payload string `{s}` exceeds the enum bound"
+            );
+            for secret in secret_words {
+                assert!(!s.contains(secret), "worktype payload leaked `{secret}`");
+            }
+        }
+    }
+}
+
+/// Every worktype candidate event passes T3.3's `validate` — the closed-enum
+/// `task_category` label is accepted, the counts are numbers, the reserved flags
+/// are false. Fail-closed privacy path, proven by construction.
+#[test]
+fn worktype_candidate_events_validate() {
+    let out = extract(&fixture_records(), &opts());
+    assert!(
+        !out.worktype_candidate_events.is_empty(),
+        "there must be worktype candidate events to validate"
+    );
+    let policy = PolicyResolution::Allow(ContentMode::AnalyticsOnly);
+    for ev in &out.worktype_candidate_events {
+        assert!(
+            validate(&ev.payload, &policy).is_ok(),
+            "worktype candidate payload must validate: {}",
+            ev.payload
+        );
+    }
+}
+
+/// Only the HUMAN's prompts are classified — a sidechain (subagent) prompt is
+/// excluded, so its content never contributes a work-type. A machine-generated
+/// subagent prompt is not the person's work (honesty), and this also keeps the
+/// classifier off content the user did not author.
+#[test]
+fn sidechain_prompts_are_not_classified() {
+    // One human prompt (coding) + one sidechain prompt (would be coding too).
+    let records = vec![
+        prompt(
+            "sess-human",
+            ms(2026, 7, 5, 9, 0, 0),
+            false,
+            "refactor this function",
+        ),
+        prompt(
+            "sess-sub",
+            ms(2026, 7, 5, 9, 5, 0),
+            true, // sidechain — must NOT be classified
+            "debug the compiler error and refactor",
+        ),
+    ];
+    let out = extract(&records, &opts());
+    let wt = out
+        .worktype
+        .iter()
+        .find(|w| w.day == "2026-07-05")
+        .expect("worktype for the day");
+    // Exactly ONE coding prompt counted (the human's) — the sidechain is excluded.
+    assert_eq!(wt.category_counts.get(&TaskCategory::Coding), Some(&1));
+    let total: u64 = wt.category_counts.values().sum();
+    assert_eq!(total, 1, "only the human prompt is classified");
+}
+
+/// The closed-enum backstop on the DEVICE: a hand-crafted candidate payload with
+/// an out-of-enum `task_category` label (short, clean ASCII — so it clears the
+/// free-text bound) must quarantine as `out_of_enum_value`, never enqueue. This
+/// is the smuggled-snippet vector; the classifier's closed Rust enum makes it
+/// unreachable in practice, and the validator is the fail-closed backstop.
+#[test]
+fn out_of_enum_task_category_quarantines() {
+    use crate::privacy::QuarantineReason;
+    let policy = PolicyResolution::Allow(ContentMode::AnalyticsOnly);
+    for smuggled in ["secret-memo", "summarize this", "drafting the merger", ""] {
+        let payload = serde_json::json!({
+            "task_category": smuggled,
+            "rawPromptIncluded": false,
+            "rawResponseIncluded": false,
+        });
+        assert_eq!(
+            validate(&payload, &policy),
+            Err(QuarantineReason::OutOfEnumValue),
+            "out-of-enum task_category `{smuggled:?}` must quarantine"
+        );
+    }
+    // A known label passes.
+    let ok = serde_json::json!({
+        "task_category": "coding",
+        "rawPromptIncluded": false,
+        "rawResponseIncluded": false,
+    });
+    assert!(validate(&ok, &policy).is_ok());
 }
 
 // ---- 4. Validator pass by construction --------------------------------------

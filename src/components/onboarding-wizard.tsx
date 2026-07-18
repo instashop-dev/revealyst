@@ -93,8 +93,9 @@ export function OnboardingWizard({
         </h1>
         <p className="text-balance text-muted-foreground">
           Run the Revealyst Agent on your machine to see your AI adoption,
-          fluency, and spend. It reads your local Claude Code sessions and
-          pushes only aggregates — never your prompts.
+          fluency, and spend. It reads your local Claude Code sessions on your
+          computer and pushes only aggregates — your prompts never leave your
+          computer.
         </p>
       </div>
 

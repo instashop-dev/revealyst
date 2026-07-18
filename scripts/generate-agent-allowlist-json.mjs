@@ -26,7 +26,7 @@ import {
   AGENT_COLLECTION_FIELDS,
   AGENT_NEVER_COLLECTED,
 } from "../src/lib/agent-collection-schema";
-import { AI_TOOL_IDS } from "../src/contracts/metrics";
+import { AI_TOOL_IDS, TASK_CATEGORY_IDS } from "../src/contracts/metrics";
 
 export const GENERATED_RELATIVE_PATH = path.join(
   "desktop-agent",
@@ -64,8 +64,10 @@ function sortKeysDeep(value) {
  * `closedEnums` (ADR 0057) crosses the CLOSED value sets for enum-valued sent
  * fields to the Rust crate through this same single bridge (plan law 5), so the
  * device validator rejects an out-of-set label (a smuggled snippet) against the
- * exact set the frozen contract defines — never a hand-mirrored copy. Today it
- * carries only `ai_tool_used` (the closed AI-app enum, AI_TOOL_IDS).
+ * exact set the frozen contract defines — never a hand-mirrored copy. It carries
+ * `ai_tool_used` (the closed AI-app enum, AI_TOOL_IDS) and `task_category` (the
+ * closed work-type enum, TASK_CATEGORY_IDS — ADR 0059), the on-device
+ * classifier's only output label.
  */
 export function renderDesktopAllowlistJson() {
   const doc = {
@@ -83,6 +85,7 @@ export function renderDesktopAllowlistJson() {
     neverCollected: [...AGENT_NEVER_COLLECTED],
     closedEnums: {
       ai_tool_used: [...AI_TOOL_IDS],
+      task_category: [...TASK_CATEGORY_IDS],
     },
   };
   return `${JSON.stringify(sortKeysDeep(doc), null, 2)}\n`;

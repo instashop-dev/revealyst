@@ -2,7 +2,7 @@ import {
   agentIngestRequestSchema,
   type AgentIngestRequest,
 } from "../contracts/api";
-import { isValidAiToolDim } from "../contracts/metrics";
+import { isValidAiToolDim, isValidTaskCategoryDim } from "../contracts/metrics";
 import type { Db } from "../db/client";
 import { forOrg } from "../db/org-scope";
 import type { PollMessage } from "../poller/messages";
@@ -131,6 +131,20 @@ export async function ingestAgentBatch(
     if (record.metricKey === "ai_tool_used" && !isValidAiToolDim(record.dim)) {
       return badRequest(
         "ai_tool_used dim must be tool=<known AI app> from the closed enum",
+      );
+    }
+    // Closed-enum backstop for task_category (ADR 0059): its `dim` MUST be
+    // exactly `task_category=<id>` with `id` in the closed work-type enum
+    // (TASK_CATEGORY_IDS). The device classifier is a closed Rust enum and the
+    // device validator already rejects an out-of-set label; this is the
+    // server-side twin, so an in-length-range but out-of-enum value (a smuggled
+    // prompt snippet) is a 400, never a stored dim.
+    if (
+      record.metricKey === "task_category" &&
+      !isValidTaskCategoryDim(record.dim)
+    ) {
+      return badRequest(
+        "task_category dim must be task_category=<known work type> from the closed enum",
       );
     }
   }

@@ -18,12 +18,18 @@ import {
 const AGENT_VENDOR = "claude_code_local";
 
 /** The standing, cross-connector privacy claim. Rendered ONLY where the schema
- * PROVES it — see `agentNeverReadsPrompts` below. Not a per-vendor claim.
- * Completeness (invariant b): it must OWN everything whose value leaves the
- * device — token counts, timing, model ids, AND the closed-enum "which AI apps
- * are open" label — while still truthfully saying it never reads prompts. */
+ * PROVES it — see `agentNeverUploadsPrompts` below. Not a per-vendor claim.
+ *
+ * HONESTY (ADR 0059, W3-N): the agent now READS prompt text on-device to classify
+ * the kind of work (the work-type classifier), so the old "never your prompts"
+ * (which read as "never READ your prompts") would be FALSE. The true, durable
+ * guarantee is that the words never LEAVE this computer. This line states that
+ * guarantee plainly and leads with it. Completeness (invariant b): it must OWN
+ * everything whose value leaves the device — token counts, timing, model ids, the
+ * closed-enum "which AI apps are open" label, AND the closed-enum "kind of task"
+ * label — while truthfully promising the words themselves never leave. */
 export const STANDING_PRIVACY_LINE =
-  "We read counts, timing, model names, and which AI apps are open — never your prompts.";
+  "Your prompts never leave this computer. We only send counts, timing, model names, which AI apps you use, and the kind of task.";
 
 /** The bounded value SHAPES a sent field may carry (schema `sentValueShape`).
  * A sent field whose value is one of these is provably NOT free text: a number,
@@ -31,16 +37,22 @@ export const STANDING_PRIVACY_LINE =
  * sent field with NO shape marker) is treated as free text — fail-closed. */
 const BOUNDED_SENT_VALUE_SHAPES = new Set(["count", "model_id", "closed_enum"]);
 
-/** True when the on-device schema proves the agent never reads prompt content —
+/** True when the on-device schema proves the agent never UPLOADS prompt content —
  * the precondition for showing the standing line. Derived, not asserted: if a
  * future schema change started sending prompt text (a sent field with no bounded
  * `sentValueShape`), this flips and the line is withheld rather than becoming a
  * false claim. Keyed off the STRUCTURAL shape marker, not the field name, so a
- * bounded closed-enum label (e.g. `ai_tool_used`) counts as safe while genuine
- * free text does not. Defaults to empty if the schema export is somehow absent
- * (fail-closed under a partial mock). */
-export function agentNeverReadsPrompts(): boolean {
-  const neverReadsPrompts = (AGENT_NEVER_COLLECTED ?? []).some((s) =>
+ * bounded closed-enum label (e.g. `ai_tool_used`, `task_category`) counts as safe
+ * while genuine free text does not. Defaults to empty if the schema export is
+ * somehow absent (fail-closed under a partial mock).
+ *
+ * Renamed from `agentNeverReadsPrompts` (ADR 0059): the agent now READS prompt
+ * text on-device to classify the work type, so "never read" is no longer the
+ * guarantee. What the schema still structurally proves is that only bounded
+ * values LEAVE — i.e. the words are never uploaded — which is exactly the claim
+ * `STANDING_PRIVACY_LINE` now makes. */
+export function agentNeverUploadsPrompts(): boolean {
+  const listsPromptsAsNeverLeaving = (AGENT_NEVER_COLLECTED ?? []).some((s) =>
     /prompt/i.test(s),
   );
   // Every value that leaves the device is a bounded shape — a count, the model
@@ -52,7 +64,7 @@ export function agentNeverReadsPrompts(): boolean {
       f.sentValueShape !== undefined &&
       BOUNDED_SENT_VALUE_SHAPES.has(f.sentValueShape),
   );
-  return neverReadsPrompts && onlyBoundedValuesLeave;
+  return listsPromptsAsNeverLeaving && onlyBoundedValuesLeave;
 }
 
 function ReadRow({ text }: { text: string }) {
@@ -90,7 +102,7 @@ export function OnboardingScopeExplainer({ vendor }: { vendor: string }) {
   if (vendor === AGENT_VENDOR) {
     return (
       <div className="flex flex-col gap-1.5 text-sm">
-        {agentNeverReadsPrompts() ? (
+        {agentNeverUploadsPrompts() ? (
           <p className="text-xs font-medium text-foreground">
             {STANDING_PRIVACY_LINE}
           </p>

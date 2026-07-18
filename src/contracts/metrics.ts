@@ -25,6 +25,13 @@ export const METRIC_FAMILIES = [
   // real accept/reject), NOT available from any admin-API connector. ≥2
   // corroborating markers upgrade a capability from `directional` to `measured`.
   "markers",
+  // ADR 0055 / 0059 (D-DA-5): the content-free TYPE/SHAPE of AI work, derived by
+  // the resident desktop agent's on-device work-type classifier — what KIND of
+  // work (task_category), how iteratively (iteration_depth), how carefully
+  // (verification_behavior). The classifier reads prompt text ON-DEVICE only and
+  // emits ONLY these bounded enums/counts; the words never leave the machine.
+  // NOT OTel markers, so a bound capability caps at `directional` (ADR 0039).
+  "worktype",
 ] as const;
 export type MetricFamily = (typeof METRIC_FAMILIES)[number];
 
@@ -48,8 +55,10 @@ type CatalogEntry = {
   unit: MetricUnit;
   // `tool` added by ADR 0057 for `ai_tool_used` — the dim carries a value from
   // the closed AI-app enum (AI_TOOL_IDS), just as `model`/`feature` dims carry
-  // a model id / feature name.
-  dimKind: "model" | "feature" | "tool" | null;
+  // a model id / feature name. `task_category` added by ADR 0055/0059 for
+  // `task_category` — the dim carries a value from the closed task-category enum
+  // (TASK_CATEGORY_IDS), the on-device work-type classifier's only output label.
+  dimKind: "model" | "feature" | "tool" | "task_category" | null;
 };
 
 /** The Level-1 catalog, frozen at contracts-v1 (≡ drizzle/0007 seed). */
@@ -117,6 +126,22 @@ export const CANONICAL_METRICS = {
   // never `measured` (ADR 0039). App-presence is native-app-only and browser-
   // blind (ADR 0055 §1.3) — a coarse, honest breadth signal.
   ai_tool_used: { family: "active_users", unit: "flag", dimKind: "tool" },
+  // ADR 0055 / 0059 (D-DA-5): the resident desktop agent's on-device work-type
+  // classifier reads prompt text ON-DEVICE and emits ONLY these three bounded
+  // content-free signals — the words never leave the machine. `task_category` =
+  // how many prompts of each work KIND this UTC day (dim = a value from the
+  // CLOSED task-category enum, TASK_CATEGORY_IDS — never raw text; unclassifiable
+  // falls to `other`). `iteration_depth` = per-day count of refinement/follow-up
+  // turns. `verification_behavior` = per-day count of prompts that check AI
+  // output (asked to verify, cite, test, confirm). All three are `worktype`
+  // counts and are NOT OTel markers (absent from OTEL_MARKER_METRIC_KEYS), so a
+  // capability bound to them caps at `directional`, never `measured` (ADR 0039).
+  // Native-app-only and data-starved for non-dev roles today (ADR 0055 §1), so
+  // with no producer these keys skip the capability engine (no evidence → no
+  // row), never zero-filled.
+  task_category: { family: "worktype", unit: "count", dimKind: "task_category" },
+  iteration_depth: { family: "worktype", unit: "count", dimKind: null },
+  verification_behavior: { family: "worktype", unit: "count", dimKind: null },
 } as const satisfies Record<string, CatalogEntry>;
 
 /** The OTel marker metric keys (W7-8). A capability with evidence for ≥2 of
@@ -160,6 +185,43 @@ export const AI_TOOL_DIM_PREFIX = "tool=";
 export function isValidAiToolDim(dim: string): boolean {
   if (!dim.startsWith(AI_TOOL_DIM_PREFIX)) return false;
   return AI_TOOL_ID_SET.has(dim.slice(AI_TOOL_DIM_PREFIX.length));
+}
+
+/** The closed task-category enum carried by the `task_category` metric's `dim`
+ * (ADR 0055 / 0059). This is the SINGLE source of truth for the allowed work-type
+ * labels the on-device classifier may emit; a device may never emit a value
+ * outside this set (an out-of-set label is a smuggled snippet — quarantined on the
+ * device, 400'd on the server). The classifier is a closed Rust enum, so raw text
+ * cannot become a label; anything unclassifiable falls to `other`. Extended ONLY
+ * by a future ADR. Kept alphabetically sorted so the generated Rust bridge JSON is
+ * deterministic. These are single-word, ASCII, short labels by construction. */
+export const TASK_CATEGORY_IDS = [
+  "analysis",
+  "coding",
+  "drafting",
+  "ideation",
+  "other",
+  "planning",
+  "research",
+  "review",
+  "summarization",
+] as const;
+export type TaskCategoryId = (typeof TASK_CATEGORY_IDS)[number];
+
+const TASK_CATEGORY_ID_SET: ReadonlySet<string> = new Set(TASK_CATEGORY_IDS);
+
+/** The dim-value prefix for the `task_category` dimKind — mirrors
+ * `model=`/`feature=`/`tool=`. */
+export const TASK_CATEGORY_DIM_PREFIX = "task_category=";
+
+/** Is `dim` a valid `task_category` dimension — exactly `task_category=<id>` with
+ * `id` in the closed task-category enum? The server ingest guard uses this as the
+ * closed-enum backstop for the `task_category` metric key (ADR 0059 §closed-enum
+ * enforcement), the twin of `isValidAiToolDim`; an in-range-length but out-of-set
+ * label (a smuggled prompt snippet) is rejected, never stored. */
+export function isValidTaskCategoryDim(dim: string): boolean {
+  if (!dim.startsWith(TASK_CATEGORY_DIM_PREFIX)) return false;
+  return TASK_CATEGORY_ID_SET.has(dim.slice(TASK_CATEGORY_DIM_PREFIX.length));
 }
 
 const daySchema = z
