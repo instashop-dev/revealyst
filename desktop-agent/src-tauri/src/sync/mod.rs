@@ -641,9 +641,16 @@ mod tests {
 
     /// A `usage_summary` queue event carrying one person-day of records.
     fn summary_event(event_id: &str, day: &str, prompts: i64) -> NewEvent {
+        summary_event_src(event_id, "claude_code", day, prompts)
+    }
+
+    /// Like [`summary_event`] but with an explicit local `connector_id`, so a test
+    /// can stage events from more than one source (the export connector stamps its
+    /// own id in production) and exercise the per-source batch split (ADR 0060).
+    fn summary_event_src(event_id: &str, connector_id: &str, day: &str, prompts: i64) -> NewEvent {
         NewEvent::analytics_only(
             event_id,
-            "claude_code",
+            connector_id,
             batch::USAGE_SUMMARY_EVENT_TYPE,
             0,
             json!({
@@ -881,7 +888,7 @@ mod tests {
         store
             .enqueue_and_checkpoint(
                 "claude_export",
-                &[summary_event("exp-1", "2026-07-15", 9)],
+                &[summary_event_src("exp-1", "claude_export", "2026-07-15", 9)],
                 "cp-export",
             )
             .unwrap();
