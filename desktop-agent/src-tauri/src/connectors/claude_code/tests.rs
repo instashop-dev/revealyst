@@ -708,7 +708,12 @@ async fn collect_and_enqueue_produces_a_drainable_ingest_request() {
     // Drain the queue exactly as the sync engine would, and build the wire body.
     let queued = store.dequeue_batch(250).unwrap();
     assert_eq!(queued.len(), outcome.enqueued);
-    let request = build_request("0.1.0", 1, &queued);
+    let request = build_request(
+        "0.1.0",
+        1,
+        crate::sync::batch::DEFAULT_INGEST_SOURCE,
+        &queued,
+    );
 
     assert_eq!(request.window.start, "2026-07-01");
     assert_eq!(request.window.end, "2026-07-02");
