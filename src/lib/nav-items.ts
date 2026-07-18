@@ -79,11 +79,20 @@ const TEAM_NAV_ITEMS: NavItem[] = [
 // Members, Billing, and Settings from this group — they now live inside the
 // consolidated /settings/* surface (People, Billing tabs) reachable from the
 // primary "Settings" item above.
+//
+// Personal (org-of-one) admins get a TRIMMED set: Match accounts and Compliance
+// don't apply to a workspace of one (the pages themselves say so — "With one
+// connector and one person, there's nothing to match"; Compliance is
+// "team-level, pseudonymized by default"), so they'd be pure clutter. Only
+// Spend — useful solo cost tracking — stays.
 const ADMIN_NAV_ITEMS: NavItem[] = [
   { title: "Match accounts", href: "/reconcile", icon: ScanFace },
   { title: "Spend", href: "/spend", icon: Wallet },
   { title: "Compliance", href: "/compliance", icon: ShieldCheck },
 ];
+const PERSONAL_ADMIN_NAV_ITEMS: NavItem[] = ADMIN_NAV_ITEMS.filter(
+  (item) => item.href === "/spend",
+);
 
 // Manager-gated surfaces (D-TCI-3, ADR 0044). A manager is an org MEMBER (the
 // Better Auth role stays admin|member) with ≥1 team_managers row. This group is
@@ -130,10 +139,16 @@ export function navFor({
     },
   ];
 
-  // Admin group gating is UNCHANGED from the pre-U0.1 sidebar: shown whenever the
-  // membership role is admin, independent of org kind.
+  // Admin group gating is shown whenever the membership role is admin,
+  // independent of org kind — but personal (org-of-one) admins get the trimmed
+  // item set (Spend only), since Match accounts / Compliance don't apply to a
+  // workspace of one.
   if (role === "admin") {
-    groups.push({ id: "admin", label: "Administration", items: ADMIN_NAV_ITEMS });
+    groups.push({
+      id: "admin",
+      label: "Administration",
+      items: isPersonal ? PERSONAL_ADMIN_NAV_ITEMS : ADMIN_NAV_ITEMS,
+    });
   }
 
   // Manager group (D-TCI-3): shown to a manager once it has items. Empty today,

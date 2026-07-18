@@ -186,7 +186,7 @@ export default async function ReconcilePage() {
 
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold text-muted-foreground">
-          Needs reconciliation ({view.unresolved.length})
+          Needs matching ({view.unresolved.length})
         </h2>
         {view.unresolved.length === 0 ? (
           <EmptyState
@@ -245,7 +245,7 @@ export default async function ReconcilePage() {
       {view.resolved.length > 0 ? (
         <section>
           <h2 className="mb-3 text-sm font-semibold text-muted-foreground">
-            Resolved ({view.resolved.length})
+            Matched ({view.resolved.length})
           </h2>
           <div className="rounded-xl border">
             <Table>

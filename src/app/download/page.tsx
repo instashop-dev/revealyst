@@ -120,8 +120,8 @@ export default function DownloadPage() {
                   </CardTitle>
                   <CardDescription>
                     The signed macOS and Windows installers aren&apos;t
-                    published yet. In the meantime you can connect the AI tools
-                    you already pay for from the dashboard.
+                    published yet. In the meantime you can set up the Revealyst
+                    agent from Settings &rarr; Devices after you sign in.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

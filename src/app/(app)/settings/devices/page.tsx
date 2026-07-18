@@ -139,10 +139,12 @@ export default async function SettingsDevicesPage() {
         </div>
       </div>
 
-      {/* Internal test build — a signed-in-only affordance while the signed,
-          notarized installers aren't published yet (D-DA-7). The public
-          /download page stays "coming soon"; this is clearly labeled UNSIGNED
-          so no one mistakes a test build for the shipped product. */}
+      {/* Internal test build — a platform-admin-only affordance while the
+          signed, notarized installers aren't published yet (D-DA-7). It links
+          an UNSIGNED build and says "don't share it outside the team", so it
+          must never render for ordinary customers; gate it on isPlatformAdmin,
+          not merely on being signed in. */}
+      {ctx.isPlatformAdmin ? (
       <Card>
         <CardHeader>
           <CardTitle>Internal test build</CardTitle>
@@ -171,6 +173,7 @@ export default async function SettingsDevicesPage() {
           </Button>
         </CardContent>
       </Card>
+      ) : null}
     </div>
   );
 }

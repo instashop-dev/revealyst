@@ -269,5 +269,4 @@ export const ONBOARDING_PITCH_COPY = {
       body: "Content-capture flags are off by default and Revealyst never turns them on; the server scrubs defensively even if an upstream tool sets one. The measured signal is usage shape, never what you wrote.",
     },
   ],
-  continueLabel: "Connect your tools",
 } as const;
