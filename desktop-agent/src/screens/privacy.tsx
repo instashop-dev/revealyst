@@ -16,6 +16,7 @@ import {
   disconnectDevice,
   getAutostart,
   getCollectionPaused,
+  getCollectionSummary,
   getDeviceUsedOnlyByMe,
   getPendingCount,
   isSignedIn,
@@ -23,6 +24,7 @@ import {
   setCollectionPaused,
   setDeviceUsedOnlyByMe,
   type AgentSnapshot,
+  type CollectionSummary,
 } from "../lib/agent";
 import {
   ENCRYPTION_DISCLOSURE,
@@ -41,6 +43,9 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
   // The saved "used only by you" answer. `null` = not answered yet (the
   // privacy-safe default — activity stays at the computer level).
   const [onlyYou, setOnlyYou] = useState<boolean | null>(null);
+  // The local "what we've collected" summary. `undefined` = still loading /
+  // couldn't be read (shows "—"); once loaded it holds the real active-day count.
+  const [summary, setSummary] = useState<CollectionSummary | undefined>(undefined);
 
   // Two-step confirms + transient result copy for the destructive actions.
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -69,6 +74,13 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
     getDeviceUsedOnlyByMe()
       .then((value) => {
         if (!cancelled) setOnlyYou(value);
+      })
+      .catch(() => {});
+    getCollectionSummary()
+      .then((value) => {
+        // Outside Tauri the mocked bridge returns undefined — treat that as
+        // "couldn't read" (the render falls back to an honest "—").
+        if (!cancelled && value) setSummary(value);
       })
       .catch(() => {});
     refreshPending(() => cancelled);
@@ -158,6 +170,13 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
     }
   }
 
+  // The real active-day count, or an honest "—" when it isn't known yet /
+  // couldn't be read. A genuine zero renders as "0 days", never hidden.
+  const activeDays = summary?.activeDays ?? null;
+  const windowDays = summary?.windowDays ?? 30;
+  const activeDaysLabel =
+    activeDays === null ? "—" : `${activeDays} ${activeDays === 1 ? "day" : "days"}`;
+
   return (
     <div>
       <h1>Privacy</h1>
@@ -175,6 +194,32 @@ export default function PrivacyScreen({ snapshot }: { snapshot: AgentSnapshot | 
             {!signedIn ? "off (this computer isn't signed in)" : paused ? "paused" : "on"}
           </strong>
           .
+        </p>
+      </section>
+
+      <section>
+        <h2>What this app can see here</h2>
+        <p className="muted">
+          A quick, private summary &mdash; worked out here on your computer from
+          your own Claude Code logs. Nothing on this panel is sent.
+        </p>
+        <ul data-testid="collection-proof">
+          <li>
+            <strong>{activeDaysLabel}</strong> with Claude Code activity in the
+            last {windowDays} days
+          </li>
+          <li>
+            <strong>0</strong> prompts or AI replies read
+          </li>
+          <li>
+            <strong>0</strong> words of your text sent
+          </li>
+        </ul>
+        <p className="muted">
+          The last two are always zero, by design: this app only ever reads
+          counts, coarse timing, and model names &mdash; never your prompt text
+          or the AI&rsquo;s replies. See &ldquo;What never leaves this
+          computer&rdquo; below for the full list.
         </p>
       </section>
 

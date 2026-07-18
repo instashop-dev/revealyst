@@ -233,6 +233,9 @@ pub async fn check_for_updates<R: Runtime>(app: AppHandle<R>) -> Result<String, 
         None => return Ok(crate::update::NOT_READY_MESSAGE.to_string()),
     };
     let outcome = crate::update::check_now(&app, &store, &control).await;
+    // A mandatory update sets `update_required`, changing the resolved state —
+    // refresh so the tray's status-accent icon flips right away too.
+    crate::tray::refresh_tray(&app);
     Ok(outcome.message().to_string())
 }
 
@@ -409,6 +412,55 @@ pub fn get_pending_count<R: Runtime>(app: AppHandle<R>) -> i64 {
         None => return 0,
     };
     store.pending_count().unwrap_or(0)
+}
+
+/// A local, read-only "what we've collected" summary for the Privacy screen —
+/// PRESENCE/COUNTS only, never content (spec §22.2/§29).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionSummary {
+    /// Distinct calendar days with Claude Code activity visible on THIS computer
+    /// in the trailing window. `None` only when the local scan couldn't run
+    /// (then the screen shows an honest "—", never a fabricated 0). A real
+    /// zero is `Some(0)` → "nothing yet".
+    pub active_days: Option<u32>,
+    /// The lookback window in days (30) — so the copy can't drift from the scan.
+    pub window_days: u32,
+}
+
+/// Build the Privacy screen's "what we've collected" summary: the real number of
+/// active days on this computer over the last 30 days, computed by a LOCAL
+/// read-only scan of the user's own Claude Code logs that enqueues nothing,
+/// uploads nothing, and reads no prompt/response content (§29).
+///
+/// The "0 prompts read · 0 text sent" guarantee shown next to this number is NOT
+/// produced here: it is a STRUCTURAL consequence of the allowlist (the parser
+/// never reads content), so the UI renders it as a fixed guarantee tied to the
+/// disclosure lists — never a counter from this command that could imply it
+/// might be nonzero.
+///
+/// The scan runs on a blocking thread so a large log tree can't jank the UI. A
+/// join failure yields `active_days: None` (honest unknown), never a made-up
+/// count.
+#[tauri::command]
+pub async fn get_collection_summary() -> CollectionSummary {
+    match tauri::async_runtime::spawn_blocking(|| {
+        let cfg = runtime::CollectConfig::from_env();
+        let ctx = runtime::build_context(crate::store::queue::now_ms(), &cfg);
+        let days = ClaudeCodeConnector::active_days_in_window(&ctx);
+        (days as u32, cfg.window_days)
+    })
+    .await
+    {
+        Ok((active_days, window_days)) => CollectionSummary {
+            active_days: Some(active_days),
+            window_days,
+        },
+        Err(_) => CollectionSummary {
+            active_days: None,
+            window_days: 30,
+        },
+    }
 }
 
 /// Delete every analytics event still waiting in the local queue (the privacy

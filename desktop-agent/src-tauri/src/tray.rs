@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -70,6 +71,115 @@ impl MenuEntry {
             },
         }
     }
+}
+
+/// A small, glanceable status the tray icon encodes as a colored accent dot.
+/// A tray icon is looked at, not opened, so the ten spec §20 states are
+/// collapsed into three clearly-distinct meanings — the most a user can read at
+/// tray size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrayStatus {
+    /// Running and healthy — nothing for the user to do.
+    Normal,
+    /// Needs the user's attention (set-up, sign-in, an update, storage, a
+    /// blocked policy, or a problem while running).
+    Attention,
+    /// Deliberately not collecting right now (paused, or offline and retrying).
+    Idle,
+}
+
+impl TrayStatus {
+    /// Project the resolved [`AgentState`] onto one of the three tray meanings.
+    /// This NEVER derives state itself — it is a pure mapping of the state
+    /// `resolve_state` already produced, so the icon can never disagree with the
+    /// status line (both read the same resolved state).
+    pub fn for_state(state: AgentState) -> TrayStatus {
+        match state {
+            // Running fine (some-sources-uncovered is still "running").
+            AgentState::Healthy | AgentState::PartiallyCovered => TrayStatus::Normal,
+            // The user needs to act, or the agent hit a problem.
+            AgentState::Onboarding
+            | AgentState::AuthenticationRequired
+            | AgentState::PolicyBlocked
+            | AgentState::UpdateRequired
+            | AgentState::Degraded
+            | AgentState::StorageFull => TrayStatus::Attention,
+            // Not collecting on purpose (paused) or temporarily (offline).
+            AgentState::Paused | AgentState::Offline => TrayStatus::Idle,
+        }
+    }
+
+    /// The accent-dot color (opaque RGB) for this status. Green = good, amber =
+    /// needs attention, slate-grey = idle/paused — a familiar traffic-light read.
+    fn accent_rgb(self) -> [u8; 3] {
+        match self {
+            TrayStatus::Normal => [34, 197, 94],     // green
+            TrayStatus::Attention => [245, 158, 11], // amber
+            TrayStatus::Idle => [148, 163, 184],     // slate grey
+        }
+    }
+}
+
+/// Paint the status accent onto a COPY of the bundled base mark and return a new
+/// owned image. The base icon is reused unchanged; only a small dot in the
+/// bottom-right corner (with a thin light ring so it stays visible against any
+/// mark) is drawn — so the three variants read as the same app with a clear
+/// status accent, not three unrelated drawings. The dot is sized as a fraction
+/// of the icon, so it stays crisp whatever size the OS renders the tray at.
+fn status_icon(base: &Image<'_>, status: TrayStatus) -> Image<'static> {
+    let width = base.width();
+    let height = base.height();
+    let mut rgba = base.rgba().to_vec();
+    let [ar, ag, ab] = status.accent_rgb();
+
+    let w = width as i32;
+    let h = height as i32;
+    let min = w.min(h) as f32;
+    // Dot radius ~26% of the smaller side, inset from the corner; the ring is a
+    // thin lighter halo just outside the solid core.
+    let radius = (min * 0.26).max(3.0);
+    let ring = (radius * 0.30).max(1.0);
+    let inset = min * 0.06;
+    let cx = w as f32 - radius - inset;
+    let cy = h as f32 - radius - inset;
+
+    for y in 0..h {
+        for x in 0..w {
+            let dx = x as f32 + 0.5 - cx;
+            let dy = y as f32 + 0.5 - cy;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist > radius + ring {
+                continue;
+            }
+            let idx = ((y * w + x) as usize) * 4;
+            if idx + 3 >= rgba.len() {
+                continue;
+            }
+            if dist <= radius {
+                // Solid accent core, fully opaque.
+                rgba[idx] = ar;
+                rgba[idx + 1] = ag;
+                rgba[idx + 2] = ab;
+                rgba[idx + 3] = 255;
+            } else {
+                // Light contrast ring around the core.
+                rgba[idx] = 248;
+                rgba[idx + 1] = 250;
+                rgba[idx + 2] = 252;
+                rgba[idx + 3] = 255;
+            }
+        }
+    }
+    Image::new_owned(rgba, width, height)
+}
+
+/// Build the status-accented tray icon for the app's CURRENT resolved state,
+/// reusing the bundled base mark. `None` only if the base icon is missing (then
+/// the caller keeps whatever icon is already showing).
+fn live_status_icon<R: Runtime>(app: &AppHandle<R>) -> Option<Image<'static>> {
+    let status = TrayStatus::for_state(crate::commands::resolve_live_state(app));
+    let base = app.default_window_icon()?;
+    Some(status_icon(base, status))
 }
 
 /// Derive the spec §19.1 tray menu from the agent state, last-sync time, and
@@ -164,43 +274,55 @@ fn live_menu_model<R: Runtime>(app: &AppHandle<R>) -> Vec<MenuEntry> {
     menu_model(&state, None, live_paused(app))
 }
 
-/// Build the native tray icon + menu from the live model.
+/// Build the native tray icon + menu from the live model. The icon carries the
+/// current status accent from the start, so a device that opens needing sign-in
+/// (or set-up) shows the attention accent immediately, not after the first
+/// refresh.
 pub fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     let menu = build_menu(app, &live_menu_model(app))?;
 
-    let icon = app
+    let base = app
         .default_window_icon()
         .cloned()
         .expect("bundled app icon must exist");
+    let status = TrayStatus::for_state(crate::commands::resolve_live_state(app));
+    let icon = status_icon(&base, status);
 
-    TrayIconBuilder::with_id(TRAY_ID)
+    let tray = TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .tooltip("Revealyst")
         .menu(&menu)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| handle_menu_event(app, event.id().as_ref()))
         .build(app)?;
+    // The status accent is COLOR, so the tray icon must render in full color on
+    // macOS — a template icon would be flattened to a monochrome tint and hide
+    // the accent. (The base mark was already the colored app icon, never a
+    // template, so this only makes that explicit.)
+    let _ = tray.set_icon_as_template(false);
     Ok(())
 }
 
-/// Rebuild the tray menu in place from the current live state. Called after the
-/// pause state changes (from the tray toggle OR the Privacy screen) so the
-/// Pause/Resume label never lies about what the control will do.
+/// Rebuild the tray menu AND refresh the status-accent icon in place from the
+/// current live state. Called whenever the resolved state can change: the pause
+/// toggle (tray OR Privacy screen), each sync cycle, and each update check — so
+/// both the Pause/Resume label and the icon accent always reflect reality. The
+/// icon switch reuses this one path (it never derives state on its own).
 pub fn refresh_tray<R: Runtime>(app: &AppHandle<R>) {
-    let menu = match build_menu(app, &live_menu_model(app)) {
-        Ok(menu) => menu,
-        Err(error) => {
+    let tray = match app.tray_by_id(TRAY_ID) {
+        Some(tray) => tray,
+        None => {
             tracing::warn!(
                 component = "tray",
-                error_code = "menu_build_failed",
-                error = %error,
-                "could not rebuild the tray menu"
+                error_code = "tray_not_found",
+                "tray icon not found while refreshing"
             );
             return;
         }
     };
-    match app.tray_by_id(TRAY_ID) {
-        Some(tray) => {
+
+    match build_menu(app, &live_menu_model(app)) {
+        Ok(menu) => {
             if let Err(error) = tray.set_menu(Some(menu)) {
                 tracing::warn!(
                     component = "tray",
@@ -210,11 +332,23 @@ pub fn refresh_tray<R: Runtime>(app: &AppHandle<R>) {
                 );
             }
         }
-        None => tracing::warn!(
+        Err(error) => tracing::warn!(
             component = "tray",
-            error_code = "tray_not_found",
-            "tray icon not found while refreshing the menu"
+            error_code = "menu_build_failed",
+            error = %error,
+            "could not rebuild the tray menu"
         ),
+    }
+
+    if let Some(icon) = live_status_icon(app) {
+        if let Err(error) = tray.set_icon(Some(icon)) {
+            tracing::warn!(
+                component = "tray",
+                error_code = "icon_set_failed",
+                error = %error,
+                "could not apply the status tray icon"
+            );
+        }
     }
 }
 
@@ -315,6 +449,9 @@ fn trigger_check_updates<R: Runtime>(app: &AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let outcome = update::check_now(&handle, &store, &control).await;
         emit_update_result(&handle, outcome.message());
+        // A mandatory update sets `update_required`, which changes the resolved
+        // state — refresh so the tray icon accent flips right away.
+        refresh_tray(&handle);
     });
 }
 
@@ -489,6 +626,69 @@ mod tests {
                 "send-diagnostics must be enabled ({state:?})"
             );
             assert_eq!(diagnostics.text(), "Send diagnostics");
+        }
+    }
+
+    /// Every one of the ten spec §20 states maps to a tray status, and all
+    /// three statuses are reachable — so the icon accent is defined for any
+    /// resolved state and genuinely distinguishes the three meanings.
+    #[test]
+    fn every_state_maps_to_a_tray_status_and_all_three_are_reachable() {
+        use std::collections::BTreeSet;
+        let mut kinds: BTreeSet<&str> = BTreeSet::new();
+        for state in ALL_STATES {
+            let kind = match TrayStatus::for_state(state) {
+                TrayStatus::Normal => "normal",
+                TrayStatus::Attention => "attention",
+                TrayStatus::Idle => "idle",
+            };
+            kinds.insert(kind);
+        }
+        assert_eq!(
+            kinds.len(),
+            3,
+            "all three tray statuses must be reachable: {kinds:?}"
+        );
+    }
+
+    /// The specific meaning of each state's accent, pinned so a state can't
+    /// silently drift into the wrong bucket (e.g. a real problem showing green).
+    #[test]
+    fn tray_status_buckets_match_state_meaning() {
+        use TrayStatus::*;
+        for (state, expected) in [
+            (AgentState::Healthy, Normal),
+            (AgentState::PartiallyCovered, Normal),
+            (AgentState::Onboarding, Attention),
+            (AgentState::AuthenticationRequired, Attention),
+            (AgentState::PolicyBlocked, Attention),
+            (AgentState::UpdateRequired, Attention),
+            (AgentState::Degraded, Attention),
+            (AgentState::StorageFull, Attention),
+            (AgentState::Paused, Idle),
+            (AgentState::Offline, Idle),
+        ] {
+            assert_eq!(
+                TrayStatus::for_state(state),
+                expected,
+                "tray status for {state:?}"
+            );
+        }
+    }
+
+    /// The three accents are visually distinct colors (a user must be able to
+    /// tell them apart at a glance).
+    #[test]
+    fn tray_status_accents_are_distinct() {
+        let colors = [
+            TrayStatus::Normal.accent_rgb(),
+            TrayStatus::Attention.accent_rgb(),
+            TrayStatus::Idle.accent_rgb(),
+        ];
+        for i in 0..colors.len() {
+            for j in (i + 1)..colors.len() {
+                assert_ne!(colors[i], colors[j], "accents {i} and {j} must differ");
+            }
         }
     }
 

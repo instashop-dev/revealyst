@@ -449,6 +449,10 @@ mod wiring {
                 // check applies to `control`; the returned outcome is for the
                 // manual "Check for updates" path only.
                 let _ = check_once(&app, &store, &control).await;
+                // A mandatory update sets `update_required` (spec §20), changing
+                // the resolved state — refresh the tray so its status-accent icon
+                // follows the same one path everything else uses.
+                crate::tray::refresh_tray(&app);
                 tokio::time::sleep(interval).await;
             }
         });

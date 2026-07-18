@@ -115,6 +115,7 @@ pub fn run() {
             commands::get_device_used_only_by_me,
             commands::set_device_used_only_by_me,
             commands::get_pending_count,
+            commands::get_collection_summary,
             commands::delete_pending_data,
             commands::disconnect_device,
             commands::import_claude_export,
@@ -155,6 +156,13 @@ pub fn run() {
                     dispatch_deep_link(&handle, url.as_str());
                 }
             });
+
+            // Build the tray BEFORE spawning the collection/update loops: those
+            // loops call `tray::refresh_tray` after each cycle to update the
+            // status-accent icon, so the tray must already exist or the first
+            // refresh is a no-op warn. `setup_tray` paints the correct initial
+            // accent from the live state.
+            tray::setup_tray(app.handle())?;
 
             // Open the encrypted local store and start the live collection loop
             // (Wave M5). The loop is idle until the device is enrolled AND not
@@ -199,7 +207,13 @@ pub fn run() {
                                 store.clone(),
                                 control.clone(),
                             );
-                            runtime::spawn_loop(store, control, sync_status, engine);
+                            runtime::spawn_loop(
+                                app.handle().clone(),
+                                store,
+                                control,
+                                sync_status,
+                                engine,
+                            );
                         }
                         Err(error) => tracing::error!(
                             component = "runtime",
@@ -216,7 +230,6 @@ pub fn run() {
                 ),
             }
 
-            tray::setup_tray(app.handle())?;
             lifecycle::apply_startup_visibility(app.handle());
             tracing::info!(
                 component = "lifecycle",

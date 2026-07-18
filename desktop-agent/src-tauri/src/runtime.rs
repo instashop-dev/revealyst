@@ -26,6 +26,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tauri::{AppHandle, Runtime};
+
 use crate::connectors::claude_code::ClaudeCodeConnector;
 use crate::connectors::{collect_and_enqueue, ConnectorContext, DEFAULT_POLL_INTERVAL_SECS};
 use crate::privacy::{resolve, PolicyInputs};
@@ -363,7 +365,8 @@ pub fn sync_now_message(outcome: Option<SyncOutcome>) -> &'static str {
 /// a fixed poll interval, single connector, and the three gates enforced every
 /// tick. The manual "Sync now" trigger ([`crate::commands::sync_now`]) shares the
 /// same [`run_cycle`].
-pub fn spawn_loop(
+pub fn spawn_loop<R: Runtime>(
+    app: AppHandle<R>,
     store: Arc<Store>,
     control: Arc<CollectionControl>,
     status: Arc<SyncStatus>,
@@ -385,6 +388,11 @@ pub fn spawn_loop(
             // per-call engine would let a manual sync race the loop and
             // double-upload the same events).
             run_cycle(&store, &engine, &control, &cfg, &status).await;
+            // A cycle can flip the resolved state (offline / degraded /
+            // authentication_required / back to healthy). Refresh the tray so
+            // its status-accent icon and status line follow — reusing the same
+            // one path the pause toggle uses (never re-deriving state here).
+            crate::tray::refresh_tray(&app);
             tokio::time::sleep(interval).await;
         }
     });
