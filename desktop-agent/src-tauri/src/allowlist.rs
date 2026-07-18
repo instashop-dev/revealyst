@@ -12,6 +12,7 @@
 //! to allowlisted keys. It is an allowlist, never a blocklist — a key this
 //! module has never heard of is dropped, not passed through.
 
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
 use serde::Deserialize;
@@ -46,6 +47,13 @@ pub struct AllowlistField {
 struct AllowlistDoc {
     fields: Vec<AllowlistField>,
     never_collected: Vec<String>,
+    /// Closed value enums for enum-valued sent fields (ADR 0057). Keyed by field
+    /// name (today only `ai_tool_used`); the value is the exact allowed set the
+    /// frozen contract (AI_TOOL_IDS) defines. `#[serde(default)]` so an older
+    /// artifact without the key parses to an empty map (no closed-enum field →
+    /// no enum restriction, the safe default).
+    #[serde(default)]
+    closed_enums: BTreeMap<String, Vec<String>>,
 }
 
 fn doc() -> &'static AllowlistDoc {
@@ -96,6 +104,31 @@ pub fn is_sent(field: &str) -> bool {
 /// The plain-English "never collected" list for the trust surface.
 pub fn never_collected() -> &'static [String] {
     &doc().never_collected
+}
+
+/// The CLOSED value set for `field`, if it declares one (ADR 0057). `None` means
+/// the field has no closed-enum restriction (its value is bounded only by the
+/// free-text scalar check). Read from the same generated artifact the frozen
+/// contract emits (plan law 5), so the device can never drift from AI_TOOL_IDS.
+pub fn closed_enum_values(field: &str) -> Option<&'static [String]> {
+    doc().closed_enums.get(field).map(Vec::as_slice)
+}
+
+/// Does `field` declare a closed value enum?
+pub fn is_closed_enum_field(field: &str) -> bool {
+    doc().closed_enums.contains_key(field)
+}
+
+/// Is `value` allowed for `field`? For a closed-enum field, the value must be in
+/// the declared set; for any other field there is no enum restriction here
+/// (returns `true` — the free-text scalar bound still applies elsewhere). An
+/// out-of-set value on a closed-enum field is a smuggled snippet and must
+/// quarantine (validator).
+pub fn is_allowed_enum_value(field: &str, value: &str) -> bool {
+    match closed_enum_values(field) {
+        Some(values) => values.iter().any(|v| v == value),
+        None => true,
+    }
 }
 
 /// Project a record down to its allowlisted keys: every key not on the
@@ -202,5 +235,45 @@ mod tests {
         let record = json!({ "anything": 1, "at": 2, "all": 3 });
         let projected = project(record.as_object().expect("object literal"));
         assert!(projected.is_empty());
+    }
+
+    /// ADR 0057: `ai_tool_used` declares a closed enum (the AI_TOOL_IDS the
+    /// frozen contract emits). The enum crosses through the generated artifact,
+    /// so the device validates against the exact contract set — never a
+    /// hand-mirrored copy.
+    #[test]
+    fn ai_tool_used_is_a_closed_enum_field() {
+        assert!(is_closed_enum_field("ai_tool_used"));
+        assert!(is_allowed("ai_tool_used"));
+        assert!(
+            is_sent("ai_tool_used"),
+            "ai_tool_used value leaves the device"
+        );
+
+        let values = closed_enum_values("ai_tool_used").expect("closed enum present");
+        assert!(!values.is_empty(), "closed enum must be non-empty");
+        // The known app ids are accepted…
+        assert!(is_allowed_enum_value("ai_tool_used", "claude-desktop"));
+        assert!(is_allowed_enum_value("ai_tool_used", "chatgpt-desktop"));
+        // …and anything off the list is not (a smuggled snippet).
+        assert!(!is_allowed_enum_value("ai_tool_used", "some-secret-note"));
+        assert!(!is_allowed_enum_value("ai_tool_used", ""));
+        // Every closed-enum value is a short, safe ASCII label by construction
+        // (well within the validator's MAX_ENUM_LEN of 64).
+        for v in values {
+            assert!(v.is_ascii() && v.chars().count() <= 64);
+        }
+    }
+
+    /// A field with no declared enum has no enum restriction — the closed-enum
+    /// gate applies ONLY to fields that opt in via `closedEnums`.
+    #[test]
+    fn non_enum_fields_have_no_enum_restriction() {
+        assert!(!is_closed_enum_field("model"));
+        assert!(closed_enum_values("model").is_none());
+        // Any value is "allowed" by the enum check (the free-text bound governs
+        // it elsewhere).
+        assert!(is_allowed_enum_value("model", "claude-opus-4"));
+        assert!(is_allowed_enum_value("model", "literally anything"));
     }
 }

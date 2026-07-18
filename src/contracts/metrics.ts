@@ -46,7 +46,10 @@ export type MetricUnit = (typeof METRIC_UNITS)[number];
 type CatalogEntry = {
   family: MetricFamily;
   unit: MetricUnit;
-  dimKind: "model" | "feature" | null;
+  // `tool` added by ADR 0057 for `ai_tool_used` — the dim carries a value from
+  // the closed AI-app enum (AI_TOOL_IDS), just as `model`/`feature` dims carry
+  // a model id / feature name.
+  dimKind: "model" | "feature" | "tool" | null;
 };
 
 /** The Level-1 catalog, frozen at contracts-v1 (≡ drizzle/0007 seed). */
@@ -105,6 +108,15 @@ export const CANONICAL_METRICS = {
   // no producer writes this key today. With no rows it is skipped by the
   // capability engine (no evidence → no row), never zero-filled.
   context_tokens: { family: "tokens", unit: "tokens", dimKind: null },
+  // Recommendation #7 (ADR 0057): a content-free "which known AI desktop app is
+  // in use" signal from the resident desktop agent. Adoption-family flag (value
+  // 1 = "this app was seen running today"), beside `active_day`. The `dim`
+  // carries a value from the CLOSED AI-app enum (AI_TOOL_IDS) — never a window
+  // title, command line, or free string. NOT an OTel marker (absent from
+  // OTEL_MARKER_METRIC_KEYS), so a capability bound to it caps at `directional`,
+  // never `measured` (ADR 0039). App-presence is native-app-only and browser-
+  // blind (ADR 0055 §1.3) — a coarse, honest breadth signal.
+  ai_tool_used: { family: "active_users", unit: "flag", dimKind: "tool" },
 } as const satisfies Record<string, CatalogEntry>;
 
 /** The OTel marker metric keys (W7-8). A capability with evidence for ≥2 of
@@ -119,6 +131,36 @@ export const OTEL_MARKER_METRIC_KEYS = [
 
 export type MetricKey = keyof typeof CANONICAL_METRICS;
 export const METRIC_KEYS = Object.keys(CANONICAL_METRICS) as MetricKey[];
+
+/** The closed AI-app enum carried by the `ai_tool_used` metric's `dim` (ADR
+ * 0057). This is the SINGLE source of truth for the allowed app ids; a device
+ * may never emit a value outside this set (an out-of-set label is a smuggled
+ * snippet — quarantined on the device, 400'd on the server). Extended ONLY by a
+ * future ADR (a new native AI desktop app) — never ad-hoc. Kept alphabetically
+ * sorted so the generated Rust bridge JSON is deterministic. These are native
+ * AI DESKTOP chat apps detectable by executable identity; the Claude Code CLI is
+ * deliberately excluded (a developer tool measured by its own connector). */
+export const AI_TOOL_IDS = [
+  "chatgpt-desktop",
+  "claude-desktop",
+  "copilot-desktop",
+  "perplexity-desktop",
+] as const;
+export type AiToolId = (typeof AI_TOOL_IDS)[number];
+
+const AI_TOOL_ID_SET: ReadonlySet<string> = new Set(AI_TOOL_IDS);
+
+/** The dim-value prefix for the `tool` dimKind — mirrors `model=`/`feature=`. */
+export const AI_TOOL_DIM_PREFIX = "tool=";
+
+/** Is `dim` a valid `ai_tool_used` dimension — exactly `tool=<id>` with `id` in
+ * the closed AI-app enum? The server ingest guard uses this as the closed-enum
+ * backstop for the `ai_tool_used` metric key (ADR 0057 §closed-enum enforcement);
+ * an in-range-length but out-of-set label is rejected, never stored. */
+export function isValidAiToolDim(dim: string): boolean {
+  if (!dim.startsWith(AI_TOOL_DIM_PREFIX)) return false;
+  return AI_TOOL_ID_SET.has(dim.slice(AI_TOOL_DIM_PREFIX.length));
+}
 
 const daySchema = z
   .string()

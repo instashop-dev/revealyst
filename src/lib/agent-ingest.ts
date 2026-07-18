@@ -2,6 +2,7 @@ import {
   agentIngestRequestSchema,
   type AgentIngestRequest,
 } from "../contracts/api";
+import { isValidAiToolDim } from "../contracts/metrics";
 import type { Db } from "../db/client";
 import { forOrg } from "../db/org-scope";
 import type { PollMessage } from "../poller/messages";
@@ -115,6 +116,17 @@ export async function ingestAgentBatch(
     if (record.dim.length > MAX_DIM_LENGTH || hasControlChar) {
       return badRequest(
         "dim too long or contains whitespace/control characters",
+      );
+    }
+    // Closed-enum backstop for ai_tool_used (ADR 0057): its `dim` MUST be
+    // exactly `tool=<id>` with `id` in the closed AI-app enum (AI_TOOL_IDS).
+    // The device validator already rejects an out-of-set label; this is the
+    // server-side twin, so an in-length-range but out-of-enum value (a smuggled
+    // snippet) is a 400, never a stored dim. Other metric keys keep the generic
+    // length/charset bound above — only ai_tool_used is a closed enum today.
+    if (record.metricKey === "ai_tool_used" && !isValidAiToolDim(record.dim)) {
+      return badRequest(
+        "ai_tool_used dim must be tool=<known AI app> from the closed enum",
       );
     }
   }

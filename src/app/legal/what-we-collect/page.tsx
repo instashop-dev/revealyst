@@ -27,13 +27,14 @@ export default function WhatWeCollectPage() {
       </p>
       <p>
         The optional <strong>Revealyst Agent</strong> summarizes your local
-        Claude Code sessions <strong>on your machine</strong> and pushes only
-        aggregates. This page is generated directly from the agent&rsquo;s field
-        allowlist — the same list the code enforces — so it can never describe
-        reading less, or more, than the agent actually reads. The two categories
-        below are the whole story: a small set of values that leave your machine,
-        and a larger set read only on-device and reduced to counts before
-        anything is sent.
+        Claude Code sessions <strong>on your machine</strong>, and the desktop
+        app can also check which known AI desktop apps are open (their names
+        only, from a fixed list), and pushes only aggregates. This page is
+        generated directly from the agent&rsquo;s field allowlist — the same list
+        the code enforces — so it can never describe reading less, or more, than
+        the agent actually reads. The two categories below are the whole story: a
+        small set of values that leave your machine, and a larger set read only
+        on-device and reduced to counts before anything is sent.
       </p>
 
       <h2>Values that leave your machine</h2>

@@ -58,6 +58,13 @@ pub enum QuarantineReason {
     /// A privacy flag contradicts Analytics Only: `rawPromptIncluded` or
     /// `rawResponseIncluded` is anything other than `false` (spec §16.3 example).
     ContradictingFlags,
+    /// A field that declares a CLOSED value enum (ADR 0057, e.g. `ai_tool_used`)
+    /// carried a value NOT in that enum. It may be in-length-range and clean —
+    /// so it passes the free-text bound — yet still be a smuggled snippet, so the
+    /// closed enum is the backstop: an out-of-set label is quarantined, never
+    /// enqueued. The reason is content-free (it names neither the field nor the
+    /// value), like every other reason.
+    OutOfEnumValue,
 }
 
 impl QuarantineReason {
@@ -72,6 +79,7 @@ impl QuarantineReason {
             QuarantineReason::NonSendableField => "non_sendable_field",
             QuarantineReason::FreeTextValue => "free_text_value",
             QuarantineReason::ContradictingFlags => "contradicting_flags",
+            QuarantineReason::OutOfEnumValue => "out_of_enum_value",
         }
     }
 }
@@ -90,6 +98,7 @@ mod tests {
             QuarantineReason::NonSendableField,
             QuarantineReason::FreeTextValue,
             QuarantineReason::ContradictingFlags,
+            QuarantineReason::OutOfEnumValue,
         ];
         let mut codes: Vec<&str> = reasons.iter().map(|r| r.code()).collect();
         assert!(codes.iter().all(|c| !c.is_empty()));

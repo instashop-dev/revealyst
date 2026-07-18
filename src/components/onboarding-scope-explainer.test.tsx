@@ -61,13 +61,22 @@ describe("OnboardingScopeExplainer — agent claims sourced from the collection 
     expect(screen.getByText(AGENT_NEVER_COLLECTED[0])).toBeTruthy();
   });
 
-  it("the standing line names counts/timing/model names and prompts — matching the schema", () => {
+  it("the standing line names counts/timing/model names/apps and prompts — matching the schema", () => {
     // The claim the schema licenses.
     expect(STANDING_PRIVACY_LINE.toLowerCase()).toMatch(/prompt/);
     // Completeness: model ids DO leave the device (AGENT_SENT_FIELDS), so the
     // line must own that alongside counts/timing — not imply prompts-only.
     expect(STANDING_PRIVACY_LINE.toLowerCase()).toMatch(/model/);
-    expect(AGENT_SENT_FIELDS.some((f) => /model/i.test(f.field))).toBe(true);
+    expect(AGENT_SENT_FIELDS.some((f) => f.sentValueShape === "model_id")).toBe(
+      true,
+    );
+    // Completeness (invariant b): a closed-enum app label ALSO leaves the device
+    // (ai_tool_used), so the line must own "which AI apps are open" too — a
+    // sent value the line may not silently omit.
+    expect(
+      AGENT_SENT_FIELDS.some((f) => f.sentValueShape === "closed_enum"),
+    ).toBe(true);
+    expect(STANDING_PRIVACY_LINE.toLowerCase()).toMatch(/app/);
     // And the schema really does list prompt text as never-collected.
     expect(AGENT_NEVER_COLLECTED.some((s) => /prompt/i.test(s))).toBe(true);
   });
