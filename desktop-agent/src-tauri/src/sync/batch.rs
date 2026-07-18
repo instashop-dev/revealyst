@@ -645,7 +645,10 @@ mod tests {
     /// composes a distinct `source_connector` and scopes its window-delete.
     #[test]
     fn source_defaults_to_live_and_maps_the_separate_connectors() {
-        assert_eq!(wire_source_for_connector("claude_code"), "claude-code-local");
+        assert_eq!(
+            wire_source_for_connector("claude_code"),
+            "claude-code-local"
+        );
         assert_eq!(
             wire_source_for_connector(CLAUDE_EXPORT_CONNECTOR_ID),
             "claude-export"
@@ -653,10 +656,7 @@ mod tests {
         // The AI-app presence connector gets its OWN source (D-DA-8): sharing
         // `claude-code-local` would let its window-delete erase the live
         // connector's day.
-        assert_eq!(
-            wire_source_for_connector(AI_TOOLS_CONNECTOR_ID),
-            "ai-tools"
-        );
+        assert_eq!(wire_source_for_connector(AI_TOOLS_CONNECTOR_ID), "ai-tools");
         // An unknown connector uploads as the live connector (safe default).
         assert_eq!(wire_source_for_connector("mystery"), "claude-code-local");
 

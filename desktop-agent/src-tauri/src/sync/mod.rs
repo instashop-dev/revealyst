@@ -895,7 +895,12 @@ mod tests {
 
         // The two bodies carry DISTINCT sources (order = first-seen connector).
         let sources: std::collections::BTreeSet<String> = (0..2)
-            .map(|i| engine.transport.body(i)["source"].as_str().unwrap().to_string())
+            .map(|i| {
+                engine.transport.body(i)["source"]
+                    .as_str()
+                    .unwrap()
+                    .to_string()
+            })
             .collect();
         assert_eq!(
             sources,
