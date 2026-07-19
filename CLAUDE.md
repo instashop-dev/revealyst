@@ -15,6 +15,10 @@ it is the interface between agents.
 > rules 1–7 + tripwires; V1.5 waves in Spec V3 §16) ·
 > [Desktop Agent Execution Plan](docs/Revealyst_Desktop_Agent_Execution_Plan.md)
 > (Tauri 2 tray agent, phases M0–M7; spec + gap analysis in `docs/product/desktop-agent-*`) ·
+> [Team Manager Dashboard Execution Plan](docs/Revealyst_Team_Manager_Dashboard_Execution_Plan.md)
+> (**draft for founder review** — the "Team AI Operating System" Command Center: goal →
+> diagnosis → initiative → measured outcome; phases P0–P5; source of truth
+> `docs/product/team-manager-dashboard-analysis.md`; reconciled against ratified D-TCI-5/1/2) ·
 > [Claude Code Workflow](docs/Revealyst_Claude_Code_Workflow.md) ·
 > [Harness setup status](docs/Revealyst_Harness_Setup.md)
 
