@@ -62,6 +62,22 @@ one merges.
 
 ---
 
+## 0.1 Delivery status (updated 2026-07-19)
+
+- **P0 — Fix the management experience: COMPLETE.** P0a (number hygiene + header
+  trim, #322) and P0b (conclusion-first Command Center: top-3 priorities, 4-KPI
+  row, promoted capability map, one data-confidence line, progressive disclosure,
+  #323) shipped to `main`. The primary-screen manager-language goal is met by
+  P0b's `KpiRow` + demotion of the technical score names behind disclosure. The
+  §12 product-wide core-score rename (Efficiency → "Spend utilisation") is
+  **deferred** as a brand/legal decision — it touches public marketing + the ToS
+  and rebrands one of three parallel headline scores (see `docs/product-signoffs.md`
+  OQ-TMD-3).
+- **P1–P5:** not started. P1 (`team_goals`) is next; it is the first table-bearing
+  phase (migration + ADR + three registrations).
+
+---
+
 ## 1. Conflict resolutions (these supersede the analysis doc where they disagree)
 
 These are evidence-based deviations. Each cites the ratified decision or the code that forces
