@@ -201,6 +201,24 @@ const SCOPED_READS: Array<{
     tables: ["team_goals"],
     run: (s) => s.goals.list(),
   },
+  // Initiatives (ADR 0062): org-scoped tracked efforts (org, optional team).
+  // Both orgs seed a TEAM-scoped initiative on their own core team below, so the
+  // B-side row's `teamId` is a B team uuid in the leak universe (non-vacuous).
+  {
+    name: "initiatives.list",
+    tables: ["initiatives"],
+    run: (s) => s.initiatives.list(),
+  },
+  // Initiative participants (ADR 0062): the wall-crossing join. Both orgs seed a
+  // participant keyed on their own alice below, so the B-side row carries a B
+  // personId — a dropped org filter surfaces it (non-vacuous, mirrors
+  // missions.progressForOrg / exposures.list). This reducer/sweep read returns
+  // internal person UUIDs only, never a name.
+  {
+    name: "initiatives.participantsForOrg",
+    tables: ["initiative_participants"],
+    run: (s) => s.initiatives.participantsForOrg(),
+  },
   // Manager notes (ADR 0053): org-scoped author-attributed coaching notes
   // (org, person). Both orgs seed a note about their own alice below. The
   // probe keys `listForPerson` on B's alice AND B's core team — the sharpest
@@ -465,6 +483,24 @@ beforeAll(async () => {
       reviewDate: "2026-08-31",
       ownerUserId: inviter.id,
     });
+    // A TEAM-scoped initiative per org (ADR 0062) on this org's core team + a
+    // named participant (this org's alice), so the B-side initiative row's teamId
+    // is a B team uuid and the B-side participant row carries a B personId — both
+    // isolation sweeps are non-vacuous.
+    const isoInitiative = await scoped.initiatives.create({
+      teamId: loaded.teams.core,
+      ownerUserId: inviter.id,
+      title: "Iso initiative",
+      templateSlug: "build-one-repeatable-workflow",
+      capabilitySlug: "consistent-daily-use",
+      scoreSlug: "fluency",
+      baseline: 40,
+      target: 70,
+      reviewDate: "2026-09-30",
+    });
+    await scoped.initiatives.addParticipants(isoInitiative.id, [
+      loaded.people.alice,
+    ]);
     // An exposure per org (ADR 0038) keyed on this org's alice, so the B-side
     // row carries a B personId and the exposures.list sweep is non-vacuous.
     await scoped.exposures.log([

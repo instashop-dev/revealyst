@@ -8,6 +8,8 @@ import {
   connections,
   connectorRuns,
   identities,
+  initiativeParticipants,
+  initiatives,
   managerNotes,
   metricRecords,
   missionProgress,
@@ -120,6 +122,18 @@ export const PURGE_TABLES = [
   // carries no FK to orgs. So an explicit org-scoped delete is required, ordered
   // BEFORE `teams` (mirrors team_insights exactly).
   teamGoals,
+  // TMD P2 (ADR 0062): initiative participants — the wall-crossing join. FKs to
+  // BOTH `initiatives` (cascade) AND `people` (cascade), so it must be deleted
+  // BEFORE both. Ordered first of the two, and before `people` (line below) and
+  // `teams`.
+  initiativeParticipants,
+  // TMD P2 (ADR 0062): initiatives, org-scoped. Composite tenant FK to `teams`
+  // is ON DELETE CASCADE, but only team-scoped rows (team_id non-null) cascade;
+  // org-wide initiatives (team_id NULL) have no cascade and org_id carries no FK
+  // to orgs — so an explicit org-scoped delete is required, ordered BEFORE
+  // `teams` (mirrors team_goals). Deleted AFTER initiative_participants (its
+  // child) and BEFORE `teams`.
+  initiatives,
   // TCI Phase 2-E (ADR 0045): per-team admin settings, org-scoped. Its composite
   // tenant FK to `teams` is ON DELETE CASCADE, but an explicit org-scoped delete
   // (ordered BEFORE `teams`) matches every sibling and keeps ordering independent

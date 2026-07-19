@@ -43,6 +43,12 @@ export * from "./schema/team-insights";
 // cross-module dependency, so its position here is unconstrained beyond
 // "after core" — placed with the other team-scoped manager surfaces.
 export * from "./schema/goals";
+// TMD P2 (ADR 0062): initiatives + named participants (the wall-crossing join).
+// `initiatives` references `teams` (core) via a composite tenant FK;
+// `initiative_participants` references BOTH `initiatives` (this module, above) and
+// `people` (core) via composite tenant FKs — so it must be evaluated after both,
+// which its position here (after core + after the initiatives table) satisfies.
+export * from "./schema/initiatives";
 
 // Auth tables last: auth-schema imports orgs from this module, so the
 // re-export must come after orgs is initialized (circular-import order).
