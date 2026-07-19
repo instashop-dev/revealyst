@@ -59,14 +59,16 @@ export function BenchmarkPanel({
               {/* peer median marker */}
               <div
                 className="absolute top-[-2px] h-3 w-0.5 bg-muted-foreground/60"
-                style={{ left: `${Math.max(0, Math.min(100, b.peerMedian))}%` }}
+                style={{
+                  left: `${Math.round(Math.max(0, Math.min(100, b.peerMedian)))}%`,
+                }}
                 aria-hidden
               />
               {b.orgValue != null ? (
                 <div
                   className="absolute top-0 size-2 -translate-x-1/2 rounded-full bg-primary ring-2 ring-background"
                   style={{
-                    left: `${Math.max(0, Math.min(100, b.orgValue))}%`,
+                    left: `${Math.round(Math.max(0, Math.min(100, b.orgValue)))}%`,
                   }}
                   aria-hidden
                 />
