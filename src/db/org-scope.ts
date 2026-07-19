@@ -14,6 +14,7 @@ import { desktopPairingNamespace } from "./org-scope/desktop-pairing";
 import { digestPreferencesNamespace } from "./org-scope/digest-preferences";
 import { execReportStateNamespace } from "./org-scope/exec-report-state";
 import { exposuresNamespace } from "./org-scope/exposures";
+import { goalsNamespace } from "./org-scope/goals";
 import { heartbeatsNamespace } from "./org-scope/heartbeats";
 import { identitiesNamespace } from "./org-scope/identities";
 import { managerNotesNamespace } from "./org-scope/manager-notes";
@@ -179,6 +180,7 @@ export function forOrg(db: Db, orgId: string) {
     teamManagers: teamManagersNamespace(db, orgId),
     teamSettings: teamSettingsNamespace(db, orgId),
     teamInsights: teamInsightsNamespace(db, orgId),
+    goals: goalsNamespace(db, orgId),
     connections: connectionsNamespace(db, orgId),
     connectorRuns: connectorRunsNamespace(db, orgId),
     desktopPairing: desktopPairingNamespace(db, orgId),

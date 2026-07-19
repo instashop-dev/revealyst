@@ -191,6 +191,16 @@ const SCOPED_READS: Array<{
     tables: ["team_insights"],
     run: (s) => s.teamInsights.list(),
   },
+  // Team goals (ADR 0061): org-scoped manager objective (org, optional team).
+  // Both orgs seed a TEAM-scoped active goal on their own core team below, so the
+  // B-side row's `teamId` is a B team uuid in the leak universe — a dropped org
+  // filter would surface it (non-vacuous, mirrors teamInsights.list). The row
+  // carries no person id (ownerUserId is the manager's own auth user id).
+  {
+    name: "goals.list",
+    tables: ["team_goals"],
+    run: (s) => s.goals.list(),
+  },
   // Manager notes (ADR 0053): org-scoped author-attributed coaching notes
   // (org, person). Both orgs seed a note about their own alice below. The
   // probe keys `listForPerson` on B's alice AND B's core team — the sharpest
@@ -443,6 +453,18 @@ beforeAll(async () => {
         periodStart: PERIOD.start,
       },
     ]);
+    // A TEAM-scoped active goal per org (ADR 0061) on this org's core team, so
+    // the B-side row's teamId is a B team uuid in the leak universe and the
+    // goals.list sweep is non-vacuous (mirrors the teamInsights seed). Holds no
+    // person id — ownerUserId is the manager's own auth user id.
+    await scoped.goals.setActive({
+      teamId: loaded.teams.core,
+      metricSlug: "adoption",
+      baseline: 40,
+      target: 75,
+      reviewDate: "2026-08-31",
+      ownerUserId: inviter.id,
+    });
     // An exposure per org (ADR 0038) keyed on this org's alice, so the B-side
     // row carries a B personId and the exposures.list sweep is non-vacuous.
     await scoped.exposures.log([

@@ -38,6 +38,11 @@ export * from "./schema/missions";
 // cross-module dependency, so its position here is unconstrained beyond
 // "after core".
 export * from "./schema/team-insights";
+// TMD P1 (ADR 0061): the manager-set team goal / review period. References
+// `teams` (core, evaluated first) via a composite tenant FK; no other
+// cross-module dependency, so its position here is unconstrained beyond
+// "after core" — placed with the other team-scoped manager surfaces.
+export * from "./schema/goals";
 
 // Auth tables last: auth-schema imports orgs from this module, so the
 // re-export must come after orgs is initialized (circular-import order).
