@@ -821,6 +821,73 @@ export async function launchInitiative(
   });
 }
 
+/**
+ * Record an initiative's OUTCOME at review time (TMD P3, ADR 0062). Owner-OR-
+ * admin only. The outcome is the manager's own read of the measured before/after
+ * — Revealyst presents baseline vs current but NEVER claims causality, so the
+ * manager marks improved/unchanged/worsened/inconclusive themselves. A status
+ * GUARD closes the transition the P2a data method leaves open: an initiative can
+ * only be reviewed from `active`/`in_review` (never re-reviewed or reviewed after
+ * being stopped) — a completed/stopped one 409s.
+ */
+export async function recordInitiativeOutcome(
+  args: { scope: OrgScope; role: "admin" | "member"; actorUserId: string },
+  input: {
+    initiativeId: string;
+    outcome: "improved" | "unchanged" | "worsened" | "inconclusive";
+  },
+) {
+  const { scope, role, actorUserId } = args;
+  const initiative = await scope.initiatives.get(input.initiativeId);
+  if (!initiative) throw new ApiError(404, "initiative not found");
+  if (role !== "admin" && initiative.ownerUserId !== actorUserId) {
+    throw new ApiError(403, "only the owner or an admin can review this initiative");
+  }
+  if (initiative.status !== "active" && initiative.status !== "in_review") {
+    throw new ApiError(409, "this initiative has already been reviewed or stopped");
+  }
+  // Atomic compare-and-set (applies only from active/in_review) — the real guard
+  // against a concurrent review racing the read above.
+  const applied = await scope.initiatives.setOutcome(
+    input.initiativeId,
+    input.outcome,
+  );
+  if (!applied) {
+    throw new ApiError(409, "this initiative has already been reviewed or stopped");
+  }
+  return { ...initiative, status: "completed" as const, outcome: input.outcome };
+}
+
+/**
+ * Stop an initiative (TMD P3) — abandon it without an outcome. Owner-OR-admin;
+ * only an open initiative (`draft`/`active`/`in_review`) can be stopped.
+ */
+export async function stopInitiative(
+  args: { scope: OrgScope; role: "admin" | "member"; actorUserId: string },
+  initiativeId: string,
+) {
+  const { scope, role, actorUserId } = args;
+  const initiative = await scope.initiatives.get(initiativeId);
+  if (!initiative) throw new ApiError(404, "initiative not found");
+  if (role !== "admin" && initiative.ownerUserId !== actorUserId) {
+    throw new ApiError(403, "only the owner or an admin can stop this initiative");
+  }
+  if (
+    initiative.status !== "draft" &&
+    initiative.status !== "active" &&
+    initiative.status !== "in_review"
+  ) {
+    throw new ApiError(409, "this initiative is already closed");
+  }
+  // Atomic compare-and-set over the OPEN statuses — can't stop an initiative a
+  // concurrent request just completed.
+  const applied = await scope.initiatives.setStatus(initiativeId, "stopped", {
+    fromStatuses: ["draft", "active", "in_review"],
+  });
+  if (!applied) throw new ApiError(409, "this initiative is already closed");
+  return { ...initiative, status: "stopped" as const };
+}
+
 export async function dismissTeamInsight(
   args: {
     scope: OrgScope;

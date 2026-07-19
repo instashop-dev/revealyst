@@ -119,6 +119,25 @@ export const TEAM_OVERVIEW_COPY = {
     rosterEveryoneAdded: "Everyone you manage is already taking part.",
     rosterAdd: "Add",
     rosterRemove: "Remove",
+    // TMD P3 — the outcome review (owner/admin).
+    review: "Review",
+    reviewTitle: "Review this initiative",
+    reviewDescription: (title: string) =>
+      `Look at the measured before-and-after for "${title}", then record how it went. Revealyst shows the numbers — you decide the outcome. It never claims the initiative caused the change.`,
+    reviewStarted: "Started at",
+    reviewNow: "Now",
+    reviewTargetLabel: "Target",
+    reviewUnmeasured: "Not measured yet",
+    reviewOutcomeLabel: "How did it go?",
+    outcomeLabel: {
+      improved: "Improved",
+      unchanged: "No clear change",
+      worsened: "Went the wrong way",
+      inconclusive: "Not enough to tell",
+    } as const,
+    reviewSave: "Record outcome",
+    reviewStop: "Stop initiative",
+    reviewError: "Couldn't save the review. Please try again.",
   },
   /** Capability map (P0b / analysis §5E) — the promoted "what can the team
    * reliably do with AI?" surface: coverage + trend + the count-only insight
