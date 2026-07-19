@@ -48,6 +48,7 @@ import {
 } from "./recent-movement";
 import { detectPlateau, type PlateauResult } from "./plateau";
 import type { CatalogRecommendation } from "./recommendation-catalog";
+import type { ScoreSlug } from "./metrics-glossary";
 import {
   resolveSegmentSource,
   SEGMENT_MIN_PEOPLE_TO_NAME,
@@ -217,6 +218,20 @@ export type DashboardView = {
    * they too leave the privacy predicate unaffected. Ordered oldest-period
    * first for a left-to-right trend. */
   capabilityGrowth: CapabilityHistoryRow[];
+  /** TMD P1 (ADR 0061): the active ORG-WIDE team goal, or null when none is set.
+   * The manager-set objective that heads the Command Center. `current` is the
+   * latest MEASURED team value for the goal's metric, or null when unmeasured
+   * (invariant b — never a fabricated "now"); `baseline` was captured (also
+   * measured-or-null) when the goal was set. Holds no per-person data (the
+   * `ownerUserId` is the manager's own auth id and is not surfaced here), so it
+   * adds nothing `assertTeamOnlyPseudonymized` must inspect. */
+  goal: {
+    metricSlug: ScoreSlug;
+    baseline: number | null;
+    target: number;
+    reviewDate: string;
+    current: number | null;
+  } | null;
 };
 
 // Re-exported from the shared builder so existing importers of
@@ -259,6 +274,7 @@ export async function readDashboardView(
     capabilityCoverageCounts,
     teamInsights,
     capabilityGrowthRows,
+    activeGoal,
   ] = await Promise.all([
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
@@ -337,6 +353,12 @@ export async function readDashboardView(
     // privacy predicate must inspect.
     scope.teamInsights.listOpen(),
     scope.capabilityHistory.list(),
+    // TMD P1 (ADR 0061): the active ORG-WIDE team goal (teamId null — the
+    // common case; team-scoped goals arrive with subgroups). ONE read folded
+    // into this single round-trip (§8.2 perf floor). undefined when none is
+    // set. Count-free / person-free (holds only the manager's own owner id), so
+    // it adds nothing the privacy predicate must inspect.
+    scope.goals.getActive(null),
   ]);
 
   // One pass over the superset: the exact splits trends (team) and segments
@@ -553,6 +575,19 @@ export async function readDashboardView(
     capabilityGrowth: applyMinPeopleFloor(
       capabilityGrowthRows.filter((r) => r.teamId === null),
     ),
+    // TMD P1 (ADR 0061): the active org-wide goal, with its current MEASURED
+    // value resolved from the same `latest` team-score map the benchmarks use
+    // (zero new reads). `current` is null when the metric is unmeasured —
+    // withheld, never fabricated (invariant b). null when no goal is set.
+    goal: activeGoal
+      ? {
+          metricSlug: activeGoal.metricSlug,
+          baseline: activeGoal.baseline,
+          target: activeGoal.target,
+          reviewDate: activeGoal.reviewDate,
+          current: latest.get(activeGoal.metricSlug)?.value ?? null,
+        }
+      : null,
   };
 
   // T2.1: enforce the §7 privacy default at runtime, not just in tests. Gated

@@ -40,6 +40,39 @@ export const TEAM_OVERVIEW_COPY = {
    * the wording is count-free: it states the rule, never how many were hidden. */
   floorNote: (minPeople: number) =>
     `Shown only for groups of ${minPeople} or more people, to protect individuals.`,
+  /** Team goal (TMD P1b, ADR 0061) — the manager-set objective that heads the
+   * Command Center. All copy is plain-English and honest: the target and review
+   * date are the manager's own input (never a Revealyst promise), and progress
+   * shows a MEASURED "now" only when the metric is measured. */
+  goal: {
+    title: "Team goal",
+    /** Shown to a manager when no goal is set yet (members see nothing). */
+    empty:
+      "No team goal set yet — pick one thing to focus on and a date to review it.",
+    setAction: "Set a team goal",
+    changeAction: "Change goal",
+    drawerTitle: "Set the team goal",
+    drawerDescription:
+      "Choose one thing to focus on, a target, and when you'll review it. The target and review date are yours to set — Revealyst tracks progress toward them, it doesn't promise the result.",
+    metricLabel: "What should the team focus on?",
+    targetLabel: "Target (0–100)",
+    reviewLabel: "Review by",
+    /** The starting-point line under the metric picker. */
+    baselineMeasured: (label: string, value: number) =>
+      `Starting point — ${label} is measuring ${value} now.`,
+    baselineUnmeasured: (label: string) =>
+      `${label} isn't measured yet — the starting point fills in once it is.`,
+    saveAction: "Save goal",
+    saveError: "Couldn't save the goal. Please try again.",
+    /** The headline on the goal card once a goal is set. */
+    headline: (label: string) => `Focusing on ${label}`,
+    /** Progress detail — baseline → target by review date. `baseline` is "—"
+     * when it was unmeasured at set time (never a fabricated 0). */
+    detail: (baseline: string, target: number, reviewDate: string) =>
+      `From ${baseline} toward ${target}, reviewing ${reviewDate}.`,
+    /** Appended only when the metric is currently MEASURED. */
+    now: (value: number) => `Now measuring ${value}.`,
+  },
   /** Capability map (P0b / analysis §5E) — the promoted "what can the team
    * reliably do with AI?" surface: coverage + trend + the count-only insight
    * feed, lifted to the top of the Command Center. Aggregate only. */

@@ -13,6 +13,7 @@ import { DataConfidenceLine } from "@/components/dashboard/data-confidence-line"
 import { KpiRow, type KpiTileData } from "@/components/dashboard/kpi-row";
 import { MaturityExportButton } from "@/components/dashboard/maturity-export-button";
 import { TeamNarrativeHero } from "@/components/dashboard/team-narrative-hero";
+import { TeamGoalCard } from "@/components/manager/team-goal-card";
 import { RecentMovementPanel } from "@/components/dashboard/recent-movement-panel";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
@@ -170,7 +171,16 @@ export async function TeamOverview() {
     capabilityCoverage,
     teamInsights,
     capabilityGrowth,
+    goal,
   } = view;
+
+  // TMD P1b (ADR 0061): who may set/change the team goal. The goal is an
+  // AGGREGATE, count-only objective (no per-person data — it holds only the
+  // manager's own owner id), so unlike the per-person drill-in it is NOT gated
+  // on managed/full visibility: it works in the default `private` mode. The
+  // affordance shows for an admin OR any team manager, mirroring the API's own
+  // manager-OR-admin gate (setTeamGoal). Every member still SEES a set goal.
+  const canManageGoal = ctx.role === "admin" || managedTeamIds.length > 0;
 
   // Signal coverage (W5-H card e) — computed from rows ALREADY in the view
   // (subjects/identities/connections), zero new queries. Reduced to an
@@ -195,6 +205,14 @@ export async function TeamOverview() {
   const fluency = latest.get("fluency") ?? null;
   const efficiency = latest.get("efficiency") ?? null;
   const hasScores = latest.size > 0;
+  // TMD P1b: per-metric current MEASURED value (rounded to match the
+  // server-computed integer baseline) for the goal setter's starting-point
+  // line. Null when a metric is unmeasured — never a fabricated 0 (invariant b).
+  const currentByMetric: Record<ScoreSlug, number | null> = {
+    adoption: adoption === null ? null : Math.round(adoption.value),
+    fluency: fluency === null ? null : Math.round(fluency.value),
+    efficiency: efficiency === null ? null : Math.round(efficiency.value),
+  };
   const spendFooter =
     summary.spendCents > 0 || summary.spendCentsEstimated > 0 ? (
       <>
@@ -268,6 +286,11 @@ export async function TeamOverview() {
     capabilityLabels,
     anomalies,
     plateau,
+    // TMD P1b (OQ-TMD-2, DISPLAY-ONLY): bias the top priorities toward the
+    // manager-set goal's metric — a tie-break in the terminal sort only, never a
+    // change to which recs are eligible. undefined when no goal is set, so the
+    // ordering is byte-identical to today (the equivalence guard).
+    goalMetricSlug: goal?.metricSlug,
   });
 
   // P0b — the four compact indicators (analysis §5D). Every value is derived
@@ -388,6 +411,16 @@ export async function TeamOverview() {
         // loss (every panel keeps its component), only default visibility
         // changed. Stays within D-TCI-5 (one page, cards/drawers, no new nav).
         <>
+          {/* TMD P1b (ADR 0061): the manager-set goal heads the page — the
+           * objective that frames everything below and biases the priorities.
+           * Renders for every viewer when set (aggregate, no per-person data);
+           * the set/change affordance shows only for an admin or team manager. */}
+          <TeamGoalCard
+            goal={goal}
+            canManage={canManageGoal}
+            currentByMetric={currentByMetric}
+          />
+
           {/* The period story leads — the conclusion, before any evidence. */}
           <TeamNarrativeHero narrative={narrative} correlations={correlations} />
 

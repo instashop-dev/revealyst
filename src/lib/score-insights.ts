@@ -605,7 +605,15 @@ function recRoleToolFit(
   return roleMatch || toolMatch ? 1 : 0.5;
 }
 
-type ScoredAttentionItem = AttentionItem & { impact: number };
+type ScoredAttentionItem = AttentionItem & {
+  impact: number;
+  /** TMD P1b (OQ-TMD-2, DISPLAY-ONLY): true when this recommendation advances
+   * the manager-set team goal's metric. A tie-break in the terminal sort only —
+   * it never changes which recs are eligible or which win the ≤2 slots, and it
+   * is STRIPPED from the returned shape. Absent (→ falsey) when no goal is
+   * passed, so the output is byte-identical to pre-P1b. */
+  goalMatch?: boolean;
+};
 
 /** Coerces a stored `components` jsonb (typed on the team path, `unknown` on
  * the person-level raw-row path) into an iterable record — or `null` when it
@@ -797,6 +805,15 @@ export function deriveAttention(input: {
   /** W7-4 — the person's signal-coverage source count, for the honest
    * confidence disclosure on each rec. Omitted → no disclosure. */
   coverageSourceCount?: number;
+  /** TMD P1b (OQ-TMD-2 — ratified DISPLAY-ONLY): the metric slug of the
+   * manager-set team goal, if one is active. A recommendation whose score slug
+   * matches it sorts FIRST among equal-severity, equal-impact recs — a pure
+   * tie-break in the terminal sort. It NEVER changes eligibility or which recs
+   * win the ≤2 slots (that ranking runs entirely before this). Omitted → no
+   * bias, and the output is byte-identical to pre-P1b (the equivalence guard).
+   * Only the TEAM dashboard passes it; the personal + digest call sites omit it,
+   * so their output — and the digest-parity test — are untouched. */
+  goalMetricSlug?: ScoreSlug;
 }): AttentionItem[] {
   const items: ScoredAttentionItem[] = [];
 
@@ -1052,14 +1069,32 @@ export function deriveAttention(input: {
         // the SAME suggestedActionType per rec id, so both outputs match.
         suggestedActionType: recommendation.suggestedActionType,
         impact: 1,
+        // TMD P1b (OQ-TMD-2, DISPLAY-ONLY): flag a rec that advances the
+        // manager-set goal's metric. A conditional spread keeps the field ABSENT
+        // (not `false`) when there's no goal, so the equivalence guard stays
+        // byte-identical to pre-P1b. Stripped from the returned shape below.
+        ...(input.goalMetricSlug !== undefined &&
+        recommendation.slug === input.goalMetricSlug
+          ? { goalMatch: true }
+          : {}),
       });
     }
   }
 
   items.sort((a, b) => {
     if (a.severity !== b.severity) return a.severity === "action" ? -1 : 1;
-    return b.impact - a.impact;
+    if (b.impact !== a.impact) return b.impact - a.impact;
+    // TMD P1b (OQ-TMD-2, DISPLAY-ONLY tie-break): among equal-severity,
+    // equal-impact items, a goal-advancing rec sorts first. When no goal is
+    // passed no item carries `goalMatch`, so this is always 0 → the comparator
+    // reduces to `b.impact - a.impact` and the order is byte-identical to
+    // pre-P1b (Array.sort is stable, preserving push order on a 0 result).
+    return (b.goalMatch ? 1 : 0) - (a.goalMatch ? 1 : 0);
   });
 
-  return items.map(({ impact: _impact, ...rest }) => rest);
+  // Strip the private ranking fields (`impact`, `goalMatch`) so the returned
+  // AttentionItem shape is unchanged — goalMatch never reaches the UI/digest.
+  return items.map(
+    ({ impact: _impact, goalMatch: _goalMatch, ...rest }) => rest,
+  );
 }
