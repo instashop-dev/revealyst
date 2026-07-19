@@ -242,6 +242,40 @@ it is the interface between agents.
 > live connector's overlapping-day metrics; the fix is a frozen ingest+scoring change,
 > founder-gated. Ledger rows D-DA-2…8 pending in `docs/product-signoffs.md`.
 
+> **Desktop Agent — M7 hardening + metadata-signal wave shipped — 2026-07-18**
+> (PRs #307–#318; latest mig **0047**, latest ADR **0060**). **Polish/honesty:** #307
+> retired the stale "not available yet" labels (tray Check-for-updates / Pause-Resume,
+> diagnostics button, Status Updates row were placeholders over already-live backends);
+> #308 wired onboarding Sources to the connector `detect()` + real Finish; #309 persists
+> pause + sticky status across restarts (a local-store schema bump — the agent's OWN
+> SQLite, NOT a server migration) and replaced the shared-device/identity env flags with
+> one plain "is this computer only yours?" question, privacy-safe default; #310 status-
+> coloured tray icon (10-state → green/amber/grey) + a local "0 prompts read · 0 text
+> sent" proof panel. **M7:** #311 perf budgets (`desktop-agent/perf-budgets.json`, single
+> source of truth) + a CI artifact-size gate (`scripts/desktop-artifact-size-gate.mjs`,
+> fails any >40 MB bundle) + harness (T7.1; runtime RAM/CPU/startup rows stay
+> honestly "not yet measured on hardware"); #314 short-lived access tokens
+> (`POST /api/desktop/auth/refresh`, ADR 0058 — stateless 15-min HMAC JWT, no migration,
+> device token becomes refresh-only, retires the **D-DA-4** deviation / T7.2; server
+> accepts BOTH creds during rollout). **Metadata signals (all content-free, closed-enum,
+> `directional` ceiling):** #313 `ai_tool_used` app-presence flag (ADR 0057, mig 0045;
+> `sysinfo` dep, app identity only never window titles; closed-enum guard on device
+> `validator.rs` AND server `agent-ingest.ts`; added a `sentValueShape` marker to the
+> allowlist so the `agentNeverUploadsPrompts` honesty gate stays fail-closed); #317 the
+> on-device work-type classifier (`task_category`/`iteration_depth`/`verification_behavior`,
+> ADR 0059, mig 0046; D-DA-5 un-paused by founder — reads prompt text ON-DEVICE only via
+> a **closed-Rust-enum, borrow-and-drop** `classify.rs`, emits only the label; the honesty
+> line changed from "never reads" to **"your prompts never LEAVE this computer"**); #318
+> connector-scoped ingest (ADR 0060, mig 0047 — adds `source_connector` to the FROZEN
+> `metric_records` natural key + a connector-scoped window-delete + a MAX-collapse read
+> boundary that's byte-identical for single-source orgs; **live Claude-export sync is now
+> ON**). **Still gated / dormant (do not force):** D-DA-7 signing certs are a founder
+> purchase (`docs/desktop-release-runbook.md` §one-time-setup); `ai_tool_used` + the
+> worktype classifier ship **wired-not-live** (their D-DA-8 blocker is cleared but real-
+> fixture capture (rule 2) + per-pack activation gates remain); the **D-DA-9** classifier
+> resume is recorded in `docs/product-signoffs.md` **awaiting founder ratification**; D-DA-2
+> Team-org desktop enrollment is CLOSED by founder decision (personal-workspace only).
+
 ## Product principles — UX & writing (highest priority)
 These outrank feature scope: every screen, dialog, workflow, onboarding step, and
 settings page must satisfy them, and any new feature must **preserve or improve**
@@ -332,6 +366,17 @@ simply. Keep sentences short, direct, and clear.
   exclude — `rm -rf .next` and retype checks clean.
 - Manually-created worktrees (`git worktree add`) don't get `node_modules` —
   run `npm install` in each before typecheck/test.
+- **Desktop-agent (`desktop-agent/**` Rust) has NO cargo toolchain in a fresh
+  worktree**, so a sub-agent building Rust can't run `cargo fmt`/clippy/test —
+  every such PR fails the `rust` CI job on `cargo fmt --check` first try (~10 min
+  wasted). Install a fmt-only toolchain once (`rustup ... --profile minimal
+  --component rustfmt`) and pre-run `cargo fmt --manifest-path
+  desktop-agent/src-tauri/Cargo.toml` on the branch before it hits CI; clippy/
+  compile/test errors still only surface in CI (no MSVC linker locally — poll the
+  `rust` job and fix from its log). `cargo fetch` updates `Cargo.lock` for a new
+  dep without compiling (but downloads the whole Tauri tree — may time out after
+  the lock write completes). `desktop-ci.yml` doesn't use `--locked`, so a stale
+  lock still passes; updating it is hygiene.
 - `git worktree remove` can report "Permission denied" deleting the directory
   (locked by an editor/indexer) yet still succeed at unregistering the
   worktree — `git worktree prune` cleans up the stub; the leftover empty
