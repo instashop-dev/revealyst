@@ -73,6 +73,40 @@ export const TEAM_OVERVIEW_COPY = {
     /** Appended only when the metric is currently MEASURED. */
     now: (value: number) => `Now measuring ${value}.`,
   },
+  /** Initiatives (TMD P2, ADR 0062) — the executable middle of the loop: turn a
+   * priority into a tracked effort with a target and a review date. All copy is
+   * plain-English and honest — an initiative is a plan to TRACK, never a promise,
+   * and participation is shown as a COUNT (the named roster is opened separately
+   * by an authorized manager). No gamified vocabulary (Spec V4 §8.4). */
+  initiatives: {
+    title: "Initiatives",
+    lead: "Turn a priority into a tracked effort — a target, a review date, and a measured before-and-after.",
+    empty: "No initiatives running yet.",
+    startAction: "Start an initiative",
+    drawerTitle: "Start an initiative",
+    drawerDescription:
+      "Pick a starting play, name it, and set a target and a review date. On that date you'll see the measured before-and-after — it's a plan to track, not a promise.",
+    templateLabel: "Starting play",
+    templateNone: "Choose a starting play…",
+    titleLabel: "Name this initiative",
+    targetLabel: "Target (0–100)",
+    reviewLabel: "Review by",
+    saveAction: "Start initiative",
+    saveError: "Couldn't start the initiative. Please try again.",
+    participants: (n: number) =>
+      `${n} ${n === 1 ? "person" : "people"} taking part`,
+    reviewOn: (date: string) => `Review ${date}`,
+    progressLine: (baseline: string, target: number) =>
+      `From ${baseline} toward ${target}.`,
+    now: (value: number) => `Now measuring ${value}.`,
+    statusLabel: {
+      draft: "Draft",
+      active: "Active",
+      in_review: "In review",
+      completed: "Completed",
+      stopped: "Stopped",
+    } as const,
+  },
   /** Capability map (P0b / analysis §5E) — the promoted "what can the team
    * reliably do with AI?" surface: coverage + trend + the count-only insight
    * feed, lifted to the top of the Command Center. Aggregate only. */
