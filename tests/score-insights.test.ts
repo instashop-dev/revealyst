@@ -1233,6 +1233,55 @@ describe("deriveAttention — F1.1 coaching recommendations", () => {
       expect(BANNED_PHRASING.test(rec.body)).toBe(false);
     }
   });
+
+  // ─── TMD P1b (OQ-TMD-2): goal-biased ordering is DISPLAY-ONLY ───
+  // Two recs from DIFFERENT score slugs surface (distinct signal groups, both
+  // fit the ≤2 cap): adoption.tool_coverage and fluency.effectiveness.
+  const twoSlugScenario = {
+    ...base,
+    scoreComponents: [
+      { slug: "adoption" as const, components: [componentRow("tool_coverage", { normalized: 20, weight: 0.5 })] },
+      { slug: "fluency" as const, components: [componentRow("effectiveness", { normalized: 10, weight: 0.34 })] },
+    ],
+  };
+  const recIdToSlug = new Map(
+    LEGACY_CATALOG_RECOMMENDATIONS.map((r) => [r.id, r.slug]),
+  );
+
+  it("no goal set → output is byte-identical (equivalence guard)", () => {
+    const noGoal = deriveAttention(twoSlugScenario);
+    // Omitting the param and passing undefined are the same…
+    expect(deriveAttention({ ...twoSlugScenario, goalMetricSlug: undefined })).toEqual(noGoal);
+    // …and a goal whose metric matches NO surfaced rec (efficiency) is a no-op.
+    expect(deriveAttention({ ...twoSlugScenario, goalMetricSlug: "efficiency" })).toEqual(noGoal);
+  });
+
+  it("a set goal sorts the matching-metric rec first WITHOUT changing eligibility", () => {
+    const noGoal = deriveAttention(twoSlugScenario).filter((i) => i.kind === "recommendation");
+    expect(noGoal).toHaveLength(2);
+    // Bias toward the slug of whichever rec is NOT first without a goal.
+    const trailingSlug = recIdToSlug.get(noGoal[noGoal.length - 1].recId!)!;
+    const biased = deriveAttention({ ...twoSlugScenario, goalMetricSlug: trailingSlug }).filter(
+      (i) => i.kind === "recommendation",
+    );
+    // The goal-matching rec now leads…
+    expect(recIdToSlug.get(biased[0].recId!)).toBe(trailingSlug);
+    // …the SAME two recs are present (eligibility/selection unchanged)…
+    expect(new Set(biased.map((r) => r.recId))).toEqual(new Set(noGoal.map((r) => r.recId)));
+    // …and the private ranking field never leaks into the returned shape.
+    expect(biased[0]).not.toHaveProperty("goalMatch");
+  });
+
+  it("goal bias never promotes a rec above a real alert (severity still wins)", () => {
+    const items = deriveAttention({
+      ...twoSlugScenario,
+      connections: [{ label: "Cursor", status: "error" }],
+      goalMetricSlug: "adoption",
+    });
+    // The action item leads regardless of the goal; recs stay below.
+    expect(items[0].severity).toBe("action");
+    expect(items[items.length - 1].kind).toBe("recommendation");
+  });
 });
 
 // ─── F2.3 (I2/I3) anomaly + plateau integration ───

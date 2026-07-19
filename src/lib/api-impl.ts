@@ -27,11 +27,13 @@ import type { forOrg } from "../db/org-scope";
 import type { CredentialEnv } from "../lib/credentials";
 import { addDays } from "../poller/backfill";
 import type { PollMessage } from "../poller/messages";
-import type { DefinitionRow } from "./dashboard-read";
+import { latestTeamScoresBySlug, type DefinitionRow } from "./dashboard-read";
+import { isUniqueViolation } from "../db/org-scope/shared";
+import type { TeamGoalMetric } from "./team-goal";
 import { collectGaps } from "./honesty-gaps";
 import { managerSurfaceAvailable } from "./manager-capability-view";
 import { callerIsNoteSubject } from "./manager-notes-view";
-import { budgetAlertFor, readMonthToDateSpend } from "./spend-governance";
+import { budgetAlertFor, readMonthToDateSpend, todayUtc } from "./spend-governance";
 
 type OrgScope = ReturnType<typeof forOrg>;
 type VisibilityMode = "private" | "managed" | "full";
@@ -636,6 +638,97 @@ export async function deleteManagerNote(
  * it. Idempotent-ish: a missing/already-dismissed id is a 404 (never a silent
  * success — the caller should know the row wasn't there). Writes an audit row.
  */
+/**
+ * The current MEASURED team-level value for a score slug — the goal baseline
+ * source (TMD P1b). Resolved by the EXACT selection the team dashboard uses, so
+ * a freshly-set goal's baseline equals the "now" the KPI cards + goal card show
+ * at set time: the same window bound (`periodEnd <= today`, which drops the
+ * future-dated `month` period row so the trailing-28-day row wins — the two
+ * grains are different computations) and the same `latestTeamScoresBySlug`
+ * tie-break (newest period, then newest definition version). Rounded to the
+ * integer the `team_goals.baseline` column stores, or `null` when the metric is
+ * unmeasured — NEVER a fabricated 0 (invariant b — "no data yet" ≠ measured
+ * zero). A low-frequency setter path, not the hot dashboard read.
+ */
+async function measuredTeamValueBySlug(
+  scope: OrgScope,
+  metricSlug: TeamGoalMetric,
+): Promise<number | null> {
+  const today = todayUtc();
+  const [rows, defs] = await Promise.all([
+    scope.scores.results({ subjectLevel: "team", to: today }),
+    scope.scores.definitions(),
+  ]);
+  const defById = new Map(defs.map((d) => [d.id, d]));
+  // Enrich the raw score rows with the (slug, version) their definition carries
+  // so `latestTeamScoresBySlug` — the SAME resolver the dashboard uses — can
+  // pick the current value. A row whose definition is missing is dropped.
+  const enriched = rows.flatMap((r) => {
+    const def = defById.get(r.definitionId);
+    return def
+      ? [
+          {
+            subjectLevel: r.subjectLevel,
+            definitionSlug: def.slug,
+            definitionVersion: def.version,
+            periodEnd: r.periodEnd,
+            value: r.value,
+          },
+        ]
+      : [];
+  });
+  const value = latestTeamScoresBySlug(enriched).get(metricSlug)?.value ?? null;
+  return value === null ? null : Math.round(value);
+}
+
+/**
+ * Set the active ORG-WIDE team goal (TMD P1b, ADR 0061). Manager-OR-admin only
+ * (mirrors `dismissTeamInsight`). The baseline is computed SERVER-SIDE from the
+ * current measured value — the client never supplies it, so a goal can't be
+ * anchored to a fabricated starting number (invariant b). `ownerUserId` is the
+ * caller's own auth id, never a body field. A concurrent double-submit that
+ * loses the race on the partial unique index (23505) returns the goal that won,
+ * not a 500 (the ADR 0061 concurrency contract).
+ */
+export async function setTeamGoal(
+  args: {
+    scope: OrgScope;
+    role: "admin" | "member";
+    actorUserId: string;
+  },
+  input: { metricSlug: TeamGoalMetric; target: number; reviewDate: string },
+) {
+  const { scope, role, actorUserId } = args;
+
+  const isManager =
+    role === "admin" ||
+    (await scope.teamManagers.managedTeamIds(actorUserId)).length > 0;
+  if (!isManager) {
+    throw new ApiError(403, "only a manager or admin can set a team goal");
+  }
+
+  const baseline = await measuredTeamValueBySlug(scope, input.metricSlug);
+
+  try {
+    return await scope.goals.setActive({
+      // Org-wide goal (team_id null) — the common case today. Team-scoped goals
+      // arrive with the subgroup breakdown (a later, no-schema-change slice).
+      teamId: null,
+      metricSlug: input.metricSlug,
+      baseline,
+      target: input.target,
+      reviewDate: input.reviewDate,
+      ownerUserId: actorUserId,
+    });
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      const existing = await scope.goals.getActive(null);
+      if (existing) return existing;
+    }
+    throw error;
+  }
+}
+
 export async function dismissTeamInsight(
   args: {
     scope: OrgScope;
