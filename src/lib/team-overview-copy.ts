@@ -106,6 +106,19 @@ export const TEAM_OVERVIEW_COPY = {
       completed: "Completed",
       stopped: "Stopped",
     } as const,
+    // TMD P2c — the named roster (owner-only, managed/full mode).
+    manageRoster: "Manage people",
+    rosterTitle: "Who's taking part",
+    rosterDescription: (title: string) =>
+      `Add or remove people for "${title}". You can only add people on a team you manage.`,
+    rosterLoading: "Loading…",
+    rosterError: "Couldn't update the roster. Please try again.",
+    rosterTakingPart: "Taking part",
+    rosterNobody: "No one added yet.",
+    rosterAddLabel: "Add someone",
+    rosterEveryoneAdded: "Everyone you manage is already taking part.",
+    rosterAdd: "Add",
+    rosterRemove: "Remove",
   },
   /** Capability map (P0b / analysis §5E) — the promoted "what can the team
    * reliably do with AI?" surface: coverage + trend + the count-only insight

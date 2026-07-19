@@ -1,6 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../client";
-import { initiativeParticipants, initiatives } from "../schema";
+import { initiativeParticipants, initiatives, people } from "../schema";
 
 // Initiative reads/writes (TMD P2, ADR 0062). ORG-SCOPED. An initiative is a
 // tracked management effort with an owner, named participants, a baseline/target
@@ -189,6 +189,37 @@ export function initiativesNamespace(db: Db, orgId: string) {
         .update(initiatives)
         .set({ outcome, status: "completed", statusChangedAt: new Date() })
         .where(and(eq(initiatives.orgId, orgId), eq(initiatives.id, id)));
+    },
+
+    /** NAMED participant roster for one initiative (org-scoped join to people).
+     * This is a NAMED read — the caller MUST enforce the manager authorization
+     * (owner-only + managed/full mode) BEFORE calling it; it is registered in
+     * MANAGER_AUTHORIZED_IDENTITY_SURFACES as
+     * `initiativeRoster.participants[].displayName` (P2c, ADR 0062). Returns the
+     * pseudonym as a fallback label when a person has no real name. */
+    async participantsWithNames(
+      initiativeId: string,
+    ): Promise<{ personId: string; displayName: string | null; pseudonym: string }[]> {
+      return db
+        .select({
+          personId: people.id,
+          displayName: people.displayName,
+          pseudonym: people.pseudonym,
+        })
+        .from(initiativeParticipants)
+        .innerJoin(
+          people,
+          and(
+            eq(initiativeParticipants.orgId, people.orgId),
+            eq(initiativeParticipants.personId, people.id),
+          ),
+        )
+        .where(
+          and(
+            eq(initiativeParticipants.orgId, orgId),
+            eq(initiativeParticipants.initiativeId, initiativeId),
+          ),
+        );
     },
 
     /** Remove one participant (org-scoped) — the owner may prune the roster. */

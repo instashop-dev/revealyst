@@ -120,7 +120,12 @@ export async function TeamOverview() {
     "pageData",
     () =>
       Promise.all([
-        readDashboardView(ctx.scope, ctx.org.visibilityMode, dashboardWindow()),
+        readDashboardView(
+          ctx.scope,
+          ctx.org.visibilityMode,
+          dashboardWindow(),
+          ctx.user.id,
+        ),
         readBudgetAlertForRole(ctx.scope, ctx.role, todayUtc()),
         readMaturityView(ctx.scope, todayUtc()),
         ctx.scope.teamManagers.managedTeamIds(ctx.user.id),

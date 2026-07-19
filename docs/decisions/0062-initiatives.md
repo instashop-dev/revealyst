@@ -1,5 +1,16 @@
 # 0062 — Initiatives: executable recommendations with named participants
 
+> **Delivery note (P2c, 2026-07-20):** the manager-authorized **named
+> participant read** described under "Non-goals / what stays for P2b + P3" landed
+> exactly as posed here: an **owner-only**, managed/full-mode read
+> (`readInitiativeRoster` + `participantsWithNames`), registered as
+> `initiativeRoster.participants[].displayName` in
+> `MANAGER_AUTHORIZED_IDENTITY_SURFACES`, add-bounded to the owner's managed
+> roster, with a manager-vs-member-vs-admin authz matrix
+> (`tests/initiative-roster.test.ts`). The count-only dashboard path is unchanged
+> (viewer-relative booleans only). No schema/contract change beyond the additive
+> `participantsWithNames` namespace method this ADR already anticipated.
+
 - **Status:** Accepted
 - **Date:** 2026-07-20
 - **Deciders:** Team Manager Dashboard workstream (TMD Phase P2); founder-signed

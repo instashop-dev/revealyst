@@ -216,6 +216,15 @@ export const MANAGER_AUTHORIZED_IDENTITY_SURFACES: readonly {
   { key: "drillIn.subject.displayName", fields: ["drillIn.subject.displayName"] },
   // The roster lists managed-team members by real name (managed/full only).
   { key: "roster.teams[].members[].displayName", fields: ["roster.teams[].members[].displayName"] },
+  // TMD P2c (ADR 0062): an initiative's named participant roster — visible ONLY
+  // to the initiative's OWNER, and only in managed/full mode. The owner chose
+  // these people from their managed roster (add-time enforced), so reading the
+  // names back is authorized; every other caller (incl. admins-by-role and other
+  // managers) gets the count-only card, never names.
+  {
+    key: "initiativeRoster.participants[].displayName",
+    fields: ["initiativeRoster.participants[].displayName"],
+  },
 ];
 
 /** The authoritative manifest of every identity-bearing field the manager-
@@ -226,6 +235,7 @@ export const MANAGER_AUTHORIZED_IDENTITY_SURFACES: readonly {
 export const MANAGER_AUTHORIZED_IDENTITY_MANIFEST: readonly string[] = [
   "drillIn.subject.displayName",
   "roster.teams[].members[].displayName",
+  "initiativeRoster.participants[].displayName",
 ];
 
 /** Completeness check for the manager-authorized registry — reuses the same

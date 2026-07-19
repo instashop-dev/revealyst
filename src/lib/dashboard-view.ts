@@ -49,6 +49,7 @@ import {
 import { detectPlateau, type PlateauResult } from "./plateau";
 import type { CatalogRecommendation } from "./recommendation-catalog";
 import type { ScoreSlug } from "./metrics-glossary";
+import { managerSurfaceAvailable } from "./manager-capability-view";
 import {
   resolveSegmentSource,
   SEGMENT_MIN_PEOPLE_TO_NAME,
@@ -250,6 +251,13 @@ export type DashboardView = {
     current: number | null;
     reviewDate: string;
     participantCount: number;
+    /** TMD P2c: viewer-relative booleans (NOT identity-bearing — they say
+     * something about the VIEWER, never about a tracked person). `isOwner` = the
+     * signed-in user launched it; `canManageRoster` = they may open the named
+     * roster (owner AND managed/full mode). Both false when no callerUserId is
+     * passed. */
+    isOwner: boolean;
+    canManageRoster: boolean;
   }[];
 };
 
@@ -262,6 +270,10 @@ export async function readDashboardView(
   scope: OrgScope,
   visibilityMode: VisibilityMode,
   window: { from: string; to: string },
+  // TMD P2c: the signed-in user, for the viewer-relative initiative flags
+  // (isOwner / canManageRoster). Optional + defaulting to no ownership keeps
+  // every existing caller/test byte-identical.
+  callerUserId?: string,
 ): Promise<DashboardView> {
   // EVERY DB read the composed view needs, in ONE Promise.all — round-trip
   // depth 1 on Workers→Hyperdrive→Neon (verified by tests/perf/
@@ -627,6 +639,8 @@ export async function readDashboardView(
       .map((r) => {
         const measured =
           r.scoreSlug !== null ? latest.get(r.scoreSlug)?.value : undefined;
+        const isOwner =
+          callerUserId !== undefined && r.ownerUserId === callerUserId;
         return {
           id: r.id,
           title: r.title,
@@ -638,6 +652,9 @@ export async function readDashboardView(
           current: measured === undefined ? null : Math.round(measured),
           reviewDate: r.reviewDate,
           participantCount: initiativeParticipantCounts.get(r.id) ?? 0,
+          isOwner,
+          // The named roster opens only for the owner in managed/full mode.
+          canManageRoster: isOwner && managerSurfaceAvailable(visibilityMode),
         };
       }),
   };
