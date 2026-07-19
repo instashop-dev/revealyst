@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { ResponsiveSheetContent } from "@/components/responsive-sheet-content";
+import { InitiativeRosterDrawer } from "@/components/manager/initiative-roster-drawer";
 import { SCORE_GLOSSARY, type ScoreSlug } from "@/lib/metrics-glossary";
 import {
   INITIATIVE_LIBRARY,
@@ -36,6 +37,8 @@ export type InitiativeVM = {
   current: number | null;
   reviewDate: string;
   participantCount: number;
+  isOwner: boolean;
+  canManageRoster: boolean;
 };
 
 const MONTHS = [
@@ -69,6 +72,7 @@ export function InitiativesCard({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [rosterFor, setRosterFor] = useState<InitiativeVM | null>(null);
   const [templateSlug, setTemplateSlug] = useState<string>("");
   const [title, setTitle] = useState("");
   const [target, setTarget] = useState("70");
@@ -170,6 +174,15 @@ export function InitiativesCard({
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     <span>{COPY.participants(i.participantCount)}</span>
                     <span>{COPY.reviewOn(formatDate(i.reviewDate))}</span>
+                    {i.canManageRoster ? (
+                      <button
+                        type="button"
+                        className="text-primary underline-offset-2 hover:underline"
+                        onClick={() => setRosterFor(i)}
+                      >
+                        {COPY.manageRoster}
+                      </button>
+                    ) : null}
                   </div>
                 </li>
               );
@@ -280,6 +293,19 @@ export function InitiativesCard({
             </SheetFooter>
           </ResponsiveSheetContent>
         </Sheet>
+      ) : null}
+
+      {/* The named roster drawer (owner-only, managed/full — P2c). Mounted once,
+       * driven by which initiative's "Manage people" was clicked. */}
+      {rosterFor ? (
+        <InitiativeRosterDrawer
+          initiativeId={rosterFor.id}
+          initiativeTitle={rosterFor.title}
+          open={rosterFor !== null}
+          onOpenChange={(o) => {
+            if (!o) setRosterFor(null);
+          }}
+        />
       ) : null}
     </Card>
   );
