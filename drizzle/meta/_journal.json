@@ -337,6 +337,13 @@
       "when": 1784386483740,
       "tag": "0047_connector-scoped-ingest",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1784474940355,
+      "tag": "0048_team-goals",
+      "breakpoints": true
     }
   ]
 }
