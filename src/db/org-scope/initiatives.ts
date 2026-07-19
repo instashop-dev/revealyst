@@ -174,21 +174,48 @@ export function initiativesNamespace(db: Db, orgId: string) {
       return new Map(rows.map((r) => [r.initiativeId, r.count]));
     },
 
-    /** Set an initiative's status (org-scoped), stamping statusChangedAt. */
-    async setStatus(id: string, status: InitiativeStatus): Promise<void> {
-      await db
+    /** Set an initiative's status (org-scoped), stamping statusChangedAt. When
+     * `fromStatuses` is given it is a COMPARE-AND-SET: the update applies only
+     * when the current status is one of them, and the boolean says whether it
+     * won. This makes the P3 lifecycle transitions ATOMIC — two concurrent
+     * reviewers (e.g. complete + stop from two devices) can't both write, so an
+     * initiative can never land `stopped` WITH an outcome set (the read-then-act
+     * guard in the impl is a friendly-error fast path; this is the real guard). */
+    async setStatus(
+      id: string,
+      status: InitiativeStatus,
+      opts?: { fromStatuses?: readonly InitiativeStatus[] },
+    ): Promise<boolean> {
+      const conds = [eq(initiatives.orgId, orgId), eq(initiatives.id, id)];
+      if (opts?.fromStatuses) {
+        conds.push(inArray(initiatives.status, [...opts.fromStatuses]));
+      }
+      const rows = await db
         .update(initiatives)
         .set({ status, statusChangedAt: new Date() })
-        .where(and(eq(initiatives.orgId, orgId), eq(initiatives.id, id)));
+        .where(and(...conds))
+        .returning({ id: initiatives.id });
+      return rows.length > 0;
     },
 
     /** Record the manager-set outcome at review time (org-scoped). Never a
-     * causal claim — the review presents measured before/after (P3). */
-    async setOutcome(id: string, outcome: InitiativeOutcome): Promise<void> {
-      await db
+     * causal claim — the review presents measured before/after (P3). A
+     * COMPARE-AND-SET over the open statuses: applies (and returns true) only
+     * when the initiative is still `active`/`in_review`, so it can't be
+     * double-reviewed under concurrency. Sets status `completed`. */
+    async setOutcome(id: string, outcome: InitiativeOutcome): Promise<boolean> {
+      const rows = await db
         .update(initiatives)
         .set({ outcome, status: "completed", statusChangedAt: new Date() })
-        .where(and(eq(initiatives.orgId, orgId), eq(initiatives.id, id)));
+        .where(
+          and(
+            eq(initiatives.orgId, orgId),
+            eq(initiatives.id, id),
+            inArray(initiatives.status, ["active", "in_review"]),
+          ),
+        )
+        .returning({ id: initiatives.id });
+      return rows.length > 0;
     },
 
     /** NAMED participant roster for one initiative (org-scoped join to people).

@@ -11,6 +11,16 @@
 > (viewer-relative booleans only). No schema/contract change beyond the additive
 > `participantsWithNames` namespace method this ADR already anticipated.
 
+> **Delivery note (P3, 2026-07-20):** the **outcome review** shipped —
+> `recordInitiativeOutcome` / `stopInitiative` (owner-OR-admin) + `POST
+> /api/initiatives/:id/review`. The manager records improved/unchanged/worsened/
+> inconclusive from the MEASURED before/after (Revealyst never claims causality),
+> or stops the initiative. The P2a-flagged transition gap is closed: the
+> namespace `setOutcome`/`setStatus` are now **compare-and-set** over the open
+> statuses (`active`/`in_review`), so a concurrent review can't double-write or
+> land `stopped` with an outcome set. No schema change. (Decision log + capability
+> depth/spread aggregates remain the P3 tail.)
+
 - **Status:** Accepted
 - **Date:** 2026-07-20
 - **Deciders:** Team Manager Dashboard workstream (TMD Phase P2); founder-signed

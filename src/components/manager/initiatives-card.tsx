@@ -17,6 +17,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { ResponsiveSheetContent } from "@/components/responsive-sheet-content";
 import { InitiativeRosterDrawer } from "@/components/manager/initiative-roster-drawer";
+import { InitiativeReviewDrawer } from "@/components/manager/initiative-review-drawer";
 import { SCORE_GLOSSARY, type ScoreSlug } from "@/lib/metrics-glossary";
 import {
   INITIATIVE_LIBRARY,
@@ -73,6 +74,7 @@ export function InitiativesCard({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [rosterFor, setRosterFor] = useState<InitiativeVM | null>(null);
+  const [reviewFor, setReviewFor] = useState<InitiativeVM | null>(null);
   const [templateSlug, setTemplateSlug] = useState<string>("");
   const [title, setTitle] = useState("");
   const [target, setTarget] = useState("70");
@@ -181,6 +183,15 @@ export function InitiativesCard({
                         onClick={() => setRosterFor(i)}
                       >
                         {COPY.manageRoster}
+                      </button>
+                    ) : null}
+                    {i.isOwner ? (
+                      <button
+                        type="button"
+                        className="text-primary underline-offset-2 hover:underline"
+                        onClick={() => setReviewFor(i)}
+                      >
+                        {COPY.review}
                       </button>
                     ) : null}
                   </div>
@@ -304,6 +315,23 @@ export function InitiativesCard({
           open={rosterFor !== null}
           onOpenChange={(o) => {
             if (!o) setRosterFor(null);
+          }}
+        />
+      ) : null}
+
+      {/* The outcome-review drawer (owner/admin — P3): measured before/after +
+       * outcome picker + stop. */}
+      {reviewFor ? (
+        <InitiativeReviewDrawer
+          initiativeId={reviewFor.id}
+          title={reviewFor.title}
+          metricLabel={metricLabel(reviewFor)}
+          baseline={reviewFor.baseline}
+          current={reviewFor.current}
+          target={reviewFor.target}
+          open={reviewFor !== null}
+          onOpenChange={(o) => {
+            if (!o) setReviewFor(null);
           }}
         />
       ) : null}
