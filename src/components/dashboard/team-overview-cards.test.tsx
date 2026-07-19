@@ -11,6 +11,8 @@ import { TeamFreshnessLine } from "./team-freshness-line";
 import { UsageDistributionPanel } from "./usage-distribution-panel";
 import { UsageConcentrationPanel } from "./usage-concentration-panel";
 import { DataTrustCard } from "./data-trust-card";
+import { KpiRow, type KpiTileData } from "./kpi-row";
+import { DataConfidenceLine } from "./data-confidence-line";
 import { TEAM_OVERVIEW_COPY } from "@/lib/team-overview-copy";
 import { SEGMENT_MIN_PEOPLE_TO_NAME } from "@/lib/segments";
 import type { PlateauResult } from "@/lib/plateau";
@@ -262,5 +264,70 @@ describe("Team overview cards — axe smoke (U4.1)", () => {
       />,
     );
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("KpiRow has no detectable a11y violations", async () => {
+    const { container } = render(<KpiRow tiles={KPI_TILES} />);
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("DataConfidenceLine has no detectable a11y violations", async () => {
+    const { container } = render(
+      <DataConfidenceLine
+        coverage={{ single: 2, total: 6 }}
+        gapsCount={1}
+        sharedCount={2}
+      />,
+    );
+    expect(await axe(container)).toHaveNoViolations();
+  });
+});
+
+// P0b — the four compact indicators (analysis §5D). Each tile shows a measured
+// value or an honest "—"; the row is count-only and carries no per-person data.
+const KPI_TILES: KpiTileData[] = [
+  { label: "People using AI regularly", info: "Adoption.", tier: "measured", value: 62, sub: "out of 100" },
+  { label: "Workflow depth", info: "Depth.", tier: "measured", value: "—", sub: "Not enough data yet" },
+  { label: "Capability spread", info: "Coverage.", tier: "directional", value: 3, sub: "of 9 tracked capabilities have mastered members" },
+  { label: "Data confidence", info: "Evidence.", tier: "measured", value: "4/6", sub: "identified people on 2+ sources" },
+];
+
+describe("KpiRow (P0b — four compact indicators)", () => {
+  it("renders every tile's label and value", () => {
+    render(<KpiRow tiles={KPI_TILES} />);
+    for (const tile of KPI_TILES) {
+      expect(screen.getByText(tile.label)).toBeTruthy();
+    }
+    expect(screen.getByText("62")).toBeTruthy();
+    expect(screen.getByText("4/6")).toBeTruthy();
+  });
+
+  it("shows an honest withheld state ('—') with its reason, never a fabricated number", () => {
+    render(<KpiRow tiles={KPI_TILES} />);
+    expect(screen.getByText("—")).toBeTruthy();
+    expect(screen.getByText("Not enough data yet")).toBeTruthy();
+  });
+});
+
+describe("DataConfidenceLine (P0b — one persistent confidence line)", () => {
+  it("summarizes coverage, reporting gaps, and shared accounts (count-only)", () => {
+    const { container } = render(
+      <DataConfidenceLine
+        coverage={{ single: 2, total: 6 }}
+        gapsCount={1}
+        sharedCount={2}
+      />,
+    );
+    // 6 identified, 4 on 2+ sources (6 total − 2 single-source).
+    expect(container.textContent).toContain("6 people identified (4 on 2+ sources)");
+    expect(container.textContent).toContain("1 reporting gap");
+    expect(container.textContent).toContain("2 shared accounts unresolved");
+  });
+
+  it("states an honest empty read when nobody is resolved yet", () => {
+    const { container } = render(
+      <DataConfidenceLine coverage={null} gapsCount={0} sharedCount={0} />,
+    );
+    expect(container.textContent).toContain("No people resolved yet");
   });
 });

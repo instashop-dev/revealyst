@@ -40,17 +40,17 @@ export const TEAM_OVERVIEW_COPY = {
    * the wording is count-free: it states the rule, never how many were hidden. */
   floorNote: (minPeople: number) =>
     `Shown only for groups of ${minPeople} or more people, to protect individuals.`,
-  /** (a) Team AI Health — the three scores, recent movement, the period story,
-   * and consolidated spend. */
-  health: {
-    title: "Team AI health",
-    lead: "Your three headline scores, how they moved, and what AI cost this period.",
+  /** Capability map (P0b / analysis §5E) — the promoted "what can the team
+   * reliably do with AI?" surface: coverage + trend + the count-only insight
+   * feed, lifted to the top of the Command Center. Aggregate only. */
+  capabilityMap: {
+    title: "Capability map",
+    lead: "What your team can reliably do with AI — coverage, how it's trending, and where to help next. Aggregate only, never a read on any one person.",
   },
-  /** (b) AI maturity — the modeled level + the measured axes + how the usage
-   * actually looks. Distribution over the maturity model, not a redesign. */
+  /** AI maturity detail disclosure — the CSV export + full board-report link.
+   * The section title/lead moved to inline copy on the CollapsibleSection when
+   * the P0b restructure folded maturity behind progressive disclosure. */
   maturity: {
-    title: "AI maturity",
-    lead: "Your modeled maturity level and the measured breadth, depth, and consistency behind it.",
     fullReport: "Open the full board report",
     exportCsv: "Export board CSV",
   },
@@ -68,12 +68,6 @@ export const TEAM_OVERVIEW_COPY = {
       `Your leading cohort is ${count} ${label.toLowerCase()} — a natural set of internal champions to help the rest of the team level up.`,
     championsCold:
       "Too few people are scored yet to name a leading cohort without singling someone out — invite more of the team to build a clearer picture.",
-  },
-  /** (d) Benchmarks / distribution — the within-org percentile lens + published
-   * norms. */
-  distribution: {
-    title: "Benchmarks & distribution",
-    lead: "How usage spreads across your own people (a within-org percentile lens), next to published norms.",
   },
   /** (e) Data trust — the honesty surface: connector gaps, shared accounts, and
    * how many independent sources feed each person's picture. */

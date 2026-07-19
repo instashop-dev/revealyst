@@ -9,6 +9,8 @@ import {
   DataTrustCard,
   type CoverageAggregate,
 } from "@/components/dashboard/data-trust-card";
+import { DataConfidenceLine } from "@/components/dashboard/data-confidence-line";
+import { KpiRow, type KpiTileData } from "@/components/dashboard/kpi-row";
 import { MaturityExportButton } from "@/components/dashboard/maturity-export-button";
 import { TeamNarrativeHero } from "@/components/dashboard/team-narrative-hero";
 import { RecentMovementPanel } from "@/components/dashboard/recent-movement-panel";
@@ -74,6 +76,13 @@ import {
   dashboardWindow,
   SpendGovernanceLine,
 } from "./shared";
+
+// P0b — the top-3 priorities cap (Team Manager Dashboard plan §3 P0; analysis
+// §5B "display no more than three priorities"). `deriveAttention` already
+// impact-ranks its items (errors first), so the top 3 are the most important;
+// this is a display cap on the team surface only (sliced at the call site so the
+// personal self-view's AttentionSection is unaffected).
+const MAX_TEAM_PRIORITIES = 3;
 
 export async function TeamOverview() {
   // Fetched here, NOT passed as a prop from page.tsx: React's `cache()`
@@ -261,6 +270,58 @@ export async function TeamOverview() {
     plateau,
   });
 
+  // P0b — the four compact indicators (analysis §5D). Every value is derived
+  // from data already fetched above (no new read); each shows a measured value
+  // or an honest "—" (invariant b). `capabilityCoverage` is already
+  // MIN_PEOPLE-floored and count-only by the caller, so "capability spread"
+  // exposes no per-person data.
+  const adoptionValue = cardData.get("adoption")!.value;
+  const depthAxis = maturity.axes.depth;
+  const capsWithMastery = capabilityCoverage.filter((r) => r.mastered > 0).length;
+  const capsTracked = capabilityCoverage.length;
+  const multiSourcePeople = coverageAggregate
+    ? coverageAggregate.total - coverageAggregate.single
+    : 0;
+  const kpiTiles: KpiTileData[] = [
+    {
+      label: "People using AI regularly",
+      info: "Your Adoption score — how consistently the team shows up in AI tools. Full breakdown in the health detail below.",
+      tier: "measured",
+      value: adoptionValue == null ? "—" : Math.round(adoptionValue),
+      sub: adoptionValue == null ? "No adoption score yet" : "out of 100",
+    },
+    {
+      label: "Workflow depth",
+      info: "How deeply the team uses AI — repeatable, multi-step workflows rather than one-off prompts (the Depth maturity axis).",
+      tier: "measured",
+      value: depthAxis.available ? Math.round(depthAxis.value) : "—",
+      sub: depthAxis.available ? "out of 100" : "Not enough data yet",
+    },
+    {
+      label: "Capability spread",
+      info: "How many capabilities the team has measured mastery in — a read on how broadly capability is spread, not concentrated. Count-only.",
+      tier: "directional",
+      value: capsTracked === 0 ? "—" : capsWithMastery,
+      sub:
+        capsTracked === 0
+          ? "Not enough data yet"
+          : `of ${capsTracked} tracked ${capsTracked === 1 ? "capability" : "capabilities"} have mastered members`,
+    },
+    {
+      label: "Data confidence",
+      info: "How much independent evidence backs these numbers — identified people and how many rest on more than one source.",
+      tier: "measured",
+      value:
+        coverageAggregate == null
+          ? "—"
+          : `${multiSourcePeople}/${coverageAggregate.total}`,
+      sub:
+        coverageAggregate == null
+          ? "No people resolved yet"
+          : "identified people on 2+ sources",
+    },
+  ];
+
   return (
     <>
       <PageHeader
@@ -284,12 +345,15 @@ export async function TeamOverview() {
 
       <SyncStalenessBanner connections={connections} />
 
-      <AttentionSection items={attentionItems} />
+      {/* P0b (analysis §5B): the top-3 priorities lead the page — the most
+       * important, impact-ranked items only. Capped so the surface says "here
+       * is what matters now", not a wall of alerts. */}
+      <AttentionSection items={attentionItems.slice(0, MAX_TEAM_PRIORITIES)} />
 
       {/* P3-A (ADR 0045): manager-only entry into the per-person capability
-       * drill-in. A SEPARATE surface from the count-only 5-card fold below —
-       * no per-person data here, just a link. Shown only to a manager (≥1
-       * managed team) in managed/full mode; hidden in private (surface absent). */}
+       * drill-in. A SEPARATE surface from the count-only fold below — no
+       * per-person data here, just a link. Shown only to a manager (≥1 managed
+       * team) in managed/full mode; hidden in private (surface absent). */}
       {showManagerEntry ? (
         <Card>
           <CardHeader>
@@ -316,88 +380,98 @@ export async function TeamOverview() {
       ) : null}
 
       {hasScores ? (
-        // W5-H dashboard-itis fold: ~18–20 panels curated into FIVE
-        // audience-scoped cards — Team AI health · AI maturity · Training
-        // opportunities · Benchmarks & distribution · Data trust. Every retired
-        // panel keeps its component; only the grouping changed (curation over
-        // the same readDashboardView batch — no new reader, no capability loss).
+        // P0b Manager Command Center (Team Manager Dashboard plan §3 P0): the
+        // page reads conclusion-first — the period story, four compact
+        // indicators, the capability map, then one data-confidence line — with
+        // every detailed panel folded behind progressive disclosure. A reorder
+        // of the SAME readDashboardView batch: no new reader, no capability
+        // loss (every panel keeps its component), only default visibility
+        // changed. Stays within D-TCI-5 (one page, cards/drawers, no new nav).
         <>
-          {/* U4.1 narrative hero: the period story leads (promoted out of
-           * section (a)), with a single CTA into the training section below.
-           * Reorder only — same `narrative`/`correlations` the card always
-           * received. */}
+          {/* The period story leads — the conclusion, before any evidence. */}
           <TeamNarrativeHero narrative={narrative} correlations={correlations} />
 
-          {/* (a) Team AI health — the three headline scores, how they moved, the
-           * period story, and the one-line spend-governance summary. */}
-          <section className="flex flex-col gap-3">
-            <SectionHeading>{TEAM_OVERVIEW_COPY.health.title}</SectionHeading>
+          {/* Four compact indicators (analysis §5D), replacing the old three
+           * full-size score cards at the top. The full scores fold below. */}
+          <KpiRow tiles={kpiTiles} />
+
+          {/* The capability map (analysis §5E) — "what can the team reliably do
+           * with AI?" Promoted to the top: coverage + trend + the count-only
+           * manager insight feed (the suggested-action surface). Carries the
+           * #team-training anchor the narrative hero CTA points at. */}
+          <section id="team-training" className="flex flex-col gap-3">
+            <SectionHeading>
+              {TEAM_OVERVIEW_COPY.capabilityMap.title}
+            </SectionHeading>
             <p className="text-sm text-muted-foreground">
-              {TEAM_OVERVIEW_COPY.health.lead}
+              {TEAM_OVERVIEW_COPY.capabilityMap.lead}
             </p>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {/* W7-6: aggregate, count-only capability coverage, MIN_PEOPLE-
+               * floored. U4.1: the floor note states WHY a small-group
+               * capability is absent instead of it silently vanishing. */}
+              <CapabilityCoverageCard
+                rows={capabilityCoverage}
+                floorNote={TEAM_OVERVIEW_COPY.floorNote(SEGMENT_MIN_PEOPLE_TO_NAME)}
+              />
+              <CapabilityGrowthCard
+                rows={capabilityGrowth}
+                capabilityLabels={capabilityLabels}
+              />
+              <ManagerInsightsCard
+                insights={teamInsights}
+                capabilityLabels={capabilityLabels}
+              />
+            </div>
+          </section>
+
+          {/* One persistent data-confidence line (analysis §11). The full
+           * DataTrustCard + SharedAccountFlags move into the disclosure below —
+           * demoted, never deleted (the honesty data is preserved). */}
+          <DataConfidenceLine
+            coverage={coverageAggregate}
+            gapsCount={gaps.length}
+            sharedCount={sharedAccounts.length}
+          />
+
+          {/* Progressive disclosure (analysis §12/§15/§16): the detailed
+           * report folds below the conclusion so the default view is ~2
+           * viewports, not one long diagnostic. Everything is preserved — only
+           * its default visibility changed. */}
+          <CollapsibleSection
+            label="Team AI health detail"
+            description="Your three headline scores, how they moved, and what AI cost this period."
+          >
             <div className="grid gap-4 lg:grid-cols-3">
               <ScoreCard data={cardData.get("adoption")!} />
               <ScoreCard data={cardData.get("fluency")!} />
               <ScoreCard data={cardData.get("efficiency")!} />
             </div>
             <RecentMovementPanel movement={recentMovement} />
-            {/* Deliverable 5: Spend Governance folded into the exec view as a
-             * one-LINE summary (the full /spend page stays). Reported spend +
-             * the measured cost-per-active-person, linking out to manage
-             * budgets — never an estimated or ROI number. */}
+            {/* Deliverable 5: Spend Governance as a one-LINE summary (the full
+             * /spend page stays). Reported spend + the measured cost-per-active-
+             * person, never an estimated or ROI number. */}
             <SpendGovernanceLine
               spendCents={summary.spendCents}
               spendCentsEstimated={summary.spendCentsEstimated}
               costPerActiveUser={maturity.numbers.costPerActiveUser}
             />
-          </section>
+          </CollapsibleSection>
 
-          {/* TCI Phase 2-F: the aggregate manager insight feed (≤3, count-only,
-           * dismissible) + the capability growth trend. ONE self-contained
-           * section, so a parallel edit to this file (the P3-A manager entry
-           * card) rebases cleanly. Both cards are aggregate/MIN_PEOPLE-floored
-           * with no per-person data. */}
-          <section id="team-insights" className="flex flex-col gap-3">
-            <SectionHeading>Insights &amp; growth</SectionHeading>
-            <p className="text-sm text-muted-foreground">
-              A short, prioritized read on what&apos;s worth your attention, and
-              how your team&apos;s capabilities are trending — aggregate only.
-            </p>
-            <div className="grid gap-4 lg:grid-cols-2">
-              <ManagerInsightsCard
-                insights={teamInsights}
-                capabilityLabels={capabilityLabels}
-              />
-              <CapabilityGrowthCard
-                rows={capabilityGrowth}
-                capabilityLabels={capabilityLabels}
-              />
-            </div>
-          </section>
-
-          {/* (b) AI maturity — the modeled level + measured axes, plus how the
-           * usage actually looks (activity detail folds in here since the axes
-           * ARE breadth/depth/consistency of that usage). Board CSV export +
-           * link to the full one-page report. */}
-          <section className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div className="flex flex-col gap-1">
-                <SectionHeading>{TEAM_OVERVIEW_COPY.maturity.title}</SectionHeading>
-                <p className="text-sm text-muted-foreground">
-                  {TEAM_OVERVIEW_COPY.maturity.lead}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <MaturityExportButton />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  nativeButton={false}
-                  render={<Link href="/maturity" />}
-                >
-                  {TEAM_OVERVIEW_COPY.maturity.fullReport}
-                </Button>
-              </div>
+          <CollapsibleSection
+            label="AI maturity detail"
+            description="Your modeled maturity level and the measured breadth, depth, and consistency behind it."
+          >
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <MaturityExportButton />
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href="/maturity" />}
+              >
+                {TEAM_OVERVIEW_COPY.maturity.fullReport}
+              </Button>
             </div>
             <MaturityLevelBanner
               level={maturity.level}
@@ -405,11 +479,8 @@ export async function TeamOverview() {
               stale={maturity.stale}
             />
             <MaturityAxisMeters axes={maturity.axes} />
-            {/* The level + axes are the headline; the detailed usage panels
-             * (heatmap, tool coverage, agent adoption, trends, attribution)
-             * fold behind a disclosure so this section stops being the one
-             * panel-dense screen in the fold. Everything is preserved — only
-             * its default visibility changed (progressive disclosure). */}
+            {/* The level + axes are the headline; the detailed usage panels fold
+             * one level deeper so this section stops being panel-dense. */}
             <CollapsibleSection
               label="See usage detail"
               description="When your team is most active, which tools they use, agent adoption, and how scores are trending."
@@ -424,28 +495,16 @@ export async function TeamOverview() {
               </div>
               <AttributionTrendCard trend={attributionTrend} />
             </CollapsibleSection>
-          </section>
+          </CollapsibleSection>
 
-          {/* (c) Training opportunities — the action card: leading cohort
-           * (floor-gated), plateau verdict, segment split (count-only), and
-           * usage concentration. */}
-          <section id="team-training" className="flex flex-col gap-3">
-            <SectionHeading>{TEAM_OVERVIEW_COPY.training.title}</SectionHeading>
-            <p className="text-sm text-muted-foreground">
-              {TEAM_OVERVIEW_COPY.training.sectionLead}
-            </p>
+          <CollapsibleSection
+            label="Training & segments"
+            description="Where enablement would move the needle — leading cohort, segments, and usage concentration. Aggregate only, never a read on any one person."
+          >
             <div className="grid gap-4 lg:grid-cols-2">
               <TrainingOpportunitiesCard
                 segments={segments}
                 plateau={usagePlateau}
-              />
-              {/* W7-6: aggregate, count-only capability coverage — the manager's
-               * "where to coach" surface, MIN_PEOPLE-floored, no per-person data.
-               * U4.1: the floor note states WHY a small-group capability is
-               * absent instead of it silently vanishing (count-free rule). */}
-              <CapabilityCoverageCard
-                rows={capabilityCoverage}
-                floorNote={TEAM_OVERVIEW_COPY.floorNote(SEGMENT_MIN_PEOPLE_TO_NAME)}
               />
               {/* P2c distribution completeness: the count-only tally of tracked
                * people with no activity yet this period, so the split never
@@ -456,33 +515,27 @@ export async function TeamOverview() {
               />
               <UsageConcentrationPanel concentration={usageConcentration} />
             </div>
-          </section>
+          </CollapsibleSection>
 
-          {/* (d) Benchmarks & distribution — the within-org percentile lens next
-           * to published norms. */}
-          <section className="flex flex-col gap-3">
-            <SectionHeading>{TEAM_OVERVIEW_COPY.distribution.title}</SectionHeading>
-            <p className="text-sm text-muted-foreground">
-              {TEAM_OVERVIEW_COPY.distribution.lead}
-            </p>
+          <CollapsibleSection
+            label="Benchmarks & distribution"
+            description="How usage spreads across your own people (a within-org percentile lens), next to published norms."
+          >
             <div className="grid gap-4 lg:grid-cols-2">
               <BenchmarkPanel benchmarks={benchmarks} />
               <UsageDistributionPanel distribution={usageDistribution} />
             </div>
-          </section>
+          </CollapsibleSection>
 
-          {/* (e) Data trust — the honesty surface: signal coverage (aggregate),
-           * connector reporting gaps, and shared accounts. */}
-          <section className="flex flex-col gap-3">
-            <SectionHeading>{TEAM_OVERVIEW_COPY.dataTrust.title}</SectionHeading>
-            <p className="text-sm text-muted-foreground">
-              {TEAM_OVERVIEW_COPY.dataTrust.lead}
-            </p>
+          <CollapsibleSection
+            label="Data & attribution detail"
+            description="How complete and trustworthy this picture is — reporting gaps, shared accounts, and signal coverage."
+          >
             <div className="grid gap-4 lg:grid-cols-2">
               <DataTrustCard coverage={coverageAggregate} gaps={gaps} />
               <SharedAccountFlags flags={sharedAccounts} />
             </div>
-          </section>
+          </CollapsibleSection>
         </>
       ) : connections.some(isUsableConnection) ? (
         // Usable (non-errored, non-paused — the lib's definition) connections
