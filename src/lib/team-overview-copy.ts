@@ -9,7 +9,7 @@ export const TEAM_OVERVIEW_COPY = {
   header: {
     title: "Team Intelligence",
     description:
-      "Who's using AI, how deeply, and what it costs — across your tools, aggregate by default. Tap the info icon next to any number for a plain-English explanation.",
+      "Who's using AI, how deeply, and what it costs — across your tools, aggregate by default.",
   },
   /** Narrative hero (U4.1): the period story leads the page, and one CTA points
    * to the single safe enablement action (the training section below). */

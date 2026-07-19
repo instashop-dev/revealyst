@@ -79,7 +79,7 @@ export function UsageDistributionPanel({
                     >
                       <div
                         className="h-full rounded-full bg-primary"
-                        style={{ width: `${pct}%` }}
+                        style={{ width: `${Math.round(pct)}%` }}
                       />
                     </div>
                   </li>

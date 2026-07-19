@@ -60,7 +60,10 @@ function AxisMeterCard({
               </span>
               <span className="text-xs text-muted-foreground">out of 100</span>
             </div>
-            <ScoreMeter value={axis.value} label={`${copy.label} score`} />
+            <ScoreMeter
+              value={Math.round(axis.value)}
+              label={`${copy.label} score`}
+            />
           </>
         ) : (
           <div className="flex flex-col gap-1 text-sm text-muted-foreground">
