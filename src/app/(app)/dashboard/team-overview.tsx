@@ -14,6 +14,7 @@ import { KpiRow, type KpiTileData } from "@/components/dashboard/kpi-row";
 import { MaturityExportButton } from "@/components/dashboard/maturity-export-button";
 import { TeamNarrativeHero } from "@/components/dashboard/team-narrative-hero";
 import { TeamGoalCard } from "@/components/manager/team-goal-card";
+import { InitiativesCard } from "@/components/manager/initiatives-card";
 import { RecentMovementPanel } from "@/components/dashboard/recent-movement-panel";
 import { ScoreTrend } from "@/components/dashboard/score-trend";
 import { SegmentBreakdown } from "@/components/dashboard/segment-breakdown";
@@ -172,6 +173,7 @@ export async function TeamOverview() {
     teamInsights,
     capabilityGrowth,
     goal,
+    initiatives,
   } = view;
 
   // TMD P1b (ADR 0061): who may set/change the team goal. The goal is an
@@ -419,6 +421,16 @@ export async function TeamOverview() {
             goal={goal}
             canManage={canManageGoal}
             currentByMetric={currentByMetric}
+          />
+
+          {/* TMD P2b (ADR 0062): the executable middle — open initiatives
+           * (count-only participation) + the launch drawer for a manager. Same
+           * admin-or-manager gate as the goal (aggregate, works in private
+           * mode); the named roster is a separate P2c surface. */}
+          <InitiativesCard
+            initiatives={initiatives}
+            canManage={canManageGoal}
+            capabilityLabels={Object.fromEntries(capabilityLabels)}
           />
 
           {/* The period story leads — the conclusion, before any evidence. */}

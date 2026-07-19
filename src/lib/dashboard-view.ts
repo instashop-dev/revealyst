@@ -232,6 +232,25 @@ export type DashboardView = {
     reviewDate: string;
     current: number | null;
   } | null;
+  /** TMD P2 (ADR 0062): the OPEN initiatives (not completed/stopped), COUNT-ONLY.
+   * `participantCount` is an aggregate — the row carries NO participant id/name
+   * (the named roster is a separate manager-authorized read, P2c), so a
+   * per-person leak is structurally impossible and it adds nothing
+   * `assertTeamOnlyPseudonymized` must inspect. `current` is the measured team
+   * value for a score-targeted initiative (or null — capability targets and
+   * unmeasured scores carry none, never a fabricated number). */
+  initiatives: {
+    id: string;
+    title: string;
+    status: "draft" | "active" | "in_review" | "completed" | "stopped";
+    scoreSlug: string | null;
+    capabilitySlug: string | null;
+    baseline: number | null;
+    target: number;
+    current: number | null;
+    reviewDate: string;
+    participantCount: number;
+  }[];
 };
 
 // Re-exported from the shared builder so existing importers of
@@ -275,6 +294,8 @@ export async function readDashboardView(
     teamInsights,
     capabilityGrowthRows,
     activeGoal,
+    initiativeRows,
+    initiativeParticipantCounts,
   ] = await Promise.all([
     scope.scores.results({ from: window.from, to: window.to }),
     scope.scores.definitions(),
@@ -359,6 +380,13 @@ export async function readDashboardView(
     // set. Count-free / person-free (holds only the manager's own owner id), so
     // it adds nothing the privacy predicate must inspect.
     scope.goals.getActive(null),
+    // TMD P2 (ADR 0062): active initiatives + their COUNT-ONLY participation.
+    // Two reads folded into this single round-trip (§8.2 perf floor). The counts
+    // are aggregate (no person id/name — the wall-crossing named roster is a
+    // separate manager-authorized read, P2c), so neither adds anything the
+    // privacy predicate must inspect.
+    scope.initiatives.list(),
+    scope.initiatives.participantCounts(),
   ]);
 
   // One pass over the superset: the exact splits trends (team) and segments
@@ -588,6 +616,30 @@ export async function readDashboardView(
           current: latest.get(activeGoal.metricSlug)?.value ?? null,
         }
       : null,
+    // TMD P2: the OPEN initiatives (exclude completed/stopped), newest-review
+    // first, with COUNT-ONLY participation. `current` is the measured team value
+    // for a score-targeted initiative (from the same `latest` map the KPIs use),
+    // rounded to match the integer baseline — null when unmeasured or capability-
+    // targeted (invariant b, never fabricated).
+    initiatives: initiativeRows
+      .filter((r) => r.status !== "completed" && r.status !== "stopped")
+      .sort((a, b) => a.reviewDate.localeCompare(b.reviewDate))
+      .map((r) => {
+        const measured =
+          r.scoreSlug !== null ? latest.get(r.scoreSlug)?.value : undefined;
+        return {
+          id: r.id,
+          title: r.title,
+          status: r.status,
+          scoreSlug: r.scoreSlug,
+          capabilitySlug: r.capabilitySlug,
+          baseline: r.baseline,
+          target: r.target,
+          current: measured === undefined ? null : Math.round(measured),
+          reviewDate: r.reviewDate,
+          participantCount: initiativeParticipantCounts.get(r.id) ?? 0,
+        };
+      }),
   };
 
   // T2.1: enforce the §7 privacy default at runtime, not just in tests. Gated

@@ -29,7 +29,13 @@ import { addDays } from "../poller/backfill";
 import type { PollMessage } from "../poller/messages";
 import { latestTeamScoresBySlug, type DefinitionRow } from "./dashboard-read";
 import { isUniqueViolation } from "../db/org-scope/shared";
-import type { TeamGoalMetric } from "./team-goal";
+import { isTeamGoalMetric, type TeamGoalMetric } from "./team-goal";
+import {
+  INITIATIVE_CAPABILITY_SLUGS,
+  INITIATIVE_LIBRARY,
+  INITIATIVE_SCORE_SLUGS,
+  isInitiativeTemplate,
+} from "./initiative-library";
 import { collectGaps } from "./honesty-gaps";
 import { managerSurfaceAvailable } from "./manager-capability-view";
 import { callerIsNoteSubject } from "./manager-notes-view";
@@ -727,6 +733,92 @@ export async function setTeamGoal(
     }
     throw error;
   }
+}
+
+/**
+ * Launch an initiative (TMD P2b, ADR 0062) — turn a recommendation into a
+ * tracked effort. Manager-OR-admin only (mirrors setTeamGoal). The target metric
+ * is a CLOSED union (score slug and/or capability slug — validated here, never
+ * free-form); a `template_slug` (if given) must be a known library template and
+ * seeds the default metric/title. The baseline is SERVER-computed from the
+ * current measured value when a score is targeted (invariant b — never a
+ * fabricated starting number; null for a capability-only target, which has no
+ * 0-100 team value). `ownerUserId` is the caller's own id.
+ *
+ * P2b creates the objective + owner ONLY — named participants (the wall-crossing
+ * roster) are added under P2c's manager-authorized surface, not here.
+ */
+export async function launchInitiative(
+  args: {
+    scope: OrgScope;
+    role: "admin" | "member";
+    actorUserId: string;
+  },
+  input: {
+    templateSlug: string | null;
+    title: string;
+    capabilitySlug: string | null;
+    scoreSlug: string | null;
+    target: number;
+    reviewDate: string;
+  },
+) {
+  const { scope, role, actorUserId } = args;
+
+  const isManager =
+    role === "admin" ||
+    (await scope.teamManagers.managedTeamIds(actorUserId)).length > 0;
+  if (!isManager) {
+    throw new ApiError(403, "only a manager or admin can launch an initiative");
+  }
+
+  // Resolve the template (if any) — it seeds the default metric bindings.
+  if (input.templateSlug !== null && !isInitiativeTemplate(input.templateSlug)) {
+    throw new ApiError(400, "unknown initiative template");
+  }
+  const template =
+    input.templateSlug !== null ? INITIATIVE_LIBRARY[input.templateSlug] : null;
+
+  const capabilitySlug = input.capabilitySlug ?? template?.capabilitySlug ?? null;
+  const scoreSlug = input.scoreSlug ?? template?.scoreSlug ?? null;
+
+  // Closed-union validation (never free-form — invariant b / no formula DSL).
+  if (
+    capabilitySlug !== null &&
+    !INITIATIVE_CAPABILITY_SLUGS.includes(capabilitySlug)
+  ) {
+    throw new ApiError(400, "unknown capability");
+  }
+  if (
+    scoreSlug !== null &&
+    !(INITIATIVE_SCORE_SLUGS as readonly string[]).includes(scoreSlug)
+  ) {
+    throw new ApiError(400, "unknown score");
+  }
+  // An initiative must aim at something measurable.
+  if (capabilitySlug === null && scoreSlug === null) {
+    throw new ApiError(400, "an initiative must target a capability or a score");
+  }
+
+  // Server-authoritative baseline for a score target (same resolver the
+  // dashboard uses); null for a capability-only target.
+  const baseline = isTeamGoalMetric(scoreSlug)
+    ? await measuredTeamValueBySlug(scope, scoreSlug)
+    : null;
+
+  return scope.initiatives.create({
+    // Org-wide (team_id null) — the common case today, mirroring team_goals.
+    // Team-scoped initiatives arrive with the subgroup breakdown (later slice).
+    teamId: null,
+    ownerUserId: actorUserId,
+    title: input.title,
+    templateSlug: input.templateSlug,
+    capabilitySlug,
+    scoreSlug,
+    baseline,
+    target: input.target,
+    reviewDate: input.reviewDate,
+  });
 }
 
 export async function dismissTeamInsight(
