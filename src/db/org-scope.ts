@@ -17,6 +17,7 @@ import { exposuresNamespace } from "./org-scope/exposures";
 import { goalsNamespace } from "./org-scope/goals";
 import { heartbeatsNamespace } from "./org-scope/heartbeats";
 import { identitiesNamespace } from "./org-scope/identities";
+import { initiativesNamespace } from "./org-scope/initiatives";
 import { managerNotesNamespace } from "./org-scope/manager-notes";
 import { masteryNamespace } from "./org-scope/mastery";
 import { memberSpendNamespace } from "./org-scope/member-spend";
@@ -181,6 +182,7 @@ export function forOrg(db: Db, orgId: string) {
     teamSettings: teamSettingsNamespace(db, orgId),
     teamInsights: teamInsightsNamespace(db, orgId),
     goals: goalsNamespace(db, orgId),
+    initiatives: initiativesNamespace(db, orgId),
     connections: connectionsNamespace(db, orgId),
     connectorRuns: connectorRunsNamespace(db, orgId),
     desktopPairing: desktopPairingNamespace(db, orgId),
