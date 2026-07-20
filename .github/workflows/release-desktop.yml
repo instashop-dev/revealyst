@@ -131,7 +131,12 @@ jobs:
             rust_target: aarch64-apple-darwin
             bundles: dmg
             artifact: macos-arm64
-          - os: macos-13
+          # macos-15-intel is GitHub's x86_64 replacement for the retired
+          # macos-13 image (fully removed 2025-12-04). While this leg was pinned
+          # to macos-13 it sat "awaiting a runner" until the 24h max-execution
+          # timeout killed it — that failed `build`, blocked publish, and left
+          # the `desktop-internal-latest` release uncreated (the 404).
+          - os: macos-15-intel
             rust_target: x86_64-apple-darwin
             bundles: dmg
             artifact: macos-x64
@@ -198,7 +203,12 @@ jobs:
             rust_target: aarch64-apple-darwin
             bundles: dmg
             artifact: macos-arm64
-          - os: macos-13
+          # macos-15-intel is GitHub's x86_64 replacement for the retired
+          # macos-13 image (fully removed 2025-12-04). While this leg was pinned
+          # to macos-13 it sat "awaiting a runner" until the 24h max-execution
+          # timeout killed it — that failed `build`, blocked publish, and left
+          # the `desktop-internal-latest` release uncreated (the 404).
+          - os: macos-15-intel
             rust_target: x86_64-apple-darwin
             bundles: dmg
             artifact: macos-x64
@@ -282,7 +292,8 @@ jobs:
         include:
           - os: macos-14
             artifact: macos-arm64
-          - os: macos-13
+          # Verify the Intel build on a native Intel runner (see build matrix).
+          - os: macos-15-intel
             artifact: macos-x64
           - os: windows-latest
             artifact: windows-x64
