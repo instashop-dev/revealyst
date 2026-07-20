@@ -219,6 +219,16 @@ const SCOPED_READS: Array<{
     tables: ["initiative_participants"],
     run: (s) => s.initiatives.participantsForOrg(),
   },
+  // Initiative decision log (ADR 0063): the append-only who/why trail. Both orgs
+  // seed a decision on their own initiative below, so the B-side row carries a B
+  // initiativeId — a dropped org filter surfaces it (non-vacuous, mirrors
+  // initiatives.participantsForOrg). This sweep read returns internal uuids only,
+  // never an author name.
+  {
+    name: "initiatives.decisionsForOrg",
+    tables: ["initiative_decisions"],
+    run: (s) => s.initiatives.decisionsForOrg(),
+  },
   // Manager notes (ADR 0053): org-scoped author-attributed coaching notes
   // (org, person). Both orgs seed a note about their own alice below. The
   // probe keys `listForPerson` on B's alice AND B's core team — the sharpest
@@ -454,6 +464,8 @@ beforeAll(async () => {
         totalCount: 5,
         masteredCount: 1,
         developingCount: 2,
+        masterySumBp: 18000,
+        masterySumSqBp: 116000000,
         confidenceTier: "directional",
       },
     ]);
@@ -501,6 +513,15 @@ beforeAll(async () => {
     await scoped.initiatives.addParticipants(isoInitiative.id, [
       loaded.people.alice,
     ]);
+    // A decision per org (ADR 0063) on this org's initiative, so the B-side
+    // decision row carries a B initiativeId — the decisionsForOrg sweep is
+    // non-vacuous (mirrors initiatives.participantsForOrg).
+    await scoped.initiatives.appendDecision({
+      initiativeId: isoInitiative.id,
+      authorUserId: inviter.id,
+      event: "noted",
+      note: "iso decision",
+    });
     // An exposure per org (ADR 0038) keyed on this org's alice, so the B-side
     // row carries a B personId and the exposures.list sweep is non-vacuous.
     await scoped.exposures.log([

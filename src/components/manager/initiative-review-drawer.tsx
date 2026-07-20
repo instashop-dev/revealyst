@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { ResponsiveSheetContent } from "@/components/responsive-sheet-content";
+import { InitiativeDecisionLog } from "@/components/manager/initiative-decision-log";
 import { TEAM_OVERVIEW_COPY } from "@/lib/team-overview-copy";
 
 const COPY = TEAM_OVERVIEW_COPY.initiatives;
@@ -123,6 +124,9 @@ export function InitiativeReviewDrawer({
               ))}
             </select>
           </div>
+
+          {/* TMD P3 tail (T3.2): the decision log — who decided what and why. */}
+          <InitiativeDecisionLog initiativeId={initiativeId} open={open} />
         </div>
 
         <SheetFooter className="flex-col gap-2 sm:flex-row sm:justify-between">

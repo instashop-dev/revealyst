@@ -56,9 +56,13 @@ export async function recomputeCapabilityHistory(
   //   - coverageCounts: THE dashboard function → represented + mastered (parity);
   //   - coverageTierCounts: count-only tier composition → the tier summary;
   //   - people.list: the org-member denominator (total_count).
-  const [coverage, tierCounts, people] = await Promise.all([
+  const [coverage, tierCounts, depthStats, people] = await Promise.all([
     scoped.mastery.coverageCounts(CAPABILITY_STATE_CONSTANTS.MASTERED_THRESHOLD),
     scoped.mastery.coverageTierCounts(),
+    // TMD P3 tail (T3.3): the count-only depth/spread sufficient statistics —
+    // stored for TREND, derived at read by the SAME deriveDepthSpread the
+    // dashboard uses (the ADR 0046 drift-guard, extended to depth/spread).
+    scoped.mastery.masteryStats(),
     scoped.people.list(),
   ]);
 
@@ -74,6 +78,11 @@ export async function recomputeCapabilityHistory(
     // (a spurious "measured" cohort claim). representedCount stays sourced
     // from coverageCounts — the dashboard-parity function.
     const tier = tierCounts.get(capabilitySlug);
+    // Depth/spread sufficient statistics for the SAME represented cohort. The
+    // `withState` denominators agree by construction (both from the org's state
+    // rows); fall back to zeroed stats only if a capability somehow has coverage
+    // but no stats row (never in practice — same source).
+    const depth = depthStats.get(capabilitySlug);
     return {
       teamId: null,
       capabilitySlug,
@@ -83,6 +92,8 @@ export async function recomputeCapabilityHistory(
       totalCount,
       masteredCount: c.mastered,
       developingCount: c.withState - c.mastered,
+      masterySumBp: depth?.sumBp ?? 0,
+      masterySumSqBp: depth?.sumSqBp ?? 0,
       confidenceTier: summarizeConfidenceTier(
         tier?.measured ?? 0,
         tier?.withState ?? 0,

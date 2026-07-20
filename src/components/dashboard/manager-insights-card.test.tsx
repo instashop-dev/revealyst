@@ -59,6 +59,8 @@ function history(
     totalCount: 12,
     masteredCount: mastered,
     developingCount: total - mastered,
+    masterySumBp: null,
+    masterySumSqBp: null,
     confidenceTier: "directional",
   };
 }

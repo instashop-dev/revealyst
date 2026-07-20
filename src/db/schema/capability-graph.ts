@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -269,6 +270,21 @@ export const teamCapabilityHistory = pgTable(
     // (has evidence but below the mastered threshold). Two bands today.
     masteredCount: integer("mastered_count").notNull(),
     developingCount: integer("developing_count").notNull(),
+    // DEPTH + SPREAD sufficient statistics (TMD P3 tail, T3.3). Count-only
+    // aggregates over the SAME represented people — never a per-person value or
+    // id. Both are the sum, over people-with-state, of mastery expressed in
+    // BASIS POINTS of 1 (round(mastery * 10000), an exact integer for the
+    // round4 mastery scale): `masterySumBp` for the mean, `masterySumSqBp`
+    // (sum of squares) for the population standard deviation. Read-time
+    // `deriveDepthSpread` reconstructs mean + spread from these + the
+    // represented count — the same pure function the live dashboard uses, so a
+    // stored snapshot can never disagree (the ADR 0046 drift-guard, extended).
+    // NULLABLE: rows written before this migration (and any future period a
+    // writer skips) carry no depth/spread — honest "no data", never a
+    // fabricated 0 mean. bigint (mode number): sumSq ≤ 1e8 per person, safe as
+    // a JS number for any realistic team size.
+    masterySumBp: integer("mastery_sum_bp"),
+    masterySumSqBp: bigint("mastery_sum_sq_bp", { mode: "number" }),
     // A single count-derived confidence-tier SUMMARY for the cohort: "measured"
     // only when EVERY represented person is measured (a team claim bounded by its
     // weakest member — honest), else "directional"; "not_measured" only when

@@ -7,6 +7,7 @@ import { createFixtureOrg } from "../src/db/fixtures";
 import { forOrg } from "../src/db/org-scope";
 import * as schema from "../src/db/schema";
 import { SEGMENT_MIN_PEOPLE_TO_NAME } from "../src/lib/segments";
+import { buildCapabilityCoverage } from "../src/lib/capability-coverage";
 
 // W7-6: the aggregate capability-coverage rollup + the MIN_PEOPLE floor. This
 // pins the manager surface as COUNT-ONLY and provably suppressed below the
@@ -92,5 +93,53 @@ describe("capability coverage rollup + MIN_PEOPLE floor", () => {
     const other = (await createFixtureOrg(db, "cap-cov-b", "team")).id;
     const counts = await forOrg(db, other).mastery.coverageCounts(MASTERED);
     expect(counts.size).toBe(0); // no leakage from the seeded org
+  });
+});
+
+// TMD P3 tail (T3.3): depth (mean) + spread (population stddev) on the same
+// count-only rollup. ai-coding-foundations: masteries [0.8, 0.7, 0.65, 0.3, 0.2]
+// → mean 0.53, population stddev ≈ 0.2358.
+describe("capability coverage — depth + spread (T3.3)", () => {
+  it("masteryStats sums the sufficient statistics count-only", async () => {
+    const stats = await forOrg(db, orgId).mastery.masteryStats();
+    // 8000+7000+6500+3000+2000 = 26500; sum of squares = 168_250_000.
+    expect(stats.get("ai-coding-foundations")).toEqual({
+      withState: 5,
+      sumBp: 26500,
+      sumSqBp: 168_250_000,
+    });
+  });
+
+  it("buildCapabilityCoverage WITH stats adds team mean + spread", async () => {
+    const [counts, stats] = await Promise.all([
+      forOrg(db, orgId).mastery.coverageCounts(MASTERED),
+      forOrg(db, orgId).mastery.masteryStats(),
+    ]);
+    const rows = buildCapabilityCoverage(counts, new Map(), undefined, stats);
+    const x = rows.find((r) => r.slug === "ai-coding-foundations");
+    expect(x).toBeDefined();
+    expect(x!.mastered).toBe(3);
+    expect(x!.total).toBe(5);
+    expect(x!.meanMastery).toBeCloseTo(0.53, 4);
+    expect(x!.spread).toBeCloseTo(0.2358, 3);
+    // The below-floor capability is still absent (depth never resurrects it).
+    expect(rows.some((r) => r.slug === "feature-breadth")).toBe(false);
+  });
+
+  it("output-equivalence: omitting stats leaves the count rows identical, mean/spread null", async () => {
+    const [counts, stats] = await Promise.all([
+      forOrg(db, orgId).mastery.coverageCounts(MASTERED),
+      forOrg(db, orgId).mastery.masteryStats(),
+    ]);
+    const withStats = buildCapabilityCoverage(counts, new Map(), undefined, stats);
+    const without = buildCapabilityCoverage(counts, new Map());
+    // Same slugs, order, and counts whether or not stats are supplied.
+    expect(without.map((r) => [r.slug, r.mastered, r.total])).toEqual(
+      withStats.map((r) => [r.slug, r.mastered, r.total]),
+    );
+    for (const r of without) {
+      expect(r.meanMastery).toBeNull();
+      expect(r.spread).toBeNull();
+    }
   });
 });

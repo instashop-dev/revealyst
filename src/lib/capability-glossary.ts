@@ -171,4 +171,10 @@ export const CAPABILITY_COVERAGE_COPY = {
   /** Rendered when no capability clears the minimum-group floor yet. */
   empty:
     "Not enough people have measured capability activity yet to show coverage without singling anyone out.",
+  // T3.3 depth/spread — the mean + how evenly it's shared, both aggregate-only.
+  // Rendered as whole-percent (0–100) of the 0–1 mastery scale.
+  depthLabel: (meanPct: number) => `Team average ${meanPct}%`,
+  spreadEven: "evenly shared",
+  spreadMixed: "mixed",
+  spreadUneven: "very uneven",
 } as const;

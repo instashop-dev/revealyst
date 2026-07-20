@@ -9,6 +9,8 @@ import {
   applyMinPeopleFloor,
   summarizeConfidenceTier,
 } from "../src/lib/capability-history";
+import { deriveDepthSpread } from "../src/lib/capability-depth";
+import { buildCapabilityCoverage } from "../src/lib/capability-coverage";
 import { CAPABILITY_STATE_CONSTANTS } from "../src/scoring/capability-state";
 import { recomputeCapabilityHistory } from "../src/scoring/recompute-capability-history";
 import * as schema from "../src/db/schema";
@@ -122,6 +124,47 @@ describe("capability-history rollup writer", () => {
     expect(capA.representedCount).toBe(3);
     expect(capA.masteredCount).toBe(2);
     expect(capA.developingCount).toBe(1);
+  });
+
+  it("T3.3 depth/spread parity: the stored stats derive the same mean/spread the dashboard shows", async () => {
+    // CAP_A masteries {0.9, 0.7, 0.3} → mean 0.6333, population stddev ≈ 0.249.
+    await seedPerson(orgId, "a1", CAP_A, 0.9);
+    await seedPerson(orgId, "a2", CAP_A, 0.7);
+    await seedPerson(orgId, "a3", CAP_A, 0.3);
+
+    await recomputeCapabilityHistory(db, orgId, { asOfDay: JUNE });
+
+    const scoped = forOrg(db, orgId);
+    const [stored, coverage, stats] = await Promise.all([
+      scoped.capabilityHistory.list(),
+      scoped.mastery.coverageCounts(CAPABILITY_STATE_CONSTANTS.MASTERED_THRESHOLD),
+      scoped.mastery.masteryStats(),
+    ]);
+
+    const capA = stored.find((r) => r.capabilitySlug === CAP_A)!;
+    // The writer persisted the sufficient statistics (not null).
+    expect(capA.masterySumBp).toBe(19000); // 9000 + 7000 + 3000
+    expect(capA.masterySumSqBp).toBe(139_000_000); // 81M + 49M + 9M
+
+    // Drift guard, extended to depth/spread: deriving from the STORED row and
+    // from the LIVE dashboard path (masteryStats → buildCapabilityCoverage)
+    // gives the same mean + spread — a snapshot can never disagree.
+    const fromStored = deriveDepthSpread(
+      capA.masterySumBp,
+      capA.masterySumSqBp,
+      capA.representedCount,
+    );
+    const liveRow = buildCapabilityCoverage(
+      coverage,
+      new Map(),
+      1, // floor of 1 so the 3-person capability is present in this small fixture
+      stats,
+    ).find((r) => r.slug === CAP_A)!;
+    expect(fromStored).not.toBeNull();
+    expect(liveRow.meanMastery).toBe(fromStored!.mean);
+    expect(liveRow.spread).toBe(fromStored!.spread);
+    expect(liveRow.meanMastery).toBeCloseTo(0.6333, 4);
+    expect(liveRow.spread).toBeCloseTo(0.249, 3);
   });
 
   it("stores TRUE counts unfloored; the floor is applied only at read", async () => {

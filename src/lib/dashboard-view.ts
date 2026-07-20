@@ -303,6 +303,7 @@ export async function readDashboardView(
     recommendations,
     capabilityLabels,
     capabilityCoverageCounts,
+    capabilityMasteryStats,
     teamInsights,
     capabilityGrowthRows,
     activeGoal,
@@ -379,6 +380,12 @@ export async function readDashboardView(
     // capability, COUNT-ONLY — no person id) for the team rollup. One batched
     // read; MIN_PEOPLE floor + label join happen in memory below.
     scope.mastery.coverageCounts(CAPABILITY_STATE_CONSTANTS.MASTERED_THRESHOLD),
+    // TMD P3 tail (T3.3): the count-only depth/spread sufficient statistics for
+    // the SAME capabilities — one batched read folded into this round-trip, so
+    // the coverage card can show team mean + spread (not just mastered/total).
+    // Aggregate sums only (no person id/value), so it adds nothing the privacy
+    // predicate must inspect.
+    scope.mastery.masteryStats(),
     // TCI Phase 2-F (ADR 0050): the OPEN manager insight feed (≤3) + the
     // per-capability team history rollup for the growth-trend card — TWO reads
     // folded into this single round-trip (§8.2 perf floor), both count-only and
@@ -603,6 +610,9 @@ export async function readDashboardView(
     capabilityCoverage: buildCapabilityCoverage(
       capabilityCoverageCounts,
       capabilityLabels,
+      undefined,
+      // T3.3: depth/spread stats → team mean + spread per row (count-only).
+      capabilityMasteryStats,
     ),
     // TCI Phase 2-F: the open manager insight feed, straight from the read
     // (already severity-ordered, ≤3, count-only). Rendered to prose on the card.

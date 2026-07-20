@@ -8,6 +8,7 @@ import {
   connections,
   connectorRuns,
   identities,
+  initiativeDecisions,
   initiativeParticipants,
   initiatives,
   managerNotes,
@@ -122,6 +123,13 @@ export const PURGE_TABLES = [
   // carries no FK to orgs. So an explicit org-scoped delete is required, ordered
   // BEFORE `teams` (mirrors team_insights exactly).
   teamGoals,
+  // TMD P3 tail (ADR 0063): the initiative decision log, org-scoped. Composite
+  // tenant FK to `initiatives` is ON DELETE CASCADE, but an explicit org-scoped
+  // delete matches every sibling and keeps ordering independent of cascade —
+  // deleted BEFORE `initiatives`. author_user_id is a plain text id (no FK to
+  // `user`, like initiatives.owner_user_id), so there is no author-side cascade
+  // to coordinate here.
+  initiativeDecisions,
   // TMD P2 (ADR 0062): initiative participants — the wall-crossing join. FKs to
   // BOTH `initiatives` (cascade) AND `people` (cascade), so it must be deleted
   // BEFORE both. Ordered first of the two, and before `people` (line below) and

@@ -351,6 +351,20 @@
       "when": 1784486762409,
       "tag": "0049_initiatives",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1784522903534,
+      "tag": "0050_initiative-decisions",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1784524756630,
+      "tag": "0051_capability-depth-spread",
+      "breakpoints": true
     }
   ]
 }

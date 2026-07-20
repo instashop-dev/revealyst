@@ -24,7 +24,19 @@ export type CapabilityCoverageCardRow = {
   mastered: number;
   /** People with any state (≥ the MIN_PEOPLE floor by construction). */
   total: number;
+  /** DEPTH: team mean mastery in [0,1] (T3.3) — null when not supplied. */
+  meanMastery?: number | null;
+  /** SPREAD: population stddev of mastery in [0,1] (T3.3) — null when absent. */
+  spread?: number | null;
 };
+
+/** Plain-English band for the dispersion statistic (T3.3): a small stddev means
+ * the team is at a similar level; a large one means it's uneven. Aggregate only. */
+function spreadWord(spread: number): string {
+  if (spread < 0.1) return CAPABILITY_COVERAGE_COPY.spreadEven;
+  if (spread < 0.2) return CAPABILITY_COVERAGE_COPY.spreadMixed;
+  return CAPABILITY_COVERAGE_COPY.spreadUneven;
+}
 
 export function CapabilityCoverageCard({
   rows,
@@ -55,12 +67,27 @@ export function CapabilityCoverageCard({
             {rows.map((row) => (
               <li
                 key={row.slug}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2"
+                className="flex flex-col gap-0.5 rounded-lg bg-muted/50 px-3 py-2"
               >
-                <span className="text-sm font-medium">{row.label}</span>
-                <span className="text-sm text-muted-foreground">
-                  {row.mastered} of {row.total} {CAPABILITY_COVERAGE_COPY.peopleWord}
-                </span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{row.label}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {row.mastered} of {row.total}{" "}
+                    {CAPABILITY_COVERAGE_COPY.peopleWord}
+                  </span>
+                </div>
+                {/* T3.3: depth (team average) + spread — count-only, shown only
+                    when the aggregate stats are present. */}
+                {row.meanMastery !== null && row.meanMastery !== undefined ? (
+                  <span className="text-xs text-muted-foreground">
+                    {CAPABILITY_COVERAGE_COPY.depthLabel(
+                      Math.round(row.meanMastery * 100),
+                    )}
+                    {row.spread !== null && row.spread !== undefined
+                      ? ` · ${spreadWord(row.spread)}`
+                      : null}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>

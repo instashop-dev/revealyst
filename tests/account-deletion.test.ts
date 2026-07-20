@@ -329,14 +329,15 @@ describe("PURGE_TABLES ordering (tripwire, T2.3)", () => {
       }
     }
 
-    // Anti-vacuity floor: 25 in-purge FK edges exist today (ADR 0062 added 3 —
-    // initiative_participants → initiatives, initiative_participants → people,
-    // initiatives → teams — on top of the 22 through manager_notes → people,
-    // ADR 0053). If a drizzle upgrade ever changes what
+    // Anti-vacuity floor: 26 in-purge FK edges exist today. ADR 0063 (TMD P3
+    // tail) added 1 — initiative_decisions → initiatives — on top of the 25 from
+    // ADR 0062 (3: initiative_participants → initiatives, initiative_participants
+    // → people, initiatives → teams) and the 22 through manager_notes → people
+    // (ADR 0053). If a drizzle upgrade ever changes what
     // getTableConfig().foreignKeys reports, this loop must not silently check
     // nothing and stay green — that is the exact failure mode this tripwire
     // genre exists to prevent. (New tables only ever ADD edges, so a floor is
     // safe against growth.)
-    expect(checkedEdges).toBeGreaterThanOrEqual(25);
+    expect(checkedEdges).toBeGreaterThanOrEqual(26);
   });
 });

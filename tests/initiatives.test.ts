@@ -28,7 +28,12 @@ const BANNED_TOKENS = [
 
 describe("initiatives — anti-gamification schema shape", () => {
   it("initiatives + initiative_participants have NO gamification column", () => {
-    for (const table of [schema.initiatives, schema.initiativeParticipants]) {
+    for (const table of [
+      schema.initiatives,
+      schema.initiativeParticipants,
+      // TMD P3 tail (ADR 0063): the decision log is a record, not a score.
+      schema.initiativeDecisions,
+    ]) {
       const cols = Object.keys(getTableColumns(table));
       for (const banned of ["xp", "streak", "league", "points", "level", "badge"]) {
         expect(
