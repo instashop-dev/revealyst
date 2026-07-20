@@ -37,6 +37,7 @@ export function InitiativeDecisionLog({
   open: boolean;
 }) {
   const [decisions, setDecisions] = useState<DecisionVM[] | null>(null);
+  const [failed, setFailed] = useState(false);
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -45,20 +46,30 @@ export function InitiativeDecisionLog({
       const res = await fetch(
         `/api/initiatives/${encodeURIComponent(initiativeId)}/decisions`,
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        // A 403 (a viewer who isn't the owner/an admin) or any error hides the
+        // log rather than spinning on "Loading…" forever — the server owns the
+        // authorization; this just keeps the UI from getting stuck.
+        setFailed(true);
+        return;
+      }
       const data = (await res.json()) as { decisions: DecisionVM[] };
       setDecisions(data.decisions);
     } catch {
-      // A transient fetch error leaves `decisions` null (the loading label) —
-      // it must never block the review action rendered above this section.
+      setFailed(true);
     }
   }, [initiativeId]);
 
   useEffect(() => {
     if (!open) return;
     setDecisions(null);
+    setFailed(false);
     void load();
   }, [open, load]);
+
+  // Couldn't load (unauthorized or a transient error): render nothing — the
+  // review action above is unaffected.
+  if (failed) return null;
 
   const canSave = note.trim().length > 0 && !saving;
 

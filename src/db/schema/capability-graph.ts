@@ -279,6 +279,10 @@ export const teamCapabilityHistory = pgTable(
     // `deriveDepthSpread` reconstructs mean + spread from these + the
     // represented count — the same pure function the live dashboard uses, so a
     // stored snapshot can never disagree (the ADR 0046 drift-guard, extended).
+    // DENOMINATOR: these sums are over `representedCount` (== masteredCount +
+    // developingCount == people-with-state), NOT `totalCount` (the org-member
+    // count). A trend reader MUST pass `representedCount` as n to
+    // `deriveDepthSpread` — using totalCount would understate the mean.
     // NULLABLE: rows written before this migration (and any future period a
     // writer skips) carry no depth/spread — honest "no data", never a
     // fabricated 0 mean. bigint (mode number): sumSq ≤ 1e8 per person, safe as
