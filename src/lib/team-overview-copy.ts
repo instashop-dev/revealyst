@@ -138,6 +138,22 @@ export const TEAM_OVERVIEW_COPY = {
     reviewSave: "Record outcome",
     reviewStop: "Stop initiative",
     reviewError: "Couldn't save the review. Please try again.",
+    // TMD P3 tail (T3.2) — the decision log, shown inside the review drawer.
+    decisionsHeading: "Decision log",
+    decisionsLead:
+      "A record of what happened and why. Add a note to keep the story clear for whoever picks this up next.",
+    decisionsLoading: "Loading…",
+    decisionsEmpty: "No entries yet.",
+    decisionEvent: {
+      launched: "Started",
+      noted: "Note",
+      completed: "Completed",
+      stopped: "Stopped",
+    } as const,
+    decisionNotePlaceholder: "Add a note about a decision you made…",
+    decisionAdd: "Add note",
+    decisionAddError: "Couldn't add the note. Please try again.",
+    decisionBy: (author: string) => `by ${author}`,
   },
   /** Capability map (P0b / analysis §5E) — the promoted "what can the team
    * reliably do with AI?" surface: coverage + trend + the count-only insight

@@ -220,11 +220,12 @@ describe("authenticated-page query baseline (measurement, not correctness)", () 
     expect(connectionCount).toBeGreaterThan(0);
 
     // Recorded baseline (25 tracked people, 36 subjects) after the
-    // query-consolidation pass + depth-1 hoist: total 16, sequential
+    // query-consolidation pass + depth-1 hoist: total 17, sequential
     // depth 1 (see the module doc comment above for what dropped ~99 → 12;
     // W4-W's connector_runs read for honesty gaps took it to 13; TMD P1b's
     // goals.getActive folded into the same batch took it to 14; TMD P2b's
-    // initiatives.list + participantCounts took it to 16).
+    // initiatives.list + participantCounts took it to 16; TMD P3 tail's
+    // mastery.masteryStats depth/spread read took it to 17 — still depth 1).
     // Ceilings are generous (roughly 2x total, 3x depth) so an unrelated
     // one-query change doesn't make this flaky, while a real regression
     // (e.g. a reintroduced per-subject/per-row fan-out, or a stage that

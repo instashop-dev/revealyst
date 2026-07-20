@@ -29,6 +29,7 @@ import { addDays } from "../poller/backfill";
 import type { PollMessage } from "../poller/messages";
 import { latestTeamScoresBySlug, type DefinitionRow } from "./dashboard-read";
 import { isUniqueViolation } from "../db/org-scope/shared";
+import type { InitiativeDecisionRow } from "../db/org-scope/initiatives";
 import { isTeamGoalMetric, type TeamGoalMetric } from "./team-goal";
 import {
   INITIATIVE_CAPABILITY_SLUGS,
@@ -806,7 +807,7 @@ export async function launchInitiative(
     ? await measuredTeamValueBySlug(scope, scoreSlug)
     : null;
 
-  return scope.initiatives.create({
+  const created = await scope.initiatives.create({
     // Org-wide (team_id null) — the common case today, mirroring team_goals.
     // Team-scoped initiatives arrive with the subgroup breakdown (later slice).
     teamId: null,
@@ -819,6 +820,17 @@ export async function launchInitiative(
     target: input.target,
     reviewDate: input.reviewDate,
   });
+
+  // TMD P3 tail (T3.2): open the decision log with the `launched` event — who
+  // launched it and when. The note is null (the event is the meaning).
+  await scope.initiatives.appendDecision({
+    initiativeId: created.id,
+    authorUserId: actorUserId,
+    event: "launched",
+    note: null,
+  });
+
+  return created;
 }
 
 /**
@@ -855,6 +867,15 @@ export async function recordInitiativeOutcome(
   if (!applied) {
     throw new ApiError(409, "this initiative has already been reviewed or stopped");
   }
+  // TMD P3 tail (T3.2): record the `completed` decision. The outcome itself
+  // lives on the initiative row (`initiatives.outcome`); this stamps who
+  // reviewed it and when in the log.
+  await scope.initiatives.appendDecision({
+    initiativeId: input.initiativeId,
+    authorUserId: actorUserId,
+    event: "completed",
+    note: null,
+  });
   return { ...initiative, status: "completed" as const, outcome: input.outcome };
 }
 
@@ -885,7 +906,69 @@ export async function stopInitiative(
     fromStatuses: ["draft", "active", "in_review"],
   });
   if (!applied) throw new ApiError(409, "this initiative is already closed");
+  // TMD P3 tail (T3.2): record the `stopped` decision (abandoned, no outcome).
+  await scope.initiatives.appendDecision({
+    initiativeId,
+    authorUserId: actorUserId,
+    event: "stopped",
+    note: null,
+  });
   return { ...initiative, status: "stopped" as const };
+}
+
+/**
+ * Read an initiative's DECISION LOG (TMD P3 tail, T3.2) — the append-only
+ * who/why trail. Owner-OR-admin, mirroring `recordInitiativeOutcome`'s authz:
+ * 404 for a missing/other-org initiative, 403 for a manager who is neither the
+ * owner nor an admin (the same posture the review route already exposes — the
+ * count-only initiatives card already reveals that initiatives exist). Returns
+ * the RAW rows (chronological); the route resolves author ids → display names
+ * (the manager-notes-page pattern), so this stays free of the auth-user read.
+ */
+export async function readInitiativeDecisionLog(
+  args: { scope: OrgScope; role: "admin" | "member"; actorUserId: string },
+  initiativeId: string,
+): Promise<InitiativeDecisionRow[]> {
+  const { scope, role, actorUserId } = args;
+  const initiative = await scope.initiatives.get(initiativeId);
+  if (!initiative) throw new ApiError(404, "initiative not found");
+  if (role !== "admin" && initiative.ownerUserId !== actorUserId) {
+    throw new ApiError(
+      403,
+      "only the owner or an admin can view this initiative",
+    );
+  }
+  return scope.initiatives.listDecisions(initiativeId);
+}
+
+/**
+ * Add a manager NOTE to an initiative's decision log (TMD P3 tail, T3.2).
+ * Owner-OR-admin (same authz as the review). The route blocks impersonated
+ * writes (403) BEFORE reaching here — a decision is attributed to its real
+ * author, exactly like the review and the manager-notes write. The event is
+ * always `noted`; the body is the manager's own words (human content — the
+ * never-fabricate-a-number invariant does not apply to it, only to the fixed UI
+ * copy around it).
+ */
+export async function addInitiativeDecision(
+  args: { scope: OrgScope; role: "admin" | "member"; actorUserId: string },
+  input: { initiativeId: string; note: string },
+): Promise<InitiativeDecisionRow> {
+  const { scope, role, actorUserId } = args;
+  const initiative = await scope.initiatives.get(input.initiativeId);
+  if (!initiative) throw new ApiError(404, "initiative not found");
+  if (role !== "admin" && initiative.ownerUserId !== actorUserId) {
+    throw new ApiError(
+      403,
+      "only the owner or an admin can add to this initiative",
+    );
+  }
+  return scope.initiatives.appendDecision({
+    initiativeId: input.initiativeId,
+    authorUserId: actorUserId,
+    event: "noted",
+    note: input.note,
+  });
 }
 
 export async function dismissTeamInsight(

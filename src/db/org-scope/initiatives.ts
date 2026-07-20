@@ -1,6 +1,11 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../client";
-import { initiativeParticipants, initiatives, people } from "../schema";
+import {
+  initiativeDecisions,
+  initiativeParticipants,
+  initiatives,
+  people,
+} from "../schema";
 
 // Initiative reads/writes (TMD P2, ADR 0062). ORG-SCOPED. An initiative is a
 // tracked management effort with an owner, named participants, a baseline/target
@@ -38,6 +43,21 @@ export type InitiativeRow = {
   reviewDate: string;
   status: InitiativeStatus;
   outcome: InitiativeOutcome | null;
+};
+
+export type InitiativeDecisionEvent =
+  | "launched"
+  | "noted"
+  | "completed"
+  | "stopped";
+
+export type InitiativeDecisionRow = {
+  id: string;
+  initiativeId: string;
+  authorUserId: string;
+  event: InitiativeDecisionEvent;
+  note: string | null;
+  createdAt: Date;
 };
 
 export type InitiativeInput = {
@@ -288,6 +308,82 @@ export function initiativesNamespace(db: Db, orgId: string) {
         )
         .groupBy(initiativeParticipants.initiativeId);
       return new Map(rows.map((r) => [r.initiativeId, r.count]));
+    },
+
+    // --- Decision log (TMD P3 tail, T3.2) --------------------------------
+    // An APPEND-ONLY who/why trail per initiative. No update/delete method: a
+    // decision log is a factual record (to correct, add a follow-up `noted`).
+    // Reads/writes are org-scoped; the OWNER-OR-ADMIN authorization lives in the
+    // api-impl layer (mirrors recordInitiativeOutcome), never here — this
+    // namespace only ever sees ids.
+
+    /** Append one decision to an initiative's log (org-scoped). The composite
+     * tenant FK rejects a cross-org initiative. Returns the created row. */
+    async appendDecision(input: {
+      initiativeId: string;
+      authorUserId: string;
+      event: InitiativeDecisionEvent;
+      note: string | null;
+    }): Promise<InitiativeDecisionRow> {
+      const [row] = await db
+        .insert(initiativeDecisions)
+        .values({ orgId, ...input })
+        .returning({
+          id: initiativeDecisions.id,
+          initiativeId: initiativeDecisions.initiativeId,
+          authorUserId: initiativeDecisions.authorUserId,
+          event: initiativeDecisions.event,
+          note: initiativeDecisions.note,
+          createdAt: initiativeDecisions.createdAt,
+        });
+      return { ...row, event: row.event as InitiativeDecisionEvent };
+    },
+
+    /** The decision log for one initiative (org-scoped), CHRONOLOGICAL
+     * (oldest first) — the lifecycle reads as a story (launched → notes →
+     * completed/stopped). Author names are resolved by the caller. */
+    async listDecisions(
+      initiativeId: string,
+    ): Promise<InitiativeDecisionRow[]> {
+      const rows = await db
+        .select({
+          id: initiativeDecisions.id,
+          initiativeId: initiativeDecisions.initiativeId,
+          authorUserId: initiativeDecisions.authorUserId,
+          event: initiativeDecisions.event,
+          note: initiativeDecisions.note,
+          createdAt: initiativeDecisions.createdAt,
+        })
+        .from(initiativeDecisions)
+        .where(
+          and(
+            eq(initiativeDecisions.orgId, orgId),
+            eq(initiativeDecisions.initiativeId, initiativeId),
+          ),
+        )
+        .orderBy(
+          asc(initiativeDecisions.createdAt),
+          asc(initiativeDecisions.id),
+        );
+      return rows.map((r) => ({
+        ...r,
+        event: r.event as InitiativeDecisionEvent,
+      }));
+    },
+
+    /** EVERY decision row for this org — the tenant-isolation sweep surface,
+     * INTERNAL uuids only (initiative id, never an author name). A dropped org
+     * filter surfaces another org's initiativeId (the leak universe). */
+    async decisionsForOrg(): Promise<
+      { id: string; initiativeId: string }[]
+    > {
+      return db
+        .select({
+          id: initiativeDecisions.id,
+          initiativeId: initiativeDecisions.initiativeId,
+        })
+        .from(initiativeDecisions)
+        .where(eq(initiativeDecisions.orgId, orgId));
     },
   };
 }

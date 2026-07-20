@@ -20,6 +20,9 @@ export type CapabilityHistoryRow = {
   totalCount: number;
   masteredCount: number;
   developingCount: number;
+  /** Depth/spread sufficient statistics (T3.3) — null for pre-migration rows. */
+  masterySumBp: number | null;
+  masterySumSqBp: number | null;
   confidenceTier: "measured" | "modeled" | "directional" | "not_measured";
 };
 

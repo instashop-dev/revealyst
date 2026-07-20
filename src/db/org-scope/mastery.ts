@@ -2,6 +2,7 @@ import { and, eq, inArray, notInArray } from "drizzle-orm";
 import type { Db } from "../client";
 import { people, teamMembers, userCapabilityState } from "../schema";
 import type { CapabilityComponentBreakdown } from "../../scoring/capability-state";
+import { masteryBasisPoints } from "../../lib/capability-depth";
 
 // Per-person capability mastery reads/writes (W7-2, ADR 0036). ORG-SCOPED.
 //
@@ -311,6 +312,46 @@ export function masteryNamespace(db: Db, orgId: string) {
         const entry = out.get(r.capabilitySlug) ?? { mastered: 0, withState: 0 };
         entry.withState += 1;
         if (r.mastery >= masteredThreshold) entry.mastered += 1;
+        out.set(r.capabilitySlug, entry);
+      }
+      return out;
+    },
+
+    /**
+     * Per-capability DEPTH + SPREAD sufficient statistics (TMD P3 tail, T3.3).
+     * COUNT-ONLY — no person id or per-person value ever leaves this method; the
+     * outputs are aggregate SUMS over the same rows `coverageCounts` reads.
+     * `sumBp` / `sumSqBp` are the sum of `masteryBasisPoints(mastery)` and its
+     * square; `deriveDepthSpread` reconstructs the team mean + population stddev
+     * from them. `withState` mirrors `coverageCounts`'s so a caller can
+     * cross-check the two agree. One query, independent of person count (the
+     * rollup writer's + dashboard's shared depth source, a sibling of
+     * `coverageCounts`).
+     */
+    async masteryStats(): Promise<
+      Map<string, { withState: number; sumBp: number; sumSqBp: number }>
+    > {
+      const rows = await db
+        .select({
+          capabilitySlug: userCapabilityState.capabilitySlug,
+          mastery: userCapabilityState.mastery,
+        })
+        .from(userCapabilityState)
+        .where(eq(userCapabilityState.orgId, orgId));
+      const out = new Map<
+        string,
+        { withState: number; sumBp: number; sumSqBp: number }
+      >();
+      for (const r of rows) {
+        const entry = out.get(r.capabilitySlug) ?? {
+          withState: 0,
+          sumBp: 0,
+          sumSqBp: 0,
+        };
+        const bp = masteryBasisPoints(r.mastery);
+        entry.withState += 1;
+        entry.sumBp += bp;
+        entry.sumSqBp += bp * bp;
         out.set(r.capabilitySlug, entry);
       }
       return out;

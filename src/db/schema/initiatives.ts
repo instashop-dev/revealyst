@@ -139,3 +139,80 @@ export const initiativeParticipants = pgTable(
     index("initiative_participants_org_person_idx").on(t.orgId, t.personId),
   ],
 );
+
+// The manager DECISION LOG for an initiative (TMD P3 tail, T3.2). An append-only
+// trail of who decided what and why over an initiative's life: it was LAUNCHED,
+// a manager left a NOTE (their own rationale/observation), it was COMPLETED with
+// an outcome, or it was STOPPED. Today `initiatives.status_changed_at` records
+// only WHEN status last changed — this records WHO and WHY, the "decision log"
+// the manager loop needs (analysis §14).
+//
+// APPEND-ONLY (no `updated_at`, no edit/delete flow): a decision log is a
+// factual record of what happened, not a mutable document. To correct a note a
+// manager adds a follow-up note — the trail stays honest about what was recorded
+// when. This is a deliberate contrast with `manager_notes` (which allows an
+// author-delete): those are a private coaching journal; this is an audit trail.
+//
+// AUTHOR is a plain text auth-user id with NO foreign key to `user` — exactly
+// like `initiatives.owner_user_id` / `team_goals.owner_user_id`. A hard cascade
+// (as `manager_notes` uses) would erase lifecycle rows like "launched" the
+// moment the launching manager deleted their account, silently losing the
+// initiative's history; keeping a plain id preserves the trail (a departed
+// author's name simply resolves to unknown at read), matching the initiatives
+// posture where an owner id likewise survives the owner's account deletion.
+//
+// NEVER FEEDS SCORING: like `manager_notes`, this table + its namespace are
+// structurally isolated from every metric path (pinned by
+// tests/initiative-decisions-scoring-isolation.test.ts). It is a management
+// artifact, not telemetry. ANTI-GAMIFICATION (R3): the `event` is a CLOSED enum
+// and there is no points/xp/streak/level column — a decision is a record, not a
+// score.
+
+export const initiativeDecisionEvent = pgEnum("initiative_decision_event", [
+  // Auto-recorded when the initiative is launched (note null).
+  "launched",
+  // A manager's free-text decision/observation (note holds the text).
+  "noted",
+  // Auto-recorded at review time; the outcome lives on `initiatives.outcome`.
+  "completed",
+  // Auto-recorded when the initiative is stopped without an outcome.
+  "stopped",
+]);
+
+export const initiativeDecisions = pgTable(
+  "initiative_decisions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id").notNull(),
+    initiativeId: uuid("initiative_id").notNull(),
+    // The auth user who made the decision (the actor). Plain text id, no FK to
+    // `user` — see the module doc (survives the author's account deletion, like
+    // initiatives.owner_user_id).
+    authorUserId: text("author_user_id").notNull(),
+    event: initiativeDecisionEvent("event").notNull(),
+    // Free-text rationale a manager typed (a `noted` event); NULL for the
+    // auto-recorded lifecycle events (launched/completed/stopped), whose meaning
+    // is the event itself. Human content — like manager_notes.body it is NOT
+    // swept by the banned-phrasing copy tests (only fixed UI strings are).
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // Composite tenant FK — a decision can never reference a cross-org
+    // initiative, and it cascades when the initiative is deleted (so an org
+    // purge that deletes initiatives tears its decisions down too). Purged
+    // explicitly BEFORE `initiatives` all the same (sibling pattern).
+    foreignKey({
+      name: "initiative_decisions_org_initiative_fk",
+      columns: [t.orgId, t.initiativeId],
+      foreignColumns: [initiatives.orgId, initiatives.id],
+    }).onDelete("cascade"),
+    // The per-initiative log read: this org's decisions for one initiative.
+    index("initiative_decisions_org_initiative_idx").on(
+      t.orgId,
+      t.initiativeId,
+    ),
+  ],
+);

@@ -40,6 +40,8 @@ function historyRow(
     totalCount: 10,
     masteredCount: mastered,
     developingCount: represented - mastered,
+    masterySumBp: null,
+    masterySumSqBp: null,
     confidenceTier: "directional",
   };
 }
@@ -116,7 +118,16 @@ describe("composeTeamBrief — shared-source parity with the dashboard", () => {
   it("data-confidence line never promises per-person data", () => {
     const brief = composeTeamBrief({
       headline: [],
-      coverage: [{ slug: CAP_A, label: labelFor(CAP_A), mastered: 3, total: 6 }],
+      coverage: [
+        {
+          slug: CAP_A,
+          label: labelFor(CAP_A),
+          mastered: 3,
+          total: 6,
+          meanMastery: null,
+          spread: null,
+        },
+      ],
       history: [],
       insights: [],
       insightSeverities: [],

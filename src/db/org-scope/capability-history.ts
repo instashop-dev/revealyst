@@ -25,6 +25,10 @@ export type CapabilityHistoryRow = {
   totalCount: number;
   masteredCount: number;
   developingCount: number;
+  /** Depth/spread sufficient statistics (T3.3) — null for pre-migration rows.
+   * Count-only sums; `deriveDepthSpread` reconstructs mean + spread. */
+  masterySumBp: number | null;
+  masterySumSqBp: number | null;
   confidenceTier: "measured" | "modeled" | "directional" | "not_measured";
 };
 
@@ -38,6 +42,8 @@ export type CapabilityHistoryUpsert = {
   totalCount: number;
   masteredCount: number;
   developingCount: number;
+  masterySumBp: number;
+  masterySumSqBp: number;
   confidenceTier: "measured" | "modeled" | "directional" | "not_measured";
 };
 
@@ -82,6 +88,8 @@ export function capabilityHistoryNamespace(db: Db, orgId: string) {
           totalCount: teamCapabilityHistory.totalCount,
           masteredCount: teamCapabilityHistory.masteredCount,
           developingCount: teamCapabilityHistory.developingCount,
+          masterySumBp: teamCapabilityHistory.masterySumBp,
+          masterySumSqBp: teamCapabilityHistory.masterySumSqBp,
           confidenceTier: teamCapabilityHistory.confidenceTier,
         })
         .from(teamCapabilityHistory)
@@ -118,6 +126,8 @@ export function capabilityHistoryNamespace(db: Db, orgId: string) {
             totalCount: r.totalCount,
             masteredCount: r.masteredCount,
             developingCount: r.developingCount,
+            masterySumBp: r.masterySumBp,
+            masterySumSqBp: r.masterySumSqBp,
             confidenceTier: r.confidenceTier,
           })
           .onConflictDoUpdate({
@@ -133,6 +143,8 @@ export function capabilityHistoryNamespace(db: Db, orgId: string) {
               totalCount: r.totalCount,
               masteredCount: r.masteredCount,
               developingCount: r.developingCount,
+              masterySumBp: r.masterySumBp,
+              masterySumSqBp: r.masterySumSqBp,
               confidenceTier: r.confidenceTier,
             },
           });
