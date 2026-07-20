@@ -419,6 +419,10 @@ jobs:
       - name: Publish unsigned internal test release
         env:
           GH_TOKEN: ${{ github.token }}
+          # This job has no `actions/checkout`, so `gh release` can't infer the
+          # repo from a git remote and dies with "fatal: not a git repository".
+          # GH_REPO tells gh which repo to act on without a clone.
+          GH_REPO: ${{ github.repository }}
           TAG: desktop-internal-latest
         shell: bash
         run: |
@@ -466,6 +470,9 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          # No checkout in this job — GH_REPO lets `gh release` resolve the repo
+          # without a git remote (same fix as publish-unsigned).
+          GH_REPO: ${{ github.repository }}
           TAG: ${{ steps.meta.outputs.tag }}
           TITLE: ${{ steps.meta.outputs.title }}
           PRERELEASE: ${{ steps.meta.outputs.prerelease }}
