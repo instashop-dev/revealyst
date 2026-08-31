@@ -15,6 +15,7 @@
     "generate:desktop-allowlist": "tsx scripts/generate-agent-allowlist-json.mjs",
     "generate:desktop-ingest-fixture": "tsx scripts/generate-agent-ingest-fixture.mjs",
     "generate:desktop-diagnostics-fixture": "tsx scripts/generate-desktop-diagnostics-fixture.mjs",
+    "db:migrate": "drizzle-kit migrate",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
